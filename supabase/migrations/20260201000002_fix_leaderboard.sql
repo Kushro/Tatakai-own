@@ -44,7 +44,7 @@ SELECT
   COUNT(DISTINCT wh.anime_id) as unique_anime_watched,
   COUNT(wh.id) as total_episodes_watched,
   SUM(CASE WHEN wh.completed THEN 1 ELSE 0 END) as completed_anime,
-  MAX(wh.last_watched_at) as last_watch_at
+  MAX(wh.watched_at) as last_watch_at
 FROM profiles p
 INNER JOIN watch_history wh ON wh.user_id = p.id
 WHERE p.banned_at IS NULL
@@ -60,4 +60,4 @@ GRANT SELECT ON leaderboard_most_watched TO authenticated, anon;
 
 -- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_comments_user_id_active ON comments(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_watch_history_user_anime ON watch_history(user_id, anime_id, last_watched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_watch_history_user_anime ON watch_history(user_id, anime_id, watched_at DESC);
