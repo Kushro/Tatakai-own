@@ -145,28 +145,12 @@ jobs:
       # Bundle the per-platform `cloudflared` binary for host-hosted watch-party
       # tunnels. Downloaded here (not committed) so ~50MB binaries stay out of
       # git; electron-builder ships it via extraResources (from resources/bin).
+      # Pinned version + SHA-256 check live in cloudflared-pin.cjs.
       - name: Download cloudflared (watch-party tunnel binary)
         shell: bash
         run: |
           set -e
-          mkdir -p resources/bin
-          BASE="https://github.com/cloudflare/cloudflared/releases/latest/download"
-          case "${{ matrix.platform }}" in
-            win)
-              curl -fL "$BASE/cloudflared-windows-amd64.exe" -o resources/bin/cloudflared.exe
-              ;;
-            linux)
-              curl -fL "$BASE/cloudflared-linux-amd64" -o resources/bin/cloudflared
-              chmod +x resources/bin/cloudflared
-              ;;
-            mac)
-              ARCH=$(uname -m)
-              if [ "$ARCH" = "arm64" ]; then A=arm64; else A=amd64; fi
-              curl -fL "$BASE/cloudflared-darwin-${A}.tgz" -o /tmp/cloudflared.tgz
-              tar -xzf /tmp/cloudflared.tgz -C resources/bin
-              chmod +x resources/bin/cloudflared
-              ;;
-          esac
+          node scripts/fetch-cloudflared.cjs
           ls -la resources/bin
 
       # Tag push → publish to GitHub Release (creates latest.yml for electron-updater)
