@@ -4,13 +4,12 @@
  * @file fetch-cloudflared.cjs
  * Ensures the per-platform `cloudflared` binary exists in resources/bin/ so
  * electron-builder bundles it (host-hosted watch-party tunnels). Pulled from
- * the cloudflare/cloudflared GitHub Releases "latest" — never committed to git
- * (the 55 MB binary stays out of the repo).
+ * the pinned cloudflare/cloudflared release in
+ * desktop/runtime/share-tunnel/cloudflared-pin.cjs and SHA-256 verified — never
+ * committed to git (the 55 MB binary stays out of the repo).
  *
- * Mirrors the CI "Download cloudflared" step so a local `npm run electron:build`
- * ships the exact same binary GitHub Actions does.
- *
- * Skips when a real binary is already present; set FORCE=1 to re-download.
+ * Skips when a binary matching the pinned digest is already present; set
+ * FORCE=1 to re-download.
  */
 
 const fs   = require('fs')
@@ -18,10 +17,14 @@ const os   = require('os')
 const path = require('path')
 const { execFileSync } = require('child_process')
 const axios = require('axios')
+const {
+  CLOUDFLARED_VERSION,
+  CLOUDFLARED_RELEASE_BASE: BASE,
+  verifyCloudflaredAsset,
+} = require('../desktop/runtime/share-tunnel/cloudflared-pin.cjs')
 
 const ROOT    = path.join(__dirname, '..')
 const BIN_DIR = path.join(ROOT, 'resources', 'bin')
-const BASE    = 'https://github.com/cloudflare/cloudflared/releases/latest/download'
 
 function targetFor(platform, arch) {
   if (platform === 'win32') return { asset: 'cloudflared-windows-amd64.exe', out: 'cloudflared.exe', tgz: false }
@@ -49,9 +52,16 @@ async function main() {
   if (!fs.existsSync(BIN_DIR)) fs.mkdirSync(BIN_DIR, { recursive: true })
   const outPath = path.join(BIN_DIR, out)
 
-  if (!process.env.FORCE && fs.existsSync(outPath) && fs.statSync(outPath).size > 1_000_000) {
-    console.log(`[cloudflared] already present → ${path.relative(ROOT, outPath)} (FORCE=1 to re-download)`)
-    return
+  // The darwin digest covers the .tgz, not the extracted binary, so an existing
+  // mac binary can't be re-checked here — always refetch there.
+  if (!process.env.FORCE && !tgz && fs.existsSync(outPath)) {
+    try {
+      await verifyCloudflaredAsset(asset, outPath)
+      console.log(`[cloudflared] ${CLOUDFLARED_VERSION} already present → ${path.relative(ROOT, outPath)} (FORCE=1 to re-download)`)
+      return
+    } catch (e) {
+      console.log(`[cloudflared] existing binary rejected (${e.message}) — re-downloading`)
+    }
   }
 
   const url = `${BASE}/${asset}`
@@ -59,11 +69,16 @@ async function main() {
   if (tgz) {
     const tmp = path.join(os.tmpdir(), asset)
     await download(url, tmp)
+    await verifyCloudflaredAsset(asset, tmp)
     execFileSync('tar', ['-xzf', tmp, '-C', BIN_DIR], { stdio: 'inherit' })
     fs.rmSync(tmp, { force: true })
   } else {
-    await download(url, outPath)
+    const tmp = `${outPath}.download`
+    await download(url, tmp)
+    await verifyCloudflaredAsset(asset, tmp)
+    fs.renameSync(tmp, outPath)
   }
+  console.log(`[cloudflared] SHA-256 verified (${CLOUDFLARED_VERSION}/${asset})`)
   if (process.platform !== 'win32') { try { fs.chmodSync(outPath, 0o755) } catch (_) {} }
   const mb = (fs.statSync(outPath).size / 1e6).toFixed(1)
   console.log(`[cloudflared] ready → ${path.relative(ROOT, outPath)} (${mb} MB)`)

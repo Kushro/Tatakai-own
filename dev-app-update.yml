@@ -8,5 +8,5 @@
 # Keep owner/repo in sync with the single source in update-manager.cjs
 # (GH_OWNER / GH_REPO) and the electron-builder `publish` block in package.json.
 provider: github
-owner: snozxyx
-repo: Tatakai
+owner: Kushro
+repo: Tatakai-own

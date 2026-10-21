@@ -61,30 +61,7 @@
   Pop $0
 !macroend
 
-; ── Download cloudflared at install time (kept OUT of the app bundle) ───────────
-; cloudflared is ~30 MB per platform. Bundling it under resources/bin inflated
-; the installer, so we fetch the official binary during install straight into
-; <app>\resources\bin — exactly where share-tunnel.cjs looks first
-; (process.resourcesPath\bin\cloudflared.exe).
-;
-; Best-effort by design: on any failure (offline, mirror down, partial write)
-; the partial file is deleted and the install still succeeds — the app then
-; auto-downloads cloudflared on first watch-party use into userData\bin
-; (share-tunnel.cjs `ensure`). So this never blocks or fails the install.
-;
-; INetC.dll ships in electron-builder's nsis-resources and is auto-loaded.
-!macro customInstall
-  DetailPrint "Downloading Cloudflare Tunnel (cloudflared)…"
-  CreateDirectory "$INSTDIR\resources\bin"
-  inetc::get /TIMEOUT=180000 /CONNECTTIMEOUT=30000 /CAPTION "Tatakai" \
-    /BANNER "Downloading Cloudflare Tunnel (cloudflared)…$\r$\nThis powers hosting a watch party." \
-    "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" \
-    "$INSTDIR\resources\bin\cloudflared.exe" /END
-  Pop $0
-  ${If} $0 == "OK"
-    DetailPrint "cloudflared installed."
-  ${Else}
-    DetailPrint "cloudflared download failed ($0) — it will be fetched automatically on first use."
-    Delete "$INSTDIR\resources\bin\cloudflared.exe"
-  ${EndIf}
-!macroend
+; cloudflared is NOT downloaded at install time: the installer has no way to
+; verify it. electron:build bundles the pinned, SHA-256-verified binary via
+; extraResources (scripts/fetch-cloudflared.cjs); if it is ever missing,
+; share-tunnel.cjs auto-installs the same pinned, verified release on first use.

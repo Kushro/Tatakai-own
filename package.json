@@ -247,8 +247,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "snozxyx",
-        "repo": "Tatakai"
+        "owner": "Kushro",
+        "repo": "Tatakai-own"
       }
     ],
     "win": {
