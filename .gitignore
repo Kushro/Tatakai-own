@@ -131,3 +131,6 @@ coverage/
 /.claude/
 /skills-lock.json
 /tests/operations-api.test.ts
+
+# Supabase CLI link state (per-developer)
+supabase/.temp/
