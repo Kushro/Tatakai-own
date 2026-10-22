@@ -55,7 +55,8 @@ export async function fetchAniListGenres(includeAdult = false): Promise<string[]
   const raw = Array.isArray(data.GenreCollection) ? data.GenreCollection : [];
   const genres = [...new Set(raw.map((g) => g.trim()).filter(Boolean))];
   if (!includeAdult) {
-    genres.splice(genres.indexOf(ADULT_GENRE), 1);
+    const adultIndex = genres.indexOf(ADULT_GENRE);
+    if (adultIndex >= 0) genres.splice(adultIndex, 1);
   }
 
   if (!includeAdult) {

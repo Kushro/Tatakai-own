@@ -50,11 +50,15 @@ async function browserFetch(url: string, init: PublicRequestInit): Promise<Exten
     referrerPolicy: 'no-referrer',
     signal: init.signal || AbortSignal.timeout(15_000),
   });
-  const body = await r.text();
+  // Tolerate minimal Response-likes (test doubles returning only ok/status/json).
+  const body = typeof r.text === 'function'
+    ? await r.text()
+    : typeof (r as Partial<Response>).json === 'function' ? JSON.stringify(await r.json()) : '';
   const raw: Record<string, string[]> = {};
-  r.headers.forEach((v, k) => { raw[k.toLowerCase()] = [v]; });
+  r.headers?.forEach?.((v, k) => { raw[k.toLowerCase()] = [v]; });
+  const status = typeof r.status === 'number' ? r.status : r.ok ? 200 : 500;
   return {
-    ok: r.ok, status: r.status, statusText: r.statusText, url, rawHeaders: raw, cookies: {},
+    ok: r.ok ?? (status >= 200 && status < 300), status, statusText: r.statusText ?? '', url, rawHeaders: raw, cookies: {},
     headers: { get: (n) => raw[n.toLowerCase()]?.join(', ') ?? null },
     text: async () => body, json: async () => JSON.parse(body),
   };

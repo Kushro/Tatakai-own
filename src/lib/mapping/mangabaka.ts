@@ -1,24 +1,14 @@
 /**
- * MangaBaka mapping — renderer client.
+ * MangaBaka mapping — DISABLED in this fork.
  *
- * The actual MangaBaka call, normalization and cache live in TatakaiAPI
- * (`TatakaiAPI/src/services/mapping/mangabaka.ts`) and are served from
- * `GET /api/v3/mapping/manga/:anilistId/mangabaka`. This file is the typed façade
- * over that endpoint; the shapes below mirror the service's output exactly.
- *
- * MangaBaka is to manga what ani.zip is to anime: one request returning cross-site
- * ids plus much richer metadata than AniList carries — publisher lists split by
- * territory, a volume count, a weighted tag tree, localized titles with
- * provenance, and a rating aggregated across seven trackers.
- *
- * The Kitsu id in `sources.kitsu.id` is what the chapter hierarchy is built from —
- * see `./kitsu.ts`.
+ * MangaBaka was only reachable through the TatakaiAPI `/mapping/*` proxy, which
+ * the fork no longer talks to, and there is no keyless public API to replace it.
+ * The types below are kept (consumers import them) and every function resolves to
+ * `null` without touching the network, which callers already treat as "no extra
+ * detail". Series metadata comes from the metadata providers instead
+ * (`@/lib/metadata`); the Kitsu chapter hierarchy no longer needs MangaBaka
+ * (see `./kitsu.ts`).
  */
-
-import { clearMappingCache, fetchMapping } from "./client";
-
-/** Series metadata is near-static. */
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 // ── Normalized shapes ─────────────────────────────────────────────────────────
 
@@ -106,13 +96,10 @@ export interface MangaBakaSeries {
   lastUpdatedAt: string | null;
 }
 
-// ── Fetching ──────────────────────────────────────────────────────────────────
+// ── Fetching (disabled) ───────────────────────────────────────────────────────
 
 /**
- * Sources MangaBaka can be queried by.
- *
- * `mangabaka` selects a direct series lookup for imported library rows.
- * Other sources use the existing AniList mapping endpoint.
+ * Sources MangaBaka can be queried by. Kept for API compatibility.
  */
 export type MangaBakaSource =
   | "mangabaka"
@@ -122,31 +109,15 @@ export type MangaBakaSource =
   | "manga_updates"
   | "anime_planet";
 
-/**
- * Resolve an AniList manga id or a direct MangaBaka series id.
- *
- * Resolves to `null` on any failure or miss: this is enrichment layered on top of
- * AniList data, so a manga MangaBaka has never heard of must still render its page.
- */
+/** MangaBaka is disabled: always resolves to `null`, never touches the network. */
 export async function fetchMangaBakaSeries(
-  sourceId: number | string | null | undefined,
-  options: { source?: MangaBakaSource; signal?: AbortSignal; force?: boolean } = {},
+  _sourceId: number | string | null | undefined,
+  _options: { source?: MangaBakaSource; signal?: AbortSignal; force?: boolean } = {},
 ): Promise<MangaBakaSeries | null> {
-  const id = Number(sourceId);
-  if (!Number.isFinite(id) || id <= 0) return null;
-
-  return fetchMapping<MangaBakaSeries>(options.source === "mangabaka"
-    ? `/mapping/mangabaka/series/${id}`
-    : `/mapping/manga/${id}/mangabaka`, {
-    ttlMs: CACHE_TTL_MS,
-    signal: options.signal,
-    force: options.force,
-  });
+  return null;
 }
 
-/** Drop cached series — used by manual refresh paths. */
-export function clearMangaBakaCache(anilistId?: number): void {
-  clearMappingCache(
-    typeof anilistId === "number" ? `/mapping/manga/${anilistId}/mangabaka` : "/mangabaka",
-  );
+/** No-op: there is nothing cached. */
+export function clearMangaBakaCache(_anilistId?: number): void {
+  /* MangaBaka is disabled */
 }
