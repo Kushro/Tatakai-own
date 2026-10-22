@@ -142,7 +142,7 @@ setFallbackIdsResolver(async (kind, ref, signal) => {
   for (const p of orderedProviders('ids', kind)) {
     if (p.id === 'anizip' && kind === 'MANGA') continue;
     try {
-      const r = await p.ids!(ref, { signal });
+      const r = await p.ids!(ref, { signal, kind });
       if (r?.anilistId) return r;
     } catch (err) {
       if (signal?.aborted) throw err;

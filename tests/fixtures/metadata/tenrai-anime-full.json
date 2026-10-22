@@ -1,0 +1,234 @@
+{
+ "data": {
+  "mal_id": 52991,
+  "url": "https://myanimelist.net/anime/52991/Sousou_no_Frieren",
+  "images": {
+   "jpg": {
+    "image_url": "https://cdn.myanimelist.net/images/anime/1015/138006.jpg",
+    "small_image_url": "https://cdn.myanimelist.net/images/anime/1015/138006t.jpg",
+    "large_image_url": "https://cdn.myanimelist.net/images/anime/1015/138006l.jpg"
+   },
+   "webp": {
+    "image_url": "https://cdn.myanimelist.net/images/anime/1015/138006.webp",
+    "small_image_url": "https://cdn.myanimelist.net/images/anime/1015/138006t.webp",
+    "large_image_url": "https://cdn.myanimelist.net/images/anime/1015/138006l.webp"
+   }
+  },
+  "trailer": {
+   "youtube_id": "ZEkwCGJ3o7M",
+   "url": "https://www.youtube.com/watch?v=ZEkwCGJ3o7M"
+  },
+  "approved": true,
+  "titles": [
+   {
+    "type": "Default",
+    "title": "Sousou no Frieren"
+   },
+   {
+    "type": "Japanese",
+    "title": "葬送のフリーレン"
+   },
+   {
+    "type": "English",
+    "title": "Frieren: Beyond Journey's End"
+   },
+   {
+    "type": "Synonym",
+    "title": "Frieren at the Funeral"
+   },
+   {
+    "type": "Synonym",
+    "title": "Frieren The Slayer"
+   }
+  ],
+  "title": "Sousou no Frieren",
+  "title_english": "Frieren: Beyond Journey's End",
+  "title_japanese": "葬送のフリーレン",
+  "title_synonyms": [
+   "Frieren at the Funeral",
+   "Frieren The Slayer"
+  ],
+  "type": "TV",
+  "source": "Manga",
+  "episodes": 28,
+  "status": "Finished Airing",
+  "airing": false,
+  "aired": {
+   "from": "2023-09-29T00:00:00+00:00",
+   "to": "2024-03-22T00:00:00+00:00",
+   "prop": {
+    "from": {
+     "day": 29,
+     "month": 9,
+     "year": 2023
+    },
+    "to": {
+     "day": 22,
+     "month": 3,
+     "year": 2024
+    }
+   },
+   "string": "Sep 29, 2023 to Mar 22, 2024"
+  },
+  "duration": "24 min per ep",
+  "rating": "PG-13 - Teens 13 or older",
+  "score": 9.24,
+  "scored_by": 946451,
+  "rank": 1,
+  "popularity": 95,
+  "members": 1533791,
+  "favorites": 94274,
+  "synopsis": "During their decade-long quest to defeat the Demon King, the members of the hero's party—Himmel himself, the priest Heiter, the dwarf warrior Eisen, and the elven mage Frieren—forge bonds through adventures and battles, creating unforgettable precious memories for most of them.\n\n[Written by MAL Rewrite]",
+  "season": "fall",
+  "year": 2023,
+  "broadcast": {
+   "day": "Fridays",
+   "time": "23:00",
+   "timezone": "Asia/Tokyo",
+   "string": "Fridays at 23:00 (JST)"
+  },
+  "producers": [],
+  "licensors": [],
+  "studios": [
+   {
+    "mal_id": 11,
+    "type": "anime",
+    "name": "Madhouse",
+    "url": "https://myanimelist.net/anime/producer/11/Madhouse"
+   }
+  ],
+  "genres": [
+   {
+    "mal_id": 2,
+    "type": "anime",
+    "name": "Adventure",
+    "url": "https://myanimelist.net/anime/genre/2/Adventure"
+   },
+   {
+    "mal_id": 46,
+    "type": "anime",
+    "name": "Award Winning",
+    "url": "https://myanimelist.net/anime/genre/46/Award_Winning"
+   },
+   {
+    "mal_id": 8,
+    "type": "anime",
+    "name": "Drama",
+    "url": "https://myanimelist.net/anime/genre/8/Drama"
+   },
+   {
+    "mal_id": 10,
+    "type": "anime",
+    "name": "Fantasy",
+    "url": "https://myanimelist.net/anime/genre/10/Fantasy"
+   }
+  ],
+  "explicit_genres": [],
+  "themes": [],
+  "demographics": [
+   {
+    "mal_id": 27,
+    "type": "anime",
+    "name": "Shounen",
+    "url": "https://myanimelist.net/anime/genre/27/Shounen"
+   }
+  ],
+  "relations": [
+   {
+    "relation": "Sequel",
+    "entry": [
+     {
+      "mal_id": 59978,
+      "type": "anime",
+      "name": "Sousou no Frieren 2nd Season",
+      "url": "https://myanimelist.net/anime/59978/Sousou_no_Frieren_2nd_Season",
+      "media_type": "TV",
+      "images": {
+       "jpg": {
+        "image_url": "https://cdn.myanimelist.net/images/anime/1921/154528.jpg",
+        "small_image_url": "https://cdn.myanimelist.net/images/anime/1921/154528t.jpg",
+        "large_image_url": "https://cdn.myanimelist.net/images/anime/1921/154528l.jpg"
+       },
+       "webp": {
+        "image_url": "https://cdn.myanimelist.net/images/anime/1921/154528.webp",
+        "small_image_url": "https://cdn.myanimelist.net/images/anime/1921/154528t.webp",
+        "large_image_url": "https://cdn.myanimelist.net/images/anime/1921/154528l.webp"
+       }
+      }
+     }
+    ]
+   },
+   {
+    "relation": "Adaptation",
+    "entry": [
+     {
+      "mal_id": 126287,
+      "type": "manga",
+      "name": "Sousou no Frieren",
+      "url": "https://myanimelist.net/manga/126287/Sousou_no_Frieren",
+      "media_type": "Manga",
+      "images": {
+       "jpg": {
+        "image_url": "https://cdn.myanimelist.net/images/manga/3/232121.jpg",
+        "small_image_url": "https://cdn.myanimelist.net/images/manga/3/232121t.jpg",
+        "large_image_url": "https://cdn.myanimelist.net/images/manga/3/232121l.jpg"
+       },
+       "webp": {
+        "image_url": "https://cdn.myanimelist.net/images/manga/3/232121.webp",
+        "small_image_url": "https://cdn.myanimelist.net/images/manga/3/232121t.webp",
+        "large_image_url": "https://cdn.myanimelist.net/images/manga/3/232121l.webp"
+       }
+      }
+     }
+    ]
+   },
+   {
+    "relation": "Side Story",
+    "entry": [
+     {
+      "mal_id": 56885,
+      "type": "anime",
+      "name": "Sousou no Frieren: ●● no Mahou",
+      "url": "https://myanimelist.net/anime/56885/Sousou_no_Frieren___no_Mahou",
+      "media_type": "ONA",
+      "images": {
+       "jpg": {
+        "image_url": "https://cdn.myanimelist.net/images/anime/1045/150038.jpg",
+        "small_image_url": "https://cdn.myanimelist.net/images/anime/1045/150038t.jpg",
+        "large_image_url": "https://cdn.myanimelist.net/images/anime/1045/150038l.jpg"
+       },
+       "webp": {
+        "image_url": "https://cdn.myanimelist.net/images/anime/1045/150038.webp",
+        "small_image_url": "https://cdn.myanimelist.net/images/anime/1045/150038t.webp",
+        "large_image_url": "https://cdn.myanimelist.net/images/anime/1045/150038l.webp"
+       }
+      }
+     }
+    ]
+   }
+  ],
+  "theme": {
+   "openings": [
+    "1: \"Yuusha (勇者)\" by YOASOBI (eps 1-16)",
+    "2: \"Haru (晴る)\" by Yorushika (ヨルシカ) (eps 17-28)"
+   ],
+   "endings": [
+    "1: \"Anytime Anywhere\" by milet (eps 1-14,16-28)",
+    "S1: \"bliss\" by milet (eps Special Broadcast: 1-4)"
+   ]
+  },
+  "external": [
+   {
+    "name": "Official Site",
+    "url": "https://frieren-anime.jp/"
+   }
+  ],
+  "streaming": [
+   {
+    "name": "Crunchyroll",
+    "url": "http://www.crunchyroll.com/series/GG5H5XQX4/frieren"
+   }
+  ],
+  "moreinfo": "Sousou no Frieren is the first television anime to premiere on Nippon TV's Kinyou Roadshow programming block, which is usually reserved for movies. Additionally, the premiere was a two-hour special consisting of the first four episodes."
+ }
+}

@@ -1,9 +1,9 @@
 import { selectPreferredTitle } from '@/lib/titleLanguage';
-import { externalApiGet } from "@/lib/api/api-client";
+import { tenraiGet } from "@/lib/tenrai/client";
 import { AnimeCard } from "@/types/anime";
 
-// Jikan's public API shut down on 2026-10-01; Tenrai serves the same v4 schema.
-const JIKAN_API_URL = "https://api.tenrai.org/v1";
+// Jikan's public API shut down on 2026-10-01; Tenrai serves the same v4 schema
+// (all requests go through tenraiGet: native HTTP, paced, no app credentials).
 
 export interface JikanAnime {
   mal_id: number;
@@ -111,33 +111,33 @@ export function jikanToAnimeCard(jikanAnime: JikanAnime): AnimeCard {
 }
 
 export async function fetchJikanSeasonNow(page = 1): Promise<JikanSeasonResponse> {
-  return externalApiGet<JikanSeasonResponse>(JIKAN_API_URL, `/seasons/now?page=${page}&limit=24`);
+  return tenraiGet<JikanSeasonResponse>("/seasons/now", { page, limit: 24 });
 }
 
 export async function fetchJikanSeason(year: number, season: 'winter' | 'spring' | 'summer' | 'fall', page = 1): Promise<JikanSeasonResponse> {
-  return externalApiGet<JikanSeasonResponse>(JIKAN_API_URL, `/seasons/${year}/${season}?page=${page}&limit=24`);
+  return tenraiGet<JikanSeasonResponse>(`/seasons/${year}/${season}`, { page, limit: 24 });
 }
 
 export async function fetchJikanSeasonUpcoming(page = 1): Promise<JikanSeasonResponse> {
-  return externalApiGet<JikanSeasonResponse>(JIKAN_API_URL, `/seasons/upcoming?page=${page}&limit=24`);
+  return tenraiGet<JikanSeasonResponse>("/seasons/upcoming", { page, limit: 24 });
 }
 
 export async function fetchJikanAnime(malId: number): Promise<{ data: JikanAnime }> {
-  return externalApiGet<{ data: JikanAnime }>(JIKAN_API_URL, `/anime/${malId}`);
+  return tenraiGet<{ data: JikanAnime }>(`/anime/${malId}`);
 }
 
 export async function fetchJikanEpisodes(malId: number, page = 1): Promise<JikanEpisodeResponse> {
-  return externalApiGet<JikanEpisodeResponse>(JIKAN_API_URL, `/anime/${malId}/episodes?page=${page}`);
+  return tenraiGet<JikanEpisodeResponse>(`/anime/${malId}/episodes`, { page });
 }
 
 export async function fetchJikanCharacter(malCharId: number): Promise<JikanCharacterFullResponse> {
-  return externalApiGet<JikanCharacterFullResponse>(JIKAN_API_URL, `/characters/${malCharId}/full`);
+  return tenraiGet<JikanCharacterFullResponse>(`/characters/${malCharId}/full`);
 }
 
 export async function searchJikanCharacters(query: string, page = 1): Promise<{ data: JikanCharacter[]; pagination: { has_next_page: boolean } }> {
-  return externalApiGet<{ data: JikanCharacter[]; pagination: { has_next_page: boolean } }>(JIKAN_API_URL, `/characters?q=${encodeURIComponent(query)}&page=${page}&limit=10`);
+  return tenraiGet<{ data: JikanCharacter[]; pagination: { has_next_page: boolean } }>("/characters", { q: query, page, limit: 10 });
 }
 
 export async function searchJikanAnime(query: string, page = 1): Promise<{ data: JikanAnime[]; pagination: { has_next_page: boolean } }> {
-  return externalApiGet<{ data: JikanAnime[]; pagination: { has_next_page: boolean } }>(JIKAN_API_URL, `/anime?q=${encodeURIComponent(query)}&page=${page}&limit=10`);
+  return tenraiGet<{ data: JikanAnime[]; pagination: { has_next_page: boolean } }>("/anime", { q: query, page, limit: 10 });
 }

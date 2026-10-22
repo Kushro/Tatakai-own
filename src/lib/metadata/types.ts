@@ -99,7 +99,7 @@ export interface MetadataProvider {
   episodes?(ref: MediaRef, opts?: { signal?: AbortSignal }): Promise<MetadataEpisode[]>;
   genres?(kind: MediaKind, opts?: { includeAdult?: boolean; signal?: AbortSignal }): Promise<string[]>;
   /** Cross-reference ids (ani.zip, Kitsu mappings). Return null when unknown. */
-  ids?(ref: MediaRef, opts?: { signal?: AbortSignal }): Promise<Required<Pick<MediaRef, 'anilistId'>> & MediaRef | null>;
+  ids?(ref: MediaRef, opts?: { signal?: AbortSignal; kind?: MediaKind }): Promise<Required<Pick<MediaRef, 'anilistId'>> & MediaRef | null>;
 }
 
 /** The capability a provider method implements. */
