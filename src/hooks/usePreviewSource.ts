@@ -2,7 +2,6 @@ import uiI18n from '@/lib/uiI18n';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { getProxiedVideoUrl } from '@/lib/api';
-import { resolveApiV3Base } from '@/lib/api/backendOrigin';
 
 interface PreviewSource {
   provider: string | null;
@@ -149,7 +148,8 @@ export function usePreviewSource(): UsePreviewSourceReturn {
 
     let result: PreviewSource | null = null;
 
-    // Tier 1: desktop IPC via window.electron.invokeExtension
+    // Local extension runtime via window.electron.invokeExtension (the only source:
+    // the former web-API tiers (/toko/preview, /toko/stream) were removed with TatakaiAPI).
     try {
       const invokeExtension: any = (window as any).electron?.invokeExtension;
 
@@ -161,43 +161,7 @@ export function usePreviewSource(): UsePreviewSourceReturn {
           result = data.data;
         }
       }
-    } catch { /* fall through to tier 2 */ }
-
-    // Tier 2: web API fallback
-    if (!result && !abort.signal.aborted) {
-      try {
-        const params = new URLSearchParams();
-        params.set('anilistId', String(anilistId));
-        titles.forEach(t => params.append('titles[]', t));
-        if (episode != null) params.set('episode', String(episode));
-
-        const res = await withTimeout(
-          fetch(`${resolveApiV3Base()}/toko/preview?${params}`, { signal: abort.signal })
-        );
-        if (res.ok) {
-          const data = await res.json() as PreviewSource;
-          if (data?.streamUrl) result = data;
-        }
-      } catch { /* both tiers failed */ }
-    }
-
-    // The lightweight preview provider may be unavailable while the normal
-    // multi-provider stream service still has a playable source.
-    if (!result && !abort.signal.aborted) {
-      try {
-        const params = new URLSearchParams({ anilistId: String(anilistId), episode: String(episode ?? 1) });
-        titles.forEach(title => params.append('titles[]', title));
-        const res = await withTimeout(fetch(`${resolveApiV3Base()}/toko/stream?${params}`, { signal: abort.signal }));
-        if (res.ok) {
-          const data = await res.json() as { sources?: Array<{ url?: string; provider?: string; isHls?: boolean; sourceType?: string; headers?: Record<string, string> }> };
-          const stream = data.sources?.find(item => item.url && /^https?:\/\//i.test(item.url) &&
-            (item.isHls || item.sourceType === 'hls' || item.sourceType === 'mp4' || /\.(mp4|m3u8)(?:\?|$)/i.test(item.url)));
-          if (stream?.url) result = { provider: stream.provider || null, streamUrl: stream.url,
-            isHls: Boolean(stream.isHls || stream.sourceType === 'hls' || /\.m3u8(?:\?|$)/i.test(stream.url)),
-            streamHeaders: stream.headers, previewTimestampSec: 0 };
-        }
-      } catch { /* The static poster remains useful when both services fail. */ }
-    }
+    } catch { /* no preview: the static poster stays */ }
 
     if (!abort.signal.aborted) {
       if (result) {

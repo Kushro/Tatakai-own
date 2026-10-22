@@ -8,7 +8,7 @@ import { trackEvent } from "@/core/analytics/AnalyticsService";
 import type { MediaFormat, MediaSeason, MediaStatus, SearchFilters, TatakaiMedia } from "@/core";
 import { fetchEpisodeServers } from "@/lib/api";
 import { fetchAniZipMapping, type AniZipEpisode, type AniZipMapping } from "@/lib/mapping/anizip";
-import { resolveApiV3Base } from "@/lib/api/backendOrigin";
+import { metadata, type MetadataEpisode } from "@/lib/metadata";
 import { useContentSafetySettings } from "@/hooks/user/useContentSafetySettings";
 import { filterAdultAnime } from "@/lib/contentSafety";
 import { MEDIA_METADATA_STALE_TIME } from '@/lib/cache/mediaMetadataCache';
@@ -132,8 +132,6 @@ function buildSearchFilters(query: string, page: number, filters: AnimeSearchFil
   };
 }
 
-const MAX_API_EPISODE_PAGES = 25;
-
 function buildEpisodeId(baseId: string, episodeNumber: number): string {
   return `${baseId}?ep=${episodeNumber}`;
 }
@@ -165,7 +163,7 @@ function formatToJikanType(format?: MediaFormat): string | undefined {
   return format ? map[format] : undefined;
 }
 
-/** Resolve MAL id via TatakaiAPI search (no direct browser→Jikan calls). */
+/** Resolve a MAL id by title search through the metadata router. */
 async function resolveMalIdFromSearch(media: TatakaiMedia): Promise<number | null> {
   if (media.malId && media.malId > 0) return media.malId;
 
@@ -369,17 +367,35 @@ function dedupeStrings(values: Array<string | null | undefined>): string[] {
   return out;
 }
 
-async function fetchDbEpisodes(media: TatakaiMedia, baseId: string): Promise<EpisodeData[]> {
-  const id = media.tatakaiId || (media.anilistId ? String(media.anilistId) : baseId);
-  const rows = await contentGraph.getDbEpisodes(id);
-  if (rows.length === 0) return [];
+/**
+ * Episodes from the metadata router (ani.zip / Tenrai / Kitsu / Shikimori, in the
+ * user's source order). Returns [] when no source has a list.
+ */
+async function fetchRoutedEpisodes(media: TatakaiMedia, baseId: string): Promise<EpisodeData[]> {
+  if (!media.anilistId && !media.malId) return [];
+  let rows: MetadataEpisode[];
+  try {
+    rows = (await metadata.episodes({
+      anilistId: media.anilistId > 0 ? media.anilistId : undefined,
+      malId: media.malId,
+      kitsuId: media.kitsuId,
+    })).value;
+  } catch {
+    return [];
+  }
   return rows
-    .sort((a, b) => a.episodeNumber - b.episodeNumber)
+    .filter((row) => Number.isFinite(row.number) && row.number > 0)
+    .sort((x, y) => x.number - y.number)
     .map((row) => ({
-      episodeId: buildEpisodeId(baseId, row.episodeNumber),
-      number: row.episodeNumber,
-      title: normalizeEpisodeTitle(row.title, row.episodeNumber),
+      episodeId: buildEpisodeId(baseId, row.number),
+      number: row.number,
+      title: normalizeEpisodeTitle(row.title, row.number),
       isFiller: Boolean(row.isFiller),
+      overview: row.overview,
+      image: row.image,
+      airDate: row.airDate,
+      runtime: row.runtimeMin,
+      titles: row.titles && Object.keys(row.titles).length > 0 ? row.titles : undefined,
     }));
 }
 
@@ -443,31 +459,6 @@ function mergeAniZipEpisodes(episodes: EpisodeData[], mapping: AniZipMapping | n
       seasonNumber: episode.seasonNumber ?? entry.seasonNumber ?? undefined,
     };
   });
-}
-
-/** Server-mediated Jikan episodes via TatakaiAPI (never call api.jikan.moe from the browser). */
-async function fetchMalEpisodesViaApi(malId: number, baseId: string): Promise<EpisodeData[]> {
-  const episodes: EpisodeData[] = [];
-  let page = 1;
-  let hasNext = true;
-
-  while (hasNext && page <= MAX_API_EPISODE_PAGES) {
-    const res = await contentGraph.getMalEpisodesPage(malId, page);
-    for (const row of res.episodes) {
-      const number = Number(row?.mal_id);
-      if (!Number.isFinite(number) || number <= 0) continue;
-      episodes.push({
-        episodeId: buildEpisodeId(baseId, number),
-        number,
-        title: normalizeEpisodeTitle(row?.title, number),
-        isFiller: Boolean(row?.filler),
-      });
-    }
-    hasNext = res.hasNextPage;
-    page += 1;
-  }
-
-  return episodes;
 }
 
 function computeNextAiringFromBroadcast(broadcast?: {
@@ -610,29 +601,18 @@ export function useEpisodes(animeId: string | undefined) {
       // AniList entry's episode numbers. AniList's own `streamingEpisodes` is NOT
       // used for episodes at all — it regularly carries a neighbouring season's
       // Crunchyroll rows (wrong numbers, wrong order), so it was removed as a
-      // source entirely. DB and Jikan remain only as non-ani.zip safety fallbacks.
+      // source entirely. The metadata router remains as the non-ani.zip fallback.
       const mapping = await fetchAniZipMapping(media.anilistId);
 
       // 1. ani.zip — numbers, titles, air dates, synopses and screencaps.
       episodes = episodesFromAniZip(mapping, baseId);
 
-      // 2. TatakaiAPI DB episode rows
+      // 2. Metadata router episodes (Tenrai / Kitsu / Shikimori / ani.zip)
       if (episodes.length === 0) {
-        episodes = await fetchDbEpisodes(media, baseId);
+        episodes = await fetchRoutedEpisodes(media, baseId);
       }
 
-      // 3. Server-mediated MAL/Jikan episodes (via TatakaiAPI only)
-      if (episodes.length === 0) {
-        let resolvedMalId = media.malId ?? null;
-        if (!resolvedMalId) {
-          resolvedMalId = await resolveMalIdFromSearch(media);
-        }
-        if (resolvedMalId) {
-          episodes = await fetchMalEpisodesViaApi(resolvedMalId, baseId);
-        }
-      }
-
-      // 4. Count-based placeholders from AniList episode total
+      // 3. Count-based placeholders from the catalog episode total
       if (episodes.length === 0) {
         const count = Math.min(media.episodes ?? 0, 2000);
         episodes = Array.from({ length: count }, (_, i) => ({
@@ -876,7 +856,7 @@ export function useNextEpisodeSchedule(animeId: string | undefined) {
         const schedule = computeNextAiringFromBroadcast(broadcast ?? undefined);
 
         if (import.meta.env.DEV) {
-          console.debug("[useNextEpisodeSchedule] Jikan broadcast (via TatakaiAPI)", {
+          console.debug("[useNextEpisodeSchedule] MAL broadcast (via Tenrai)", {
             animeId,
             malId: resolvedMalId,
             broadcast,
@@ -918,21 +898,16 @@ export type EpisodeSearchHit = {
 };
 
 /**
- * Search episode titles via TatakaiAPI `/content/search/episodes`.
- * Returns anime + episode-title hits, marked with `_matchType: "episode"`.
- * Only fires when `query` is at least 3 characters.
+ * Episode-title search. This needed the TatakaiAPI episode index, which no
+ * public API offers, so the feature is unavailable and the hook always yields an
+ * empty list (callers keep working). Kept so the signature/types don't change.
  */
 export function useEpisodeTitleSearch(query: string, enabled = true) {
   useUiTranslation();
   return useQuery({
     queryKey: ['episode-title-search', query],
     queryFn: async (): Promise<EpisodeSearchHit[]> => {
-      if (!query || query.trim().length < 3) return [];
-      const params = new URLSearchParams({ q: query.trim(), perPage: '10' });
-      const res = await fetch(`${resolveApiV3Base()}/content/search/episodes?${params}`);
-      if (!res.ok) return [];
-      const json = await res.json();
-      return Array.isArray(json?.data) ? json.data : [];
+      return [];
     },
     enabled: enabled && query.trim().length >= 3,
     staleTime: 60 * 1000,
