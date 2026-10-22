@@ -3,8 +3,6 @@ import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { TATAKAI_API_URL } from '@/lib/api/api-client';
-import { withAdminSecretHeader } from '@/lib/api/adminSecret';
 
 // ============================================
 // STATUS INCIDENTS
@@ -34,7 +32,8 @@ export interface StatusIncidentUpdate {
   created_at: string;
 }
 
-async function sendStatusIncidentWebhook(payload: {
+// Disabled: the Discord forwarder lived on the upstream TatakaiAPI backend.
+async function sendStatusIncidentWebhook(_payload: {
   action: 'created' | 'updated';
   title: string;
   status: StatusIncident['status'];
@@ -42,44 +41,7 @@ async function sendStatusIncidentWebhook(payload: {
   affectedServices?: string[];
   message?: string;
 }) {
-  try {
-    const colorBySeverity: Record<StatusIncident['severity'], number> = {
-      minor: 0xfacc15,
-      major: 0xf97316,
-      critical: 0xef4444,
-    };
-
-    const endpoint = `${TATAKAI_API_URL}/webhooks/discord`;
-    const affected = (payload.affectedServices || []).filter(Boolean);
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-
-    await fetch(endpoint, {
-      method: 'POST',
-      headers: withAdminSecretHeader({ 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }),
-      body: JSON.stringify({
-        channel: 'status',
-        username: 'Tatakai Status Bot',
-        embeds: [
-          {
-            get title() { return uiI18n.t('app.status_incident_i18n_value_0_6ee30562', { value0: payload.action === 'created' ? 'Created' : 'Updated' }); },
-            description: payload.message || payload.title,
-            color: colorBySeverity[payload.severity],
-            fields: [
-              { name: 'Title', value: payload.title || 'Untitled', inline: false },
-              { name: 'Severity', value: payload.severity, inline: true },
-              { name: 'Status', value: payload.status, inline: true },
-              { name: 'Affected Services', value: affected.length > 0 ? affected.join(', ') : 'N/A', inline: false },
-            ],
-            timestamp: new Date().toISOString(),
-          },
-        ],
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-  } catch {
-    // Intentionally ignored: webhook delivery should not block admin incident workflows.
-  }
+  // no-op
 }
 
 export function useStatusIncidents(activeOnly = true) {

@@ -28,7 +28,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { ANILIST_GRAPHQL_ENDPOINT } from "@/lib/api/backendOrigin";
+import { anilistGql } from "@/lib/anilist/client";
 import { triggerHaptic } from "@/lib/haptics";
 
 // ── Image search helpers ──────────────────────────────────────────────────────
@@ -55,19 +55,12 @@ async function runImageSearch(file: File): Promise<any[]> {
   if (ids.length > 0) {
     try {
       const gql = `query ($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id title{english romaji}coverImage{medium}}}}`;
-      const r = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: gql, variables: { ids } }),
-      });
-      if (r.ok) {
-        const j = await r.json();
-        for (const m of j?.data?.Page?.media ?? []) {
-          titleMap.set(m.id, {
-            title: m.title?.english || m.title?.romaji || `Anime #${m.id}`,
-            cover: m.coverImage?.medium || "",
-          });
-        }
+      const d = await anilistGql<any>(gql, { ids });
+      for (const m of d?.Page?.media ?? []) {
+        titleMap.set(m.id, {
+          title: m.title?.english || m.title?.romaji || `Anime #${m.id}`,
+          cover: m.coverImage?.medium || "",
+        });
       }
     } catch {}
   }

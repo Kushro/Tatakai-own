@@ -1,5 +1,5 @@
 import { getActiveStreamingProxySnapshot } from '@/hooks/user/useProxySettings';
-import { resolveBackendOrigin } from '@/lib/api/backendOrigin';
+import { publicFetch } from '@/lib/net/publicApi';
 import { isMobileProxyUrl } from '@/core/extensions/mobile/mobileProxy';
 import { downgradePosterForDataSaver, isDataSaverEnabled } from '@/lib/mobile/dataSaver';
 
@@ -7,26 +7,14 @@ const STREAM_PROXY_PASSWORD = String(
   import.meta.env.VITE_STREAM_PROXY_PASSWORD || import.meta.env.VITE_PROXY_PASSWORD || ''
 ).trim();
 
-// Hardcoding `localhost:3000` here meant every proxied playback URL pointed at a
-// server nobody runs (ERR_CONNECTION_REFUSED in the renderer) while the actual
-// proxy address sat unused in VITE_STREAM_PROXY_URL. Prefer the configured proxy;
-// keep the local default only as the last resort.
+// Prefer the configured proxy; the default is the in-app loopback proxy the
+// desktop/mobile runtime already provides. There is no hosted proxy in this fork.
 const STREAM_PROXY_BASE = String(
   import.meta.env.VITE_STREAM_PROXY_URL ||
     import.meta.env.VITE_PROXY_NODE_URL ||
     import.meta.env.VITE_PROXY_CF_URL ||
-    'https://hoko.tatakai.me/api/v1/streamingProxy'
+    'http://127.0.0.1:8099'
 ).trim();
-
-// Backend origin for subtitle proxying — avoids CORS issues with the external
-// streaming proxy (the local API sets Access-Control-Allow-Origin: * so subtitle
-// <track> elements always load). Resolved via the shared helper (VITE_BACKEND_ORIGIN
-// → origin of VITE_TATAKAI_API_URL → page origin) so the desktop app:// build hits
-// api.tatakai.me instead of a dead localhost fallback.
-const LOCAL_API_BASE = (
-  resolveBackendOrigin() ||
-  String(import.meta.env.VITE_TATAKAI_API_URL || '').trim().replace(/\/api\/v3\/?$/, '')
-);
 
 function isLocalLike(url: string): boolean {
   return (
@@ -152,25 +140,18 @@ export function getProxiedSubtitleUrl(rawUrl: string, referer?: string, userAgen
   if (isMobileProxyUrl(url)) return url;
   if (!url || isLocalLike(url) || !/^https?:/i.test(url)) return url;
 
-  // Route subtitles through the local API (/api/proxy/subtitle) which sets
-  // Access-Control-Allow-Origin: * — avoids the CORS block that happens when
-  // the browser loads <track> elements directly from the external streaming proxy.
-  const params = new URLSearchParams({ url });
-  if (referer) params.set('referer', referer);
-  if (userAgent) params.set('userAgent', userAgent);
-  return `${LOCAL_API_BASE}/api/proxy/subtitle?${params.toString()}`;
+  // No hosted subtitle proxy: native shells fetch subtitles through the
+  // native HTTP stack (fetchViaChain), the web build uses the plain URL.
+  return url;
 }
 
 /**
- * Route a small public JSON API (waifu.im / nekosia.cat) through the local API's
- * /api/proxy/json passthrough. Direct cross-origin fetches to these hosts get
- * blocked (403/CORS) from the desktop renderer and spam the console; the proxy
- * makes the request server-side and returns the JSON with Access-Control-Allow-Origin: *.
+ * Public JSON APIs (waifu.im / nekosia.cat) are fetched directly. There is no
+ * hosted passthrough in this fork; `fetchJsonWithFallback` goes through the
+ * paced native transport, so this just returns the URL unchanged.
  */
 export function getProxiedJsonUrl(rawUrl: string): string {
-  const url = String(rawUrl || '').trim();
-  if (!url || !/^https?:/i.test(url)) return url;
-  return `${LOCAL_API_BASE}/api/proxy/json?url=${encodeURIComponent(url)}`;
+  return String(rawUrl || '').trim();
 }
 
 /**
@@ -190,19 +171,17 @@ export function shouldFetchJsonDirectFirst(rawUrl: string): boolean {
   }
 }
 
-/** GET JSON trying a direct fetch first, then the /api/proxy/json passthrough. */
+/**
+ * GET a public JSON API. Uses the native HTTP transport on Electron/Capacitor
+ * (no CORS) and a plain fetch in the browser, paced per host.
+ */
 export async function fetchJsonWithFallback(rawUrl: string, init?: RequestInit): Promise<Response> {
   const url = String(rawUrl || '').trim();
-  if (!shouldFetchJsonDirectFirst(url)) {
-    return fetch(getProxiedJsonUrl(url), init);
-  }
-  try {
-    const direct = await fetch(url, init);
-    if (direct.ok) return direct;
-  } catch {
-    /* CORS/network block — fall through to the proxy */
-  }
-  return fetch(getProxiedJsonUrl(url), init);
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (init?.headers) new Headers(init.headers).forEach((v, k) => { headers[k] = v; });
+  const res = await publicFetch(url, { headers, signal: init?.signal ?? undefined });
+  const body = await res.text();
+  return new Response(body, { status: res.status, statusText: res.statusText });
 }
 
 export function readProxyQuerySnapshot(rawUrl: string): {

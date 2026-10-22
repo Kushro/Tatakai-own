@@ -12,7 +12,8 @@ import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 
 import { useMemo, useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { ANILIST_GRAPHQL_ENDPOINT, resolveApiV3Base } from "@/lib/api/backendOrigin";
+import { resolveApiV3Base } from "@/lib/api/backendOrigin";
+import { anilistGql } from "@/lib/anilist/client";
 import { useAnimeInfo, useEpisodes, useNextEpisodeSchedule } from "@/hooks/api/useAnimeData";
 import { useAnimeSeasons } from "@/hooks/api/useAnimeSeasons";
 import { useAniListRecommendations } from "@/hooks/api/useAniListRecommendations";
@@ -290,14 +291,8 @@ export default function AnimePage() {
         }
       `;
       try {
-        const res = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: gql, variables: { id: parsedAniListId } }),
-        });
-        if (!res.ok) return [];
-        const json = await res.json();
-        return (json?.data?.Media?.tags ?? []) as Array<{
+        const data = await anilistGql<any>(gql, { id: parsedAniListId });
+        return (data?.Media?.tags ?? []) as Array<{
           id: number;
           name: string;
           category?: string;

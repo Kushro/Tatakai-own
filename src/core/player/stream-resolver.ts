@@ -20,7 +20,9 @@ export interface StreamProxyConfig {
 }
 
 const CONFIG: StreamProxyConfig = {
-  remoteProxy: 'https://hoko.tatakai.me/api/v1/streamingProxy',
+  // No hosted default: users configure their own proxy (Settings > Proxy) or
+  // rely on the in-app loopback proxy.
+  remoteProxy: '',
   defaultPath: '/api/v1/streamingProxy',
   legacyPaths: [],
   password: String(
@@ -109,15 +111,6 @@ export function isLoopbackProxyUrl(value: string): boolean {
   }
 }
 
-export function isMokoProxyUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value);
-    return /(^|\.)moko\.tatakai\.me$/i.test(parsed.hostname);
-  } catch {
-    return /(^|\.)moko\.tatakai\.me/i.test(value);
-  }
-}
-
 export function resolveSingleStreamProxyBase(): string {
   const userProxy = getActiveStreamingProxySnapshot();
   if (userProxy?.url && !isLoopbackProxyUrl(userProxy.url)) {
@@ -143,7 +136,6 @@ export function buildProxyBaseCandidates(): string[] {
   const add = (value?: string) => {
     const normalized = String(value || '').trim().replace(/\/$/, '');
     if (!normalized) return;
-    if (isMokoProxyUrl(normalized)) return;
     if (!candidates.includes(normalized)) candidates.push(normalized);
   };
 
@@ -160,14 +152,13 @@ export function buildProxyBaseCandidates(): string[] {
 
   add(resolveSingleStreamProxyBase());
 
-  // On Capacitor the WebView origin (tatakai.me/localhost) isn't the backend,
-  // so an origin-relative proxy path is a dead candidate — use the real backend.
+  // Same-origin proxy path (web dev only). Native shells serve from a virtual
+  // host that has no proxy, so no origin-relative candidate is added there.
   const cap = (globalThis as any).Capacitor;
   const isNative = !!cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform();
-  const proxyOrigin =
-    isNative
-      ? (String(import.meta.env.VITE_BACKEND_ORIGIN || '').replace(/\/+$/, '') || 'https://api.tatakai.me')
-      : (typeof window !== 'undefined' ? window.location.origin : '');
+  const proxyOrigin = !isNative && typeof window !== 'undefined' && /^https?:/i.test(window.location.origin)
+    ? window.location.origin
+    : '';
   if (proxyOrigin) {
     add(`${proxyOrigin}${CONFIG.defaultPath}`);
     CONFIG.legacyPaths.forEach((legacyPath) => {

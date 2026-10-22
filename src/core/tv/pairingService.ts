@@ -1,4 +1,3 @@
-import { resolveApiV3Base } from "@/lib/api/backendOrigin";
 import { supabase } from "@/integrations/supabase/client";
 import { secretStorage } from "./secretStorage";
 import {
@@ -22,32 +21,16 @@ export type PairingLookup = Pick<
   PairingRequest,
   "id" | "phrase" | "expiresAt"
 > & { publicKey: JsonWebKey };
+export const PAIRING_UNAVAILABLE_MESSAGE =
+  "TV pairing is not available in this build.";
+/** TV pairing needed the upstream TatakaiAPI backend, which this fork does not use. */
 export async function pairingAPI<T>(
-  operation: string,
-  body: unknown,
-  authenticated = false,
-  signal?: AbortSignal
+  _operation: string,
+  _body: unknown,
+  _authenticated = false,
+  _signal?: AbortSignal
 ): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (authenticated) {
-    const { data } = await supabase.auth.getSession();
-    if (!data.session)
-      throw new Error("Sign in on this device to link your TV.");
-    headers.Authorization = `Bearer ${data.session.access_token}`;
-  }
-  const response = await fetch(
-    `${resolveApiV3Base()}/tv/pairing/${operation}`,
-    { method: "POST", headers, body: JSON.stringify(body), signal }
-  );
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok)
-    throw new Error(
-      data.error ||
-        `Pairing unavailable (${response.status}). Retry after checking the API connection.`
-    );
-  return data;
+  throw new Error(PAIRING_UNAVAILABLE_MESSAGE);
 }
 export async function createPairing(signal?: AbortSignal) {
   const keys = await crypto.subtle.generateKey(

@@ -1,3 +1,5 @@
+import { anilistGql } from '@/lib/anilist/client';
+
 export type AvatarGender = 'male' | 'female' | 'any';
 
 export interface GalleryCharacter {
@@ -18,7 +20,7 @@ export function selectGalleryCharacters(rows: GalleryCharacter[], gender: Avatar
 }
 
 /** Only explicit provider metadata establishes gender; never infer it from a request. */
-export async function fetchAvatarGallery(endpoint: string, gender: AvatarGender, limit = 12, fetcher = fetch) {
+export async function fetchAvatarGallery(endpoint: string, gender: AvatarGender, limit = 12, fetcher?: typeof fetch) {
   const rows: GalleryCharacter[] = [];
   const query = `query ($page: Int) {
     Page(page: $page, perPage: 50) {
@@ -27,17 +29,27 @@ export async function fetchAvatarGallery(endpoint: string, gender: AvatarGender,
     }
   }`;
   for (let page = 1; page <= 5; page++) {
-    const response = await fetcher(endpoint, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ query, variables: { page } }),
-    });
-    if (!response.ok) throw new Error('Could not load avatars. Please retry.');
-    const result = await response.json();
-    if (result.errors?.length || !Array.isArray(result.data?.Page?.characters)) {
-      throw new Error('Could not load avatars. Please retry.');
+    let pageData: any;
+    if (fetcher) {
+      // Injected transport (tests / custom endpoints).
+      const response = await fetcher(endpoint, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ query, variables: { page } }),
+      });
+      if (!response.ok) throw new Error('Could not load avatars. Please retry.');
+      const result = await response.json();
+      if (result.errors?.length) throw new Error('Could not load avatars. Please retry.');
+      pageData = result.data;
+    } else {
+      try {
+        pageData = await anilistGql<any>(query, { page });
+      } catch {
+        throw new Error('Could not load avatars. Please retry.');
+      }
     }
-    rows.push(...result.data.Page.characters);
-    if (!result.data.Page.pageInfo?.hasNextPage) break;
+    if (!Array.isArray(pageData?.Page?.characters)) throw new Error('Could not load avatars. Please retry.');
+    rows.push(...pageData.Page.characters);
+    if (!pageData.Page.pageInfo?.hasNextPage) break;
   }
   const matches = selectGalleryCharacters(rows, gender);
   for (let i = matches.length - 1; i > 0; i--) {

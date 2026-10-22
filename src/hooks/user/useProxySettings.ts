@@ -16,13 +16,14 @@ export interface CustomProxyEntry {
 const STORAGE_KEY = 'tatakai_custom_proxies_v2';
 
 export const DEFAULT_APP_PROXY_URL = 'http://127.0.0.1:8099';
+/** Optional build-time remote proxy. Empty by default (no hosted proxy in this fork). */
 export const DEFAULT_ENV_PROXY_URL =
-  String(import.meta.env.VITE_STREAM_PROXY_URL || import.meta.env.VITE_PROXY_NODE_URL || 'https://moko.tatakai.me/api/v1/streamingProxy').trim();
+  String(import.meta.env.VITE_STREAM_PROXY_URL || import.meta.env.VITE_PROXY_NODE_URL || '').trim();
 export const DEFAULT_ENV_PROXY_PASSWORD =
   String(import.meta.env.VITE_STREAM_PROXY_PASSWORD || import.meta.env.VITE_PROXY_PASSWORD || '').trim();
 
 export function getDefaultProxies(): CustomProxyEntry[] {
-  return [
+  const defaults: CustomProxyEntry[] = [
     {
       id: 'default-app-proxy',
       name: 'Local In-App Proxy (Runtime)',
@@ -32,7 +33,9 @@ export function getDefaultProxies(): CustomProxyEntry[] {
       isDefault: true,
       createdAt: 1,
     },
-    {
+  ];
+  if (DEFAULT_ENV_PROXY_URL) {
+    defaults.push({
       id: 'default-env-proxy',
       name: 'Cloud / Environment Proxy',
       type: 'env',
@@ -41,8 +44,9 @@ export function getDefaultProxies(): CustomProxyEntry[] {
       enabled: true,
       isDefault: true,
       createdAt: 2,
-    },
-  ];
+    });
+  }
+  return defaults;
 }
 
 export function loadStoredProxies(): CustomProxyEntry[] {
@@ -51,7 +55,11 @@ export function loadStoredProxies(): CustomProxyEntry[] {
     if (!raw) return getDefaultProxies();
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+      // Drop the retired hosted defaults (*.tatakai.me) saved by older builds.
+      const kept = (parsed as CustomProxyEntry[]).filter(
+        (p) => !(p?.isDefault && /(^|\.)tatakai\.me(\/|:|$)/i.test(String(p.url || '').replace(/^https?:\/\//i, ''))),
+      );
+      if (kept.length > 0) return kept;
     }
   } catch {
     // fallback to defaults on parse failure
@@ -81,7 +89,7 @@ export function getActiveStreamingProxySnapshot(): { url: string; password?: str
     return { url: activeEnv.url, password: activeEnv.password };
   }
 
-  return { url: DEFAULT_ENV_PROXY_URL, password: DEFAULT_ENV_PROXY_PASSWORD };
+  return { url: DEFAULT_ENV_PROXY_URL || DEFAULT_APP_PROXY_URL, password: DEFAULT_ENV_PROXY_PASSWORD };
 }
 
 /**
@@ -91,7 +99,7 @@ export function getAllActiveProxyUrls(): string[] {
   const list = loadStoredProxies();
   const urls = list.filter((p) => p.enabled && Boolean(p.url)).map((p) => p.url.trim().replace(/\/$/, ''));
   if (urls.length === 0) {
-    return [DEFAULT_ENV_PROXY_URL];
+    return [DEFAULT_ENV_PROXY_URL || DEFAULT_APP_PROXY_URL];
   }
   return Array.from(new Set(urls));
 }

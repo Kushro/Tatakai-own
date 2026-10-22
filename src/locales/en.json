@@ -6903,5 +6903,24 @@
     "manga": "Install a manga extension to load chapters for this title.",
     "novel": "Install a novel extension to load chapters and start reading.",
     "hub": "Open Extension Hub"
+  },
+  "metadataSources": {
+    "title": "Metadata sources",
+    "description": "Choose where anime and manga information comes from. The first enabled source is tried first; if it fails, the next one takes over.",
+    "primary": "Primary",
+    "fallback": "Fallback",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "enable": "Enable {{name}}",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "reset": "Reset to default",
+    "resetDone": "Metadata sources reset to default order",
+    "statusOk": "OK",
+    "statusCooling": "Cooling down until {{time}}",
+    "statusCoolingError": "Cooling down until {{time}} - {{error}}",
+    "statusNotConfigured": "Not configured",
+    "statusIdle": "No problems reported",
+    "allDisabled": "All sources are disabled, so catalog data cannot load. Enable at least one."
   }
 }

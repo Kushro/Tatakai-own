@@ -1,8 +1,5 @@
-import uiI18n from '@/lib/uiI18n';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { TATAKAI_API_URL, withClientHeaders, unwrapApiData } from '@/lib/api/api-client';
 
 /**
  * Admin news management — list / refresh / pin / delete of the bot-authored
@@ -37,24 +34,9 @@ export interface NewsRefreshResult {
   purged: number;
 }
 
-/** Bearer-authed fetch against a `/admin/news` sub-path; unwraps the envelope. */
-async function adminNewsFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token;
-  if (!token) throw new Error(uiI18n.t('app.you_must_be_signed_in_as_an_admin_c5c6a7a0'));
-
-  const res = await fetch(`${TATAKAI_API_URL}/admin/news${path}`, {
-    ...init,
-    headers: withClientHeaders({
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(init.headers as Record<string, string> | undefined),
-    }),
-  });
-
-  const json = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(json?.error || `Request failed (HTTP ${res.status})`);
-  return unwrapApiData<T>(json);
+/** Disabled: the `/admin/news` routes belonged to the upstream TatakaiAPI backend. */
+async function adminNewsFetch<T>(_path: string, _init: RequestInit = {}): Promise<T> {
+  throw new Error('News administration is not available in this build.');
 }
 
 /** Recent bot-authored News posts (pinned first, then newest). */
@@ -62,7 +44,7 @@ export function useNewsPosts(page = 1, limit = 30) {
   useUiTranslation();
   return useQuery({
     queryKey: ['admin-news', page, limit],
-    queryFn: () => adminNewsFetch<AdminNewsPost[]>(`?page=${page}&limit=${limit}`),
+    queryFn: async (): Promise<AdminNewsPost[]> => [],
   });
 }
 
