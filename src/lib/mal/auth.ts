@@ -9,8 +9,8 @@
  * (native HTTP in the apps — MAL sends no CORS headers, so a plain browser cannot
  * do this).
  *
- * Tokens live in `profiles.mal_*` (client UPDATE is granted by migration
- * 20260902000003). The access token is only ever sent to api.myanimelist.net and
+ * Tokens live in the owner-only `user_integration_tokens` table (never in the
+ * publicly readable `profiles`; only `mal_user_id` goes there). The access token is only ever sent to api.myanimelist.net and
  * the refresh token only to myanimelist.net.
  */
 
@@ -98,29 +98,17 @@ export interface MalAuthDeps {
   now(): number;
 }
 
-async function supabaseUserId(): Promise<{ supabase: typeof import('@/integrations/supabase/client')['supabase']; userId: string }> {
-  const { supabase } = await import('@/integrations/supabase/client');
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.user) throw new Error('Sign in to Tatakai before linking MyAnimeList.');
-  return { supabase, userId: session.user.id };
-}
-
 const defaultDeps: MalAuthDeps = {
   async loadTokens() {
-    const { supabase, userId } = await supabaseUserId();
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('mal_access_token, mal_refresh_token, mal_token_expires_at')
-      .eq('user_id', userId)
-      .maybeSingle();
-    if (error) throw error;
-    if (!data) return null;
-    return { accessToken: data.mal_access_token, refreshToken: data.mal_refresh_token, expiresAt: data.mal_token_expires_at };
+    const { loadIntegrationTokens } = await import('@/lib/integrationTokens');
+    const row = await loadIntegrationTokens();
+    if (!row) return null;
+    return { accessToken: row.mal_access_token, refreshToken: row.mal_refresh_token, expiresAt: row.mal_token_expires_at };
   },
   async saveProfile(patch) {
-    const { supabase, userId } = await supabaseUserId();
-    const { error } = await supabase.from('profiles').update(patch).eq('user_id', userId);
-    if (error) throw error;
+    // Tokens -> user_integration_tokens (owner only); mal_user_id -> profiles.
+    const { saveIntegrationPatch } = await import('@/lib/integrationTokens');
+    await saveIntegrationPatch(patch);
   },
   now: () => Date.now(),
 };

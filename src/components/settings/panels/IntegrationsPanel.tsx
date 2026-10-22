@@ -123,12 +123,8 @@ export function IntegrationsPanel() {
   // grants), so keying "Connected" off the token left the badge stuck on
   // "Connect" even after a successful link. user_id/username are always cleared
   // on disconnect, so they're a reliable connection signal.
-  const hasMAL = !!(profile?.mal_user_id || (profile as any)?.mal_access_token);
-  const hasAniList = !!(
-    profile?.anilist_user_id ||
-    (profile as any)?.anilist_username ||
-    (profile as any)?.anilist_access_token
-  );
+  const hasMAL = !!profile?.mal_user_id;
+  const hasAniList = !!profile?.anilist_user_id;
 
   /**
    * Per-service full sync: watchlist + watch history + readlist diffed against

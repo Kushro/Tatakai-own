@@ -1,8 +1,11 @@
 import { publicJson } from '@/lib/net/publicApi';
 import { anilistGql } from '@/lib/anilist/client';
 import {
+  AniListAuthExpiredError,
   buildAniListAuthUrl,
+  clearAniListCredentials,
   completeAniListLogin,
+  getAniListAccessToken,
   isAniListConfigured,
   startAniListLogin,
   withAniListToken,
@@ -47,7 +50,9 @@ export async function fetchMALAnimeList(accessToken: string): Promise<any[]> {
   for (let page = 0; url && page < 50; page++) {
     const data: any = await publicJson(url, { headers: malBearer(accessToken) });
     out.push(...(data.data || []));
-    url = data.paging?.next;
+    // Never follow a paging link off MAL's API host: it would carry the bearer token along.
+    const next: unknown = data.paging?.next;
+    url = typeof next === 'string' && next.startsWith('https://api.myanimelist.net/') ? next : undefined;
   }
   return out;
 }
@@ -340,12 +345,14 @@ function toAniListListStatus(status: string, manga: boolean): string {
   return manga ? mapTatakaiMangaStatusToAniList(status) : mapTatakaiStatusToAniList(status);
 }
 
-async function saveAniListEntry(accessToken: string, mediaId: number, status: string, progress: number | undefined, scoreRaw: number | undefined, manga: boolean): Promise<boolean> {
+async function saveAniListEntry(accessTokenArg: string | null | undefined, mediaId: number, status: string, progress: number | undefined, scoreRaw: number | undefined, manga: boolean): Promise<boolean> {
   const mutation = `
     mutation ($mediaId: Int, $status: MediaListStatus, $progress: Int, $scoreRaw: Int) {
       SaveMediaListEntry(mediaId: $mediaId, status: $status, progress: $progress, scoreRaw: $scoreRaw) { id status progress }
     }
   `;
+  const accessToken = accessTokenArg || (await getAniListAccessToken());
+  if (!accessToken) throw new AniListAuthExpiredError();
   const data = await anilistQuery(mutation, {
     mediaId,
     status: toAniListListStatus(status, manga),
@@ -357,7 +364,7 @@ async function saveAniListEntry(accessToken: string, mediaId: number, status: st
 
 // Update AniList anime status
 export async function updateAniListAnimeStatus(
-  accessToken: string,
+  accessToken: string | null | undefined,
   mediaId: number,
   status: 'CURRENT' | 'COMPLETED' | 'PAUSED' | 'DROPPED' | 'PLANNING' | string,
   progress?: number,
@@ -368,7 +375,7 @@ export async function updateAniListAnimeStatus(
 
 // Update AniList manga status (also used for novels)
 export async function updateAniListMangaStatus(
-  accessToken: string,
+  accessToken: string | null | undefined,
   mediaId: number,
   status: 'CURRENT' | 'COMPLETED' | 'PAUSED' | 'DROPPED' | 'PLANNING' | string,
   progress?: number,
@@ -683,19 +690,8 @@ export async function disconnectMAL(userId: string): Promise<void> {
   await disconnectMal(userId);
 }
 
-export async function disconnectAniList(userId: string): Promise<void> {
-  const { supabase } = await import('@/integrations/supabase/client');
-  const { error } = await supabase
-    .from('profiles')
-    .update({
-      anilist_user_id: null,
-      anilist_access_token: null,
-      anilist_refresh_token: null,
-      anilist_token_expires_at: null,
-    })
-    .eq('user_id', userId);
-
-  if (error) throw error;
+export async function disconnectAniList(_userId?: string): Promise<void> {
+  await clearAniListCredentials();
 }
 
 export function mapTatakaiStatusToAniList(status: string) {

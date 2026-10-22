@@ -1,10 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { fetchAniListStatistics, fetchMALStatistics, type ExternalStats } from '@/lib/externalIntegrations';
 import { getValidMalAccessToken } from '@/lib/mal/auth';
+import { getAniListAccessToken } from '@/lib/anilist/auth';
 
 interface ProfileTokens {
-  anilist_access_token?: string | null;
-  mal_access_token?: string | null;
   anilist_user_id?: string | null;
   mal_user_id?: string | null;
 }
@@ -17,19 +16,23 @@ interface ProfileTokens {
  * accounts are read, so pass `enabled: false` when viewing others.
  */
 export function useExternalStats(profile: ProfileTokens | null | undefined, enabled = true) {
-  const hasAnilist = !!(profile?.anilist_access_token || profile?.anilist_user_id);
-  const hasMal = !!(profile?.mal_access_token || profile?.mal_user_id);
+  const hasAnilist = !!profile?.anilist_user_id;
+  const hasMal = !!profile?.mal_user_id;
   const anyLinked = hasAnilist || hasMal;
-  const anilistToken = profile?.anilist_access_token ?? null;
 
   const { data, isLoading } = useQuery<ExternalStats[]>({
-    queryKey: ['external-stats', hasAnilist, hasMal, !!anilistToken],
+    queryKey: ['external-stats', hasAnilist, hasMal],
     enabled: enabled && anyLinked,
     staleTime: 5 * 60 * 1000,
     retry: false,
     queryFn: async () => {
       const jobs: Array<Promise<ExternalStats>> = [];
-      if (hasAnilist && anilistToken) jobs.push(fetchAniListStatistics(anilistToken));
+      if (hasAnilist) {
+        jobs.push(getAniListAccessToken().then((token) => {
+          if (!token) throw new Error('AniList is not linked');
+          return fetchAniListStatistics(token);
+        }));
+      }
       if (hasMal) jobs.push(getValidMalAccessToken().then(fetchMALStatistics));
       const settled = await Promise.allSettled(jobs);
       return settled.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));

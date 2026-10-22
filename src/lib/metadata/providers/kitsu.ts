@@ -182,7 +182,8 @@ function mapDoc(kind: MediaKind, doc: KitsuDoc, opts: { isAdult?: boolean } = {}
   for (const m of items) {
     if (m.anilistId > 0) rememberIds(kind, { anilistId: m.anilistId, malId: m.malId, kitsuId: m.kitsuId });
   }
-  return opts.isAdult === false ? items.filter((m) => !m.isAdult) : items;
+  // Adult titles only appear when the caller explicitly opts in.
+  return opts.isAdult === true ? items : items.filter((m) => !m.isAdult);
 }
 
 // ── Query building ────────────────────────────────────────────────────────────
@@ -456,6 +457,79 @@ async function ids(
   return out;
 }
 
+const chunk = <T,>(list: T[], size: number): T[][] => {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+};
+
+type IdsResult = Required<Pick<MediaRef, 'anilistId'>> & MediaRef;
+
+/**
+ * Bulk id resolution, in input order (null = unknown). Costs a few requests per
+ * 20 titles instead of two per title:
+ *  1. `/mappings?filter[externalSite]=<site>/<kind>&filter[externalId]=a,b,c`
+ *     turns AniList / MAL ids into Kitsu ids (refs that already have a kitsuId skip this);
+ *  2. `/<kind>?filter[id]=…&include=mappings` reads the other site's id.
+ */
+async function idsBatch(
+  kind: MediaKind,
+  refs: MediaRef[],
+  opts: { signal?: AbortSignal } = {},
+): Promise<Array<IdsResult | null>> {
+  const k = kindPath(kind);
+
+  // 1. refs -> kitsu ids
+  const kitsuFor: Array<number | null> = refs.map((r) => r.kitsuId ?? null);
+  for (const site of ['anilist', 'myanimelist'] as const) {
+    const key: 'anilistId' | 'malId' = site === 'anilist' ? 'anilistId' : 'malId';
+    const wanted = [...new Set(refs.flatMap((r, i) => (kitsuFor[i] == null && r[key] ? [r[key] as number] : [])))];
+    const found = new Map<number, number>();
+    for (const part of chunk(wanted, KITSU_PAGE_MAX)) {
+      const doc = await kitsuGet('/mappings', {
+        'filter[externalSite]': `${site}/${k}`,
+        'filter[externalId]': part.join(','),
+        include: 'item',
+        'page[limit]': KITSU_PAGE_MAX,
+        'fields[mappings]': 'externalSite,externalId,item',
+      }, opts.signal);
+      for (const row of kitsuRows(doc)) {
+        const item = row.relationships?.item?.data;
+        const itemId = item && !Array.isArray(item) && item.type === k ? Number(item.id) : NaN;
+        const ext = Number(row.attributes.externalId);
+        if (Number.isInteger(itemId) && itemId > 0 && Number.isInteger(ext)) found.set(ext, itemId);
+      }
+    }
+    refs.forEach((r, i) => {
+      if (kitsuFor[i] == null && r[key]) kitsuFor[i] = found.get(r[key] as number) ?? null;
+    });
+  }
+
+  // 2. kitsu ids -> AniList / MAL ids
+  const external = new Map<number, { anilistId?: number; malId?: number }>();
+  const kitsuIds = [...new Set(kitsuFor.filter((id): id is number => id != null))];
+  for (const part of chunk(kitsuIds, KITSU_PAGE_MAX)) {
+    const doc = await kitsuGet(`/${k}`, {
+      'filter[id]': part.join(','),
+      include: 'mappings',
+      'page[limit]': KITSU_PAGE_MAX,
+      'fields[mappings]': 'externalSite,externalId',
+    }, opts.signal);
+    for (const row of kitsuRows(doc)) external.set(Number(row.id), externalIdsOf(kitsuRelated(doc, row, 'mappings'), k));
+  }
+
+  return refs.map((ref, i) => {
+    const kitsuId = kitsuFor[i];
+    if (kitsuId == null) return null;
+    const ext = external.get(kitsuId);
+    const anilistId = ext?.anilistId ?? ref.anilistId;
+    if (!anilistId) return null;
+    const out: IdsResult = { anilistId, malId: ext?.malId ?? ref.malId, kitsuId };
+    rememberIds(kind, out);
+    return out;
+  });
+}
+
 export const kitsuProvider: MetadataProvider = {
   id: 'kitsu',
   label: 'Kitsu',
@@ -468,4 +542,5 @@ export const kitsuProvider: MetadataProvider = {
   episodes,
   genres,
   ids,
+  idsBatch,
 };

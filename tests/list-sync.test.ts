@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test';
 import {
   applySyncActions,
+  attachAniListIds,
+  exportProgress,
   diffLists,
   fromAniListStatus,
   fromMalStatus,
@@ -193,4 +195,48 @@ test('apply: AniList unavailable or an expired login stops the whole run instead
 
   const expired: SyncIO = { writeLocal: async () => undefined, writeRemote: async () => { throw new MalAuthExpiredError(); } };
   await expect(applySyncActions('mal', [item('1', 'export')], expired)).rejects.toBeInstanceOf(MalAuthExpiredError);
+});
+
+test('export never lowers the remote progress, and omits it when the local side does not know', async () => {
+  expect(exportProgress({ localProgress: 3, remoteProgress: 10 })).toBe(10);
+  expect(exportProgress({ localProgress: 12, remoteProgress: 10 })).toBe(12);
+  expect(exportProgress({ localProgress: 3 })).toBe(3);
+  expect(exportProgress({ localProgress: null, remoteProgress: 10 })).toBeUndefined();
+
+  const r = recorder();
+  await applySyncActions('mal', [
+    item('c', 'conflict', { resolve: 'export', localProgress: 2, remoteProgress: 9 }),
+    item('x', 'export', { localProgress: 7, remoteProgress: 4 }),
+  ], r.io);
+  expect(r.remote).toEqual([['c', 'watching', 9], ['x', 'watching', 7]]);
+});
+
+test('MAL sync: remote MAL ids are resolved to AniList ids so a row with NULL mal_id matches instead of duplicating', async () => {
+  const locals = [local('154587', 'watching', 3, { anilistId: 154587, malId: null })];
+  const remotes = [remote(null, 52991, 'watching', 3), remote(null, 777, 'watching', 1)];
+
+  // without resolution the remote entry looks new -> duplicate import
+  expect(diffLists('mal', locals, remotes, 'anime').filter((i) => i.direction === 'import')).toHaveLength(2);
+
+  let asked: number[] = [];
+  const resolved = await attachAniListIds(remotes, locals, 'anime', async (_type, malIds) => {
+    asked = malIds;
+    return new Map([[52991, 154587]]);
+  });
+  expect(asked).toEqual([52991, 777]);
+  const items = diffLists('mal', locals, resolved, 'anime');
+  expect(items.filter((i) => i.direction === 'import').map((i) => i.malId)).toEqual([777]);
+  expect(items.some((i) => i.malId === 52991)).toBe(false); // identical -> nothing to do
+});
+
+test('attachAniListIds skips the lookup when every local row already has a MAL id, and survives resolver failures', async () => {
+  let calls = 0;
+  const resolver = async () => { calls++; throw new Error('down'); };
+  const withMal = [local('1', 'watching', 1, { anilistId: 1, malId: 10 })];
+  expect(await attachAniListIds([remote(null, 10, 'watching', 1)], withMal, 'anime', resolver)).toHaveLength(1);
+  expect(calls).toBe(0);
+  const without = [local('2', 'watching', 1, { anilistId: 2 })];
+  const out = await attachAniListIds([remote(null, 20, 'watching', 1)], without, 'anime', resolver);
+  expect(calls).toBe(1);
+  expect(out[0].anilistId).toBeNull();
 });

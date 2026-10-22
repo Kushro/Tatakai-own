@@ -7,6 +7,9 @@ import {
   ANILIST_DEFAULT_REDIRECT_URI,
   buildAniListAuthUrl,
   completeAniListLogin,
+  confirmAniListLogin,
+  isAniListLoginPending,
+  prepareAniListLogin,
   getAniListRedirectUri,
   isAniListConfigured,
   isAniListTokenExpired,
@@ -96,11 +99,11 @@ test('completing the login looks up the viewer with the token and persists token
   expect(calls[0].url).toBe('https://graphql.anilist.co');
   expect(calls[0].init.headers.Authorization).toBe('Bearer tok123');
   expect(String(calls[0].init.body)).toContain('Viewer');
+  expect(saved[0]).not.toHaveProperty('anilist_refresh_token');
   expect(saved).toEqual([{
     anilist_access_token: 'tok123',
     anilist_token_expires_at: new Date(NOW + 3600_000).toISOString(),
     anilist_user_id: '4242',
-    anilist_refresh_token: null,
   }]);
   expect(result).toMatchObject({ userId: 4242, username: 'octavio' });
   // the in-flight marker is consumed: a replayed callback is rejected
@@ -134,7 +137,7 @@ test('a 401 on a user call clears the stored login and asks to re-link; it does 
     .rejects.toBeInstanceOf(AniListAuthExpiredError);
   expect(calls).toHaveLength(1);
   expect(saved).toEqual([{
-    anilist_access_token: null, anilist_token_expires_at: null, anilist_user_id: null, anilist_refresh_token: null,
+    anilist_access_token: null, anilist_token_expires_at: null, anilist_user_id: null,
   }]);
 });
 
@@ -165,4 +168,39 @@ test('desktop deep-link handler keeps the OAuth fragment and still sanitizes eve
     ['navigate', '/anime/12'],
     ['navigate', '/integration/anilist/redirect#access_token=ascriptb'],
   ]);
+});
+
+test('the pending marker is consumed by the FIRST callback, success or failure', async () => {
+  serve(() => Response.json({ data: { Viewer: { id: 1, name: 'a' } } }));
+  markAniListLoginStarted();
+  await expect(prepareAniListLogin('#error=access_denied')).rejects.toThrow('AniList');
+  expect(isAniListLoginPending()).toBe(false);
+  // a token arriving afterwards (forged / replayed) finds no marker
+  await expect(prepareAniListLogin('#access_token=evil&expires_in=10')).rejects.toThrow('not started from this app');
+  expect(calls).toHaveLength(0);
+});
+
+test('the pending marker expires after 5 minutes', async () => {
+  let now = NOW;
+  setAniListAuthDeps({ now: () => now, saveProfile: async (patch) => { saved.push(patch); } });
+  markAniListLoginStarted();
+  now = NOW + 4 * 60_000;
+  expect(isAniListLoginPending()).toBe(true);
+  now = NOW + 5 * 60_000 + 1;
+  expect(isAniListLoginPending()).toBe(false);
+  await expect(prepareAniListLogin('#access_token=late&expires_in=10')).rejects.toThrow('not started from this app');
+});
+
+test('prepare verifies the account but stores nothing until the user confirms it', async () => {
+  serve(() => Response.json({ data: { Viewer: { id: 99, name: 'someone' } } }));
+  markAniListLoginStarted();
+  const pending = await prepareAniListLogin('#access_token=tok&expires_in=3600');
+  expect(pending).toMatchObject({ username: 'someone', userId: 99, accessToken: 'tok' });
+  expect(saved).toHaveLength(0);
+  await confirmAniListLogin(pending);
+  expect(saved).toEqual([{
+    anilist_access_token: 'tok',
+    anilist_token_expires_at: new Date(NOW + 3600_000).toISOString(),
+    anilist_user_id: '99',
+  }]);
 });

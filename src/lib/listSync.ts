@@ -294,7 +294,7 @@ export async function applySyncActions(integration: Integration, actions: SyncPr
         await io.writeLocal(item);
       } else {
         const status = toRemoteStatus(integration, item);
-        await io.writeRemote(integration, item, status, item.localProgress ?? undefined);
+        await io.writeRemote(integration, item, status, exportProgress(item));
       }
       result.applied++;
     } catch (err) {
@@ -303,6 +303,16 @@ export async function applySyncActions(integration: Integration, actions: SyncPr
     }
   }
   return result;
+}
+
+/**
+ * Progress to push to the remote list: never lower than what the remote already
+ * has (a conflict can export a status while the remote is ahead on progress), and
+ * omitted entirely when the local side doesn't know its progress.
+ */
+export function exportProgress(item: Pick<SyncProposalItem, 'localProgress' | 'remoteProgress'>): number | undefined {
+  if (item.localProgress == null) return undefined;
+  return Math.max(item.localProgress, item.remoteProgress ?? 0);
 }
 
 function toRemoteStatus(integration: Integration, item: SyncProposalItem): string {
@@ -358,12 +368,11 @@ export async function loadLocalEntries(type: MediaType): Promise<LocalEntry[]> {
 }
 
 async function loadAniListLogin(): Promise<{ token: string; userId: number }> {
-  const { supabase, userId } = await db();
-  const { data, error } = await supabase.from('profiles').select('anilist_access_token, anilist_user_id').eq('user_id', userId).maybeSingle();
-  if (error) throw error;
-  const aniUser = Number(data?.anilist_user_id);
-  if (!data?.anilist_access_token || !Number.isFinite(aniUser)) throw new AniListAuthExpiredError();
-  return { token: data.anilist_access_token, userId: aniUser };
+  // Token from the owner-only user_integration_tokens table, account id from profiles.
+  const { loadAniListCredentials } = await import('@/lib/integrationTokens');
+  const login = await loadAniListCredentials();
+  if (!login) throw new AniListAuthExpiredError();
+  return login;
 }
 
 /** Remote lists for one integration and media type, normalized. */
@@ -387,9 +396,51 @@ export async function fetchRemoteEntries(integration: Integration, type: MediaTy
     .filter((r: RemoteEntry | null): r is RemoteEntry => r !== null);
 }
 
+/** malIds -> anilistIds (unknown ids are absent from the map). */
+export type MalToAniListResolver = (type: MediaType, malIds: number[]) => Promise<Map<number, number>>;
+
+const defaultResolver: MalToAniListResolver = async (type, malIds) => {
+  const { ensureAnilistIds } = await import('@/lib/metadata');
+  const items = malIds.map((malId) => ({
+    anilistId: 0, malId, titleRomaji: '', synonyms: [], genres: [], tags: [], studios: [],
+    isAdult: false, source_api: 'mal' as const, fetchedAt: 0,
+  }));
+  const resolved = await ensureAnilistIds(type === 'anime' ? 'ANIME' : 'MANGA', items);
+  return new Map(resolved.filter((m) => m.malId).map((m) => [m.malId as number, m.anilistId]));
+};
+
+/**
+ * MAL entries only carry a MAL id, so a local row whose `mal_id` column is NULL
+ * would never match and the title would be imported a second time. Resolve the
+ * remote MAL ids to AniList ids (cached, one bulk lookup per list) so
+ * `diffLists` can match on the AniList id first. Only ids no local row already
+ * claims by MAL id are looked up, and a failed lookup just leaves them unresolved.
+ */
+export async function attachAniListIds(
+  remote: RemoteEntry[],
+  local: LocalEntry[],
+  type: MediaType,
+  resolve: MalToAniListResolver = defaultResolver,
+): Promise<RemoteEntry[]> {
+  const localMal = new Set<number>();
+  let localLacksMal = false;
+  for (const l of local) {
+    const ids = localIds(l);
+    if (ids.malId) localMal.add(ids.malId);
+    else localLacksMal = true;
+  }
+  if (!localLacksMal) return remote;
+  const need = [...new Set(remote.filter((r) => !r.anilistId && r.malId && !localMal.has(r.malId)).map((r) => r.malId as number))];
+  if (!need.length) return remote;
+  let map: Map<number, number>;
+  try { map = await resolve(type, need); } catch { return remote; }
+  return remote.map((r) => (r.anilistId || !r.malId ? r : { ...r, anilistId: map.get(r.malId) ?? null }));
+}
+
 /** Preview for one media type. */
 export async function previewSync(integration: Integration, type: MediaType): Promise<SyncProposalItem[]> {
-  const [local, remote] = await Promise.all([loadLocalEntries(type), fetchRemoteEntries(integration, type)]);
+  const [local, remoteRaw] = await Promise.all([loadLocalEntries(type), fetchRemoteEntries(integration, type)]);
+  const remote = integration === 'mal' ? await attachAniListIds(remoteRaw, local, type) : remoteRaw;
   return diffLists(integration, local, remote, type);
 }
 
@@ -409,11 +460,33 @@ const realIO: SyncIO = {
     const existingKey = item.localMediaIds?.[0];
     if (item.type === 'anime') {
       const key = existingKey ?? (item.anilistId ? String(item.anilistId) : `mal:${item.malId}`);
-      const { error } = await supabase.from('watchlist').upsert({
-        user_id: userId, anime_id: key, anime_name: item.title, anime_poster: item.poster, status,
-        mal_id: item.malId ?? null, anilist_id: item.anilistId ?? null, updated_at: now,
-      }, { onConflict: 'user_id,anime_id' });
-      if (error) throw error;
+      if (existingKey) {
+        // Existing row: only status plus ids the item actually has. Name, poster
+        // and ids already stored are never overwritten with null / other-site data.
+        const patch: Record<string, unknown> = { status, updated_at: now };
+        if (item.malId) patch.mal_id = item.malId;
+        if (item.anilistId) patch.anilist_id = item.anilistId;
+        const { error } = await supabase.from('watchlist').update(patch).eq('user_id', userId).eq('anime_id', existingKey);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('watchlist').upsert({
+          user_id: userId, anime_id: key, anime_name: item.title, anime_poster: item.poster, status,
+          mal_id: item.malId ?? null, anilist_id: item.anilistId ?? null, updated_at: now,
+        }, { onConflict: 'user_id,anime_id' });
+        if (error) throw error;
+      }
+      // Anime progress is derived from watch_history, so an import that raises it
+      // must record the episode, otherwise the same item shows up in every preview.
+      const remoteEp = item.remoteProgress ?? 0;
+      if (remoteEp > 0 && remoteEp > (item.localProgress ?? 0)) {
+        const { error } = await supabase.from('watch_history').upsert({
+          user_id: userId, anime_id: key, anime_name: item.title, anime_poster: item.poster,
+          episode_id: `sync:${key}:${remoteEp}`, episode_number: remoteEp,
+          progress_seconds: 0, duration_seconds: 0, completed: true, watched_at: now,
+          mal_id: item.malId ?? null, anilist_id: item.anilistId ?? null,
+        }, { onConflict: 'user_id,episode_id' });
+        if (error) throw error;
+      }
       return;
     }
     if (existingKey) {
@@ -465,8 +538,8 @@ export async function pushSingleItem(params: {
   progress: number;
   score?: number;
 }): Promise<void> {
-  const { supabase, userId } = await db();
-  const { data } = await supabase.from('profiles').select('anilist_access_token, mal_access_token').eq('user_id', userId).maybeSingle();
+  const { loadIntegrationTokens } = await import('@/lib/integrationTokens');
+  const data = await loadIntegrationTokens();
   const jobs: Array<Promise<unknown>> = [];
   if (data?.anilist_access_token && params.anilistId) {
     jobs.push(params.type === 'anime'
@@ -482,3 +555,6 @@ export async function pushSingleItem(params: {
 }
 
 export { deleteAniListEntry };
+
+/** The Supabase/provider-backed I/O used by the app (exported for tests). */
+export const defaultSyncIO: SyncIO = realIO;

@@ -23,12 +23,8 @@ export interface Profile {
   is_moderator?: boolean;
   is_public?: boolean;
   show_calendar?: boolean;
-  mal_access_token?: string | null;
-  mal_refresh_token?: string | null;
   mal_user_id?: string | null;
-  mal_token_expires_at?: string | null;
   mal_auto_delete?: boolean;
-  anilist_access_token?: string | null;
   anilist_user_id?: string | null;
   anilist_username?: string | null;
   showcase_anime_ids?: string[] | null;

@@ -351,25 +351,15 @@ export async function deleteMalMangaStatus(mangaIdOrMalId: string): Promise<void
  * Checks if the user is linked to MAL.
  */
 export async function getMalStatus(profile: any) {
-    return !!(profile?.mal_access_token);
+    // The token itself is private; mal_user_id on the (public) profile is the linked signal.
+    return !!(profile?.mal_user_id);
 }
 
 /**
  * Disconnects the user's MyAnimeList account by clearing tokens.
  */
-export async function disconnectMal(userId: string): Promise<void> {
-    const { supabase } = await import('@/integrations/supabase/client');
-    const { error } = await supabase
-        .from('profiles')
-        .update({
-            mal_user_id: null,
-            mal_access_token: null,
-            mal_refresh_token: null,
-            mal_token_expires_at: null,
-        })
-        .eq('user_id', userId);
-
-    if (error) throw error;
+export async function disconnectMal(_userId?: string): Promise<void> {
+    await clearMalCredentials();
 }
 
 /** Clear the stored login for the signed-in user (used after an unrecoverable 401). */

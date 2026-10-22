@@ -286,7 +286,7 @@ export function useUpdateWatchHistory() {
       queryClient.invalidateQueries({ queryKey: ['continue_watching'] });
 
       // Auto-sync to MAL if linked
-      if (profile?.mal_access_token) {
+      if (profile?.mal_user_id) {
         // Only sync to MAL if:
         // 1. It's the start of an episode (progress < 10s to catch initial clicks)
         // 2. The episode is completed
@@ -325,7 +325,7 @@ export function useUpdateWatchHistory() {
       }
 
       // Auto-sync to AniList if linked
-      if (profile?.anilist_access_token) {
+      if (profile?.anilist_user_id) {
         const isStart = (variables.progressSeconds || 0) < 10;
         const isEnd = variables.completed;
 
@@ -345,7 +345,7 @@ export function useUpdateWatchHistory() {
             });
 
             updateAniListAnimeStatus(
-              profile.anilist_access_token,
+              null,
               variables.anilistId,
               aniListStatus,
               episodeToSync

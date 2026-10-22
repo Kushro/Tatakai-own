@@ -82,7 +82,11 @@ test('isAdult=false drops adult titles; manga country/novel options map to subty
   adult.data[1].attributes.nsfw = true;
   serve(() => adult);
   expect((await kitsuProvider.feed!('ANIME', 'popular', { isAdult: false })).media).toHaveLength(1);
-  expect((await kitsuProvider.feed!('ANIME', 'popular', {})).media).toHaveLength(2);
+  // adult titles are excluded unless the caller explicitly opts in
+  expect((await kitsuProvider.feed!('ANIME', 'popular', {})).media).toHaveLength(1);
+  expect((await kitsuProvider.feed!('ANIME', 'popular', { isAdult: true })).media).toHaveLength(2);
+  expect((await kitsuProvider.search!('ANIME', { query: 'x' })).media).toHaveLength(1);
+  expect((await kitsuProvider.search!('ANIME', { query: 'x', isAdult: true })).media).toHaveLength(2);
   serve(() => mangaList);
   urls = [];
   await kitsuProvider.feed!('MANGA', 'popular', { countryOfOrigin: 'KR' });
@@ -177,4 +181,61 @@ test('ids resolves manga AniList <-> MAL <-> Kitsu through mappings', async () =
   expect(urls[0].searchParams.get('filter[externalSite]')).toBe('anilist/manga');
   clearMappingCache();
   expect(await kitsuProvider.ids!({ malId: 108556 })).toMatchObject({ anilistId: 105778 });
+});
+
+const mappingRow = (id: string, site: string, externalId: number, itemId: number, kind = 'manga') => ({
+  id, type: 'mappings', attributes: { externalSite: site, externalId: String(externalId) },
+  relationships: { item: { data: { type: kind, id: String(itemId) } } },
+});
+const itemDoc = (kind: string, ids: Array<[number, number, number]>) => {
+  const mappings: any[] = [];
+  const data = ids.map(([kitsu, al, mal]) => {
+    mappings.push({ id: `a${kitsu}`, type: 'mappings', attributes: { externalSite: `anilist/${kind}`, externalId: String(al) } });
+    mappings.push({ id: `m${kitsu}`, type: 'mappings', attributes: { externalSite: `myanimelist/${kind}`, externalId: String(mal) } });
+    return { id: String(kitsu), type: kind, attributes: {}, relationships: { mappings: { data: [{ type: 'mappings', id: `a${kitsu}` }, { type: 'mappings', id: `m${kitsu}` }] } } };
+  });
+  return { data, included: mappings };
+};
+
+test('idsBatch resolves MAL ids in bulk (2 requests for 3 titles), keeps input order, null for unknown', async () => {
+  serve((u) => {
+    if (u.pathname.endsWith('/mappings')) {
+      expect(u.searchParams.get('filter[externalSite]')).toBe('myanimelist/manga');
+      expect(u.searchParams.get('filter[externalId]')).toBe('13,999,2');
+      return { data: [mappingRow('1', 'myanimelist/manga', 2, 8), mappingRow('2', 'myanimelist/manga', 13, 38)] };
+    }
+    expect(u.pathname).toBe('/api/edge/manga');
+    expect(u.searchParams.get('filter[id]')).toBe('38,8');
+    expect(u.searchParams.get('include')).toBe('mappings');
+    return itemDoc('manga', [[8, 30002, 2], [38, 30013, 13]]);
+  });
+  const out = await kitsuProvider.idsBatch!('MANGA', [{ malId: 13 }, { malId: 999 }, { malId: 2 }]);
+  expect(urls).toHaveLength(2);
+  expect(out).toEqual([
+    { anilistId: 30013, malId: 13, kitsuId: 38 },
+    null,
+    { anilistId: 30002, malId: 2, kitsuId: 8 },
+  ]);
+});
+
+test('idsBatch handles AniList-only and kitsuId-only refs and chunks 20 per request', async () => {
+  const refs = Array.from({ length: 25 }, (_, i) => ({ anilistId: 1000 + i }));
+  serve((u) => {
+    if (u.pathname.endsWith('/mappings')) {
+      expect(u.searchParams.get('filter[externalSite]')).toBe('anilist/anime');
+      const ext = u.searchParams.get('filter[externalId]')!.split(',').map(Number);
+      expect(ext.length).toBeLessThanOrEqual(20);
+      return { data: ext.map((e) => mappingRow(String(e), 'anilist/anime', e, e - 500, 'anime')) };
+    }
+    const ids = u.searchParams.get('filter[id]')!.split(',').map(Number);
+    expect(ids.length).toBeLessThanOrEqual(20);
+    return itemDoc('anime', ids.map((k) => [k, k + 500, k + 9000] as [number, number, number]));
+  });
+  const out = await kitsuProvider.idsBatch!('ANIME', [...refs, { kitsuId: 7 }]);
+  expect(out).toHaveLength(26);
+  expect(out[0]).toEqual({ anilistId: 1000, malId: 9500, kitsuId: 500 });
+  expect(out[24]).toEqual({ anilistId: 1024, malId: 9524, kitsuId: 524 });
+  expect(out[25]).toEqual({ anilistId: 507, malId: 9007, kitsuId: 7 });
+  expect(urls.filter((u) => u.pathname.endsWith('/mappings'))).toHaveLength(2);
+  expect(urls.filter((u) => u.pathname.endsWith('/anime'))).toHaveLength(2);
 });

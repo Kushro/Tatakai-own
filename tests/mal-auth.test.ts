@@ -224,3 +224,19 @@ test('form bodies are url-encoded and the bearer token only goes to api.myanimel
   expect(calls[0].body).toBe('status=watching&num_watched_episodes=3');
   expect(calls[0].headers.Authorization).toBe('Bearer tok');
 });
+
+test('list paging never follows a next link off api.myanimelist.net (the bearer token would go along)', async () => {
+  const { fetchMALAnimeList } = await import('../src/lib/externalIntegrations');
+  serve((u) => {
+    if (u.includes('/animelist')) return Response.json({ data: [{ node: { id: 1 } }], paging: { next: 'https://evil.example/steal?x=1' } });
+    return Response.json({});
+  });
+  const rows = await fetchMALAnimeList('tok');
+  expect(rows).toHaveLength(1);
+  expect(calls.map((c) => new URL(c.url).hostname)).toEqual(['api.myanimelist.net']);
+
+  calls = [];
+  let page = 0;
+  serve(() => Response.json({ data: [{ node: { id: ++page } }], paging: page === 1 ? { next: 'https://api.myanimelist.net/v2/users/@me/animelist?offset=1' } : {} }));
+  expect(await fetchMALAnimeList('tok')).toHaveLength(2);
+});
