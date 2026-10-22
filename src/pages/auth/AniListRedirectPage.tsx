@@ -1,64 +1,47 @@
-
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useSettingsModal } from '@/contexts/SettingsModalContext';
 import { exchangeAniListCode } from '@/lib/externalIntegrations';
-import { buildDesktopDeepLink, isNativeOAuthApp, isDesktopOAuthState } from '@/lib/desktopOAuth';
+import { parseAniListCallback } from '@/lib/anilist/auth';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
-import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 
+/**
+ * AniList implicit-grant callback. The app is reached through the
+ * `tatakai://integration/anilist/redirect#access_token=…` deep link, so the token
+ * is in the URL FRAGMENT (`location.hash`), never in the query string.
+ */
 export default function AniListRedirectPage() {
     const { t } = useTranslation();
-    const [searchParams] = useSearchParams();
+    const location = useLocation();
     const navigate = useNavigate();
     const { openSettings } = useSettingsModal();
     const { user, isLoading: authLoading, refreshProfile } = useAuth();
-    const [status, setStatus] = useState<'loading' | 'forwarding' | 'success' | 'error'>('loading');
+    const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [error, setError] = useState<string | null>(null);
 
     const hasRun = useRef(false);
 
-    // `tatakai://` handoff for desktop-initiated flows. Only used when this page
-    // loads in the system browser (not the desktop app itself).
-    const desktopDeepLink = useMemo(() => {
-        const qs = searchParams.toString();
-        return buildDesktopDeepLink(`/integration/anilist/redirect${qs ? `?${qs}` : ''}`);
-    }, [searchParams]);
-
     useEffect(() => {
-        // Desktop bridge: this callback was initiated from the desktop app (the
-        // provider echoed our `state` marker). The code belongs to the desktop
-        // session, so forward it to the app instead of consuming it here with
-        // the browser's session. Must run before any login check — the system
-        // browser may not be logged into Tatakai at all.
-        const stateParam = searchParams.get('state');
-        if (stateParam && isDesktopOAuthState(stateParam) && !isNativeOAuthApp()) {
-            hasRun.current = true;
-            setStatus('forwarding');
-            window.location.href = desktopDeepLink;
-            return;
-        }
-
         // Wait until auth context has finished resolving before doing anything
-        if (authLoading) return;
+        if (authLoading || hasRun.current) return;
 
-        if (hasRun.current) return;
+        const fragment = location.hash || location.search;
+        const callback = parseAniListCallback(fragment);
 
-        const code = searchParams.get('code');
-        const errorParam = searchParams.get('error');
-
-        if (errorParam) {
+        if (callback?.kind === 'error') {
             hasRun.current = true;
+            const message = callback.description || callback.error;
             setStatus('error');
-            setError(errorParam);
-            toast.error(t('auth.anilistError', { error: errorParam }));
+            setError(message);
+            toast.error(t('auth.anilistError', { error: message }));
             return;
         }
 
-        if (!code) {
+        if (!callback) {
             hasRun.current = true;
             setStatus('error');
             setError(t('auth.noAuthCode'));
@@ -72,48 +55,36 @@ export default function AniListRedirectPage() {
             return;
         }
 
+        hasRun.current = true;
+        // Drop the token from the address bar / history right away.
+        try { window.history.replaceState(window.history.state, '', location.pathname); } catch { /* ignore */ }
+
         const completeAuth = async () => {
-            hasRun.current = true;
             try {
-                await exchangeAniListCode(code, user.id);
+                await exchangeAniListCode(fragment);
                 await refreshProfile();
                 setStatus('success');
                 toast.success(t('auth.anilistLinked'));
                 setTimeout(() => { navigate('/', { replace: true }); openSettings('integrations'); }, 2000);
             } catch (err: any) {
-                console.error('AniList Exchange Error:', err);
+                console.error('AniList login error:', err);
                 setStatus('error');
                 setError(err.message || t('auth.exchangeCodeFailed'));
                 toast.error(t('auth.anilistLinkFailed'));
             }
         };
 
-        completeAuth();
-    }, [searchParams, navigate, user, authLoading, refreshProfile, desktopDeepLink]);
+        void completeAuth();
+    }, [location.hash, location.search, location.pathname, navigate, user, authLoading, refreshProfile, openSettings, t]);
 
     return (
         <div className="min-h-screen bg-background flex items-center justify-center p-4">
             <GlassPanel className="max-w-md w-full p-8 text-center space-y-6">
-                {(status === 'loading' || status === 'forwarding') && (
+                {status === 'loading' && (
                     <>
                         <Loader2 className="w-12 h-12 text-[#02A9FF] animate-spin mx-auto" />
-                        <h1 className="text-2xl font-bold">
-                            {status === 'forwarding' ? t('migration.returning') : t('auth.linkingAnilist')}
-                        </h1>
-                        <p className="text-muted-foreground">
-                            {status === 'forwarding'
-                                ? t('migration.loginApproved')
-                                : t('auth.linkingWait')}
-                        </p>
-                        {status === 'forwarding' && (
-                            <a
-                                href={desktopDeepLink}
-                                className="inline-flex items-center gap-2 mt-2 px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-                            >
-                                <ExternalLink className="w-4 h-4" />
-                                {t('migration.openApp')}
-                            </a>
-                        )}
+                        <h1 className="text-2xl font-bold">{t('auth.linkingAnilist')}</h1>
+                        <p className="text-muted-foreground">{t('auth.linkingWait')}</p>
                     </>
                 )}
 
