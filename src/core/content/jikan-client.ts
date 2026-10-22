@@ -2,7 +2,8 @@ import { selectPreferredTitle } from '@/lib/titleLanguage';
 import { externalApiGet } from "@/lib/api/api-client";
 import { AnimeCard } from "@/types/anime";
 
-const JIKAN_API_URL = "https://api.jikan.moe/v4";
+// Jikan's public API shut down on 2026-10-01; Tenrai serves the same v4 schema.
+const JIKAN_API_URL = "https://api.tenrai.org/v1";
 
 export interface JikanAnime {
   mal_id: number;

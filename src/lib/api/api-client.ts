@@ -163,7 +163,7 @@ export async function fetchJikanCover(malId?: number | null, fallbackPoster = ""
   if (!malId) return fallbackPoster;
 
   try {
-    const res = await fetch(`https://api.jikan.moe/v4/anime/${malId}`);
+    const res = await fetch(`https://api.tenrai.org/v1/anime/${malId}`);
     if (!res.ok) return fallbackPoster;
     const json = await res.json();
     const imageUrl =

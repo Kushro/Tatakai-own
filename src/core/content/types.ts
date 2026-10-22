@@ -78,6 +78,7 @@ export interface TatakaiMedia {
   // IDs
   anilistId: number;
   malId?: number;
+  kitsuId?: number;
   tatakaiId?: string;
   mapping?: unknown;
 
@@ -146,7 +147,7 @@ export interface TatakaiMedia {
   rankings?: MediaRanking[];
 
   // Tatakai meta
-  source_api: 'anilist' | 'jikan' | 'tatakai';
+  source_api: 'anilist' | 'jikan' | 'tatakai' | 'tenrai' | 'kitsu' | 'shikimori' | 'mal';
   fetchedAt: number;
 }
 
