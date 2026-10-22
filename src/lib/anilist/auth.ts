@@ -14,8 +14,9 @@
  * There is no refresh token (the token lasts about a year). On a 401 the stored
  * credentials are cleared and the user must re-link.
  *
- * The token is stored in `profiles.anilist_access_token` (+ expiry and user id)
- * and only ever sent to graphql.anilist.co.
+ * The token is stored in the owner-only `user_integration_tokens` table (never in
+ * the publicly readable `profiles`); only the AniList user id goes on `profiles`.
+ * It is only ever sent to graphql.anilist.co.
  */
 
 import { anilistGql } from '@/lib/anilist/client';
@@ -26,7 +27,7 @@ export const ANILIST_DEFAULT_REDIRECT_URI = 'tatakai://integration/anilist/redir
 
 const STARTED_AT_KEY = 'anilist_oauth_started_at';
 /** A callback is only accepted this long after the login was started here. */
-const PENDING_TTL_MS = 15 * 60 * 1000;
+const PENDING_TTL_MS = 5 * 60 * 1000;
 
 const env = (name: string): string => {
   try {
@@ -89,7 +90,6 @@ export interface AniListTokenPatch {
   anilist_access_token: string | null;
   anilist_token_expires_at: string | null;
   anilist_user_id: string | null;
-  anilist_refresh_token: null;
 }
 
 export interface AniListAuthDeps {
@@ -100,11 +100,9 @@ export interface AniListAuthDeps {
 
 const defaultDeps: AniListAuthDeps = {
   async saveProfile(patch) {
-    const { supabase } = await import('@/integrations/supabase/client');
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) throw new Error('Sign in to Tatakai before linking AniList.');
-    const { error } = await supabase.from('profiles').update(patch).eq('user_id', session.user.id);
-    if (error) throw error;
+    // Token + expiry -> user_integration_tokens (owner only); user id -> profiles.
+    const { saveIntegrationPatch } = await import('@/lib/integrationTokens');
+    await saveIntegrationPatch(patch);
   },
   now: () => Date.now(),
 };
@@ -188,15 +186,28 @@ export function toAniListFailure(err: unknown): Error {
 
 export interface AniListLoginResult { userId: number; username: string; expiresAt: string | null }
 
+/** A verified token waiting for the user's "Link AniList account <name>?" confirmation. */
+export interface PendingAniListLogin {
+  accessToken: string;
+  username: string;
+  userId: number;
+  expiresAt: string | null;
+}
+
 /**
- * Finish the implicit grant: validate the in-flight marker, look up the viewer
- * with the new token and persist token + expiry + AniList user id.
+ * Step 1 of the implicit grant. Validates the callback against the in-flight
+ * marker, which is consumed on the FIRST callback whatever its outcome (a replayed
+ * or forged callback therefore finds no marker), then looks up the viewer with
+ * the token. Nothing is stored yet: the UI shows the account name and the user
+ * confirms with `confirmAniListLogin`.
  */
-export async function completeAniListLogin(callbackInput: string): Promise<AniListLoginResult> {
+export async function prepareAniListLogin(callbackInput: string): Promise<PendingAniListLogin> {
+  const pending = isAniListLoginPending();
+  clearAniListPendingMarker();
   const cb = parseAniListCallback(callbackInput);
   if (!cb) throw new Error('AniList did not return a login token.');
   if (cb.kind === 'error') throw new Error(`AniList: ${cb.description || cb.error}`);
-  if (!isAniListLoginPending()) {
+  if (!pending) {
     throw new Error('This AniList login was not started from this app. Start it again from Settings → Integrations.');
   }
   let viewer: ViewerResult['Viewer'];
@@ -208,14 +219,22 @@ export async function completeAniListLogin(callbackInput: string): Promise<AniLi
   }
   if (!viewer?.id) throw new Error('AniList did not return your profile.');
   const expiresAt = cb.expiresIn ? new Date(deps.now() + cb.expiresIn * 1000).toISOString() : null;
+  return { accessToken: cb.accessToken, username: viewer.name, userId: viewer.id, expiresAt };
+}
+
+/** Step 2: the user confirmed; persist token + expiry (private table) and the AniList user id (profile). */
+export async function confirmAniListLogin(login: PendingAniListLogin): Promise<AniListLoginResult> {
   await deps.saveProfile({
-    anilist_access_token: cb.accessToken,
-    anilist_token_expires_at: expiresAt,
-    anilist_user_id: String(viewer.id),
-    anilist_refresh_token: null,
+    anilist_access_token: login.accessToken,
+    anilist_token_expires_at: login.expiresAt,
+    anilist_user_id: String(login.userId),
   });
-  clearAniListPendingMarker();
-  return { userId: viewer.id, username: viewer.name, expiresAt };
+  return { userId: login.userId, username: login.username, expiresAt: login.expiresAt };
+}
+
+/** Prepare + confirm in one go (for callers that already asked the user). */
+export async function completeAniListLogin(callbackInput: string): Promise<AniListLoginResult> {
+  return confirmAniListLogin(await prepareAniListLogin(callbackInput));
 }
 
 export function isAniListTokenExpired(expiresAt: string | null | undefined, now = Date.now()): boolean {
@@ -230,7 +249,6 @@ export async function clearAniListCredentials(): Promise<void> {
     anilist_access_token: null,
     anilist_token_expires_at: null,
     anilist_user_id: null,
-    anilist_refresh_token: null,
   });
 }
 
@@ -250,4 +268,12 @@ export async function withAniListToken<T>(token: string, run: (token: string) =>
     }
     throw failure;
   }
+}
+
+/** The user's stored AniList access token (own row only), or null when not linked/expired. */
+export async function getAniListAccessToken(): Promise<string | null> {
+  const { loadIntegrationTokens } = await import('@/lib/integrationTokens');
+  const row = await loadIntegrationTokens();
+  if (!row?.anilist_access_token || isAniListTokenExpired(row.anilist_token_expires_at, deps.now())) return null;
+  return row.anilist_access_token;
 }
