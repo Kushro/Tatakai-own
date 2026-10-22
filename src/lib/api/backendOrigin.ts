@@ -54,5 +54,9 @@ export function resolveApiV3Base(): string {
   return origin ? `${origin}/api/v3` : "/api/v3";
 }
 
-/** Absolute URL of the AniList GraphQL proxy (`${apiV3}/anilist/graphql`). */
-export const ANILIST_GRAPHQL_ENDPOINT = `${resolveApiV3Base()}/anilist/graphql`;
+/**
+ * AniList GraphQL endpoint. This fork calls AniList directly instead of the
+ * TatakaiAPI proxy; prefer `anilistGql` from `@/lib/anilist/client`, which also
+ * paces requests and handles 429s.
+ */
+export { ANILIST_URL as ANILIST_GRAPHQL_ENDPOINT } from "@/lib/anilist/client";

@@ -1,12 +1,6 @@
 /**
- * anilist.ts - Thin AniList GraphQL client.
- *
- * Every AniList call is routed through the TatakaiAPI proxy
- * (`/api/v3/anilist/graphql`) rather than hitting https://graphql.anilist.co
- * directly — the proxy serves the in-process mirror first (falling back to real
- * AniList), holds rate limits server-side, and fixes the CORS-on-429 failure of
- * direct browser calls. The proxy is request/response compatible: it accepts the
- * same `{ query, variables }` body and returns the same `{ data, errors }` shape.
+ * anilist.ts - Genre helpers on top of the direct AniList client
+ * (`@/lib/anilist/client`), which paces requests and retries 429s.
  *
  * Genre notes:
  *   - `GenreCollection` is a plain `[String]` list. `GenreCollection { genre }`
@@ -17,9 +11,9 @@
  *     `fetchAniListGenres` drops it unless `includeAdult` is set.
  */
 
-import { ANILIST_GRAPHQL_ENDPOINT } from '@/lib/api/backendOrigin';
+import { ANILIST_URL, anilistGql } from '@/lib/anilist/client';
 
-export const ANILIST_GRAPHQL_URL = ANILIST_GRAPHQL_ENDPOINT;
+export const ANILIST_GRAPHQL_URL = ANILIST_URL;
 
 /** The mature genre AniList exposes; excluded from the genre list by default. */
 export const ADULT_GENRE = 'Hentai';
@@ -32,24 +26,7 @@ export interface AniListQueryOptions {
 }
 
 async function gql<TData>(query: string, options: AniListQueryOptions = {}): Promise<TData> {
-  const { variables, signal } = options;
-
-  const res = await fetch(ANILIST_GRAPHQL_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify(variables ? { query, variables } : { query }),
-    signal,
-  });
-
-  if (!res.ok) {
-    throw new Error(`AniList ${res.status}`);
-  }
-
-  const json = await res.json();
-  if (json.errors?.length) {
-    throw new Error(json.errors[0].message || 'AniList GraphQL error');
-  }
-  return json.data as TData;
+  return anilistGql<TData>(query, options.variables, { signal: options.signal });
 }
 
 /** 12h: AniList only adds a genre when it promotes a tag, which is rare. */
