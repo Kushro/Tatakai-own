@@ -1,45 +1,31 @@
-import uiI18n from '@/lib/uiI18n';
-import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 /**
  * src/hooks/user/useIntegrationSync.ts
  *
- * A unified hook that exposes sync state and actions for both
- * MyAnimeList and AniList integrations.
+ * Sync state and actions for the MyAnimeList and AniList integrations.
  *
- * Design goals:
- *  - Surfaces last-sync timestamp from localStorage (no DB needed)
- *  - Calls the TatakaiAPI /sync/preview endpoint to build an approval diff
- *  - Exposes an apply() function that calls /sync/apply with user-confirmed items
- *  - Designed to support the manual approval flow (always queue for approval)
+ * Everything runs on the device (see `@/lib/listSync`): the preview reads the
+ * remote list straight from AniList / MAL with the user's own token and diffs it
+ * against the local Supabase lists; `applySync` writes the user-approved items.
+ * No TatakaiAPI `/sync/*` call is made and the Supabase session never leaves
+ * Supabase.
+ *
+ *  - Last-sync timestamp lives in localStorage (no DB needed)
+ *  - Sync is always previewed first and applied only after user approval
  */
 
 import { useState, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { TATAKAI_API_URL } from '@/lib/api/api-client';
+import {
+  applySync as applyListSync,
+  previewAllSync,
+  previewSync,
+  pushSingleItem,
+  type Integration,
+  type MediaType,
+  type SyncProposalItem,
+} from '@/lib/listSync';
 
-export type Integration = 'mal' | 'anilist' | 'mangabaka';
-export type MediaType = 'anime' | 'manga' | 'novel';
-
-export interface SyncProposalItem {
-  id: string;
-  mediaId: string | number;
-  localMediaIds?: string[];
-  malId?: number | null;
-  anilistId?: number | null;
-  mangabakaId?: number | null;
-  title: string;
-  poster: string | null;
-  type: MediaType;
-  direction: 'import' | 'export' | 'conflict';
-  localStatus?: string | null;
-  localProgress?: number | null;
-  remoteStatus?: string | null;
-  remoteProgress?: number | null;
-  localVolumes?: number | null;
-  remoteVolumes?: number | null;
-  actionText: string;
-}
+export type { Integration, MediaType, SyncProposalItem };
 
 export interface SyncState {
   isLoadingPreview: boolean;
@@ -52,16 +38,9 @@ export interface SyncState {
 const LAST_SYNC_KEY = (integration: string, mediaType: string) =>
   `tatakai:sync:lastAt:${integration}:${mediaType}`;
 
-/** Build Authorization header from the current Supabase session. */
-async function getBearerHeader(): Promise<Record<string, string>> {
-  const { data: { session } } = await supabase.auth.getSession();
-  const token = session?.access_token;
-  if (!token) throw new Error(uiI18n.t('app.not_authenticated_0c91acba'));
-  return { Authorization: `Bearer ${token}` };
-}
+const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export function useIntegrationSync() {
-  useUiTranslation();
   const queryClient = useQueryClient();
   const [state, setState] = useState<SyncState>({
     isLoadingPreview: false,
@@ -80,68 +59,29 @@ export function useIntegrationSync() {
     }
   }, []);
 
-  /**
-   * Call /sync/preview and return the diff.
-   * Results are stored in state.previewItems for the approval modal to consume.
-   */
-  const loadPreview = useCallback(async (
-    integration: Integration,
-    mediaType: MediaType,
-  ): Promise<SyncProposalItem[]> => {
+  const runPreview = useCallback(async (load: () => Promise<SyncProposalItem[]>): Promise<SyncProposalItem[]> => {
     setState(s => ({ ...s, isLoadingPreview: true, error: null, previewItems: [] }));
     try {
-      const headers = await getBearerHeader();
-      const res = await fetch(`${TATAKAI_API_URL}/sync/preview`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integration, mediaType }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ get message() { return uiI18n.t('app.preview_failed_d7f2768c'); } }));
-        throw new Error(err.message || err.error || 'Preview failed');
-      }
-
-      const json = await res.json();
-      const items: SyncProposalItem[] = json.data ?? [];
+      const items = await load();
       setState(s => ({ ...s, isLoadingPreview: false, previewItems: items }));
       return items;
-    } catch (err: any) {
-      setState(s => ({ ...s, isLoadingPreview: false, error: err.message }));
+    } catch (err) {
+      setState(s => ({ ...s, isLoadingPreview: false, error: messageOf(err) }));
       return [];
     }
   }, []);
 
-  /**
-   * Unified preview: both anime AND manga for one integration in a single modal.
-   * Backs the single "Sync" button.
-   */
-  const loadUnifiedPreview = useCallback(async (
-    integration: Integration,
-  ): Promise<SyncProposalItem[]> => {
-    setState(s => ({ ...s, isLoadingPreview: true, error: null, previewItems: [] }));
-    try {
-      const headers = await getBearerHeader();
-      const res = await fetch(`${TATAKAI_API_URL}/sync/preview`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integration, mediaType: 'all' }),
-      });
+  /** Diff for one media type. Results land in state.previewItems for the approval modal. */
+  const loadPreview = useCallback(
+    (integration: Integration, mediaType: MediaType) => runPreview(() => previewSync(integration, mediaType)),
+    [runPreview],
+  );
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ get message() { return uiI18n.t('app.preview_failed_d7f2768c'); } }));
-        throw new Error(err.message || err.error || 'Preview failed');
-      }
-
-      const json = await res.json();
-      const items: SyncProposalItem[] = json.data ?? [];
-      setState(s => ({ ...s, isLoadingPreview: false, previewItems: items }));
-      return items;
-    } catch (err: any) {
-      setState(s => ({ ...s, isLoadingPreview: false, error: err.message }));
-      return [];
-    }
-  }, []);
+  /** Unified preview: anime, manga and novels for one integration in a single modal. */
+  const loadUnifiedPreview = useCallback(
+    (integration: Integration) => runPreview(() => previewAllSync(integration)),
+    [runPreview],
+  );
 
   /**
    * Apply a set of user-confirmed sync actions.
@@ -153,45 +93,38 @@ export function useIntegrationSync() {
   ): Promise<{ success: boolean; error?: string }> => {
     setState(s => ({ ...s, isApplying: true, error: null }));
     try {
-      const headers = await getBearerHeader();
-      const res = await fetch(`${TATAKAI_API_URL}/sync/apply`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integration, actions }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ get message() { return uiI18n.t('app.apply_failed_94b61451'); } }));
-        throw new Error(err.message || err.error || 'Apply failed');
-      }
-
-      // Record last sync time locally
+      const result = await applyListSync(integration, actions);
       await queryClient.invalidateQueries({ predicate: query => /watch|history|readlist|stats/i.test(String(query.queryKey[0])) });
-      const mediaTypes = [...new Set(actions.map(a => a.type))] as MediaType[];
-      for (const mt of mediaTypes) {
-        try {
-          localStorage.setItem(LAST_SYNC_KEY(integration, mt), new Date().toISOString());
-        } catch {
-          // storage error, ignore
+      if (result.applied > 0) {
+        const mediaTypes = [...new Set(actions.map(a => a.type))] as MediaType[];
+        for (const mt of mediaTypes) {
+          try {
+            localStorage.setItem(LAST_SYNC_KEY(integration, mt), new Date().toISOString());
+          } catch {
+            // storage error, ignore
+          }
         }
       }
-
+      const failed = result.failed.length;
+      const error = failed ? `${failed} of ${actions.length} items could not be synced: ${result.failed[0].error}` : undefined;
       setState(s => ({
         ...s,
         isApplying: false,
         previewItems: [],
-        lastSyncedAt: new Date().toISOString(),
+        lastSyncedAt: result.applied > 0 ? new Date().toISOString() : s.lastSyncedAt,
+        error: error ?? null,
       }));
-      return { success: true };
-    } catch (err: any) {
-      setState(s => ({ ...s, isApplying: false, error: err.message }));
-      return { success: false, error: err.message };
+      return error ? { success: false, error } : { success: true };
+    } catch (err) {
+      const error = messageOf(err);
+      setState(s => ({ ...s, isApplying: false, error }));
+      return { success: false, error };
     }
   }, [queryClient]);
 
   /**
-   * Sends a single-item realtime sync (e.g. after episode completion).
-   * This is the "smart auto-sync" path — bypasses the preview modal.
+   * Sends a single-item realtime sync (e.g. after episode completion) to every
+   * linked tracker that knows the title. Bypasses the preview modal.
    */
   const singleItemSync = useCallback(async (params: {
     type: 'anime' | 'manga';
@@ -202,12 +135,7 @@ export function useIntegrationSync() {
     score?: number;
   }): Promise<void> => {
     try {
-      const headers = await getBearerHeader();
-      await fetch(`${TATAKAI_API_URL}/sync/single-sync`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(params),
-      });
+      await pushSingleItem(params);
     } catch (err) {
       console.warn('[useIntegrationSync] Single item sync failed:', err);
     }

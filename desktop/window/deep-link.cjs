@@ -52,9 +52,20 @@ function handleDeepLink(url, getMainWindow) {
 
     // Security: Sanitize standard routes
     // Only allow alphanumeric, slashes, dashes, underscores, dots, and question marks (for queries)
-    const sanitizedRoute = '/' + rawRoute.replace(/[^a-zA-Z0-9\/\-_\.\?\=&]/g, '');
+    const hashAt = rawRoute.indexOf('#');
+    const beforeHash = hashAt >= 0 ? rawRoute.slice(0, hashAt) : rawRoute;
+    const sanitizedRoute = '/' + beforeHash.replace(/[^a-zA-Z0-9\/\-_\.\?\=&]/g, '');
 
-    mainWindow.webContents.send('navigate', sanitizedRoute);
+    // OAuth callbacks need their URL fragment: the AniList implicit grant returns
+    // the token as tatakai://integration/anilist/redirect#access_token=…. Keep it
+    // (strictly sanitized) for integration routes only.
+    let fragment = '';
+    if (hashAt >= 0 && /^\/integration\/[a-z0-9-]+\/redirect/i.test(sanitizedRoute)) {
+        const cleaned = rawRoute.slice(hashAt + 1).replace(/[^a-zA-Z0-9\-_.=&~%]/g, '');
+        if (cleaned) fragment = '#' + cleaned;
+    }
+
+    mainWindow.webContents.send('navigate', sanitizedRoute + fragment);
 }
 
 /**

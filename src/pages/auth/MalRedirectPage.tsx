@@ -1,43 +1,29 @@
-import uiI18n from '@/lib/uiI18n';
-import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
-
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { exchangeMalCode, clearMalPendingMarker, clearMalOAuthStorage, getMalAuthUrl, isMalLoginPendingFresh } from '@/lib/mal';
-import { buildDesktopDeepLink, isNativeOAuthApp, isDesktopOAuthState, getWebMalRedirectUri, buildDesktopOAuthState, openOAuthInBrowser } from '@/lib/desktopOAuth';
+import { exchangeMalCode, clearMalPendingMarker, clearMalOAuthStorage, getMalAuthUrl } from '@/lib/mal';
+import { isNativeOAuthApp, openOAuthInBrowser } from '@/lib/desktopOAuth';
+import { readMalRedirectUri } from '@/lib/mal/auth';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
-import { Loader2, CheckCircle2, AlertCircle, ExternalLink } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 
-/** The redirect URI this browser sent at authorize time (persisted by getMalAuthUrl). */
-function safeReadMalRedirect(): string | null {
-    try {
-        return localStorage.getItem('mal_redirect_uri');
-    } catch {
-        return null;
-    }
-}
-
+/**
+ * MAL PKCE callback. Reached through the `tatakai://integration/mal/redirect?code=…&state=…`
+ * deep link; the code is exchanged client side with the verifier stored when the
+ * login started (no backend, no client secret).
+ */
 export default function MalRedirectPage() {
-  useUiTranslation();
     const { t } = useTranslation();
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const { refreshProfile, isLoading: authLoading, user } = useAuth();
-    const [status, setStatus] = useState<'loading' | 'forwarding' | 'success' | 'error'>('loading');
+    const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [error, setError] = useState<string | null>(null);
     const [isRetrying, setIsRetrying] = useState(false);
 
     const hasRun = useRef(false);
-
-    // `tatakai://` handoff for desktop-initiated flows. Only used when this page
-    // loads in the system browser (not the desktop app itself).
-    const desktopDeepLink = useMemo(() => {
-        const qs = searchParams.toString();
-        return buildDesktopDeepLink(`/integration/mal/redirect${qs ? `?${qs}` : ''}`);
-    }, [searchParams]);
 
     const handleReconnect = async () => {
         if (isRetrying) return;
@@ -47,59 +33,35 @@ export default function MalRedirectPage() {
         }
         setIsRetrying(true);
         try {
-            // The old flow is dead (rejected/stale codes can't be retried), so
-            // drop its verifier/state and mint a brand-new one.
+            // The old flow is dead (codes are single use), so mint a fresh verifier.
             clearMalOAuthStorage();
-            clearMalPendingMarker();
-            if (isNativeOAuthApp()) {
-                const url = getMalAuthUrl(getWebMalRedirectUri(), buildDesktopOAuthState());
-                if (await openOAuthInBrowser(url)) {
-                    toast.info(uiI18n.t('app.complete_the_myanimelist_login_in_your_browser_t_c231915a'));
-                    return;
-                }
-                window.location.href = url;
+            const url = getMalAuthUrl();
+            if (isNativeOAuthApp() && (await openOAuthInBrowser(url))) {
+                toast.info('Complete the MyAnimeList login in your browser.');
                 return;
             }
-            window.location.href = getMalAuthUrl();
+            window.location.href = url;
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : uiI18n.t('app.could_not_restart_myanimelist_login_88933b79'));
+            toast.error(e instanceof Error ? e.message : 'Could not restart MyAnimeList login.');
+        } finally {
             setIsRetrying(false);
         }
     };
 
     useEffect(() => {
-        if (hasRun.current) return;
-
-        // Desktop bridge: this callback was initiated from the desktop app (the
-        // provider echoed our `state` marker). The code + PKCE verifier belong
-        // to the desktop session, so forward to the app instead of consuming
-        // the code here with the browser's session.
-        const stateParam = searchParams.get('state');
-        if (stateParam && isDesktopOAuthState(stateParam) && !isNativeOAuthApp()) {
-            hasRun.current = true;
-            setStatus('forwarding');
-            window.location.href = desktopDeepLink;
-            return;
-        }
-
-        if (authLoading) return;
-
+        if (hasRun.current || authLoading) return;
         hasRun.current = true;
+
         const code = searchParams.get('code');
+        const state = searchParams.get('state');
         const errorParam = searchParams.get('error');
 
         if (errorParam) {
-            setStatus('error');
-            // MAL answers `invalid_client` (often as a native HTTP-auth prompt
-            // upstream) when the authorize redirect_uri doesn't exactly match an
-            // entry in the MAL app settings. A comma/space-joined pair sent as
-            // one literal URL always fails — surface that, naming the URI this
-            // build actually sent. MAL supports MULTIPLE registered URLs (one
-            // per line) in the same app.
-            const sentRedirect = safeReadMalRedirect();
+            const sent = readMalRedirectUri();
             const hint = /invalid_client|redirect/i.test(errorParam)
-                ? `${errorParam} — the MAL app must list the sent URI (${sentRedirect || 'unknown'}) on its own line in App Redirect URL (multiple URLs go one per line, never comma-joined).`
+                ? `${errorParam} - the MAL app must list the redirect URL ${sent || 'tatakai://integration/mal/redirect'} exactly.`
                 : errorParam;
+            setStatus('error');
             setError(hint);
             toast.error(t('auth.malError', { error: errorParam }));
             return;
@@ -113,39 +75,22 @@ export default function MalRedirectPage() {
 
         const completeAuth = async () => {
             try {
-                if (!user) throw new Error(uiI18n.t('app.sign_in_to_tatakai_before_linking_myanimelist_08a172db'));
-                // Validate CSRF state BEFORE marking the single-use code as consumed:
-                // a failed check must not burn a code that was never exchanged.
-                const expectedState = localStorage.getItem('mal_oauth_state');
-                if (!stateParam) {
-                    throw new Error(uiI18n.t('app.myanimelist_did_not_return_a_login_session_missi_24618a3c'));
-                }
-                if (!expectedState) {
-                    throw new Error(uiI18n.t('app.this_browser_did_not_start_this_mal_login_no_log_59d513a9'));
-                }
-                if (stateParam !== expectedState) {
-                    // A second Connect click mints a fresh verifier/state and permanently
-                    // invalidates the code from the first tab (MAL answers invalid_grant),
-                    // so name that case instead of a generic "expired".
-                    if (isMalLoginPendingFresh()) {
-                        throw new Error(uiI18n.t('app.this_mal_login_link_is_stale_a_newer_login_was_s_3de519bb'));
-                    }
-                    throw new Error(uiI18n.t('app.this_mal_login_does_not_match_the_one_this_brows_e8c7a6d1'));
-                }
-                // Authorization codes are single-use: a reload, HMR remount, or
-                // double-run would otherwise burn the code twice and the retry
-                // dies with `invalid_grant`. One attempt per code per tab session.
+                if (!user) throw new Error('Sign in to Tatakai before linking MyAnimeList.');
+                // Authorization codes are single-use: a reload or double-run would burn
+                // the code twice and the retry dies with `invalid_grant`.
                 const usedKey = `mal_exchange_used:${code}`;
                 try {
                     if (sessionStorage.getItem(usedKey) === '1') {
-                        throw new Error(uiI18n.t('app.this_mal_login_link_was_already_used_authorizati_0ae9aa6e'));
+                        throw new Error('This MyAnimeList login link was already used. Start the login again.');
                     }
                     sessionStorage.setItem(usedKey, '1');
                 } catch (e) {
-                    if (e instanceof Error && e.message.startsWith('This MAL login link was already used')) throw e;
-                    /* storage unavailable — proceed without the guard */
+                    if (e instanceof Error && e.message.startsWith('This MyAnimeList login link')) throw e;
+                    /* storage unavailable: proceed without the guard */
                 }
-                await exchangeMalCode(code);
+                // Drop the code from the address bar / history.
+                try { window.history.replaceState(window.history.state, '', window.location.pathname); } catch { /* ignore */ }
+                await exchangeMalCode(code, state);
                 await refreshProfile();
                 setStatus('success');
                 toast.success(t('auth.malLinked'));
@@ -153,54 +98,27 @@ export default function MalRedirectPage() {
             } catch (err: any) {
                 console.error('MAL Exchange Error:', err);
                 setStatus('error');
-                // The flow is dead (rejected codes can't be retried), so release
-                // the in-flight marker and allow an immediate fresh login —
-                // unless a NEWER flow is pending (stored state differs from this
-                // callback's), which must keep its marker.
-                try {
-                    const storedState = localStorage.getItem('mal_oauth_state');
-                    if (!storedState || storedState === stateParam) clearMalPendingMarker();
-                } catch { /* ignore */ }
+                clearMalPendingMarker();
                 const raw = err.message || t('auth.exchangeCodeFailed');
-                // Token-exchange 400s with `invalid_client`/`redirect_uri` mean the
-                // code was issued for a different redirect_uri than the exchange
-                // sends (or the MAL app registration mismatches) — tell the user
-                // exactly what to check instead of leaving them retrying login.
-                const sentRedirect = safeReadMalRedirect();
-                const hinted = /invalid_client|redirect_uri|redirect/i.test(raw)
-                    ? `${raw} — in the MAL app settings, list the sent URI (${sentRedirect || 'unknown'}) on its own line in App Redirect URL (one URL per line; canonical prod: https://tatakai.me/api/mal/redirect), then reconnect from Settings → Integrations.`
-                    : raw;
-                setError(hinted);
+                const sent = readMalRedirectUri();
+                setError(/invalid_client|redirect_uri|redirect/i.test(raw)
+                    ? `${raw} - the MAL app's redirect URL must be exactly ${sent || 'tatakai://integration/mal/redirect'}.`
+                    : raw);
                 toast.error(t('auth.malLinkFailed'));
             }
         };
 
-        completeAuth();
-    }, [searchParams, navigate, desktopDeepLink, refreshProfile, authLoading, user]);
+        void completeAuth();
+    }, [searchParams, navigate, refreshProfile, authLoading, user, t]);
 
     return (
         <div className="min-h-screen bg-background flex items-center justify-center p-4">
             <GlassPanel className="max-w-md w-full p-8 text-center space-y-6">
-                {(status === 'loading' || status === 'forwarding') && (
+                {status === 'loading' && (
                     <>
                         <Loader2 className="w-12 h-12 text-primary animate-spin mx-auto" />
-                        <h1 className="text-2xl font-bold">
-                            {status === 'forwarding' ? t('migration.returning') : t('auth.linkingMal')}
-                        </h1>
-                        <p className="text-muted-foreground">
-                            {status === 'forwarding'
-                                ? t('migration.loginApproved')
-                                : t('auth.linkingWait')}
-                        </p>
-                        {status === 'forwarding' && (
-                            <a
-                                href={desktopDeepLink}
-                                className="inline-flex items-center gap-2 mt-2 px-6 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
-                            >
-                                <ExternalLink className="w-4 h-4" />
-                                {t('migration.openApp')}
-                            </a>
-                        )}
+                        <h1 className="text-2xl font-bold">{t('auth.linkingMal')}</h1>
+                        <p className="text-muted-foreground">{t('auth.linkingWait')}</p>
                     </>
                 )}
 
