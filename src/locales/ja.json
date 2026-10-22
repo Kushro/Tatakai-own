@@ -6903,5 +6903,24 @@
     "manga": "この作品のチャプターを読み込むには、マンガ拡張機能をインストールしてください。",
     "novel": "チャプターを読み込んで読書を始めるには、小説拡張機能をインストールしてください。",
     "hub": "拡張機能ハブを開く"
+  },
+  "metadataSources": {
+    "title": "Metadata sources",
+    "description": "Choose where anime and manga information comes from. The first enabled source is tried first; if it fails, the next one takes over.",
+    "primary": "Primary",
+    "fallback": "Fallback",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "enable": "Enable {{name}}",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "reset": "Reset to default",
+    "resetDone": "Metadata sources reset to default order",
+    "statusOk": "OK",
+    "statusCooling": "Cooling down until {{time}}",
+    "statusCoolingError": "Cooling down until {{time}} - {{error}}",
+    "statusNotConfigured": "Not configured",
+    "statusIdle": "No problems reported",
+    "allDisabled": "All sources are disabled, so catalog data cannot load. Enable at least one."
   }
 }

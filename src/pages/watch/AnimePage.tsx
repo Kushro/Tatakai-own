@@ -12,7 +12,7 @@ import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 
 import { useMemo, useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { resolveApiV3Base } from "@/lib/api/backendOrigin";
+import { metadata } from "@/lib/metadata";
 import { anilistGql } from "@/lib/anilist/client";
 import { useAnimeInfo, useEpisodes, useNextEpisodeSchedule } from "@/hooks/api/useAnimeData";
 import { useAnimeSeasons } from "@/hooks/api/useAnimeSeasons";
@@ -205,10 +205,11 @@ export default function AnimePage() {
     queryKey: ["anime-mapping-debug", routeAnimeId],
     queryFn: async () => {
       if (!routeAnimeId) return null;
-      const res = await fetch(`${resolveApiV3Base()}/content/${encodeURIComponent(routeAnimeId)}`);
-      if (!res.ok) return null;
-      const json = await res.json();
-      return json?.data ?? null;
+      const anilistId = Number(routeAnimeId);
+      if (!Number.isFinite(anilistId) || anilistId <= 0) return null;
+      const { value } = await metadata.media('ANIME', { anilistId }).catch(() => ({ value: null }));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return value ? ({ id: value.anilistId, media: value } as any) : null;
     },
     enabled: !!routeAnimeId,
     staleTime: 60 * 1000,

@@ -16,7 +16,8 @@
  */
 
 import { extensionFetch, type ExtensionResponse } from '@/core/extensions/remote/transport';
-import { acquireSlot, adoptServerLimit, pauseHost } from '@/lib/net/hostLimiter';
+import { acquireSlot, adoptServerLimit, isHostPacingDisabled, pauseHost } from '@/lib/net/hostLimiter';
+import { isCapacitor } from '@/lib/platform/platform';
 
 export class PublicApiError extends Error {
   constructor(message: string, readonly status: number, readonly url: string, readonly body?: string) {
@@ -36,9 +37,10 @@ export interface PublicRequestInit {
 }
 
 function isNativeApp(): boolean {
+  if (isCapacitor()) return true;
+  // Electron: native HTTP is available when the preload exposes the IPC fetch.
   if (typeof window === 'undefined') return false;
-  const w = window as unknown as { electron?: { fetchExtensionResource?: unknown }; Capacitor?: { isNativePlatform?: () => boolean } };
-  return Boolean(w.electron?.fetchExtensionResource) || Boolean(w.Capacitor?.isNativePlatform?.());
+  return Boolean((window as unknown as { electron?: { fetchExtensionResource?: unknown } }).electron?.fetchExtensionResource);
 }
 
 async function browserFetch(url: string, init: PublicRequestInit): Promise<ExtensionResponse> {
@@ -74,7 +76,7 @@ function retryAfterMs(res: ExtensionResponse): number | null {
 }
 
 const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
-  const t = setTimeout(resolve, ms);
+  const t = setTimeout(resolve, isHostPacingDisabled() ? 0 : ms);
   signal?.addEventListener('abort', () => { clearTimeout(t); reject(signal.reason); }, { once: true });
 });
 

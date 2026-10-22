@@ -7,6 +7,7 @@ import { memo, Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CapacitorHttp } from '@capacitor/core';
 import { DownloadResumeSetting } from '@/components/settings/DownloadResumeSetting';
+import { MetadataSourcesPanel } from '@/components/settings/MetadataSourcesPanel';
 import {
   Bell,
   Code2,
@@ -546,6 +547,8 @@ export function MobileAppSettingsPanel(_props: { section?: string }) {
           />
         </div>
       </SettingsSection>
+
+      <MetadataSourcesPanel />
 
       <Suspense fallback={null}>
         <DebridSettingsPanel />

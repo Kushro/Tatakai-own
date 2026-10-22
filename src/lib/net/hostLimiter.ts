@@ -67,6 +67,7 @@ function waitFor(s: HostState, now: number): number {
  * away. Callers are served in FIFO order per host.
  */
 export function acquireSlot(host: string, signal?: AbortSignal): Promise<void> {
+  if (pacingDisabled) return Promise.resolve();
   const s = stateFor(host);
   const turn = s.chain.then(async () => {
     for (;;) {
@@ -101,4 +102,13 @@ export function adoptServerLimit(host: string, perMinute: number | null | undefi
 /** Test hook: forget all pacing state. */
 export function resetHostLimiter(): void {
   states.clear();
+}
+
+let pacingDisabled = false;
+/** Test hook: skip pacing entirely (unit tests with stubbed fetch). */
+export function setHostPacingDisabled(disabled: boolean): void {
+  pacingDisabled = disabled;
+}
+export function isHostPacingDisabled(): boolean {
+  return pacingDisabled;
 }

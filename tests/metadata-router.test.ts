@@ -86,6 +86,30 @@ test('empty results fall through; all-failed raises NoMetadataProviderError', as
   await expect(metadata.media('ANIME', { anilistId: 5 })).rejects.toBeInstanceOf(NoMetadataProviderError);
 });
 
+test('relations from MAL-keyed providers are re-keyed to AniList ids; unknown ones dropped', async () => {
+  rememberIds('ANIME', { anilistId: 1, malId: 10 });
+  rememberIds('ANIME', { anilistId: 2, malId: 20 });
+  globalThis.fetch = (async () => new Response('{}', { status: 404 })) as typeof fetch;
+  registerMetadataProviders([
+    fake('anilist', { media: async () => { throw new AniListError('API disabled', 403); } }),
+    fake('tenrai', {
+      media: async () => media(0, {
+        malId: 10, source_api: 'tenrai',
+        relations: [
+          { id: 20, relationType: 'SEQUEL', titleRomaji: 'S2', format: 'TV' },
+          { id: 999, relationType: 'SIDE_STORY', titleRomaji: 'Unknown', format: 'OVA' },
+        ],
+      }),
+    }),
+    fake('kitsu', {}), fake('shikimori', {}), fake('mal', {}), fake('anizip', {}),
+  ]);
+  setMetadataSources(DEFAULT_METADATA_SOURCES);
+  const r = await metadata.media('ANIME', { malId: 10 });
+  expect(r.provider).toBe('tenrai');
+  expect(r.value?.anilistId).toBe(1);
+  expect(r.value?.relations?.map((x) => [x.id, x.titleRomaji])).toEqual([[2, 'S2']]);
+});
+
 test('MAL-keyed results get AniList ids from ani.zip; unresolvable items are dropped', async () => {
   globalThis.fetch = (async (url: string) => {
     const u = String(url);

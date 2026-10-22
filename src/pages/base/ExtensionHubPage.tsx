@@ -323,18 +323,21 @@ export default function ExtensionHubPage() {
               `electron.openExternal`, so this opens the system browser on desktop
               and a new tab on the web with no branch of its own.
             */}
-            <Button asChild className="h-10 gap-2 rounded-full">
-              <a
-                href={EXTENSION_PORTAL_URL}
-                target="_blank"
-                rel="noreferrer noopener"
-                title={uiI18n.t('app.publish_an_extension_on_extension_tatakai_me_8c4ac9c4')}
-              >
-                <Upload className="h-4 w-4" />
-                {uiI18n.t('app.publish_56564005')}
-                <ExternalLink className="h-3.5 w-3.5 opacity-70" />
-              </a>
-            </Button>
+            {/* No portal in this fork (local .kai extensions only): hide Publish. */}
+            {EXTENSION_PORTAL_URL && (
+              <Button asChild className="h-10 gap-2 rounded-full">
+                <a
+                  href={EXTENSION_PORTAL_URL}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  title={uiI18n.t('app.publish_an_extension_on_extension_tatakai_me_8c4ac9c4')}
+                >
+                  <Upload className="h-4 w-4" />
+                  {uiI18n.t('app.publish_56564005')}
+                  <ExternalLink className="h-3.5 w-3.5 opacity-70" />
+                </a>
+              </Button>
+            )}
           </div>
         </header>
       <div className="mt-5 space-y-4"><div className="flex flex-wrap gap-3">

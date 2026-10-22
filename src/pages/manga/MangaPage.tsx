@@ -18,7 +18,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from 'sonner';
 import { motion } from "framer-motion";
-import { resolveApiV3Base } from "@/lib/api/backendOrigin";
+import { metadata } from "@/lib/metadata";
+import { tenraiGet } from "@/lib/tenrai/client";
 import { Button } from "@/components/ui/button";
 import { useMangaDetail, useMangaChapters, useMangaBakaSeries, useMangaKitsuHierarchy } from "@/hooks/api/useMangaData";
 import { useAniListRecommendations } from "@/hooks/api/useAniListRecommendations";
@@ -256,10 +257,8 @@ export default function MangaPage() {
     queryFn: async () => {
       const id = mangaData?.detail?.anilistId;
       if (!id) return null;
-      const response = await fetch(`${resolveApiV3Base()}/manga/by-anilist/${id}`);
-      if (!response.ok) return null;
-      const payload = await response.json();
-      return payload?.data ?? null;
+      const { value } = await metadata.media('MANGA', { anilistId: Number(id) }).catch(() => ({ value: null }));
+      return value;
     },
     enabled: Boolean(mangaData?.detail?.anilistId),
     staleTime: 10 * 60 * 1000,
@@ -324,9 +323,8 @@ export default function MangaPage() {
     queryKey: ["jikan-manga", malId],
     queryFn: async () => {
       if (!malId) return null;
-      const res = await fetch(`${resolveApiV3Base()}/manga/mal/${malId}/full`);
-      if (!res.ok) return null;
-      const json = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const json = await tenraiGet<{ data?: any }>(`/manga/${malId}/full`).catch(() => null);
       return json?.data ?? null;
     },
     enabled: !!malId,
