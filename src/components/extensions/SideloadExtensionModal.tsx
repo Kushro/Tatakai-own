@@ -11,6 +11,12 @@ import { detectEcosystem, normalizeManifestUrl, migrateExtensionStorage, INSTALL
 import { installRemoteExtension } from '@/core/extensions/remote/installed';
 import { extensionFetch } from '@/core/extensions/remote/transport';
 import type { ExtensionManifest } from '@/pages/base/ExtensionHubPage';
+import { Capacitor } from '@capacitor/core';
+
+// Android maps `accept` to MIME types; `.kai` has none, so a `.kai,.json`
+// filter greys out every package. Let Android pick any file — `inspect()`
+// rejects anything that isn't a .kai archive or a manifest.
+const FILE_ACCEPT = Capacitor.isNativePlatform() ? undefined : '.kai,.json';
 
 interface Props { isOpen: boolean; onClose(): void; onSuccess?(extension: ExtensionManifest): void }
 export function AddExtensionModal({ isOpen, onClose, onSuccess }: Props) {
@@ -108,7 +114,7 @@ export function AddExtensionModal({ isOpen, onClose, onSuccess }: Props) {
   return <Dialog open={isOpen} onOpenChange={open => { if (!open && !busy) close(); }}>
     <DialogContent><DialogHeader><DialogTitle>{uiI18n.t('app.add_extension_11500bcc')}</DialogTitle>
       <DialogDescription>{uiI18n.t('app.choose_a_tatakai_package_or_a_stremio_seanime_ma_c3bb252a')}</DialogDescription></DialogHeader>
-      <label className="space-y-2 text-sm">{uiI18n.t('app.extension_file_8c5c396c')}<Input type="file" accept=".kai,.json" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void read(async () => inspect(await file.arrayBuffer())); }} /></label>
+      <label className="space-y-2 text-sm">{uiI18n.t('app.extension_file_8c5c396c')}<Input type="file" accept={FILE_ACCEPT} disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void read(async () => inspect(await file.arrayBuffer())); }} /></label>
       <label className="space-y-2 text-sm">{uiI18n.t('app.manifest_or_package_url_cfe49ad9')}<Input value={url} onChange={event => { setUrl(event.target.value); setManifest(null); }} placeholder="https://…/manifest.json" disabled={busy} /></label>
       <Button variant="outline" disabled={busy || !url.trim()} onClick={() => void read(async () => {
         const endpoint = normalizeManifestUrl(url);
