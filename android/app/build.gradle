@@ -45,19 +45,33 @@ android {
                 keyPassword = 'android'
             }
         }
-        // Self-sign the release build with the local keystore so the APK installs
-        // straight from GitHub Releases. "Unsigned" in the release copy means *not
-        // distribution signed* — an APK with no signature at all is rejected by the
-        // OS at install time. Put a release.keystore (gitignored) next to this file
-        // to switch from the debug key; keep the alias/password the same.
+        // Self-sign the release build so the APK installs straight from GitHub
+        // Releases (an APK with no signature at all is rejected at install time).
+        // Preferred: android/keystore.properties (gitignored) with storeFile,
+        // storeType, keyAlias, storePassword, keyPassword pointing at the owner's
+        // backed-up release key. Fallback: app/release.keystore or the debug key
+        // with the default 'android' credentials.
         release {
-            def releaseKeystore = file("${rootProject.projectDir}/app/release.keystore")
-            def storeKeystore = releaseKeystore.exists() ? releaseKeystore : file(System.properties['user.home'] + '/.android/debug.keystore')
-            if (storeKeystore.exists()) {
-                storeFile = storeKeystore
-                storePassword = 'android'
-                keyAlias = 'androiddebugkey'
-                keyPassword = 'android'
+            def signingProps = new Properties()
+            def signingFile = rootProject.file('keystore.properties')
+            if (signingFile.exists()) {
+                signingFile.withInputStream { signingProps.load(it) }
+            }
+            if (signingProps.getProperty('storeFile') && file(signingProps.getProperty('storeFile')).exists()) {
+                storeFile = file(signingProps.getProperty('storeFile'))
+                storeType = signingProps.getProperty('storeType', 'PKCS12')
+                storePassword = signingProps.getProperty('storePassword')
+                keyAlias = signingProps.getProperty('keyAlias')
+                keyPassword = signingProps.getProperty('keyPassword')
+            } else {
+                def releaseKeystore = file("${rootProject.projectDir}/app/release.keystore")
+                def storeKeystore = releaseKeystore.exists() ? releaseKeystore : file(System.properties['user.home'] + '/.android/debug.keystore')
+                if (storeKeystore.exists()) {
+                    storeFile = storeKeystore
+                    storePassword = 'android'
+                    keyAlias = 'androiddebugkey'
+                    keyPassword = 'android'
+                }
             }
         }
     }
