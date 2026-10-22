@@ -13,7 +13,8 @@ import { CardSkeleton } from "@/components/ui/skeleton-custom";
 import { Input } from "@/components/ui/input";
 import { Search, X, Loader2, Film, User, ExternalLink, Users, BookOpen, Camera, Puzzle, ArrowRight, SlidersHorizontal, ChevronRight, Sparkles, Play, Tags } from "lucide-react";
 import { useAniListCharacterSearch } from '@/hooks/user/useProfileFeatures';
-import { ANILIST_GRAPHQL_ENDPOINT, resolveApiV3Base } from '@/lib/api/backendOrigin';
+import { resolveApiV3Base } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
 import { GlassPanel } from "@/components/ui/GlassPanel";
 import { useAniListGenres } from "@/hooks/api/useAniListGenres";
 import { useInfiniteSearch as useInfSearch, type AnimeSearchFilters, useEpisodeTitleSearch } from "@/hooks/api/useAnimeData";
@@ -1141,20 +1142,13 @@ export default function SearchPage() {
               }
             }
           `;
-          const res = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: gql, variables: { ids: anilistIds } }),
-          });
-          if (res.ok) {
-            const json = await res.json();
-            const mediaList = json?.data?.Page?.media || [];
-            for (const m of mediaList) {
-              titleMap.set(m.id, {
-                title: m.title?.english || m.title?.romaji || m.title?.native || `Anime #${m.id}`,
-                coverImage: m.coverImage?.medium || '',
-              });
-            }
+          const data = await anilistGql<any>(gql, { ids: anilistIds });
+          const mediaList = data?.Page?.media || [];
+          for (const m of mediaList) {
+            titleMap.set(m.id, {
+              title: m.title?.english || m.title?.romaji || m.title?.native || `Anime #${m.id}`,
+              coverImage: m.coverImage?.medium || '',
+            });
           }
         } catch {
           // Non-critical — fall back to filename parsing

@@ -1,12 +1,9 @@
-import { TATAKAI_API_URL } from '@/lib/api/api-client';
-
 /**
  * Discord Webhook Service
  *
  * Sends notifications to Discord channels via webhook URLs stored in
- * server-side env vars.  The frontend never sees the webhook URLs —
- * all calls are routed through a Supabase Edge Function or the
- * TatakaiAPI proxy.
+ * server-side env vars. DISABLED in this fork: the upstream forwarder is not
+ * available, so every send is a no-op.
  *
  * Channels:
  *  1. User Created  — fires when a new account is created
@@ -14,19 +11,6 @@ import { TATAKAI_API_URL } from '@/lib/api/api-client';
  *  3. Comments      — fires when a new comment is posted
  *  4. Review popup / Suggestions — fires on feedback
  */
-
-// The backend exposes the forwarder at `${API}/api/v3/webhooks/discord`.
-// TATAKAI_API_URL is already the resolved `/api/v3` base (a relative `/api/v3`
-// in dev, which the Vite proxy forwards; the absolute origin in prod), so the
-// webhook base is simply that. (Older builds mangled this into a legacy
-// `/api/v2/anime` path that no route ever served — hence webhooks silently 404'd.)
-function resolveWebhookBase(url: string): string {
-  const trimmed = (url || '').replace(/\/+$/, '');
-  if (!trimmed) return '/api/v3';
-  return trimmed;
-}
-
-const TATAKAI_WEBHOOK_BASE = resolveWebhookBase(TATAKAI_API_URL);
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -61,39 +45,9 @@ const COLORS = {
 
 // ── Core sender ─────────────────────────────────────────────────────
 
-async function sendToDiscord(payload: WebhookPayload): Promise<void> {
-  try {
-    // Route through TatakaiAPI which holds the actual webhook URLs
-    const res = await fetch(`${TATAKAI_WEBHOOK_BASE}/webhooks/discord`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      if (res.status === 404) {
-        if (!import.meta.env.PROD) {
-          console.warn('[Discord Webhook] Endpoint reachable but webhook env is not configured for this channel.');
-        }
-        return;
-      }
-      // 429 = backend is rate-limiting us — back off silently, never retry-loop.
-      if (res.status === 429) {
-        if (!import.meta.env.PROD) {
-          console.warn('[Discord Webhook] Rate limited (429), dropping payload.');
-        }
-        return;
-      }
-      if (!import.meta.env.PROD) {
-        console.warn(`[Discord Webhook] Failed (${res.status}):`, await res.text().catch(() => ''));
-      }
-    }
-  } catch (err) {
-    // Never let webhook errors break the app
-    if (!import.meta.env.PROD) {
-      console.warn('[Discord Webhook] Send failed:', err);
-    }
-  }
+async function sendToDiscord(_payload: WebhookPayload): Promise<void> {
+  // Disabled: webhooks were forwarded by the upstream TatakaiAPI backend, which
+  // this fork does not use. Nothing leaves the device.
 }
 
 // ── Shared client context (makes every webhook more detailed) ───────

@@ -6903,5 +6903,24 @@
     "manga": "Instala una extensión de manga para cargar los capítulos de esta obra.",
     "novel": "Instala una extensión de novelas para cargar los capítulos y empezar a leer.",
     "hub": "Abrir el centro de extensiones"
+  },
+  "metadataSources": {
+    "title": "Fuentes de metadatos",
+    "description": "Elige de dónde viene la información de anime y manga. Se prueba primero la primera fuente activa; si falla, continúa con la siguiente.",
+    "primary": "Principal",
+    "fallback": "Respaldo",
+    "enabled": "Activada",
+    "disabled": "Desactivada",
+    "enable": "Activar {{name}}",
+    "moveUp": "Subir {{name}}",
+    "moveDown": "Bajar {{name}}",
+    "reset": "Restablecer valores",
+    "resetDone": "Fuentes de metadatos restablecidas al orden predeterminado",
+    "statusOk": "OK",
+    "statusCooling": "En pausa hasta las {{time}}",
+    "statusCoolingError": "En pausa hasta las {{time}} - {{error}}",
+    "statusNotConfigured": "Sin configurar",
+    "statusIdle": "Sin problemas registrados",
+    "allDisabled": "Todas las fuentes están desactivadas, así que no se puede cargar el catálogo. Activa al menos una."
   }
 }

@@ -5,8 +5,8 @@ import { fetchWatchHistory } from '@/lib/watchHistoryQuery';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { ANILIST_GRAPHQL_ENDPOINT } from '@/lib/api/backendOrigin';
-import { getProxiedJsonUrl, fetchJsonWithFallback } from '@/lib/api/proxy-utils';
+import { anilistGql, ANILIST_URL } from '@/lib/anilist/client';
+import { fetchJsonWithFallback } from '@/lib/api/proxy-utils';
 import { PREMIUM_BACKGROUND_EFFECTS, type ProfileAppSettings } from '@/lib/profileSettings';
 import { hasPremiumCosmetics } from '@/lib/profileCosmetics';
 
@@ -115,14 +115,13 @@ export async function searchAniListCharacters(query: string, page = 1): Promise<
       }
     }
   `;
-  const res = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query: gql, variables: { query, page } }),
-  });
-  if (!res.ok) throw new Error(uiI18n.t('app.anilist_character_search_failed_4c8198ee'));
-  const json = await res.json();
-  const rows = Array.isArray(json?.data?.Page?.characters) ? json.data.Page.characters : [];
+  let data: any;
+  try {
+    data = await anilistGql<any>(gql, { query, page });
+  } catch {
+    throw new Error(uiI18n.t('app.anilist_character_search_failed_4c8198ee'));
+  }
+  const rows = Array.isArray(data?.Page?.characters) ? data.Page.characters : [];
   return rows.map(normalizeAniListCharacter).filter((char) => char.id > 0);
 }
 
@@ -149,7 +148,7 @@ export async function fetchRandomAnimeImage(options?: {
   const waifuImFetch = async () => {
     const tag = waifuImTags[Math.floor(Math.random() * waifuImTags.length)];
     const url = `${WAIFU_IM_API}?included_tags=${tag}&is_nsfw=false&many=true&limit=${Math.min(limit, 30)}`;
-    const res = await fetch(getProxiedJsonUrl(url));
+    const res = await fetchJsonWithFallback(url);
     if (!res.ok) return;
     const data = await res.json();
     (data.images ?? []).forEach((img: any, i: number) => {
@@ -249,14 +248,13 @@ export async function searchAniListMedia(
       }
     }
   `;
-  const res = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query: gql, variables: { query, type } }),
-  });
-  if (!res.ok) throw new Error(uiI18n.t('app.anilist_media_search_failed_08420884'));
-  const json = await res.json();
-  const rows = Array.isArray(json?.data?.Page?.media) ? json.data.Page.media : [];
+  let data: any;
+  try {
+    data = await anilistGql<any>(gql, { query, type });
+  } catch {
+    throw new Error(uiI18n.t('app.anilist_media_search_failed_08420884'));
+  }
+  const rows = Array.isArray(data?.Page?.media) ? data.Page.media : [];
   return rows
     .filter((m: any) => typeof m?.bannerImage === 'string' && m.bannerImage)
     .map((m: any): NekosImage => ({
@@ -276,7 +274,7 @@ export async function fetchWaifuLandscape(limit = 8): Promise<NekosImage[]> {
   // waifu.im also refuses the backend proxy's origin, so `res.ok` is often
   // false here — falling back to nekosia below instead of returning an empty
   // gallery (which is the intended empty state only when both fail).
-  const res = await fetch(getProxiedJsonUrl(url));
+  const res = await fetchJsonWithFallback(url);
   if (res.ok) {
     const data = await res.json();
     const images = (data?.images ?? [])
@@ -417,7 +415,7 @@ export function useRandomProfileImages(limit = 6, gender: 'male' | 'female' | 'a
   useUiTranslation();
   return useQuery({
     queryKey: ['anime_profile_images', limit, gender],
-    queryFn: () => fetchAvatarGallery(ANILIST_GRAPHQL_ENDPOINT, gender, limit),
+    queryFn: () => fetchAvatarGallery(ANILIST_URL, gender, limit),
     staleTime: 5 * 60 * 1000,
   });
 }

@@ -32,7 +32,6 @@ function createMainWindow(deps) {
         if (!url || typeof url !== 'string') return false;
         return (
             url.startsWith(`${APP_SCHEME}://${APP_HOST}`) ||
-            url.startsWith('https://api.tatakai.me') ||
             url.startsWith('http://localhost:8090') ||
             url.startsWith('http://127.0.0.1:8090') ||
             url.startsWith('file://')

@@ -1,52 +1,15 @@
 /**
  * marketplace-client.ts
- * Renderer-side HTTP client for the Tatakai Marketplace API.
+ * Extension marketplace types + .kai downloader.
  *
- * Base URL: ${import.meta.env.VITE_BACKEND_ORIGIN}/api/v3
+ * The hosted marketplace (upstream TatakaiAPI) is not part of this fork: the
+ * manifest listing is always empty and extensions are sideloaded from local
+ * `.kai` files or direct URLs.
  *
  * Requirements: 16.1, 16.2, 16.3
  */
 
-// ---------------------------------------------------------------------------
-// Base URL
-// ---------------------------------------------------------------------------
-
-/**
- * Absolute origin of the Tatakai backend (no `/api/v3` suffix). Prefers
- * `VITE_BACKEND_ORIGIN`, then the origin of `VITE_TATAKAI_API_URL`, then the
- * current page origin (web dev, where Vite proxies `/api/*`). Never returns a
- * bare relative path so `app://tatakai.me` on desktop can't intercept it.
- */
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
-function resolveBackendOrigin(): string {
-  const explicit = String(import.meta.env.VITE_BACKEND_ORIGIN || "").trim();
-  if (/^https?:\/\//i.test(explicit)) return explicit.replace(/\/+$/, "");
-
-  const apiUrl = String(import.meta.env.VITE_TATAKAI_API_URL || "").trim();
-  try {
-    if (apiUrl) return new URL(apiUrl).origin;
-  } catch {
-    /* fall through */
-  }
-  // Capacitor serves from a virtual host (tatakai.me/localhost) that is NOT the
-  // backend, so window.location.origin can't reach the marketplace API.
-  if (isCapacitorOrigin()) return "https://api.tatakai.me";
-  if (typeof window !== "undefined" && window.location.protocol.startsWith("http")) {
-    return window.location.origin;
-  }
-  return "";
-}
-
-/** Local Capacitor check — avoids importing the platform module into this
- * low-level client (keeps its dependency surface tiny). */
-function isCapacitorOrigin(): boolean {
-  const cap = (globalThis as any).Capacitor;
-  try {
-    return !!cap && typeof cap.isNativePlatform === "function" && cap.isNativePlatform();
-  } catch {
-    return false;
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -163,68 +126,21 @@ function mapRawToMarketplaceExtension(raw: RawManifestEntry): MarketplaceExtensi
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches the list of approved marketplace extensions.
- *
- * When `filter.type` is provided it is passed as the `type` query parameter
- * so the server can return only extensions matching that type.
- *
- * Requirements: 16.1, 16.2
+ * The hosted marketplace is not used in this build — always resolves to an
+ * empty list and never touches the network.
  */
 export async function fetchMarketplaceExtensions(
-  filter?: MarketplaceFilter,
+  _filter?: MarketplaceFilter,
 ): Promise<MarketplaceExtension[]> {
-  const url = new URL(`${resolveBackendOrigin()}/api/v3/extensions/manifests`);
-
-  if (filter?.type) {
-    url.searchParams.set("type", filter.type);
-  }
-
-  let envelope: ApiEnvelope<RawManifestEntry[]>;
-  if (Capacitor.isNativePlatform()) {
-    const response = await CapacitorHttp.get({
-      url: url.toString(),
-      headers: { Accept: 'application/json' },
-      connectTimeout: 6000,
-      readTimeout: 6000,
-      responseType: 'json',
-    });
-    if (response.status < 200 || response.status >= 300) {
-      throw new Error(`fetchMarketplaceExtensions: HTTP ${response.status}`);
-    }
-    envelope = response.data as ApiEnvelope<RawManifestEntry[]>;
-  } else {
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(
-        `fetchMarketplaceExtensions: HTTP ${response.status} ${response.statusText}`,
-      );
-    }
-    envelope = await response.json();
-  }
-
-  if (!envelope.success || !Array.isArray(envelope.data)) {
-    throw new Error(
-      `fetchMarketplaceExtensions: unexpected response shape — ${envelope.error ?? "unknown error"}`,
-    );
-  }
-
-  return envelope.data.map(mapRawToMarketplaceExtension);
+  return [];
 }
 
 /**
  * Downloads a `.kai` extension bundle from the given URL and returns it as
  * an `ArrayBuffer` ready to be passed to `extension:load-kai`.
  *
- * Routes through a dedicated `/api/proxy/extension` endpoint to avoid
- * browser CORS restrictions on GitHub release assets (which block cross-origin redirects).
- *
- * The proxy path is resolved against the absolute backend origin, never left
- * relative. On desktop the renderer runs from `app://tatakai.me`, where a
- * relative `/api/proxy/extension` is intercepted by the app:// file handler and
- * SPA-falls-back to `index.html` — the downloader then fed that HTML to JSZip
- * ("Can't find end of central directory"). Hitting the real backend (which
- * already answers every other renderer API call cross-origin) returns the
- * actual `.kai` bytes.
+ * Native shells use the device HTTP stack; elsewhere a plain fetch is used
+ * (the origin must allow CORS). No hosted proxy is involved.
  */
 /**
  * Turn a failed download response into a message worth putting in a toast.
@@ -268,8 +184,8 @@ export async function downloadExtensionKai(mainUrl: string): Promise<ArrayBuffer
   const isHttpUrl = /^https?:\/\//i.test(mainUrl);
 
   // Native shells are not subject to browser CORS. Download the package with
-  // the device HTTP stack so mobile installs (especially custom sources) do
-  // not depend on the hosted Tatakai proxy at all.
+  // the device HTTP stack so mobile installs (especially custom sources) work
+  // without any hosted proxy.
   if (isHttpUrl && Capacitor.isNativePlatform()) {
     const response = await CapacitorHttp.get({
       url: mainUrl,
@@ -295,20 +211,6 @@ export async function downloadExtensionKai(mainUrl: string): Promise<ArrayBuffer
       return bytes.buffer;
     }
     throw new Error('downloadExtensionKai: native client returned an unsupported payload');
-  }
-
-  if (isHttpUrl) {
-    try {
-      const proxyUrl = `${resolveBackendOrigin()}/api/proxy/extension?url=${encodeURIComponent(mainUrl)}`;
-      const proxyResponse = await fetch(proxyUrl);
-      if (proxyResponse.ok) {
-        return await proxyResponse.arrayBuffer();
-      }
-      // Log proxy error for debugging, but continue to fallback
-      console.debug(`Extension proxy returned ${proxyResponse.status}, attempting direct fetch`);
-    } catch (e) {
-      console.debug("Extension proxy unreachable:", e);
-    }
   }
 
   const response = await fetch(mainUrl);

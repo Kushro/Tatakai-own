@@ -3,8 +3,7 @@ import { ecosystemOf, type ExtensionEcosystem, type Compatibility } from "./ecos
  * Client for the extension service (docs/Plans.md §3 — "Extension Service API").
  *
  * Six read-only endpoints under `VITE_EXTENSION_API_URL`, which is
- * `https://extension.tatakai.me/api` in production and a Supabase edge function
- * in staging. Nothing here sends credentials: every route is public, and
+ * unset by default in this fork (no hosted store; users sideload `.kai` files). Nothing here sends credentials: every route is public, and
  * `/extension/:id` and `/download/...` deliberately have side effects on the
  * service (they bump `view_count` / `download_count`), which is why the detail
  * fetch is not retried on failure.
@@ -206,8 +205,7 @@ export function extensionDownloadUrl(idOrSlug: string, version = 'latest'): stri
  * store's Publish button links out to this origin.
  */
 export const EXTENSION_PORTAL_URL =
-  trimSlashes(String(import.meta.env.VITE_EXTENSION_PORTAL_URL ?? '')) ||
-  'https://extension.tatakai.me';
+  trimSlashes(String(import.meta.env.VITE_EXTENSION_PORTAL_URL ?? ''));
 
 const TYPES: StoreExtensionType[] = ['torrent', 'onlinestream', 'custom'];
 

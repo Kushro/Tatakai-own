@@ -8,15 +8,17 @@ import { GlassPanel } from '@/components/ui/GlassPanel';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, CheckCircle, XCircle, AlertTriangle, RefreshCw, Server,
-  Database, Wifi, Globe, Clock, Zap, Image as ImageIcon, Play, Activity, Gauge, Loader2,
+  Database, Globe, Clock, Image as ImageIcon, Activity, Gauge, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { useStatusIncidents } from '@/hooks/admin/useAdminFeatures';
 import { formatDistanceToNow } from '@/lib/localeFormat';
 import { StatusPageBackground } from '@/components/layout/StatusPageBackground';
-import { TATAKAI_API_URL } from '@/lib/api/api-client';
-import { resolveBackendOrigin } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
+import { publicFetch } from '@/lib/net/publicApi';
+import { getProviderHealth, listMetadataProviders, type ProviderId } from '@/lib/metadata';
+import { loadStoredProxies } from '@/hooks/user/useProxySettings';
 import { useIsDesktopApp } from '@/hooks/ui/useIsNativeApp';
 
 type Health = 'operational' | 'degraded' | 'down' | 'checking';
@@ -28,42 +30,88 @@ interface ServiceStatus {
   icon: React.ReactNode;
   description: string;
   url?: string;
+  /** Set for metadata-provider rows (health comes from the router). */
+  providerId?: ProviderId;
+  /** Provider is not configured: shown as such and left out of the health maths. */
+  skipped?: boolean;
 }
 
-interface ProxyStatusNode {
-  id: string; url: string; failures: number; successes: number;
-  lastLatencyMs: number; cooldownUntil: number;
-  // The backend's /api/proxy/status returns raw health counters and OMITS an
-  // explicit status, so treat it as optional and derive one from the counters.
-  status?: 'online' | 'degraded' | 'offline';
-}
 interface ProxyDisplayNode {
   id: string; url: string; type: string;
   status: 'online' | 'degraded' | 'offline'; latencyMs: number; score: number;
 }
-interface ScraperHealthNode {
-  id: string; label: string; status: 'operational' | 'degraded' | 'down'; latencyMs: number;
+function buildInitialServices(): ServiceStatus[] {
+  const base: ServiceStatus[] = [
+    { name: 'Supabase', status: 'checking', icon: <Database className="w-5 h-5" />, get description() { return uiI18n.t('app.database_auth_infrastructure_794b6e51'); } },
+    { name: 'Image Delivery', status: 'checking', icon: <ImageIcon className="w-5 h-5" />, get description() { return uiI18n.t('app.posters_banners_thumbnails_054c6616'); }, url: 'https://cdn.myanimelist.net' },
+  ];
+  const providers: ServiceStatus[] = listMetadataProviders().map((p) => ({
+    name: p.label,
+    status: 'checking' as Health,
+    icon: <Server className="w-5 h-5" />,
+    description: p.description,
+    providerId: p.id,
+    skipped: !p.isConfigured(),
+  }));
+  return [...base, ...providers];
 }
-interface ScraperHealthSummary { total: number; operational: number; degraded: number; down: number; }
+
+/** One lightweight live request per provider; any 2xx counts as reachable. */
+async function probeProvider(id: ProviderId): Promise<{ status: Health; latency: number }> {
+  const start = Date.now();
+  const grade = (ok: boolean, status: number, slowMs: number) => {
+    const latency = Date.now() - start;
+    return { status: (ok ? (latency > slowMs ? 'degraded' : 'operational') : (status === 429 ? 'degraded' : 'down')) as Health, latency };
+  };
+  const signal = AbortSignal.timeout(10000);
+  switch (id) {
+    case 'anilist':
+      await anilistGql('{ Media(id:1){ id } }', undefined, { signal, retries: 0 });
+      return grade(true, 200, 1500);
+    case 'tenrai': {
+      const r = await publicFetch('https://api.tenrai.org/v1/anime/1', { signal, retries: 0 });
+      return grade(r.ok, r.status, 1500);
+    }
+    case 'kitsu': {
+      const r = await publicFetch('https://kitsu.io/api/edge/anime/1', { signal, retries: 0, headers: { Accept: 'application/vnd.api+json' } });
+      return grade(r.ok, r.status, 1500);
+    }
+    case 'anizip': {
+      const r = await publicFetch('https://api.ani.zip/mappings?anilist_id=1', { signal, retries: 0 });
+      return grade(r.ok, r.status, 1500);
+    }
+    case 'shikimori': {
+      const r = await publicFetch('https://shikimori.io/api/graphql', {
+        method: 'POST', signal, retries: 0,
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ query: '{ animes(ids:"1"){ id } }' }),
+      });
+      return grade(r.ok, r.status, 1500);
+    }
+    case 'mal': {
+      const r = await publicFetch('https://api.myanimelist.net/v2/anime/1?fields=id', {
+        signal, retries: 0,
+        headers: { 'X-MAL-CLIENT-ID': String(import.meta.env.VITE_MAL_CLIENT_ID || '').trim() },
+      });
+      return grade(r.ok, r.status, 1500);
+    }
+    default:
+      return { status: 'down', latency: 0 };
+  }
+}
 
 const SERVICE_CHECK_FREQ_SECONDS = 30;
 const PROXY_POLL_FREQ_SECONDS = 4;
 const HISTORY_CAP = 32;
-const DEFAULT_BACKEND_HEALTH_URL = 'https://api.tatakai.me/health';
-const BACKEND_ORIGIN = resolveBackendOrigin();
-const PROXY_STATUS_ENDPOINT = BACKEND_ORIGIN ? `${BACKEND_ORIGIN}/api/proxy/status` : '/api/proxy/status';
-const BACKEND_HEALTH_ENDPOINT = BACKEND_ORIGIN ? `${BACKEND_ORIGIN}/health` : DEFAULT_BACKEND_HEALTH_URL;
-
 // Proxies the app is actually configured to stream through (from .env). The
 // board probes these directly whenever the backend aggregator is unreachable OR
 // only reports loopback/dev nodes, so the pool reflects the real public edge.
 const ENV_CF_PROXY_URL = String(import.meta.env.VITE_PROXY_CF_URL || '').trim();
 const ENV_NODE_PROXY_URL = String(
-  import.meta.env.VITE_STREAM_PROXY_URL || import.meta.env.VITE_PROXY_NODE_URL ||
-  'https://hoko.tatakai.me/api/v1/streamingProxy'
+  import.meta.env.VITE_STREAM_PROXY_URL || import.meta.env.VITE_PROXY_NODE_URL || ''
 ).trim();
 // Host of the configured Cloudflare worker so classifyProxyType can tag it 'cf'
-// even behind a custom domain (e.g. moko.tatakai.me) with no cloudflare marker.
+// even behind a custom domain with no cloudflare marker.
 const CF_PROXY_HOST = (() => {
   try { return ENV_CF_PROXY_URL ? new URL(ENV_CF_PROXY_URL).hostname.toLowerCase() : ''; }
   catch { return ''; }
@@ -72,8 +120,7 @@ const CF_PROXY_HOST = (() => {
 function classifyProxyType(url: string): string {
   const lower = (url || '').toLowerCase();
   if (CF_PROXY_HOST && lower.includes(CF_PROXY_HOST)) return 'cf';
-  if (lower.includes('workers.dev') || lower.includes('cloudflare') || lower.includes('kira.tatakai.me') || lower.includes('moko.tatakai.me')) return 'cf';
-  if (lower.includes('hoko.tatakai.me')) return 'nodejs';
+  if (lower.includes('workers.dev') || lower.includes('cloudflare')) return 'cf';
   if (lower.includes('bun')) return 'bun';
   return 'nodejs';
 }
@@ -88,21 +135,27 @@ function isLoopbackProxyUrl(url: string): boolean {
   } catch { return false; }
 }
 
-/** Derive a display status from the counters the backend actually sends (it
- *  omits `status`); a fresh 0/0 node that isn't cooling down is available. */
-function deriveProxyStatus(node: ProxyStatusNode): ProxyDisplayNode['status'] {
-  if (node.status === 'online' || node.status === 'degraded' || node.status === 'offline') return node.status;
-  if (node.cooldownUntil && node.cooldownUntil > Date.now()) return 'offline';
-  if (node.failures > 0 && node.successes === 0) return 'offline';
-  if (node.failures > node.successes) return 'degraded';
-  return 'online';
-}
-
 type KnownProxyNode = { id: string; url: string; type: string };
-const KNOWN_PROXY_NODES: KnownProxyNode[] = [
-  ...(ENV_CF_PROXY_URL ? [{ id: 'proxy-cf-edge', url: ENV_CF_PROXY_URL, type: 'cf' }] : []),
-  { id: 'proxy-node-hoko', url: ENV_NODE_PROXY_URL, type: 'nodejs' },
-];
+
+/** Remote proxies the user/build configured. Loopback (in-app) proxies are skipped. */
+function getKnownProxyNodes(): KnownProxyNode[] {
+  const nodes: KnownProxyNode[] = [];
+  const seen = new Set<string>();
+  const add = (id: string, url: string, type: string) => {
+    const key = url.trim().replace(/\/$/, '');
+    if (!key || seen.has(key) || isLoopbackProxyUrl(key)) return;
+    seen.add(key);
+    nodes.push({ id, url: key, type });
+  };
+  if (ENV_CF_PROXY_URL) add('proxy-cf-edge', ENV_CF_PROXY_URL, 'cf');
+  if (ENV_NODE_PROXY_URL) add('proxy-node-env', ENV_NODE_PROXY_URL, classifyProxyType(ENV_NODE_PROXY_URL));
+  try {
+    for (const entry of loadStoredProxies()) {
+      if (entry.enabled && entry.url) add(`proxy-${entry.id}`, entry.url, classifyProxyType(entry.url));
+    }
+  } catch { /* storage unavailable */ }
+  return nodes;
+}
 
 function buildProxyProbeUrls(proxyUrl: string, proxyPassword: string): string[] {
   const normalized = String(proxyUrl || '').trim().replace(/\/$/, '');
@@ -226,16 +279,8 @@ export default function StatusPage() {
   const { data: incidents = [], isLoading: loadingIncidents } = useStatusIncidents(false);
 
   const [proxies, setProxies] = useState<ProxyDisplayNode[]>([]);
-  const [scrapers, setScrapers] = useState<ScraperHealthNode[]>([]);
-  const [scraperSummary, setScraperSummary] = useState<ScraperHealthSummary>({ total: 0, operational: 0, degraded: 0, down: 0 });
-  const [services, setServices] = useState<ServiceStatus[]>([
-    { name: 'Tatakai Website', status: 'checking', icon: <Globe className="w-5 h-5" />, get description() { return uiI18n.t('app.main_web_frontend_ccbd80f6'); }, url: 'https://tatakai.me' },
-    { name: 'Tatakai Backend', status: 'checking', icon: <Zap className="w-5 h-5" />, get description() { return uiI18n.t('app.unified_hono_api_b800ec23'); }, url: 'https://api.tatakai.me/health' },
-    { name: 'Supabase', status: 'checking', icon: <Database className="w-5 h-5" />, get description() { return uiI18n.t('app.database_auth_infrastructure_794b6e51'); } },
-    { name: 'Jikan API', status: 'checking', icon: <Server className="w-5 h-5" />, get description() { return uiI18n.t('app.myanimelist_metadata_provider_6043e89b'); }, url: 'https://api.jikan.moe/v4' },
-    { name: 'AniList API', status: 'checking', icon: <Server className="w-5 h-5" />, get description() { return uiI18n.t('app.anilist_metadata_provider_1aff8ab4'); }, url: 'https://graphql.anilist.co' },
-    { name: 'Image Delivery', status: 'checking', icon: <ImageIcon className="w-5 h-5" />, get description() { return uiI18n.t('app.posters_banners_thumbnails_054c6616'); }, url: 'https://cdn.myanimelist.net' },
-    ]);
+  const [proxiesLoaded, setProxiesLoaded] = useState(false);
+  const [services, setServices] = useState<ServiceStatus[]>(buildInitialServices);
   const [uptimeHistory, setUptimeHistory] = useState<Record<string, Health[]>>({});
   const [lastChecked, setLastChecked] = useState<Date>(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -244,71 +289,11 @@ export default function StatusPage() {
   const sharedProxyPassword = String(
     import.meta.env.VITE_STREAM_PROXY_PASSWORD || import.meta.env.VITE_PROXY_PASSWORD || ''
   ).trim();
-  const loadScraperHealth = useCallback(async () => {
-    const response = await fetch(`${TATAKAI_API_URL}/health/scrapers`, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(9000),
-    });
-    if (!response.ok) throw new Error(uiI18n.t('app.scraper_health_failed_i18n_value_0_95b86e14', { value0: response.status }));
-    const json = await response.json();
-    const nodes: ScraperHealthNode[] = Array.isArray(json?.scrapers)
-      ? json.scrapers.map((node: any, index: number) => ({
-          id: String(node?.id || `source-${index + 1}`),
-          label: String(node?.label || `Source ${String(index + 1).padStart(2, '0')}`),
-          status: ['operational', 'degraded', 'down'].includes(node?.status) ? node.status : 'down',
-          latencyMs: Number(node?.latencyMs || 0),
-        }))
-      : [];
-    const summary: ScraperHealthSummary = json?.summary && typeof json.summary === 'object'
-      ? {
-          total: Number(json.summary.total || nodes.length || 0),
-          operational: Number(json.summary.operational || 0),
-          degraded: Number(json.summary.degraded || 0),
-          down: Number(json.summary.down || 0),
-        }
-      : {
-          total: nodes.length,
-          operational: nodes.filter((n) => n.status === 'operational').length,
-          degraded: nodes.filter((n) => n.status === 'degraded').length,
-          down: nodes.filter((n) => n.status === 'down').length,
-        };
-    setScrapers(nodes);
-    setScraperSummary(summary);
-    return nodes;
-  }, []);
   const loadProxyStatus = useCallback(async () => {
-    let mapped: ProxyDisplayNode[] = [];
-    try {
-      const response = await fetch(PROXY_STATUS_ENDPOINT, {
-        headers: { Accept: 'application/json' },
-        signal: AbortSignal.timeout(7000),
-      });
-      if (response.ok) {
-        const json = await response.json();
-        const nodes: ProxyStatusNode[] = Array.isArray(json?.nodes) ? json.nodes : [];
-        // Drop the backend's loopback/dev entries (e.g. http://localhost:3000)
-        // and derive a status from its counters, since it never sends `status`.
-        mapped = nodes
-          .filter((node) => !isLoopbackProxyUrl(node.url))
-          .map((node) => ({
-            id: node.id,
-            url: node.url,
-            type: classifyProxyType(node.url),
-            status: deriveProxyStatus(node),
-            latencyMs: node.lastLatencyMs || 0,
-            score: Math.max(0, node.successes - node.failures),
-          }));
-      }
-    } catch { /* fall back to direct node probes */ }
-
-    if (mapped.length > 0) {
-      setProxies(mapped);
-      return mapped;
-    }
-    const probed = await Promise.all(
-      KNOWN_PROXY_NODES.map((n) => probeKnownProxyNode(n, sharedProxyPassword))
-    );
+    const nodes = getKnownProxyNodes();
+    const probed = await Promise.all(nodes.map((n) => probeKnownProxyNode(n, sharedProxyPassword)));
     setProxies(probed);
+    setProxiesLoaded(true);
     return probed;
   }, [sharedProxyPassword]);
   // All service probes fire in parallel so the board fills in one pass instead
@@ -326,54 +311,17 @@ export default function StatusPage() {
       try { return { name, ...(await fn()) }; }
       catch { return { name, status: 'down', latency: 0 }; }
     };
+    const providerChecks = listMetadataProviders().map((p) =>
+      p.isConfigured()
+        ? check(p.label, () => probeProvider(p.id))
+        : Promise.resolve({ name: p.label, status: 'checking' as Health, latency: 0, skipped: true })
+    );
     const results = await Promise.all([
-      check('Tatakai Website', async () => {
-        const start = Date.now();
-        const res = await fetch(window.location.origin, { method: 'HEAD' });
-        const latency = Date.now() - start;
-        return { status: res.ok ? (latency > 1000 ? 'degraded' : 'operational') : 'down', latency };
-      }),
-      check('Tatakai Backend', async () => {
-        const start = Date.now();
-        // Hit the resolved backend origin (api.tatakai.me, desktop-safe) — the old
-        // check pointed at api.tatakai.com (dead) AND required the body to contain
-        // "daijoubu", but /health returns "ok", so a healthy backend read as down.
-        //
-        // Do NOT send X-Tatakai-Client/Version here (i.e. no withClientHeaders):
-        // those are non-safelisted headers, so the browser fires a CORS preflight,
-        // and /health's preflight only allows Content-Type,Authorization,X-Admin-Secret.
-        // The unlisted client headers made the browser block the GET → fetch threw →
-        // backend read as "down" even though curl (not CORS-gated) got 200 "ok".
-        // A bare GET with only the safelisted Accept header sends no preflight.
-        const res = await fetch(BACKEND_HEALTH_ENDPOINT, {
-          headers: { Accept: 'text/plain,application/json,*/*' },
-          signal: AbortSignal.timeout(5000),
-        });
-        const latency = Date.now() - start;
-        return { status: res.ok ? (latency > 1000 ? 'degraded' : 'operational') : 'down', latency };
-      }),
       check('Supabase', async () => {
         const start = Date.now();
         const { error } = await supabase.from('profiles').select('count').limit(1);
         const latency = Date.now() - start;
         return { status: error ? 'down' : (latency > 500 ? 'degraded' : 'operational'), latency };
-      }),
-      check('Jikan API', async () => {
-        const start = Date.now();
-        const res = await fetch('https://api.jikan.moe/v4/anime/1', { signal: AbortSignal.timeout(10000) });
-        const latency = Date.now() - start;
-        return { status: res.ok ? (latency > 1500 ? 'degraded' : 'operational') : (res.status === 429 ? 'degraded' : 'down'), latency };
-      }),
-      check('AniList API', async () => {
-        const start = Date.now();
-        const res = await fetch('https://graphql.anilist.co', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ query: '{Media(id:1){id}}' }),
-          signal: AbortSignal.timeout(8000),
-        });
-        const latency = Date.now() - start;
-        return { status: res.ok ? (latency > 1500 ? 'degraded' : 'operational') : (res.status === 429 ? 'degraded' : 'down'), latency };
       }),
       check('Image Delivery', async () => {
         for (const src of IMAGE_DELIVERY_PROBES) {
@@ -384,37 +332,28 @@ export default function StatusPage() {
         }
         return { status: 'down', latency: 0 };
       }),
-      check('Streaming Edge', async () => {
-        const start = Date.now();
-        const stats = await loadProxyStatus();
-        const online = stats.filter((p) => p.status === 'online').length;
-        const latency = Date.now() - start;
-        return {
-          status: stats.length > 0
-            ? (online > 0 ? (online < stats.length / 2 ? 'degraded' : 'operational') : 'down')
-            : 'down',
-          latency,
-        };
-      }),
-    ]);
+      ...providerChecks,
+    ]) as Array<{ name: string; status: Health; latency: number; skipped?: boolean }>;
     setServices((prev) => prev.map((s) => {
       const r = results.find((x) => x.name === s.name);
-      return r ? { ...s, status: r.status, latency: r.latency } : s;
+      return r ? { ...s, status: r.status, latency: r.latency, skipped: r.skipped ?? false } : s;
     }));
     setUptimeHistory((prev) => {
       const next = { ...prev };
-      for (const r of results) next[r.name] = [...(next[r.name] || []), r.status].slice(-HISTORY_CAP);
+      for (const r of results) {
+        if (r.skipped) continue;
+        next[r.name] = [...(next[r.name] || []), r.status].slice(-HISTORY_CAP);
+      }
       return next;
     });
 
-    await loadScraperHealth().catch(() => { /* summary stays at last-known values */ });
     setLastChecked(new Date());
     setIsRefreshing(false);
-  }, [loadProxyStatus, loadScraperHealth]);
+  }, [loadProxyStatus]);
 
   useEffect(() => {
     runChecks();
-    loadProxyStatus().catch(() => { /* backend not reachable on first paint */ });
+    loadProxyStatus().catch(() => { /* proxies unreachable on first paint */ });
 
     const proxyInterval = setInterval(() => { loadProxyStatus().catch(() => {}); }, PROXY_POLL_FREQ_SECONDS * 1000);
     const serviceInterval = setInterval(() => { runChecks(); }, SERVICE_CHECK_FREQ_SECONDS * 1000);
@@ -429,13 +368,12 @@ export default function StatusPage() {
     };
   }, [runChecks, loadProxyStatus]);
   const healthIndex = useMemo(() => {
-    const svc = services.filter((s) => s.status !== 'checking').map((s) => (s.status === 'operational' ? 1 : s.status === 'degraded' ? 0.6 : 0));
+    const svc = services.filter((s) => !s.skipped && s.status !== 'checking').map((s) => (s.status === 'operational' ? 1 : s.status === 'degraded' ? 0.6 : 0));
     const prx = proxies.map((p) => (p.status === 'online' ? 1 : p.status === 'degraded' ? 0.6 : 0));
-    const scr = scrapers.map((s) => (s.status === 'operational' ? 1 : s.status === 'degraded' ? 0.6 : 0));
-    const all = [...svc, ...prx, ...scr];
+    const all = [...svc, ...prx];
     if (!all.length) return 0;
     return Number(((all.reduce((a, b) => a + b, 0) / all.length) * 100).toFixed(1));
-  }, [services, proxies, scrapers]);
+  }, [services, proxies]);
 
   const uptimeSamples = useMemo(() => Object.values(uptimeHistory).flat(), [uptimeHistory]);
   const uptimePct = useMemo(() => {
@@ -458,9 +396,10 @@ export default function StatusPage() {
   }, [incidents]);
 
   const activeIncidents = incidents.filter((i: any) => i.is_active).length;
-  const anyDown = services.some((s) => s.status === 'down') || proxies.some((p) => p.status === 'offline') || scrapers.some((s) => s.status === 'down');
-  const anyDegraded = services.some((s) => s.status === 'degraded') || proxies.some((p) => p.status === 'degraded') || scrapers.some((s) => s.status === 'degraded');
-  const anyChecking = services.some((s) => s.status === 'checking') || isRefreshing || scrapers.length === 0;
+  const activeServices = services.filter((s) => !s.skipped);
+  const anyDown = activeServices.some((s) => s.status === 'down') || proxies.some((p) => p.status === 'offline');
+  const anyDegraded = activeServices.some((s) => s.status === 'degraded') || proxies.some((p) => p.status === 'degraded');
+  const anyChecking = activeServices.some((s) => s.status === 'checking') || isRefreshing;
 
   const overall: Health = anyDown ? 'down' : anyDegraded ? 'degraded' : anyChecking ? 'checking' : 'operational';
   const overallLabel = {
@@ -479,7 +418,7 @@ export default function StatusPage() {
     : 'rgb(52 211 153)';
 
   const kpis = [
-    { get label() { return uiI18n.t('app.health_index_576bc73c'); }, value: `${healthIndex.toFixed(1)}%`, get detail() { return uiI18n.t('app.i18n_value_0_i18n_value_1_services_up_06e178fa', { value0: services.filter((s) => s.status === 'operational').length, value1: services.length }); }, icon: <Gauge className="w-4 h-4" /> },
+    { get label() { return uiI18n.t('app.health_index_576bc73c'); }, value: `${healthIndex.toFixed(1)}%`, get detail() { return uiI18n.t('app.i18n_value_0_i18n_value_1_services_up_06e178fa', { value0: activeServices.filter((s) => s.status === 'operational').length, value1: activeServices.length }); }, icon: <Gauge className="w-4 h-4" /> },
     { get label() { return uiI18n.t('app.observed_uptime_b7bcc5a8'); }, value: uptimePct !== null ? `${uptimePct}%` : '--', get detail() { return uiI18n.t('app.i18n_value_0_samples_e420e8b0', { value0: uptimeSamples.length }); }, icon: <Activity className="w-4 h-4" /> },
     { get label() { return uiI18n.t('app.proxy_pool_66df8d9e'); }, value: `${proxies.filter((p) => p.status === 'online').length}/${proxies.length}`, get detail() { return uiI18n.t('app.i18n_value_0_degraded_353cccde', { value0: proxies.filter((p) => p.status === 'degraded').length }); }, icon: <Server className="w-4 h-4" /> },
     { get label() { return uiI18n.t('app.incidents_5e326b17'); }, value: `${activeIncidents}`, detail: mttrMinutes !== null ? `MTTR ${mttrMinutes}m` : 'no history', icon: <AlertTriangle className="w-4 h-4" /> },
@@ -551,7 +490,7 @@ export default function StatusPage() {
                   {(['operational', 'degraded', 'down'] as const).map((k) => (
                     <span key={k} className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-black/20 border border-white/10 capitalize">
                       <span className={`w-2 h-2 rounded-full ${dotClass(k)}`} />
-                      {services.filter((s) => s.status === k).length} {uiI18n.t(({"operational":"app.operational_7a65affc","degraded":"app.degraded_6dc24469","down":"app.down_77346d04"})[k])}
+                      {activeServices.filter((s) => s.status === k).length} {uiI18n.t(({"operational":"app.operational_7a65affc","degraded":"app.degraded_6dc24469","down":"app.down_77346d04"})[k])}
                     </span>
                   ))}
                 </div>
@@ -579,7 +518,7 @@ export default function StatusPage() {
               {uiI18n.t('app.core_services_562880c0')}
             </h2>
             <span className="text-xs text-muted-foreground font-mono bg-white/5 px-3 py-1.5 rounded-full border border-white/10">
-              {services.filter((s) => s.status === 'operational').length}/{services.length} {uiI18n.t('app.operational_7a65affc')}
+              {activeServices.filter((s) => s.status === 'operational').length}/{activeServices.length} {uiI18n.t('app.operational_7a65affc')}
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -599,13 +538,23 @@ export default function StatusPage() {
                         <p className="text-[11px] text-muted-foreground leading-snug">{service.description}</p>
                       </div>
                     </div>
-                    <StatusGlyph status={service.status} />
+                    {service.skipped ? <span className="text-xs text-muted-foreground">--</span> : <StatusGlyph status={service.status} />}
                   </div>
+                  {service.providerId && (() => {
+                    const h = getProviderHealth()[service.providerId];
+                    if (!h || !h.downUntil || h.downUntil <= Date.now()) return null;
+                    return (
+                      <p className="mb-3 text-[11px] text-amber-400 leading-snug">
+                        Skipped by the router until {new Date(h.downUntil).toLocaleTimeString(uiI18n.language, { hour: '2-digit', minute: '2-digit' })}
+                        {h.lastError ? ` - ${h.lastError}` : ''}
+                      </p>
+                    );
+                  })()}
                   <div className="mb-3"><UptimeBars history={uptimeHistory[service.name] || []} /></div>
                   <div className="flex items-center justify-between text-xs">
                     <span className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${dotClass(service.status)}`} />
-                      <span className="capitalize font-medium">{service.status}</span>
+                      <span className={`w-2 h-2 rounded-full ${service.skipped ? 'bg-white/20' : dotClass(service.status)}`} />
+                      <span className="capitalize font-medium">{service.skipped ? 'Not configured' : service.status}</span>
                     </span>
                     <span className={`font-mono ${service.latency && service.latency > 500 ? 'text-amber-400' : 'text-emerald-400'}`}>
                       {service.latency !== undefined && service.latency > 0 ? uiI18n.t('app.i18n_value_0ms_0f3f2d06', { value0: service.latency }) : '--'}
@@ -658,10 +607,14 @@ export default function StatusPage() {
                   {proxies.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-6 py-12 text-center text-sm text-muted-foreground">
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          {uiI18n.t('app.initializing_node_pool_f7b0ba32')}
-                        </span>
+                        {proxiesLoaded ? (
+                          <span>No remote proxy configured. Streams use the in-app proxy.</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            {uiI18n.t('app.initializing_node_pool_f7b0ba32')}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   )}

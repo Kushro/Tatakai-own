@@ -13,7 +13,7 @@ function defaultConfig() {
     passwordSalt: null,
     remoteEnabled: false,
     remoteBaseUrl: '',
-    catalogApiBase: process.env.VITE_TATAKAI_API_URL || 'https://api.tatakai.app/api/v3',
+    catalogApiBase: process.env.VITE_TATAKAI_API_URL || '',
     shareCatalog: true,
     requireConsent: true,
     consentRequests: [],

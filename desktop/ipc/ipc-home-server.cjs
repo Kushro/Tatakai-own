@@ -4,7 +4,20 @@ const path = require('path');
 const fs = require('fs');
 const { createHomeServerRuntime } = require('../runtime/home-server/index.cjs');
 
-const TATAKAI_API_BASE = (process.env.VITE_TATAKAI_API_URL || 'https://api.tatakai.app/api/v3').replace(/\/+$/, '');
+// No upstream catalog default: the hosted TatakaiAPI is not part of this fork.
+// Set VITE_TATAKAI_API_URL (or the home-server `catalogApiBase`) to use a self-hosted
+// catalog; otherwise the catalog calls fall back to AniList directly.
+const TATAKAI_API_BASE = (process.env.VITE_TATAKAI_API_URL || '').replace(/\/+$/, '');
+const RETIRED_CATALOG_HOST = /(^|\.)tatakai\.(app|me)$/i;
+function sanitizeCatalogBase(value) {
+  const base = String(value || '').trim().replace(/\/+$/, '');
+  if (!base) return '';
+  try {
+    return RETIRED_CATALOG_HOST.test(new URL(base).hostname) ? '' : base;
+  } catch {
+    return '';
+  }
+}
 
 function currentAniListSeason(now = new Date()) {
   const month = now.getMonth() + 1;
@@ -40,7 +53,8 @@ async function fetchJson(url, options = {}) {
 }
 
 async function fetchTatakaiApi(apiPath, query = {}, apiBase = TATAKAI_API_BASE) {
-  const base = String(apiBase || TATAKAI_API_BASE).replace(/\/+$/, '');
+  const base = sanitizeCatalogBase(apiBase || TATAKAI_API_BASE);
+  if (!base) throw new Error('No catalog API configured');
   const url = new URL(`${base}/${String(apiPath || '').replace(/^\/+/, '')}`);
   for (const [key, value] of Object.entries(query || {})) {
     if (value == null || value === '') continue;
@@ -257,7 +271,7 @@ module.exports = function registerHomeServerIpc(
   let runtime = null;
 
   function catalogApiBase() {
-    return String(runtime?.store?.read?.()?.catalogApiBase || TATAKAI_API_BASE).replace(/\/+$/, '');
+    return sanitizeCatalogBase(runtime?.store?.read?.()?.catalogApiBase) || TATAKAI_API_BASE;
   }
 
   function isVideoFile(filePath) {
@@ -569,7 +583,7 @@ module.exports = function registerHomeServerIpc(
       bindMode: config.bindMode,
       remoteEnabled: config.remoteEnabled,
       remoteBaseUrl: config.remoteBaseUrl,
-      catalogApiBase: config.catalogApiBase || TATAKAI_API_BASE,
+      catalogApiBase: sanitizeCatalogBase(config.catalogApiBase) || TATAKAI_API_BASE,
       shareCatalog: Boolean(config.shareCatalog),
       requireConsent: Boolean(config.requireConsent),
       passwordConfigured: Boolean(config.passwordHash),

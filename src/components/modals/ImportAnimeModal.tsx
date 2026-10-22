@@ -16,7 +16,7 @@ import { toast } from 'sonner';
 import { Search, FileVideo, CheckCircle2, Loader2, ArrowLeft, SkipForward, Hash } from 'lucide-react';
 import { getProxiedImageUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { ANILIST_GRAPHQL_ENDPOINT } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
 
 // ── AniList Search ──────────────────────────────────────────────────────────
 
@@ -29,16 +29,11 @@ interface AniListMedia {
 async function searchAniList(query: string): Promise<AniListMedia[]> {
   if (!query.trim()) return [];
   try {
-    const res = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        query: `query($q:String){Page(perPage:8){media(search:$q,type:ANIME){id title{romaji english}coverImage{large}}}}`,
-        variables: { q: query.trim() },
-      }),
-    });
-    const json = await res.json();
-    return json?.data?.Page?.media || [];
+    const data = await anilistGql<any>(
+      `query($q:String){Page(perPage:8){media(search:$q,type:ANIME){id title{romaji english}coverImage{large}}}}`,
+      { q: query.trim() },
+    );
+    return data?.Page?.media || [];
   } catch {
     return [];
   }

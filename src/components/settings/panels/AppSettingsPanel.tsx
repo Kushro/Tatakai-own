@@ -9,6 +9,7 @@ import { TorrentSessionHistory } from '@/components/settings/TorrentSessionHisto
 import { ChangelogPanel } from '@/components/settings/panels/ChangelogPanel';
 import { StorageSettingsPanel } from '@/components/settings/StorageSettingsPanel';
 import { PerformanceSettingsPanel } from '@/components/settings/PerformanceSettingsPanel';
+import { MetadataSourcesPanel } from '@/components/settings/MetadataSourcesPanel';
 import { ProxySettingsPanel } from '@/components/settings/ProxySettingsPanel';
 import { ExtensionHostPortSetting } from '@/components/settings/ExtensionHostPortSetting';
 import { WarpSettingsPanel } from '@/components/settings/WarpSettingsPanel';
@@ -39,6 +40,7 @@ const SECTION_LABELS: Record<string, string> = {
   'display-window': 'Display & Window',
   storage: 'Storage',
   performance: 'Performance',
+  'metadata-sources': 'Metadata',
   proxy: 'Proxy',
   warp: 'WARP',
   'extension-port': 'Extensions',
@@ -88,6 +90,7 @@ const SETTING_INDEX: IndexedSetting[] = [
   { get title() { return uiI18n.t('app.memory_profile_75158bac'); }, keywords: 'memory profile ram low balanced unlimited buffer cache footprint performance', section: 'performance' },
   { get title() { return uiI18n.t('app.free_memory_now_806b68eb'); }, keywords: 'free memory reclaim ram gc garbage collect cache clear performance', section: 'performance' },
   { get title() { return uiI18n.t('app.memory_metrics_c504c3e4'); }, keywords: 'memory metrics rss heap performance monitor usage graph', section: 'performance' },
+  { get title() { return uiI18n.t('metadataSources.title'); }, keywords: 'metadata sources anilist tenrai kitsu shikimori myanimelist mal ani.zip provider catalog order priority fallback', section: 'metadata-sources' },
   { get title() { return uiI18n.t('app.proxy_servers_ed8fbf41'); }, keywords: 'proxy network routing region vpn server', section: 'proxy' },
   { get title() { return uiI18n.t('app.warp_tunnel_c3c03857'); }, keywords: 'warp cloudflare tunnel vpn privacy egress ip', section: 'warp' },
   { get title() { return uiI18n.t('app.extension_host_port_2f02acf5'); }, keywords: 'extension host port api sideload 8099', section: 'extension-port' },
@@ -157,6 +160,15 @@ export function AppSettingsPanel({ section }: { section?: string }) {
           'buffer', 'cache', 'footprint', 'reclaim', 'free memory', 'gc', 'rss', 'heap', 'metrics',
         ],
         render: () => <PerformanceSettingsPanel />,
+      },
+      {
+        id: 'metadata-sources',
+        keywords: [
+          'metadata', 'sources', 'source', 'provider', 'providers', 'anilist', 'tenrai', 'kitsu',
+          'shikimori', 'myanimelist', 'mal', 'ani.zip', 'anizip', 'catalog', 'order', 'priority', 'fallback',
+          'fuentes', 'metadatos',
+        ],
+        render: () => <MetadataSourcesPanel />,
       },
       {
         id: 'proxy',

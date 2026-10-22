@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { Loader2, Share2 } from 'lucide-react';
 import { getProxiedImageUrl } from '@/lib/api';
-import { resolveBackendOrigin } from '@/lib/api/backendOrigin';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
@@ -80,9 +79,19 @@ export default function PublicPlaylistPage() {
       setOwnerName('Unknown');
 
       try {
-        const response = await fetch(`${resolveBackendOrigin()}/api/public/playlists/${encodeURIComponent(shareSlug)}`);
-        const data = await response.json();
-        const nextPlaylist = data?.data ?? null;
+        const { data: row, error } = await supabase
+          .from('playlists')
+          .select('*, playlist_items(*)')
+          .eq('share_slug', shareSlug)
+          .eq('is_public', true)
+          .maybeSingle();
+        if (error) throw error;
+        const nextPlaylist: any = row ? { ...row } : null;
+        if (nextPlaylist && Array.isArray(nextPlaylist.playlist_items)) {
+          nextPlaylist.playlist_items = [...nextPlaylist.playlist_items].sort(
+            (a: any, b: any) => (a.position ?? 0) - (b.position ?? 0),
+          );
+        }
 
         if (!active) return;
         setPlaylist(nextPlaylist);

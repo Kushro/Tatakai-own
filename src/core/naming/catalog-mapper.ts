@@ -46,9 +46,7 @@ export interface ParsedRelease {
 
 // ─── AniList GraphQL helpers ──────────────────────────────────────────────────
 
-// Routed through the TatakaiAPI proxy (mirror-first) — see src/lib/anilist.ts.
-import { ANILIST_GRAPHQL_ENDPOINT } from "@/lib/api/backendOrigin";
-const ANILIST_GRAPHQL_URL = ANILIST_GRAPHQL_ENDPOINT;
+import { anilistGql } from "@/lib/anilist/client";
 
 interface AniListMedia {
   id: number;
@@ -164,18 +162,8 @@ async function searchAniList(
   `;
 
   try {
-    const res = await fetch(ANILIST_GRAPHQL_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ query: gql, variables: { search: query } }),
-    });
-
-    if (!res.ok) return null;
-
-    const json = (await res.json()) as {
-      data?: { Page?: { media?: AniListMedia[] } };
-    };
-    const mediaList = json.data?.Page?.media ?? [];
+    const data = await anilistGql<{ Page?: { media?: AniListMedia[] } }>(gql, { search: query });
+    const mediaList = data?.Page?.media ?? [];
     if (mediaList.length === 0) return null;
 
     // Find the best match across all returned results
@@ -220,18 +208,8 @@ async function searchAniListBySynonyms(
 
   for (const variant of variants) {
     try {
-      const res = await fetch(ANILIST_GRAPHQL_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ query: gql, variables: { search: variant } }),
-      });
-
-      if (!res.ok) continue;
-
-      const json = (await res.json()) as {
-        data?: { Page?: { media?: AniListMedia[] } };
-      };
-      const mediaList = json.data?.Page?.media ?? [];
+      const data = await anilistGql<{ Page?: { media?: AniListMedia[] } }>(gql, { search: variant });
+      const mediaList = data?.Page?.media ?? [];
 
       for (const media of mediaList) {
         // Check synonyms specifically for alternate title matching
@@ -288,28 +266,18 @@ async function fetchAniListRelations(
   `;
 
   try {
-    const res = await fetch(ANILIST_GRAPHQL_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ query: gql, variables: { id: anilistId } }),
-    });
-
-    if (!res.ok) return [];
-
-    const json = (await res.json()) as {
-      data?: {
-        Media?: {
-          relations?: {
-            edges: Array<{
-              relationType: string;
-              node: { id: number; startDate: { year: number | null } | null };
-            }>;
-          };
+    const data = await anilistGql<{
+      Media?: {
+        relations?: {
+          edges: Array<{
+            relationType: string;
+            node: { id: number; startDate: { year: number | null } | null };
+          }>;
         };
       };
-    };
+    }>(gql, { id: anilistId });
 
-    return (json.data?.Media?.relations?.edges ?? []).map((e) => ({
+    return (data?.Media?.relations?.edges ?? []).map((e) => ({
       id: e.node.id,
       relationType: e.relationType,
       startDate: e.node.startDate,
