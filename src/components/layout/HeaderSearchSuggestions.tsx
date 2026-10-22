@@ -7,7 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Search, Film, BookOpen, Loader2, Clock, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { resolveApiV3Base } from "@/lib/api/backendOrigin";
+import { metadata } from "@/lib/metadata";
 import { getPreferredTitleLanguage, selectMediaTitle } from '@/lib/titleLanguage';
 
 interface Suggestion {
@@ -22,23 +22,17 @@ interface Suggestion {
 
 async function fetchSuggestions(q: string): Promise<Suggestion[]> {
   if (!q || q.trim().length < 2) return [];
-  const params = new URLSearchParams({ q: q.trim() });
-  const raw = await fetch(`${resolveApiV3Base()}/content/search/suggestions?${params}`, {
-    signal: AbortSignal.timeout(4000),
-  }).then((response) => response.json());
+  const { value } = await metadata.search("ANIME", { query: q.trim(), perPage: 8 });
 
   const results: Suggestion[] = [];
-  const mediaArr = Array.isArray(raw?.data?.media) ? raw.data.media : [];
-  for (const m of mediaArr) {
+  for (const m of value.media) {
     const name = selectMediaTitle(m);
     if (!name || name === 'Unknown') continue;
-    const formatUpper = String(m.format ?? "").toUpperCase();
-    const isNovel = formatUpper === "NOVEL" || formatUpper === "LIGHT_NOVEL" || m.mediaType === "novel";
     results.push({
-      id: m.anilistId ?? m.tatakaiId ?? m.malId,
+      id: m.anilistId || m.malId || "",
       name,
       poster: m.coverImageLarge || m.coverImageMedium || null,
-      type: isNovel ? "novel" : m.mediaType === "manga" ? "manga" : "anime",
+      type: "anime",
       year: m.startDate?.year ?? m.seasonYear ?? null,
       format: m.format ?? null,
       countryOfOrigin: m.countryOfOrigin ?? null,

@@ -246,7 +246,17 @@ export interface SearchFilters {
   studio?: string[];
   source?: MediaSource[];
   isAdult?: boolean;
-  sortBy?: 'TRENDING_DESC' | 'POPULARITY_DESC' | 'SCORE_DESC' | 'START_DATE_DESC' | 'TITLE_ROMAJI';
+  sortBy?:
+    | 'TRENDING_DESC'
+    | 'POPULARITY_DESC'
+    | 'SCORE_DESC'
+    | 'START_DATE_DESC'
+    | 'TITLE_ROMAJI'
+    // Added for manga/novel lanes (providers that can't sort by these ignore them).
+    | 'FAVOURITES_DESC'
+    | 'UPDATED_AT_DESC'
+    | 'CHAPTERS_DESC'
+    | 'END_DATE_DESC';
   page?: number;
   perPage?: number;
 }

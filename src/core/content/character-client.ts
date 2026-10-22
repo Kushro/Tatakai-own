@@ -1,13 +1,18 @@
-import { externalApiGet, TATAKAI_API_URL } from "@/lib/api/api-client";
+import { tenraiGet } from "@/lib/tenrai/client";
 import { CharacterApiResponse, CharacterBase, CharacterDetail } from "@/types/anime";
-import { searchJikanCharacters } from "./jikan-client";
-
-const CHAR_API_URL = "https://anime-api.canelacho.com/api/v1";
 
 const EXTERNAL_CHARACTER_ID_PREFIX = "ext-";
 const DEFAULT_CHARACTER_IMAGE = "/placeholder.svg";
 
 type UnknownRecord = Record<string, unknown>;
+
+/** Jikan v4 pagination block as served by Tenrai. */
+type TenraiPagination = {
+  current_page?: number;
+  last_visible_page?: number;
+  has_next_page?: boolean;
+  items?: { count?: number; total?: number; per_page?: number };
+};
 
 type RawCharacterResponse = {
   success?: boolean;
@@ -16,12 +21,52 @@ type RawCharacterResponse = {
   pagination?: UnknownRecord;
 };
 
-const fetchCharacterApiViaProxy = <T>(path: string): Promise<T> => {
-  const targetUrl = `${CHAR_API_URL}${path}`;
-  return externalApiGet<T>(
-    TATAKAI_API_URL,
-    `/proxy?url=${encodeURIComponent(targetUrl)}`
-  );
+/** Tenrai (Jikan-compatible) GET, adapted to the `RawCharacterResponse` envelope. */
+const fetchCharacterApi = async (
+  path: string,
+  params?: Record<string, string | number | undefined>,
+): Promise<RawCharacterResponse> => {
+  const res = await tenraiGet<{ data?: unknown; pagination?: TenraiPagination }>(path, params);
+  const p = res?.pagination;
+  return {
+    success: true,
+    data: res?.data,
+    pagination: p
+      ? {
+          currentPage: p.current_page,
+          totalPages: p.last_visible_page,
+          totalCharacters: p.items?.total,
+          pageSize: p.items?.per_page,
+        }
+      : undefined,
+  };
+};
+
+const imageOf = (images: unknown): string => {
+  const img = (images && typeof images === "object" ? images : {}) as {
+    webp?: { image_url?: string };
+    jpg?: { image_url?: string };
+  };
+  return img.webp?.image_url || img.jpg?.image_url || "";
+};
+
+/** Jikan character → the loose record shape the normalizers below accept. */
+const fromJikanCharacter = (row: UnknownRecord): UnknownRecord => {
+  const anime = Array.isArray(row.anime) ? (row.anime as Array<{ anime?: { title?: string } }>) : [];
+  const voices = Array.isArray(row.voices)
+    ? (row.voices as Array<{ language?: string; person?: { name?: string } }>)
+    : [];
+  return {
+    id: row.mal_id,
+    malId: row.mal_id,
+    name: row.name,
+    image: imageOf(row.images),
+    description: row.about,
+    anime: anime[0]?.anime?.title,
+    voiceActors: voices
+      .filter((v) => v.person?.name)
+      .map((v) => ({ name: v.person!.name as string, language: v.language || "" })),
+  };
 };
 
 const asString = (value: unknown): string => {
@@ -256,83 +301,55 @@ const toApiCharacterId = (id: string): string => {
 };
 
 export async function fetchCharacters(page: number = 1, limit: number = 20): Promise<CharacterApiResponse<CharacterBase[]>> {
-  const response = await fetchCharacterApiViaProxy<RawCharacterResponse>(`/characters?page=${page}&limit=${limit}`);
-  return normalizeCharacterListResponse(response, page, limit);
+  const response = await fetchCharacterApi("/characters", {
+    page,
+    limit: Math.min(limit, 25),
+    order_by: "favorites",
+    sort: "desc",
+  });
+  return normalizeCharacterListResponse(mapRows(response), page, limit);
 }
 
 export async function fetchCharacterById(id: string): Promise<CharacterApiResponse<CharacterDetail>> {
   const apiId = toApiCharacterId(id);
-  const response = await fetchCharacterApiViaProxy<RawCharacterResponse>(`/characters/${encodeURIComponent(apiId)}`);
-  const record = (response.data && typeof response.data === "object" ? (response.data as UnknownRecord) : {}) as UnknownRecord;
+  const response = await fetchCharacterApi(`/characters/${encodeURIComponent(apiId)}/full`);
+  const raw = (response.data && typeof response.data === "object" ? (response.data as UnknownRecord) : {}) as UnknownRecord;
 
   return {
     success: response.success !== false,
     message: response.message || "Character fetched",
-    data: normalizeCharacterDetail(record),
+    data: normalizeCharacterDetail(fromJikanCharacter(raw)),
   };
 }
 
-export async function searchCharacters(query: string, page: number = 1, limit: number = 20): Promise<CharacterApiResponse<CharacterBase[]>> {
-  const encodedQuery = encodeURIComponent(query);
-
-  const enrichWithJikan = async (payload: CharacterApiResponse<CharacterBase[]>) => {
-    const characters = Array.isArray(payload.data) ? payload.data : [];
-    if (characters.length === 0) return payload;
-
-    const needsImageOrRouteHint = characters.some(
-      (character) => !character.malId || !character.image || character.image === DEFAULT_CHARACTER_IMAGE
-    );
-    if (!needsImageOrRouteHint) return payload;
-
-    try {
-      const jikanResponse = await searchJikanCharacters(query, 1);
-      const jikanRows = Array.isArray(jikanResponse?.data) ? jikanResponse.data : [];
-      if (jikanRows.length === 0) return payload;
-
-      const enrichedData = characters.map((character) => {
-        const matched = character.malId
-          ? jikanRows.find((candidate) => Number(candidate.mal_id) === Number(character.malId))
-          : jikanRows.find((candidate) => namesLikelyMatch(candidate.name, character.name));
-
-        if (!matched) return character;
-
-        const jikanImage =
-          matched.images?.jpg?.image_url ||
-          matched.images?.jpg?.small_image_url ||
-          matched.images?.webp?.image_url ||
-          matched.images?.webp?.small_image_url ||
-          "";
-
-        return {
-          ...character,
-          malId: character.malId || matched.mal_id,
-          image:
-            character.image && character.image !== DEFAULT_CHARACTER_IMAGE
-              ? character.image
-              : (jikanImage || character.image || DEFAULT_CHARACTER_IMAGE),
-        };
-      });
-
-      return {
-        ...payload,
-        data: enrichedData,
-      };
-    } catch {
-      return payload;
-    }
+/** Characters of one anime (by MAL id), main characters first. */
+export async function fetchAnimeCharacters(malId: number): Promise<CharacterApiResponse<CharacterBase[]>> {
+  const res = await tenraiGet<{ data?: Array<{ character?: UnknownRecord }> }>(`/anime/${malId}/characters`);
+  const rows = (Array.isArray(res?.data) ? res.data : [])
+    .map((entry) => entry?.character)
+    .filter((c): c is UnknownRecord => Boolean(c))
+    .map(fromJikanCharacter);
+  const data = rows.map(normalizeCharacterBase);
+  return {
+    success: true,
+    message: "Characters fetched",
+    data,
+    pagination: { currentPage: 1, totalPages: 1, totalCharacters: data.length, pageSize: data.length },
   };
+}
 
-  try {
-    const response = await fetchCharacterApiViaProxy<RawCharacterResponse>(
-      `/characters/search?name=${encodedQuery}&page=${page}&limit=${limit}`
-    );
-    const normalized = normalizeCharacterListResponse(response, page, limit);
-    return enrichWithJikan(normalized);
-  } catch {
-    const response = await fetchCharacterApiViaProxy<RawCharacterResponse>(
-      `/characters/search?q=${encodedQuery}&page=${page}&limit=${limit}`
-    );
-    const normalized = normalizeCharacterListResponse(response, page, limit);
-    return enrichWithJikan(normalized);
-  }
+const mapRows = (response: RawCharacterResponse): RawCharacterResponse => ({
+  ...response,
+  data: extractCharacterRows(response.data).map(fromJikanCharacter),
+});
+
+export async function searchCharacters(query: string, page: number = 1, limit: number = 20): Promise<CharacterApiResponse<CharacterBase[]>> {
+  const response = await fetchCharacterApi("/characters", {
+    q: query,
+    page,
+    limit: Math.min(limit, 25),
+    order_by: "favorites",
+    sort: "desc",
+  });
+  return normalizeCharacterListResponse(mapRows(response), page, limit);
 }
