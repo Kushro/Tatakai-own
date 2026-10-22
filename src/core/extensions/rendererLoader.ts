@@ -23,7 +23,7 @@ export interface ExtensionContext {
   navigate: (path: string) => void;
   /** Namespaced localStorage, keys auto-prefixed with the extension id. */
   storage: ScopedStorage;
-  /** `fetch`, passed through as-is (network permissions are enforced main-side). */
+  /** `fetch`, passed through as-is. Not checked against network permissions: renderer code runs with app privileges. */
   fetch: typeof fetch;
   /** Namespaced console logger. */
   log: (...args: unknown[]) => void;

@@ -30,9 +30,14 @@
  * (the reference implementation), adapted from Express req/res + ESM to Node's
  * built-in `http` req/res + CJS.
  *
- * TRUST: in-process `require(bundle.js)` bypasses the worker-thread sandbox, so
- * only first-party / `sideloaded` extensions are allowed to declare `apiServer`.
- * Non-sideloaded declarations are logged and skipped.
+ * TRUST: in-process `require(bundle.js)` runs the bundle with full Node access
+ * in the main process. Any installed extension that declares `apiServer` is
+ * loaded this way — there is no signature or `sideloaded` gate (signing fields
+ * are stripped at install, see kai-format.cjs). The only containment is network:
+ * requests made through `__tatakai_fetch__` are checked against the calling
+ * extension's `network:domain:` permissions (see `extensionNetworkScope`), and
+ * the proxy refuses private/loopback targets. A bundle calling Node's `fetch`
+ * or `http` directly is not contained.
  */
 
 const http = require('node:http');
@@ -40,6 +45,36 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
 const { URL } = require('node:url');
+const { AsyncLocalStorage } = require('node:async_hooks');
+const { extractAllowedDomains, isHostAllowed } = require('../extension/extension-sandbox.cjs');
+const { fetchPublicTarget } = require('../proxy/target-policy.cjs');
+
+/**
+ * Which extension is running. Bundle top-level code, construction and every
+ * method call run inside `extensionNetworkScope.run({ extensionId,
+ * allowedDomains })`, and the async context follows their awaits and timers,
+ * so the process-wide `__tatakai_fetch__` shim can apply the caller's own
+ * allowlist even though all in-process bundles share that one global.
+ */
+const extensionNetworkScope = new AsyncLocalStorage();
+
+/** Run every function-valued property of `instance` inside `scope`. */
+function bindToNetworkScope(instance, scope) {
+    if (!instance || (typeof instance !== 'object' && typeof instance !== 'function')) return instance;
+    const wrapped = new Map();
+    return new Proxy(instance, {
+        get(target, prop, receiver) {
+            const value = Reflect.get(target, prop, receiver);
+            if (typeof value !== 'function' || prop === 'constructor') return value;
+            if (!wrapped.has(value)) {
+                wrapped.set(value, function scoped(...args) {
+                    return extensionNetworkScope.run(scope, () => Reflect.apply(value, target, args));
+                });
+            }
+            return wrapped.get(value);
+        },
+    });
+}
 
 // ── Language helpers (ported verbatim from server.js) ──────────────────────────
 
@@ -483,9 +518,15 @@ function createBundleLoader(logger, onReload) {
         const tmp = path.join(tmpDir, `bundle-${process.pid}-${require('node:crypto').randomUUID()}-${counter}.cjs`);
         fs.copyFileSync(bundlePath, tmp);
 
-        const mod = require(tmp);
-        const Bundle = mod.default || mod;
-        const instance = typeof Bundle === 'function' ? new Bundle() : Bundle;
+        const scope = {
+            extensionId: manifest?.id || path.basename(path.dirname(bundlePath)),
+            allowedDomains: extractAllowedDomains(manifest?.permissions || []),
+        };
+        const instance = bindToNetworkScope(extensionNetworkScope.run(scope, () => {
+            const mod = require(tmp);
+            const Bundle = mod.default || mod;
+            return typeof Bundle === 'function' ? new Bundle() : Bundle;
+        }), scope);
         let browserHost;
         if (typeof instance?.configureBrowserRuntime === 'function' && manifest?.browserDomains?.length) {
             const { SeanimeBrowserHost } = require('../extension/seanime-browser-host.cjs');
@@ -643,14 +684,27 @@ function createHostApp({ registry, localProxy, logger }) {
         if (typeof globalThis.__tatakai_fetch__ === 'function') return;
         globalThis.__tatakai_fetch__ = async (url, init = {}) => {
             const target = String(url || '');
+            // Enforce the calling extension's network:domain permissions. A call
+            // outside any bundle scope has no permissions to check against, so
+            // it is refused rather than treated as unrestricted.
+            const scope = extensionNetworkScope.getStore();
+            let hostname = '';
+            try { hostname = new URL(target).hostname; } catch { /* invalid URL */ }
+            if (!scope || !isHostAllowed(hostname, scope.allowedDomains)) {
+                const err = new Error(`PermissionDeniedError: hostname "${hostname || target}" is not in the allowed domain list of ${scope?.extensionId || 'any extension'}`);
+                err.name = 'PermissionDeniedError';
+                logger?.warn?.(`[ExtHost] blocked ${scope?.extensionId || 'unscoped'} fetch to ${hostname || target}`);
+                throw err;
+            }
             let base = null;
             try {
                 const candidate = localProxy?.baseUrl?.();
                 if (/^http:\/\/127\.0\.0\.1:\d+$/i.test(String(candidate || ''))) base = candidate;
             } catch { base = null; }
             // Proxy not up yet (shouldn't happen — the supervisor starts it
-            // before listening): direct fetch rather than failing the scrape.
-            if (!base) return fetch(target, init);
+            // before listening): direct fetch rather than failing the scrape,
+            // under the same private-address policy the proxy applies.
+            if (!base) return fetchPublicTarget(target, init);
             const proxyUrl = new URL('/proxy', base);
             proxyUrl.searchParams.set('url', target);
             const controller = new AbortController();
