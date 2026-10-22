@@ -42,6 +42,34 @@ function extractAllowedDomains(permissions) {
 }
 
 /**
+ * Whether `hostname` is covered by an extension's declared network domains.
+ * Entries match exactly (case-insensitive); `*.example.com` covers subdomains
+ * of example.com but not example.com itself; `*` covers everything.
+ *
+ * Self-contained (no outer references) because the worker bootstrap embeds its
+ * source text via Function.prototype.toString.
+ *
+ * @param {string} hostname
+ * @param {string[]} allowedDomains - From extractAllowedDomains().
+ * @returns {boolean}
+ */
+function isHostAllowed(hostname, allowedDomains) {
+  if (!Array.isArray(allowedDomains) || typeof hostname !== 'string' || !hostname) return false;
+  const host = hostname.toLowerCase().replace(/\.$/, '');
+  for (const entry of allowedDomains) {
+    if (typeof entry !== 'string') continue;
+    const pattern = entry.trim().toLowerCase();
+    if (pattern === '*') return true;
+    if (pattern.startsWith('*.')) {
+      if (host.endsWith(pattern.slice(1)) && host.length > pattern.length - 1) return true;
+    } else if (host === pattern) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Wraps extension code with:
  *  - 'use strict' header
  *  - Injected runtime API aliases from self globals
@@ -95,4 +123,4 @@ ${extensionCode}
 `;
 }
 
-module.exports = { wrapExtensionCode, extractAllowedDomains };
+module.exports = { wrapExtensionCode, extractAllowedDomains, isHostAllowed };

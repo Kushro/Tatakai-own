@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const { bypassCloudflare, cookiesToHeader, cleanup, clearSession, isChallengeResponse } = require('./cloudflare-bypass.cjs');
 const { FlareSolverrClient } = require('./flaresolverr-client.cjs');
 const { EmbeddedFlareSolverr } = require('./embedded-flaresolverr.cjs');
+const { fetchPublicTarget } = require('./target-policy.cjs');
 
 const DEFAULT_USER_AGENT =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
@@ -30,9 +31,18 @@ const LOCAL_VIDEO_MIME = {
 };
 
 class LocalProxyServer {
-    constructor(logger, onEvent) {
+    /**
+     * @param {object} [options]
+     * @param {string[]} [options.trustedLocalOrigins] App-owned loopback origins
+     *   (torrent stream server, HLS remux) the proxy may fetch despite the
+     *   private-address policy. The proxy's own origin is always trusted.
+     * @param {boolean} [options.allowPrivateTargets] Disable the policy (tests only).
+     */
+    constructor(logger, onEvent, options = {}) {
         this._logger = logger;
         this._onEvent = typeof onEvent === 'function' ? onEvent : null;
+        this._trustedLocalOrigins = Array.isArray(options.trustedLocalOrigins) ? options.trustedLocalOrigins : [];
+        this._allowPrivateTargets = options.allowPrivateTargets === true;
         this._server = null;
         this._port = null;
         this._tokenMap = new Map();
@@ -76,6 +86,16 @@ class LocalProxyServer {
 
     baseUrl() {
         return `http://127.0.0.1:${this._port}`;
+    }
+
+    /**
+     * Every upstream fetch goes through here: targets come from extensions or
+     * scraped data, so private/loopback addresses (and redirects into them) are
+     * refused — see target-policy.cjs.
+     */
+    _fetchUpstream(url, init) {
+        const trustedOrigins = this._port ? [this.baseUrl(), ...this._trustedLocalOrigins] : this._trustedLocalOrigins;
+        return fetchPublicTarget(url, init, { allowPrivate: this._allowPrivateTargets, trustedOrigins });
     }
 
     /**
@@ -522,7 +542,7 @@ class LocalProxyServer {
         let upstream;
         try {
             console.log(`[LocalProxy] Fetching ${method} ${target.href}`);
-            upstream = await fetch(target, {
+            upstream = await this._fetchUpstream(target, {
                 method,
                 headers: requestHeaders,
                 body,
@@ -532,6 +552,10 @@ class LocalProxyServer {
             console.log(`[LocalProxy] Response ${upstream.status} from ${target.hostname}`);
         } catch (err) {
             console.error(`[LocalProxy] Fetch failed for ${target.hostname}:`, err.message);
+            if (err?.code === 'ETARGETBLOCKED') {
+                this._endWithStatus(res, 403, `blocked target: ${err.message}`);
+                return;
+            }
             throw err;
         } finally {
             clearTimeout(timeoutId);
@@ -555,7 +579,7 @@ class LocalProxyServer {
                     const retryController = new AbortController();
                     const retryTimeoutId = setTimeout(() => retryController.abort(), 30_000);
                     try {
-                        upstream = await fetch(target, {
+                        upstream = await this._fetchUpstream(target, {
                             method,
                             headers: retryHeaders,
                             body,
@@ -603,7 +627,7 @@ class LocalProxyServer {
         let lastErr;
         for (let attempt = 0; attempt < 2; attempt += 1) {
             try {
-                return await fetch(url, {
+                return await this._fetchUpstream(url, {
                     method: 'GET',
                     headers,
                     redirect: 'follow',
@@ -611,6 +635,7 @@ class LocalProxyServer {
                 });
             } catch (err) {
                 lastErr = err;
+                if (err?.code === 'ETARGETBLOCKED') throw err;
                 if (signal?.aborted || /abort/i.test(String(err?.name || ''))) throw err;
                 if (attempt === 0) {
                     this._logger?.warn?.(
@@ -718,9 +743,10 @@ class LocalProxyServer {
             }
 
             if (parsed.pathname === '/proxy') {
-                // `/proxy?url=` is an open fetch — an SSRF vector. It's only for
+                // `/proxy?url=` fetches an arbitrary public URL. It's only for
                 // the local extension host, so refuse it over the public tunnel;
-                // public callers can reach nothing but /stream/<token>.
+                // public callers can reach nothing but /stream/<token>. Private
+                // and loopback targets are refused in _fetchUpstream.
                 if (!isLoopback) {
                     this._endWithStatus(res, 403, 'forbidden');
                     return;
@@ -928,7 +954,8 @@ class LocalProxyServer {
             // are on the response, so the player reads the status instead of a
             // CORS violation.
             const aborted = /abort/i.test(String(err?.name || err?.message || ''));
-            this._endWithStatus(res, aborted ? 504 : 502, `proxy error: ${err.message}`);
+            const status = err?.code === 'ETARGETBLOCKED' ? 403 : aborted ? 504 : 502;
+            this._endWithStatus(res, status, `proxy error: ${err.message}`);
         }
     }
 }

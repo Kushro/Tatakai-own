@@ -21,6 +21,8 @@ const { ExtensionWorkerPool } = require('../runtime/extension/extension-worker-p
 const { enforcePayloadLimit } = require('../runtime/security/payload-guard.cjs');
 const { withCallTimeout, CALL_TIMEOUT_MS } = require('../runtime/security/timeout-guard.cjs');
 const { LocalProxyServer } = require('../runtime/proxy/local-proxy-server.cjs');
+const { TORRENT_STREAM_ORIGIN } = require('../runtime/torrent/session/session-manager.cjs');
+const { HLS_REMUX_ORIGIN } = require('../runtime/torrent/streaming/hls-remux.cjs');
 const { WarpTunnel } = require('../runtime/warp/warp-tunnel.cjs');
 const { parseKaiFile, installKaiExtension, isValidExtensionId } = require('../runtime/extension/kai-format.cjs');
 const { createExtensionApiHost } = require('../runtime/extension-api-host/supervisor.cjs');
@@ -65,7 +67,11 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
             emitRuntimeEvent({ type: 'extension-suspended', extensionId, ts: Date.now() });
         },
     });
-    const localProxy = new LocalProxyServer(logger, emitRuntimeEvent);
+    // The proxy refuses loopback/private targets; the torrent stream and HLS
+    // remux servers are app-owned loopback origins a watch party re-proxies.
+    const localProxy = new LocalProxyServer(logger, emitRuntimeEvent, {
+        trustedLocalOrigins: [TORRENT_STREAM_ORIGIN, HLS_REMUX_ORIGIN],
+    });
     const ensureExtensionFetchProxy = async () => {
         const proxyBaseUrl = await localProxy.ensureStarted();
         workerPool.setFetchProxyBaseUrl(proxyBaseUrl);
@@ -491,10 +497,9 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
     // Flow:
     //   1. Check kill-switch — blocked extensions are never loaded.
     //   2. Resolve the bundle path under <userData>/extensions/<extensionId>/bundle.js.
-    //   3. If the bundle exists on disk AND the extension is NOT sideloaded,
-    //      verify the Ed25519 signature from manifest.signature against the bundle
-    //      content.  An invalid or missing signature aborts loading without writing
-    //      any files (Property 9 / Requirement 10.1).
+    //   3. No signature check: the client does not verify extension signatures
+    //      (signing fields are stripped at install). Only the marketplace server
+    //      refuses unsigned releases; sideloads and URL installs are unverified.
     //   4. If the bundle does not yet exist, persist the manifest to disk so the
     //      directory is created; the bundle must be written separately before
     //      extension:invoke can succeed.
@@ -1302,12 +1307,12 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
 
     // ── runtime:get-renderer-bundle ───────────────────────────────────────────
     //
-    // Returns the full renderer ESM bundle for a TRUSTED extension so the renderer
-    // loader (src/core/extensions/rendererLoader.ts) can `import(blobURL)` it and
-    // call its `activate(ctx)`. Renderer code runs with app privileges, so this is
-    // hard-gated on the same trust check used to `require()` main-process bundles:
-    // the extension must be sideloaded OR carry a signature. Untrusted store
-    // extensions stay data-only.
+    // Returns the full renderer ESM bundle for an installed extension so the
+    // renderer loader (src/core/extensions/rendererLoader.ts) can
+    // `import(blobURL)` it and call its `activate(ctx)`. Renderer code runs with
+    // app privileges and there is NO trust gate here: any installed extension
+    // that declares `contributes.rendererEntry` gets it (signatures are not
+    // verified client-side; only the kill switch applies).
     //
     // The path comes from `manifest.contributes.rendererEntry` (relative to the
     // extension's bundle directory); path traversal outside that dir is rejected.
