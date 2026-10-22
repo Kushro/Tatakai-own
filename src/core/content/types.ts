@@ -186,7 +186,10 @@ export interface StaffMember {
 }
 
 export interface MediaRelation {
+  /** AniList id once resolved (MAL-keyed providers are re-keyed by the metadata router). */
   id: number;
+  /** Anime or manga entry. MAL ids overlap across kinds, so providers must set it when known. */
+  kind?: 'ANIME' | 'MANGA';
   relationType: string;
   titleRomaji: string;
   titleEnglish?: string;

@@ -102,6 +102,15 @@ export function setFallbackIdsResolver(fn: IdsResolver | null): void {
   fallbackResolver = fn;
 }
 
+/** Bulk resolver (providers' `idsBatch`), tried before per-item lookups. */
+type BatchIdsResolver = (kind: MediaKind, refs: MediaRef[], signal?: AbortSignal) => Promise<Array<FullRef | null>>;
+let batchResolver: BatchIdsResolver | null = null;
+export function setBatchIdsResolver(fn: BatchIdsResolver | null): void {
+  batchResolver = fn;
+}
+
+const inFlight = new Map<string, Promise<FullRef | null>>();
+
 /**
  * Resolve the full id set (anilistId required) for one title, or null when no
  * source knows it. Never throws for "unknown"; throws only on abort.
@@ -113,6 +122,15 @@ export async function resolveIds(kind: MediaKind, ref: MediaRef, signal?: AbortS
   const missAt = misses.get(missKey);
   if (missAt && Date.now() - missAt < MISS_TTL_MS) return cached;
 
+  // Lanes overlap (trending/airing/seasonal): share one lookup per title.
+  const pending = inFlight.get(missKey);
+  if (pending) return pending;
+  const run = lookupIds(kind, ref, missKey, cached, signal).finally(() => inFlight.delete(missKey));
+  inFlight.set(missKey, run);
+  return run;
+}
+
+async function lookupIds(kind: MediaKind, ref: MediaRef, missKey: string, cached: FullRef | null, signal?: AbortSignal): Promise<FullRef | null> {
   let found: FullRef | null = null;
   if (kind === 'ANIME') {
     try { found = await fromAniZip(ref, signal); } catch (err) { if (signal?.aborted) throw err; }
@@ -145,12 +163,44 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promis
  * that can't be resolved — app routes and local extensions need the AniList id.
  */
 export async function ensureAnilistIds(kind: MediaKind, items: TatakaiMedia[], signal?: AbortSignal): Promise<TatakaiMedia[]> {
-  const resolved = await mapLimit(items, 4, async (m) => {
+  const withCache = items.map((m) => {
     if (m.anilistId > 0) {
       if (m.malId || m.kitsuId) rememberIds(kind, { anilistId: m.anilistId, malId: m.malId, kitsuId: m.kitsuId });
       return m;
     }
-    const ids = await resolveIds(kind, { malId: m.malId, kitsuId: m.kitsuId }, signal);
+    const hit = cachedIds(kind, { malId: m.malId, kitsuId: m.kitsuId });
+    return hit ? { ...m, anilistId: hit.anilistId, malId: m.malId ?? hit.malId, kitsuId: m.kitsuId ?? hit.kitsuId } : m;
+  });
+
+  // One bulk lookup for the whole list before falling back to per-item calls.
+  const fresh = withCache.filter((m) => !(m.anilistId > 0) && (m.malId || m.kitsuId)
+    && !misses.has(keysOf(kind, { malId: m.malId, kitsuId: m.kitsuId }).join('|')));
+  let batchCovered = false;
+  if (fresh.length && batchResolver) {
+    try {
+      const found = await batchResolver(kind, fresh.map((m) => ({ malId: m.malId, kitsuId: m.kitsuId })), signal);
+      batchCovered = true;
+      fresh.forEach((m, i) => {
+        const r = found[i];
+        if (r?.anilistId) rememberIds(kind, { ...r, malId: m.malId ?? r.malId, kitsuId: m.kitsuId ?? r.kitsuId });
+      });
+    } catch (err) {
+      if (signal?.aborted) throw err;
+    }
+  }
+
+  const resolved = await mapLimit(withCache, 6, async (m) => {
+    if (m.anilistId > 0) return m;
+    const ref = { malId: m.malId, kitsuId: m.kitsuId };
+    const hit = cachedIds(kind, ref);
+    if (hit) return { ...m, anilistId: hit.anilistId, malId: m.malId ?? hit.malId, kitsuId: m.kitsuId ?? hit.kitsuId };
+    // After a successful bulk pass, only anime gets a per-item retry (ani.zip
+    // is anime-only and cheap); manga misses would just repeat slow lookups.
+    if (batchCovered && kind === 'MANGA') {
+      misses.set(keysOf(kind, ref).join('|'), Date.now());
+      return m;
+    }
+    const ids = await resolveIds(kind, ref, signal);
     return ids?.anilistId ? { ...m, anilistId: ids.anilistId, malId: m.malId ?? ids.malId, kitsuId: m.kitsuId ?? ids.kitsuId } : m;
   });
   return resolved.filter((m) => m.anilistId > 0);

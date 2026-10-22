@@ -111,6 +111,17 @@ test('media maps the v2 detail node', async () => {
   expect(await p.media!('ANIME', {})).toBeNull();
 });
 
+test('malformed list rows are skipped; relation kind follows related_anime/related_manga', async () => {
+  const sparse = { id: 5, title: 'Sparse', genres: null, studios: null, alternative_titles: null, main_picture: null };
+  const broken = { id: 6, title: 'Broken', genres: 5 };
+  stub(() => json({ data: [null, { node: null }, { node: broken }, { node: sparse }], paging: {} }));
+  const r = await p.feed!('ANIME', 'popular', {});
+  expect(r.media.map((m) => m.malId)).toEqual([5]);
+  stub(() => json({ ...FRIEREN, related_anime: [null, ...FRIEREN.related_anime] }));
+  const m = (await p.media!('ANIME', { malId: 52991 }))!;
+  expect(m.relations!.map((x) => x.kind)).toEqual(['ANIME', 'MANGA']);
+});
+
 test('media: 404 gives null, other errors throw', async () => {
   stub(() => json({}, 404));
   expect(await p.media!('MANGA', { malId: 1 })).toBeNull();

@@ -80,6 +80,18 @@ test('media maps detail: ids, titles, russian text dropped, relations, trailer',
   expect(m.startDate).toEqual({ year: 2023, month: 9, day: 29 });
 });
 
+test('malformed rows are skipped; relation kind set; ongoing total stays unknown', async () => {
+  const ongoing = { ...FRIEREN, id: '7', malId: '7', status: 'ongoing', episodes: 0, episodesAired: 5, genres: null, poster: null, related: [null, FRIEREN.related[1]] };
+  const broken = { id: '8', malId: '8', name: 'Bad', description: 5, genres: [null] };
+  stub(() => list('animes', [null, broken, ongoing]));
+  const r = await p.feed!('ANIME', 'airing', {});
+  expect(r.media.map((m) => m.malId)).toEqual([7]);
+  expect(r.media[0].episodes).toBeUndefined();
+  stub(() => list('animes', [FRIEREN]));
+  const m = (await p.media!('ANIME', { malId: 52991 }))!;
+  expect(m.relations!.map((x) => x.kind)).toEqual(['ANIME', 'MANGA']);
+});
+
 test('manga media: zero chapters become undefined, no season; missing ids give null', async () => {
   stub(() => list('mangas', [BERSERK]));
   const m = (await p.media!('MANGA', { malId: 2 }))!;

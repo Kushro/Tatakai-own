@@ -86,7 +86,8 @@ function mapPage(res: JikanList, kind: MediaKind, adult: boolean): TatakaiMedia[
   for (const raw of res.data ?? []) {
     if (!raw || seen.has(raw.mal_id)) continue;
     seen.add(raw.mal_id);
-    const m = mapJikanEntry(raw, kind, 'tenrai');
+    let m: TatakaiMedia;
+    try { m = mapJikanEntry(raw, kind, 'tenrai'); } catch { continue; } // skip one malformed entry
     if (!adult && m.isAdult) continue;
     out.push(m);
   }

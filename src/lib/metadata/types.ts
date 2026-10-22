@@ -100,6 +100,12 @@ export interface MetadataProvider {
   genres?(kind: MediaKind, opts?: { includeAdult?: boolean; signal?: AbortSignal }): Promise<string[]>;
   /** Cross-reference ids (ani.zip, Kitsu mappings). Return null when unknown. */
   ids?(ref: MediaRef, opts?: { signal?: AbortSignal; kind?: MediaKind }): Promise<Required<Pick<MediaRef, 'anilistId'>> & MediaRef | null>;
+  /**
+   * Bulk variant of `ids()` for whole result lists (same order as `refs`,
+   * null for unknown). Throw on transport failure. Used before per-item
+   * lookups to keep list pages to a couple of requests.
+   */
+  idsBatch?(kind: MediaKind, refs: MediaRef[], opts?: { signal?: AbortSignal }): Promise<Array<(Required<Pick<MediaRef, 'anilistId'>> & MediaRef) | null>>;
 }
 
 /** The capability a provider method implements. */
