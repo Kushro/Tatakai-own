@@ -110,7 +110,10 @@ export async function publicFetch(url: string, init: PublicRequestInit = {}): Pr
     }
     return res;
   }
-  throw lastError instanceof Error ? lastError : new Error(`Request to ${host} failed`);
+  // status 0 = unreachable (network/TLS/timeout), so callers can tell a down
+  // host apart from a bug in their own code.
+  const reason = lastError instanceof Error ? lastError.message : String(lastError ?? 'unknown error');
+  throw new PublicApiError(`${host} unreachable: ${reason}`, 0, url);
 }
 
 /** `publicFetch` + JSON parse; throws PublicApiError on non-2xx. */

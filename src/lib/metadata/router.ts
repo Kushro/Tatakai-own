@@ -11,7 +11,7 @@
 import type { ContentSearchResult, SearchFilters, TatakaiMedia } from '@/core/content/types';
 import { AniListError } from '@/lib/anilist/client';
 import { PublicApiError } from '@/lib/net/publicApi';
-import { ensureAnilistIds, resolveIds, setFallbackIdsResolver, rememberIds } from '@/lib/metadata/ids';
+import { ensureAnilistIds, resolveIds, setBatchIdsResolver, setFallbackIdsResolver, rememberIds } from '@/lib/metadata/ids';
 import { getMetadataSources } from '@/lib/metadata/settings';
 import {
   providerSupports,
@@ -49,12 +49,17 @@ export interface ProviderHealth {
 }
 const health = new Map<ProviderId, ProviderHealth>();
 
-/** How long to skip a provider after this error (0 = don't trip). */
+/**
+ * How long to skip a provider after this error (0 = don't trip). Only
+ * transport/HTTP failures trip it; a mapper bug on one malformed entry must not
+ * take the provider down for every other request.
+ */
 function cooldownFor(err: unknown): number {
-  const status = err instanceof AniListError || err instanceof PublicApiError ? err.status : undefined;
+  if (!(err instanceof AniListError || err instanceof PublicApiError)) return 0;
+  const status = err.status;
   if (status === 403 || status === 401) return 15 * 60_000; // API disabled / auth required
   if (status === 429) return 2 * 60_000;
-  if (status === undefined || status >= 500) return 3 * 60_000; // network / server
+  if (status === 0 || status >= 500) return 3 * 60_000; // unreachable / server
   return 0; // 400/404: the request, not the provider
 }
 
@@ -143,13 +148,40 @@ setFallbackIdsResolver(async (kind, ref, signal) => {
     if (p.id === 'anizip' && kind === 'MANGA') continue;
     try {
       const r = await p.ids!(ref, { signal, kind });
+      markOk(p.id);
       if (r?.anilistId) return r;
     } catch (err) {
       if (signal?.aborted) throw err;
+      markFailure(p.id, err); // e.g. AniList 403: stop asking it for every title
     }
   }
   return null;
 });
+
+// Whole result lists resolve through the first provider with idsBatch().
+setBatchIdsResolver(async (kind, refs, signal) => {
+  const now = Date.now();
+  const providers = getMetadataSources()
+    .filter((s) => s.enabled)
+    .map((s) => registry.get(s.id))
+    .filter((p): p is MetadataProvider => Boolean(p?.idsBatch && p.isConfigured() && (health.get(p.id)?.downUntil ?? 0) <= now));
+  for (const p of providers) {
+    try {
+      const r = await p.idsBatch!(kind, refs, { signal });
+      markOk(p.id);
+      return r;
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      markFailure(p.id, err);
+    }
+  }
+  throw new Error('No bulk id resolver available');
+});
+
+/** Adult titles only when the caller opts in with `isAdult: true`. */
+function adultFilter<T extends { isAdult: boolean }>(items: T[], isAdult: boolean | undefined): T[] {
+  return isAdult === true ? items : items.filter((m) => !m.isAdult);
+}
 
 // ── Relation ids ─────────────────────────────────────────────────────────────
 
@@ -164,7 +196,7 @@ const MANGA_FORMATS = new Set(['MANGA', 'ONE_SHOT', 'NOVEL', 'LIGHT_NOVEL']);
 async function resolveRelationIds(provider: ProviderId, m: TatakaiMedia, signal?: AbortSignal): Promise<TatakaiMedia> {
   if (!MAL_KEYED_PROVIDERS.has(provider) || !m.relations?.length) return m;
   const resolved = await Promise.all(m.relations.map(async (rel) => {
-    const kind: MediaKind = MANGA_FORMATS.has(String(rel.format)) ? 'MANGA' : 'ANIME';
+    const kind: MediaKind = rel.kind ?? (MANGA_FORMATS.has(String(rel.format)) ? 'MANGA' : 'ANIME');
     try {
       const ids = await resolveIds(kind, { malId: rel.id }, signal);
       return ids?.anilistId ? { ...rel, id: ids.anilistId } : null;
@@ -185,14 +217,20 @@ async function withIds(kind: MediaKind, ref: MediaRef, signal?: AbortSignal): Pr
 }
 
 export const metadata = {
+  // Ids are resolved (and adult titles filtered) inside each attempt, so a page
+  // that ends up empty afterwards falls through to the next provider.
   async feed(kind: MediaKind, feed: MetadataFeedKind, opts: FeedOptions = {}): Promise<RoutedResult<FeedPage>> {
-    const r = await tryProviders('feed', kind, (p) => p.feed!(kind, feed, opts), { isEmpty: (v) => !v.media.length, signal: opts.signal });
-    return { ...r, value: { ...r.value, media: await ensureAnilistIds(kind, r.value.media, opts.signal) } };
+    return tryProviders('feed', kind, async (p) => {
+      const page = await p.feed!(kind, feed, opts);
+      return { ...page, media: await ensureAnilistIds(kind, adultFilter(page.media, opts.isAdult), opts.signal) };
+    }, { isEmpty: (v) => !v.media.length, signal: opts.signal });
   },
 
   async search(kind: MediaKind, filters: SearchFilters & { novelsOnly?: boolean; countryOfOrigin?: string; signal?: AbortSignal }): Promise<RoutedResult<ContentSearchResult>> {
-    const r = await tryProviders('search', kind, (p) => p.search!(kind, filters), { isEmpty: (v) => !v.media.length, signal: filters.signal });
-    return { ...r, value: { ...r.value, media: await ensureAnilistIds(kind, r.value.media, filters.signal) } };
+    return tryProviders('search', kind, async (p) => {
+      const res = await p.search!(kind, filters);
+      return { ...res, media: await ensureAnilistIds(kind, adultFilter(res.media, filters.isAdult), filters.signal) };
+    }, { isEmpty: (v) => !v.media.length, signal: filters.signal });
   },
 
   /** One title; null when no enabled source knows it. */

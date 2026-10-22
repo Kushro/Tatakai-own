@@ -51,7 +51,8 @@ function mapList(res: MalList, kind: MediaKind, adult: boolean): TatakaiMedia[] 
     const node = row?.node;
     if (!node || seen.has(node.id)) continue;
     seen.add(node.id);
-    const m = mapMalV2Node(node, kind);
+    let m: TatakaiMedia;
+    try { m = mapMalV2Node(node, kind); } catch { continue; } // skip one malformed entry
     if (!adult && m.isAdult) continue;
     out.push(m);
   }

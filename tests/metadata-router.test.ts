@@ -119,3 +119,54 @@ test('MAL-keyed results get AniList ids from ani.zip; unresolvable items are dro
   const out = await ensureAnilistIds('ANIME', [media(0, { malId: 21, source_api: 'tenrai' }), media(0, { malId: 999999, source_api: 'tenrai' }), media(7)]);
   expect(out.map((m) => [m.anilistId, m.kitsuId])).toEqual([[21, 12], [7, undefined]]);
 });
+
+test('adult titles are filtered centrally unless isAdult === true', async () => {
+  registerMetadataProviders([
+    fake('anilist', { feed: async () => ({ media: [media(1), media(2, { isAdult: true })], page: 1, hasNextPage: false }) }),
+  ]);
+  setMetadataSources([{ id: 'anilist', enabled: true }]);
+  expect((await metadata.feed('ANIME', 'trending')).value.media.map((m) => m.anilistId)).toEqual([1]);
+  expect((await metadata.feed('ANIME', 'trending', { isAdult: false })).value.media.map((m) => m.anilistId)).toEqual([1]);
+  expect((await metadata.feed('ANIME', 'trending', { isAdult: true })).value.media.map((m) => m.anilistId)).toEqual([1, 2]);
+});
+
+test('a mapper bug falls back without cooling the provider down', async () => {
+  let calls = 0;
+  registerMetadataProviders([
+    fake('anilist', { feed: async () => { calls++; throw new TypeError("Cannot read properties of null (reading 'jpg')"); } }),
+    fake('tenrai', { feed: async () => ({ media: [media(3)], page: 1, hasNextPage: false }) }),
+  ]);
+  setMetadataSources([{ id: 'anilist', enabled: true }, { id: 'tenrai', enabled: true }]);
+  expect((await metadata.feed('ANIME', 'popular')).provider).toBe('tenrai');
+  await metadata.feed('ANIME', 'popular');
+  expect(calls).toBe(2);
+});
+
+test('a page that is empty after id resolution falls through to the next provider', async () => {
+  globalThis.fetch = (async () => new Response('{}', { status: 404 })) as typeof fetch;
+  registerMetadataProviders([
+    fake('tenrai', { feed: async () => ({ media: [media(0, { malId: 123456789, source_api: 'tenrai' })], page: 1, hasNextPage: false }) }),
+    fake('kitsu', { feed: async () => ({ media: [media(4)], page: 1, hasNextPage: false }) }),
+  ]);
+  setMetadataSources([{ id: 'tenrai', enabled: true }, { id: 'kitsu', enabled: true }]);
+  const r = await metadata.feed('ANIME', 'upcoming');
+  expect(r.provider).toBe('kitsu');
+  expect(r.value.media.map((m) => m.anilistId)).toEqual([4]);
+});
+
+test('list ids resolve through idsBatch in one call, before per-item lookups', async () => {
+  let batchCalls = 0;
+  let perItem = 0;
+  globalThis.fetch = (async () => { perItem++; return new Response('{}', { status: 404 }); }) as typeof fetch;
+  registerMetadataProviders([
+    fake('tenrai', { feed: async () => ({ media: [media(0, { malId: 501 }), media(0, { malId: 502 })], page: 1, hasNextPage: false }) }),
+    fake('kitsu', {
+      idsBatch: async (_kind, refs) => { batchCalls++; return refs.map((r) => (r.malId === 501 ? { anilistId: 9501, malId: 501 } : null)); },
+    }),
+  ]);
+  setMetadataSources([{ id: 'tenrai', enabled: true }, { id: 'kitsu', enabled: true }]);
+  const r = await metadata.feed('MANGA', 'popular');
+  expect(batchCalls).toBe(1);
+  expect(perItem).toBe(0); // manga misses after a bulk pass are not retried one by one
+  expect(r.value.media.map((m) => m.anilistId)).toEqual([9501]);
+});

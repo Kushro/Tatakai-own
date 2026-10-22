@@ -279,11 +279,11 @@ export function mapJikanEntry(m: JikanEntry, kind: MediaKind, sourceApi: MalSour
   const isManga = kind === 'MANGA';
   const cover = jikanCover(m.images);
   const durationMin = isManga ? undefined : parseMalDuration(m.duration);
-  const genreObjs = [...(m.genres ?? []), ...(m.explicit_genres ?? []), ...(m.themes ?? []), ...(m.demographics ?? [])];
+  const genreObjs = [...(m.genres ?? []), ...(m.explicit_genres ?? []), ...(m.themes ?? []), ...(m.demographics ?? [])].filter((g) => g && g.name);
   const genres = uniq(genreObjs.map((g) => g.name));
   const tags: MediaTag[] = [
-    ...(m.themes ?? []).map((t) => ({ id: t.mal_id, name: t.name, category: 'Theme' })),
-    ...(m.demographics ?? []).map((t) => ({ id: t.mal_id, name: t.name, category: 'Demographic' })),
+    ...(m.themes ?? []).filter(Boolean).map((t) => ({ id: t.mal_id, name: t.name, category: 'Theme' })),
+    ...(m.demographics ?? []).filter(Boolean).map((t) => ({ id: t.mal_id, name: t.name, category: 'Demographic' })),
   ];
   const dates = (isManga ? m.published : m.aired)?.prop;
   const score = typeof m.score === 'number' && m.score > 0 ? m.score : undefined;
@@ -293,12 +293,13 @@ export function mapJikanEntry(m: JikanEntry, kind: MediaKind, sourceApi: MalSour
   ]);
 
   const relations: MediaRelation[] | undefined = m.relations?.flatMap((r) =>
-    r.entry
-      .filter((e) => e.type === 'anime' || e.type === 'manga')
+    (r?.entry ?? [])
+      .filter((e) => e && (e.type === 'anime' || e.type === 'manga'))
       .map((e) => {
         const entryKind: MediaKind = e.type === 'manga' ? 'MANGA' : 'ANIME';
         return {
           id: e.mal_id,
+          kind: entryKind,
           relationType: mapMalRelation(r.relation, kind, entryKind),
           titleRomaji: e.name,
           coverImage: jikanCover(e.images).large,
@@ -345,7 +346,7 @@ export function mapJikanEntry(m: JikanEntry, kind: MediaKind, sourceApi: MalSour
     source: isManga ? undefined : mapMalSource(m.source),
     isAdult: isAdultMal(m.rating, genres),
     countryOfOrigin: isManga ? mapMalCountry(m.type) : undefined,
-    studios: (m.studios ?? []).map((s) => ({ id: s.mal_id, name: s.name, isMain: true, siteUrl: opt(s.url) })),
+    studios: (m.studios ?? []).filter(Boolean).map((s) => ({ id: s.mal_id, name: s.name, isMain: true, siteUrl: opt(s.url) })),
     relations,
     trailerUrl: trailerOf(m.trailer),
     externalLinks,
@@ -406,13 +407,14 @@ export interface MalV2Node {
 export function mapMalV2Node(m: MalV2Node, kind: MediaKind): TatakaiMedia {
   const isManga = kind === 'MANGA';
   const durationMin = m.average_episode_duration ? Math.max(1, Math.round(m.average_episode_duration / 60)) : undefined;
-  const genres = uniq((m.genres ?? []).map((g) => g.name));
+  const genres = uniq((m.genres ?? []).filter((g) => g?.name).map((g) => g.name));
   const score = typeof m.mean === 'number' && m.mean > 0 ? m.mean : undefined;
   const adult = m.nsfw === 'black' || isAdultMal(m.rating, genres);
 
   const rel = (list: MalV2Related[] | undefined, entryKind: MediaKind): MediaRelation[] =>
-    (list ?? []).map((r) => ({
+    (list ?? []).filter((r) => r?.node?.id != null).map((r) => ({
       id: r.node.id,
+      kind: entryKind,
       relationType: mapMalRelation(r.relation_type, kind, entryKind),
       titleRomaji: r.node.title,
       coverImage: opt(r.node.main_picture?.large || r.node.main_picture?.medium),

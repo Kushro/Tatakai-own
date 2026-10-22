@@ -194,13 +194,14 @@ export function mapShikiEntry(e: ShikiEntry, kind: MediaKind): TatakaiMedia {
 
   const relations = e.related
     ?.map((r) => {
-      const target = r.anime ?? r.manga;
+      const target = r?.anime ?? r?.manga;
       if (!target) return null;
-      const entryKind: MediaKind = r.anime ? 'ANIME' : 'MANGA';
-      let relationType = RELATION[r.relationKind || 'other'] ?? 'OTHER';
+      const entryKind: MediaKind = r?.anime ? 'ANIME' : 'MANGA';
+      let relationType = RELATION[r?.relationKind || 'other'] ?? 'OTHER';
       if (relationType === 'ADAPTATION' && kind === 'ANIME' && entryKind === 'MANGA') relationType = 'SOURCE';
       return {
         id: num(target.malId) ?? Number(target.id),
+        kind: entryKind,
         relationType,
         titleRomaji: target.name,
         titleEnglish: opt(target.english),
@@ -228,7 +229,8 @@ export function mapShikiEntry(e: ShikiEntry, kind: MediaKind): TatakaiMedia {
     status: e.status ? STATUS[e.status] : undefined,
     season: seasonUpper ?? derived?.season,
     seasonYear: seasonMatch ? Number(seasonMatch[2]) : derived?.year,
-    episodes: isManga ? undefined : (e.episodes || e.episodesAired || undefined),
+    // `episodesAired` is progress, not the total: leave undefined for unknown (0) totals.
+    episodes: isManga ? undefined : (e.episodes || undefined),
     chapters: isManga ? e.chapters || undefined : undefined,
     volumes: isManga ? e.volumes || undefined : undefined,
     duration: durationMin,
@@ -259,7 +261,8 @@ function mapList(list: ShikiEntry[] | undefined, kind: MediaKind, adult: boolean
   for (const e of list ?? []) {
     if (!e || seen.has(e.id)) continue;
     seen.add(e.id);
-    const m = mapShikiEntry(e, kind);
+    let m: TatakaiMedia;
+    try { m = mapShikiEntry(e, kind); } catch { continue; } // skip one malformed entry
     if (!m.malId) continue;
     if (!adult && m.isAdult) continue;
     out.push(m);

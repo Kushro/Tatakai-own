@@ -294,7 +294,10 @@ function mediaToAnimeInfo(m: TatakaiMedia, mapping: AniZipMapping | null = null)
       })) || [],
     },
     moreInfo: {
-      aired: m.startDate ? `${m.startDate.year}-${m.startDate.month}-${m.startDate.day}` : "Unknown",
+      // Tenrai/Kitsu/Shikimori often know only the year (or year + month).
+      aired: m.startDate?.year
+        ? [m.startDate.year, m.startDate.month, m.startDate.day].filter((n) => n != null).join("-")
+        : "Unknown",
       endDate: m.endDate?.year ? `${m.endDate.year}-${m.endDate.month ?? 1}-${m.endDate.day ?? 1}` : null,
       genres: m.genres ?? [],
       tags: m.tags ?? [],
@@ -746,7 +749,7 @@ export function useGenreAnimes(genre: string | undefined, page: number = 1) {
         page,
         perPage: 24,
         genres: genre ? [genre.replace(/-/g, " ")] : undefined,
-        isAdult: showAdult ? undefined : false,
+        isAdult: showAdult,
       });
       return {
         animes: result.media.map(toAnimeCard),
@@ -773,7 +776,7 @@ export function useInfiniteGenreAnimes(genre: string | undefined) {
         page: Number(pageParam),
         perPage: 24,
         genres: genre ? [genre.replace(/-/g, " ")] : undefined,
-        isAdult: showAdult ? undefined : false,
+        isAdult: showAdult,
       }).then((result): SearchResult => ({
         animes: result.media.map(toAnimeCard),
         mostPopularAnimes: result.media.map(toAnimeCard),

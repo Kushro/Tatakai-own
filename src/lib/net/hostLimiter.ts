@@ -26,7 +26,9 @@ export const HOST_LIMITS: Record<string, HostLimit> = {
   'api.mangadex.org': { minIntervalMs: 220, perMinute: 200 },
   'api.myanimelist.net': { minIntervalMs: 350, perMinute: 120 },
   'myanimelist.net': { minIntervalMs: 500, perMinute: 30 },
-  'api.ani.zip': { minIntervalMs: 150, perMinute: 240 },
+  // ani.zip publishes no limit and serves cached JSON; list pages resolve many
+  // ids at once, so allow a quicker pace.
+  'api.ani.zip': { minIntervalMs: 60, perMinute: 400 },
   'kitsu.io': { minIntervalMs: 250, perMinute: 120 },
   'api.mangaupdates.com': { minIntervalMs: 600, perMinute: 60 },
 };

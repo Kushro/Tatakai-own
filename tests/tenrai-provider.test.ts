@@ -37,6 +37,18 @@ test('feed maps lanes to endpoints, drops adult and duplicate rows', async () =>
   expect(adult.media.some((m) => m.isAdult)).toBe(true);
 });
 
+test('malformed entries are skipped, null sub-objects tolerated; relations carry kind', async () => {
+  const sparse = { mal_id: 5, title: 'Sparse', images: null, genres: null, studios: null, aired: null, relations: null, titles: null, trailer: null };
+  const broken = { mal_id: 6, title: 'Broken', titles: 5 };
+  stub({ '/top/anime': { pagination: {}, data: [null, broken, sparse, fx('tenrai-top-anime.json').data[0]] } });
+  const r = await p.feed!('ANIME', 'popular', {});
+  expect(r.media.map((m) => m.malId)).toEqual([5, fx('tenrai-top-anime.json').data[0].mal_id]);
+  expect(r.media[0]).toMatchObject({ titleRomaji: 'Sparse', genres: [], studios: [], format: undefined });
+  stub({ '/anime/52991/full': fx('tenrai-anime-full.json') });
+  const m = (await p.media!('ANIME', { malId: 52991 }))!;
+  expect(m.relations!.map((x) => x.kind)).toEqual(['ANIME', 'MANGA', 'ANIME']);
+});
+
 test('seasonal, genre and manhwa lanes', async () => {
   stub({
     '/seasons/2026/fall': fx('tenrai-top-anime.json'),

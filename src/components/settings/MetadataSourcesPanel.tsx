@@ -6,6 +6,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { queryClient } from '@/lib/queryClient';
+import { contentGraph } from '@/core/content/content-graph';
+import { db } from '@/core/db';
 import {
   SettingRow,
   SettingsBadge,
@@ -29,10 +31,15 @@ function formatTime(ms: number): string {
   return new Date(ms).toLocaleTimeString(uiI18n.language, { hour: '2-digit', minute: '2-digit' });
 }
 
-/** Catalog data depends on the source order, so cached results are stale after a change. */
+/**
+ * Catalog data depends on the source order, so every cache layer is stale after
+ * a change: content-graph memory/localStorage entries, the Dexie media rows and
+ * react-query.
+ */
 function applyChange(): void {
   resetProviderHealth();
-  void queryClient.invalidateQueries();
+  contentGraph.invalidateAll();
+  void db.cachedMedia.clear().catch(() => undefined).then(() => queryClient.invalidateQueries());
 }
 
 /**
