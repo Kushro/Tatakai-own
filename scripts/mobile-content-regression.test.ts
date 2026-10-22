@@ -64,24 +64,43 @@ const { getMangaChapters, unionMappedChapters } = await import(
 );
 const { getNovelDetail } = await import("../src/core/content/novel-client");
 
-test("novel detail uses the resolved backend instead of the mobile WebView origin", async () => {
+test("novel detail comes from the metadata router, never the TatakaiAPI backend", async () => {
+  const { rememberIds } = await import("../src/lib/metadata");
+  const { registerMetadataProviders } = await import("../src/lib/metadata/router");
   const original = globalThis.fetch;
-  let target = "";
+  const targets: string[] = [];
   globalThis.fetch = (async (url: any) => {
-    target = String(url);
-    return Response.json({
-      data: {
-        media: { anilistId: 42, titleEnglish: "Mobile Novel", format: "NOVEL" },
-      },
-    });
+    targets.push(String(url));
+    throw new Error("unexpected network call");
   }) as typeof fetch;
+  rememberIds("MANGA", { anilistId: 42, malId: 4200, kitsuId: 42000 });
+  registerMetadataProviders([
+    {
+      id: "anilist",
+      label: "AniList",
+      description: "",
+      kinds: ["ANIME", "MANGA"],
+      isConfigured: () => true,
+      media: async () => ({
+        anilistId: 42,
+        titleRomaji: "Mobile Novel",
+        titleEnglish: "Mobile Novel",
+        format: "NOVEL" as any,
+        synonyms: [],
+        genres: [],
+        tags: [],
+        studios: [],
+        isAdult: false,
+        source_api: "anilist",
+        fetchedAt: 0,
+      }),
+    },
+  ]);
   try {
     expect((await getNovelDetail("42")).detail.canonicalTitle).toBe(
       "Mobile Novel"
     );
-    expect(target).toBe(
-      "https://api.mobile-fixture.test/api/v3/manga/by-anilist/42"
-    );
+    expect(targets.filter((t) => t.includes("/api/v3/"))).toEqual([]);
   } finally {
     globalThis.fetch = original;
   }

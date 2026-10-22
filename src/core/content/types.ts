@@ -30,7 +30,10 @@ export type MediaFormat =
   | 'OVA'
   | 'ONA'
   | 'SPECIAL'
-  | 'MUSIC';
+  | 'MUSIC'
+  | 'MANGA'
+  | 'NOVEL'
+  | 'ONE_SHOT';
 
 export type MediaStatus =
   | 'FINISHED'

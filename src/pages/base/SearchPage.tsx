@@ -13,7 +13,6 @@ import { CardSkeleton } from "@/components/ui/skeleton-custom";
 import { Input } from "@/components/ui/input";
 import { Search, X, Loader2, Film, User, ExternalLink, Users, BookOpen, Camera, Puzzle, ArrowRight, SlidersHorizontal, ChevronRight, Sparkles, Play, Tags } from "lucide-react";
 import { useAniListCharacterSearch } from '@/hooks/user/useProfileFeatures';
-import { resolveApiV3Base } from '@/lib/api/backendOrigin';
 import { anilistGql } from '@/lib/anilist/client';
 import { GlassPanel } from "@/components/ui/GlassPanel";
 import { useAniListGenres } from "@/hooks/api/useAniListGenres";

@@ -151,6 +151,31 @@ setFallbackIdsResolver(async (kind, ref, signal) => {
   return null;
 });
 
+// ── Relation ids ─────────────────────────────────────────────────────────────
+
+/** Providers whose `MediaRelation.id` is a MyAnimeList id, not an AniList id. */
+const MAL_KEYED_PROVIDERS = new Set<ProviderId>(['tenrai', 'shikimori', 'mal']);
+const MANGA_FORMATS = new Set(['MANGA', 'ONE_SHOT', 'NOVEL', 'LIGHT_NOVEL']);
+
+/**
+ * App routes link relations by AniList id. Translate MAL-keyed relation ids and
+ * drop relations that can't be resolved (a wrong id would open another title).
+ */
+async function resolveRelationIds(provider: ProviderId, m: TatakaiMedia, signal?: AbortSignal): Promise<TatakaiMedia> {
+  if (!MAL_KEYED_PROVIDERS.has(provider) || !m.relations?.length) return m;
+  const resolved = await Promise.all(m.relations.map(async (rel) => {
+    const kind: MediaKind = MANGA_FORMATS.has(String(rel.format)) ? 'MANGA' : 'ANIME';
+    try {
+      const ids = await resolveIds(kind, { malId: rel.id }, signal);
+      return ids?.anilistId ? { ...rel, id: ids.anilistId } : null;
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      return null;
+    }
+  }));
+  return { ...m, relations: resolved.filter((r): r is NonNullable<typeof r> => r !== null) };
+}
+
 // ── Facade used by content clients ───────────────────────────────────────────
 
 async function withIds(kind: MediaKind, ref: MediaRef, signal?: AbortSignal): Promise<MediaRef> {
@@ -175,10 +200,11 @@ export const metadata = {
     const full = await withIds(kind, ref, opts.signal);
     try {
       const r = await tryProviders('media', kind, (p) => p.media!(kind, full, opts), { isEmpty: (v) => !v, signal: opts.signal });
-      const m = r.value;
-      if (m && !(m.anilistId > 0) && full.anilistId) m.anilistId = full.anilistId;
-      if (m?.anilistId) rememberIds(kind, { anilistId: m.anilistId, malId: m.malId ?? full.malId, kitsuId: m.kitsuId ?? full.kitsuId });
-      return r;
+      if (!r.value) return r;
+      const m = await resolveRelationIds(r.provider, r.value, opts.signal);
+      if (!(m.anilistId > 0) && full.anilistId) m.anilistId = full.anilistId;
+      if (m.anilistId) rememberIds(kind, { anilistId: m.anilistId, malId: m.malId ?? full.malId, kitsuId: m.kitsuId ?? full.kitsuId });
+      return { ...r, value: m };
     } catch (err) {
       if (err instanceof NoMetadataProviderError && !err.errors.length) return { value: null, provider: 'anilist' };
       throw err;
