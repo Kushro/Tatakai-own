@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_back">Back</string>
+    <string name="player_play">Play</string>
+    <string name="player_pause">Pause</string>
+    <string name="player_seek_back">Rewind 10 seconds</string>
+    <string name="player_seek_forward">Forward 10 seconds</string>
+    <string name="player_quality">Quality</string>
+    <string name="player_quality_auto">Auto</string>
+    <string name="player_quality_height">%1$dp</string>
+    <string name="player_source">Source</string>
+    <string name="player_subtitles">Subtitles</string>
+    <string name="player_subtitles_off">Off</string>
+    <string name="player_speed">Speed</string>
+    <string name="player_speed_value">%1$sx</string>
+    <string name="player_pip">Picture in picture</string>
+    <string name="player_brightness">Brightness</string>
+    <string name="player_volume">Volume</string>
+    <string name="player_percent">%1$d%%</string>
+    <string name="player_seek_seconds">%1$+d s</string>
+    <string name="player_loading_sources">Looking for sources…</string>
+    <string name="player_no_sources">No playable sources were found for this episode.</string>
+    <string name="player_remote_unavailable">The session on your PC is no longer available.</string>
+    <string name="player_error">This video could not be played.</string>
+    <string name="player_retry">Try again</string>
+    <string name="player_fallback_notice">Source failed, trying the next one (%1$d of %2$d)</string>
+    <string name="player_episode_title">%1$s · Episode %2$d</string>
+</resources>

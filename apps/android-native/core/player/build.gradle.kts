@@ -1,9 +1,9 @@
-// Placeholder from B1 (m3e/foundation). The branch that owns this module may overwrite it freely.
-// Dependencies below pre-wire what the module is expected to need; the version catalog itself is frozen (NOTES-deps.md for additions).
+// B4 (m3e/android-media): Media3 player core. Depends on :core:link only for RemotePlaybackAccess (mTLS client of the paired PC).
 plugins { id("tatakai.android.library") }
 
 dependencies {
     implementation(projects.core.model)
+    implementation(projects.core.link)
     implementation(libs.bundles.media3)
     implementation(libs.okhttp)
     implementation(libs.kotlinx.coroutines.android)
