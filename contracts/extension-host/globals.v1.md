@@ -76,7 +76,7 @@ the entry file is not extracted and never executed. `contributes.themes` are ign
 
 ## 5. Fixtures that both hosts must pass
 
-`contracts/fixtures/extensions/` (source directories; `node contracts/fixtures/extensions/build.mjs` zips them to `dist/*.kai`):
+`contracts/fixtures/extensions/` (source directories; `node contracts/fixtures/extensions/build.mjs` zips them to `packed/*.kai`):
 
 | Fixture | Expected |
 |---|---|

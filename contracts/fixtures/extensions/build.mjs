@@ -1,21 +1,21 @@
 #!/usr/bin/env node
-// Zips each fixture source directory into dist/<name>.kai (deterministic: sorted entries, fixed timestamps, deflate).
+// Zips each fixture source directory into packed/<name>.kai (deterministic: sorted entries, fixed timestamps, deflate).
 // Only manifest.json and bundle.js are packed (expected*.json are test oracles, not part of the package).
-//   node contracts/fixtures/extensions/build.mjs           write dist/*.kai
-//   node contracts/fixtures/extensions/build.mjs --check   exit 1 if dist/*.kai are stale
+//   node contracts/fixtures/extensions/build.mjs           write packed/*.kai
+//   node contracts/fixtures/extensions/build.mjs --check   exit 1 if packed/*.kai are stale
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { deflateRawSync, crc32 } from 'node:zlib';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const distDir = join(here, 'dist');
+const packedDir = join(here, 'packed');
 const PACKED = ['manifest.json', 'bundle.js'];
 const DOS_TIME = 0; // 00:00:00
 const DOS_DATE = (0 << 9) | (1 << 5) | 1; // 1980-01-01
 
 export function fixtureNames() {
-  return readdirSync(here).filter((n) => statSync(join(here, n)).isDirectory() && n !== 'dist').sort();
+  return readdirSync(here).filter((n) => statSync(join(here, n)).isDirectory() && n !== 'packed').sort();
 }
 
 export function buildKai(name) {
@@ -74,9 +74,9 @@ export function buildKai(name) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const check = process.argv.includes('--check');
   let stale = false;
-  if (!check) mkdirSync(distDir, { recursive: true });
+  if (!check) mkdirSync(packedDir, { recursive: true });
   for (const name of fixtureNames()) {
-    const out = join(distDir, `${name}.kai`);
+    const out = join(packedDir, `${name}.kai`);
     const buf = buildKai(name);
     if (check) {
       if (!existsSync(out) || !readFileSync(out).equals(buf)) {

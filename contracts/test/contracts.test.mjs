@@ -111,9 +111,9 @@ function readZipEntries(buf) {
   return out;
 }
 
-test('fixtures/extensions: committed dist/*.kai are current and contain manifest.json + bundle.js', () => {
+test('fixtures/extensions: committed packed/*.kai are current and contain manifest.json + bundle.js', () => {
   for (const name of fixtureNames()) {
-    const file = join(kaiDir, 'dist', `${name}.kai`);
+    const file = join(kaiDir, 'packed', `${name}.kai`);
     assert.ok(existsSync(file), `missing ${file} - run node contracts/fixtures/extensions/build.mjs`);
     const committed = readFileSync(file);
     assert.ok(committed.equals(buildKai(name)), `${name}.kai is stale - run node contracts/fixtures/extensions/build.mjs`);
