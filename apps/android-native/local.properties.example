@@ -1,0 +1,5 @@
+# Copy to local.properties (gitignored) and fill in. Nothing here is ever committed.
+sdk.dir=D:/Android-SDK
+# Own Supabase project (E8). Also readable from env: TATAKAI_SUPABASE_URL / TATAKAI_SUPABASE_ANON_KEY
+TATAKAI_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
+TATAKAI_SUPABASE_ANON_KEY=YOUR_ANON_KEY
