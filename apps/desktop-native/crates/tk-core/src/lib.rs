@@ -8,6 +8,7 @@ pub mod config;
 pub mod error;
 pub mod metadata;
 pub mod model;
+pub mod net;
 pub mod store;
 pub mod supabase;
 
