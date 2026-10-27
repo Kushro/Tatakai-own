@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "platform": "windows-x64",
+  "packages": [
+    {
+      "id": "libmpv",
+      "description": "libmpv-2.dll from shinchiro mpv-winbuild-cmake 20260610 (mpv v0.41.0-744-g304426c39), baseline x86_64 (no AVX2), repacked as a 7z with libmpv-2.dll at its root. libmpv2 needs mpv >= 0.35.",
+      "provenance": "URL and SHA-256 copied from limusic-forge .github/workflows/windows-release.yml (MPV_DEV_URL / MPV_DEV_SHA256, same author's release mirror).",
+      "license": "GPL-2.0-or-later (shinchiro build links GPL FFmpeg parts; see the mpv licensing notes)",
+      "url": "https://github.com/SimoHypers/limusic/releases/download/deps/libmpv-2-x86_64-20260610-git-304426c.7z",
+      "sha256": "af708edcdf6ed12ac7b2bb31b4cbeba0bf7d4eef345a715ef5de782c0ddd6671",
+      "archiveType": "7z",
+      "requiredFiles": [
+        "libmpv-2.dll"
+      ]
+    }
+  ]
+}
