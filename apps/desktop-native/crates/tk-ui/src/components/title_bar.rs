@@ -1,5 +1,5 @@
 //! `title_bar.rs`: frameless window title bar (drag region + window controls).
-//! Adapted from Miko-Kagura `src/ui/title_bar.rs` (same author; see NOTICES-B6.md).
+//! Adapted from Miko-Kagura `src/ui/title_bar.rs` (same author; see THIRD_PARTY_NOTICES.md).
 
 use dioxus::desktop::use_window;
 use dioxus::prelude::*;

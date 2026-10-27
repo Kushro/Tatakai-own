@@ -1,6 +1,6 @@
 //! QR rendering for the Link pairing payload (`tatakai-link:v1?...`). Inline SVG, black on white with a
 //! quiet zone: scanners need real contrast regardless of the app palette.
-//! Display approach after Enigmata-Temple `temple-ui` (same author; see NOTICES-B6.md).
+//! Display approach after Enigmata-Temple `temple-ui` (same author; see THIRD_PARTY_NOTICES.md).
 
 use qrcode::QrCode;
 use qrcode::render::svg;
