@@ -11,6 +11,10 @@ export default tseslint.config(
       "TatakaiCore/**",
       "dev/**",
       "**/*.d.ts",
+      // native redesign (own toolchains: Gradle / Cargo / plain Node); never part of the legacy lint
+      "apps/**",
+      "packages/**",
+      "contracts/**",
     ],
   },
   {

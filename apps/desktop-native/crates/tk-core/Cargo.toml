@@ -1,0 +1,29 @@
+[package]
+name = "tk-core"
+description = "Models, metadata router (AniList + ani.zip + Kitsu), Supabase REST client, local store - owner B5"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Placeholder from B1. B5 (m3e/desktop-core) owns this crate and may rewrite this file; dependencies below are pre-wired.
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+directories = { workspace = true }
+reqwest = { workspace = true }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
