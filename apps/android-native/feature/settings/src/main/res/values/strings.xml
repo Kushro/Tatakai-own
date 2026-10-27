@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_title">Settings</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_palette">Color palette</string>
+    <string name="settings_amoled">AMOLED black</string>
+    <string name="settings_dynamic">Use system colors</string>
+    <string name="settings_contrast">Contrast</string>
+    <string name="settings_contrast_standard">Standard</string>
+    <string name="settings_contrast_medium">Medium</string>
+    <string name="settings_contrast_high">High</string>
+    <string name="settings_metadata">Metadata providers</string>
+    <string name="settings_metadata_hint">The first provider that answers is used; the others are fallbacks.</string>
+    <string name="settings_move_up">Move up</string>
+    <string name="settings_move_down">Move down</string>
+    <string name="settings_account">Account</string>
+    <string name="settings_account_hint">Signing in only syncs your watch history. The app works without an account.</string>
+    <string name="settings_email">Email</string>
+    <string name="settings_password">Password</string>
+    <string name="settings_sign_in">Sign in</string>
+    <string name="settings_signing_in">Signing in…</string>
+    <string name="settings_sign_out">Sign out</string>
+    <string name="settings_signed_in_as">Signed in as %1$s</string>
+    <string name="settings_error_invalid">Could not sign in. Check your email and password.</string>
+    <string name="settings_error_suspended">This account is suspended.</string>
+    <string name="settings_more">More</string>
+    <string name="settings_extensions">Extensions</string>
+    <string name="settings_link">Tatakai Link</string>
+</resources>

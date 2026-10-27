@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="details_watch">Ver</string>
+    <string name="details_continue">Continuar episodio %1$d</string>
+    <string name="details_episodes">Episodios</string>
+    <string name="details_no_episodes">No hay lista de episodios disponible para este título.</string>
+    <string name="details_sources_title">Fuentes del episodio %1$d</string>
+    <string name="details_no_sources_title">Sin fuentes disponibles</string>
+    <string name="details_no_sources_message">Instalá o activá una extensión que ofrezca streams para este título.</string>
+    <string name="details_open_extensions">Gestionar extensiones</string>
+    <string name="details_enhance_on_pc">Mejorar en PC</string>
+</resources>

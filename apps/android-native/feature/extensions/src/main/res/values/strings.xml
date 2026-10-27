@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="extensions_title">Extensions</string>
+    <string name="extensions_install">Install .kai</string>
+    <string name="extensions_installing">Installing…</string>
+    <string name="extensions_empty_title">No extensions installed</string>
+    <string name="extensions_empty_message">Extensions provide the video sources. Install a .kai package from your files.</string>
+    <string name="extensions_installed">%1$s installed.</string>
+    <string name="extensions_install_failed">Could not install: %1$s</string>
+    <string name="extensions_remove">Remove</string>
+    <string name="extensions_remove_title">Remove %1$s?</string>
+    <string name="extensions_remove_message">The extension and its data are deleted from this device.</string>
+    <string name="extensions_permissions">Network access: %1$s</string>
+    <string name="extensions_compat_full">Fully compatible</string>
+    <string name="extensions_compat_partial">Partially compatible</string>
+    <string name="extensions_compat_unsupported">Not supported</string>
+</resources>
