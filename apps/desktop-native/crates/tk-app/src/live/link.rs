@@ -1,17 +1,4 @@
-//! Link server glue. Written against docs/redesign/04 section 3.3:
-//!
-//! ```text
-//! pub trait LinkHost: Send + Sync + 'static { fn library(&self) -> Vec<LibraryItem>; fn library_path(&self, id: &str) -> Option<PathBuf>; fn ffmpeg_path(&self) -> Option<PathBuf>; }
-//! pub async fn start(cfg: LinkConfig, host: Arc<dyn LinkHost>) -> Result<LinkHandle, LinkError>;
-//! impl LinkHandle { pub fn open_pairing_window(&self) -> PairingPayload /* uri + code + expires */; pub fn devices(&self) -> Vec<Device>;
-//!   pub fn revoke(&self, id: &str); pub fn events(&self) -> broadcast::Receiver<LinkEvent>; pub async fn shutdown(self); }
-//! ```
-//!
-//! CONTRACT-GUESS (tk-link was a placeholder when this was written; adjust to the real types):
-//! * `LinkConfig::new(data_dir: PathBuf)` (default port 47321)
-//! * `PairingPayload { uri: String, code: String, expires_at: i64 /* unix seconds */ }`
-//! * `Device { id: String, name: String, platform: String, last_seen: Option<i64> /* unix seconds */ }`
-//! * `LinkError: Display`
+//! Link server glue over tk-link (`start(LinkConfig, Arc<dyn LinkHost>)` -> `LinkHandle`).
 //!
 //! The server starts the first time the Link screen asks for status (so the OS firewall prompt never
 //! appears at first launch - review E6) and runs until the process exits.
@@ -19,14 +6,21 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use tk_ext::ExtensionHost;
 use tk_link::{Device, LinkConfig, LinkHandle, LinkHost};
 use tk_ui::backend::{DeviceVm, LinkStatusVm};
 use tk_ui::model::{ErrorKind, Pairing, UiError};
 
 /// What the Link server may ask of the app. M0: no library folder; FFmpeg only if `fetch-deps.ps1` ran.
-struct AppLinkHost;
+/// Extension permissions come from the installed extension, so `url` sources can only reach its declared domains.
+struct AppLinkHost {
+    ext: Arc<ExtensionHost>,
+}
 
 impl LinkHost for AppLinkHost {
+    fn extension_permissions(&self, id: &str) -> Option<Vec<String>> {
+        self.ext.get(id).map(|e| e.permissions)
+    }
     fn library(&self) -> Vec<tk_link::LibraryItem> {
         Vec::new()
     }
@@ -40,7 +34,18 @@ impl LinkHost for AppLinkHost {
 
 pub struct LinkService {
     dir: PathBuf,
+    ext: Arc<ExtensionHost>,
+    anime4k_dir: PathBuf,
+    anime4k_lock: Option<PathBuf>,
     handle: tokio::sync::Mutex<Option<Arc<LinkHandle>>>,
+}
+
+fn server_name() -> String {
+    std::env::var("COMPUTERNAME").ok().filter(|n| !n.trim().is_empty()).map_or_else(|| "Tatakai".to_owned(), |n| format!("Tatakai ({n})"))
+}
+
+fn now_unix() -> i64 {
+    time::OffsetDateTime::now_utc().unix_timestamp()
 }
 
 fn err(e: impl std::fmt::Display) -> UiError {
@@ -48,12 +53,13 @@ fn err(e: impl std::fmt::Display) -> UiError {
 }
 
 fn device_vm(d: Device) -> DeviceVm {
-    DeviceVm { id: d.id, name: d.name, platform: d.platform, last_seen_unix: d.last_seen }
+    // tk-link tracks no platform / last-seen; the pairing date is not "last seen", so leave it empty.
+    DeviceVm { id: d.id, name: d.name, platform: String::new(), last_seen_unix: None }
 }
 
 impl LinkService {
-    pub fn new(dir: PathBuf) -> Self {
-        Self { dir, handle: tokio::sync::Mutex::new(None) }
+    pub fn new(dir: PathBuf, ext: Arc<ExtensionHost>, anime4k_dir: PathBuf, anime4k_lock: Option<PathBuf>) -> Self {
+        Self { dir, ext, anime4k_dir, anime4k_lock, handle: tokio::sync::Mutex::new(None) }
     }
 
     async fn ensure(&self) -> Result<Arc<LinkHandle>, UiError> {
@@ -61,19 +67,23 @@ impl LinkService {
         if let Some(h) = guard.as_ref() {
             return Ok(h.clone());
         }
-        let handle = Arc::new(tk_link::start(LinkConfig::new(self.dir.clone()), Arc::new(AppLinkHost)).await.map_err(err)?);
+        let mut cfg = LinkConfig::new(self.dir.clone(), server_name());
+        cfg.anime4k_dir = Some(self.anime4k_dir.clone());
+        cfg.anime4k_lock = self.anime4k_lock.clone();
+        let host = Arc::new(AppLinkHost { ext: self.ext.clone() });
+        let handle = Arc::new(tk_link::start(cfg, host).await.map_err(err)?);
         *guard = Some(handle.clone());
         Ok(handle)
     }
 
     pub async fn status(&self) -> Result<LinkStatusVm, UiError> {
         let h = self.ensure().await?;
-        Ok(LinkStatusVm { running: true, port: crate::firewall::DEFAULT_PORT, devices: h.devices().into_iter().map(device_vm).collect() })
+        Ok(LinkStatusVm { running: true, port: crate::firewall::DEFAULT_PORT, devices: h.devices().into_iter().filter(|d| d.is_active(now_unix())).map(device_vm).collect() })
     }
 
     pub async fn open_pairing(&self) -> Result<Pairing, UiError> {
         let p = self.ensure().await?.open_pairing_window();
-        Ok(Pairing { uri: p.uri, code: p.code, expires_unix: p.expires_at })
+        Ok(Pairing { uri: p.uri(), code: p.code, expires_unix: p.expires_at.unix_timestamp() })
     }
 
     pub async fn revoke(&self, id: &str) -> Result<(), UiError> {

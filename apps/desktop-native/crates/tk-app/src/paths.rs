@@ -79,6 +79,19 @@ pub fn shaders_dir(paths: &AppPaths, exe_dir_override: Option<&Path>) -> PathBuf
     first_existing(&[exe.join("shaders"), paths.root.join("shaders")])
 }
 
+/// `anime4k.lock.json` shipped next to the shaders (installer) or in the source tree (development).
+#[cfg_attr(not(feature = "live"), allow(dead_code))]
+pub fn anime4k_lock(exe_dir_override: Option<&Path>) -> Option<PathBuf> {
+    let exe = exe_dir_override.map(Path::to_path_buf).unwrap_or_else(exe_dir);
+    [
+        exe.join("shaders").join("anime4k.lock.json"),
+        exe.join("anime4k.lock.json"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/anime4k.lock.json"),
+    ]
+    .into_iter()
+    .find(|p| p.is_file())
+}
+
 #[cfg_attr(not(feature = "live"), allow(dead_code))]
 /// `<exe>/ffmpeg/bin/ffmpeg.exe` if `fetch-deps.ps1` installed it.
 pub fn ffmpeg_path(exe_dir_override: Option<&Path>) -> Option<PathBuf> {

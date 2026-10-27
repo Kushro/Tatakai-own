@@ -1,9 +1,6 @@
 //! The shipping backend: `tk_ui::Backend` over tk-core (metadata router, Supabase, local store),
 //! tk-ext (extension host) and tk-link (Link server).
 //!
-//! * `mod.rs` is written against tk-core as committed by B5 (`m3e/desktop-core` cc9228e).
-//! * `ext.rs` / `link.rs` are written against the 04 section 3.3 contract only (tk-ext and tk-link were
-//!   placeholders when this was written); every guessed signature is marked `CONTRACT-GUESS`.
 
 mod ext;
 mod link;
@@ -55,6 +52,13 @@ impl LiveBackend {
                 None
             }
         });
+        let ext = ext::Extensions::new(paths.extensions_dir())?;
+        let link = link::LinkService::new(
+            paths.link_dir(),
+            ext.host(),
+            crate::paths::shaders_dir(paths, None),
+            crate::paths::anime4k_lock(None),
+        );
         Ok(Self {
             settings_file,
             store,
@@ -62,8 +66,8 @@ impl LiveBackend {
             supabase,
             email: Mutex::new(None),
             titles: Mutex::new(HashMap::new()),
-            ext: ext::Extensions::new(paths.extensions_dir())?,
-            link: link::LinkService::new(paths.link_dir()),
+            ext,
+            link,
         })
     }
 
