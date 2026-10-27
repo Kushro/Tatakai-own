@@ -65,15 +65,15 @@ object ShapeRadius { val none, extraSmall, ..., full: Dp }
 
 | id nuevo | viene de | seed | estilo |
 |---|---|---|---|
-| tatakai-violet (default) | dark / dark-theme | #7C4DFF | Expressive |
+| tatakai-violet (default) | dark / dark-theme | #7C4DFF | Vibrant (Expressive rotates the primary hue) |
 | midnight | midnight, obsidian, dark-matter | #3D5AFE | TonalSpot |
-| sakura | cherry-blossom, light-sakura | #E86A92 | Expressive |
+| sakura | cherry-blossom, light-sakura | #E86A92 | Vibrant |
 | matcha | matcha-light, zen-garden, emerald-forest | #5E9E6E | TonalSpot |
 | ocean | deep-ocean, ocean-breeze, frostbite | #0091C2 | Vibrant |
 | neon-tokyo | neon-tokyo, cyberpunk, synthwave | #FF2E88 | Vibrant |
 | blood-moon | blood-moon, vampire | #C62828 | Fidelity |
 | royal-gold | royal-gold, solar, caffeine | #C9A227 | Fidelity |
-| aurora | aurora-borealis | #00BFA5 | Expressive |
+| aurora | aurora-borealis | #00BFA5 | Vibrant |
 | mono | brutalism-*, light-minimal, high-contrast | #808080 | Monochrome (+contraste 1.0) |
 - Se eliminan: `anime-theme`, `ultra-lite*`, `lite` (eran modos de rendimiento; el nativo no los necesita).
 - Hoy ningún par falla AA, así que `allowContrastFailures` está vacío; si una paleta nueva (p. ej. `Fidelity`) necesita una excepción debe declararse ahí con su `reason`.
