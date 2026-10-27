@@ -40,3 +40,20 @@ Space Grotesk, Outfit and JetBrains Mono are licensed under the **SIL Open Font 
 
 No usage-tracking or crash-reporting SDKs (see apps/README.md, rule 3). The app talks only to: the user's own Supabase project, AniList (GraphQL), ani.zip, Kitsu, hosts allowed by installed
 extensions, and a paired PC on the local network.
+
+## 5. Code adapted from the author's own repositories
+
+### UI / theme (m3e/android-shell)
+
+| Target file(s) | Origin | License | Notes |
+|---|---|---|---|
+| `core/designsystem/.../theme/TatakaiTheme.kt` | Miko `app/src/main/java/eu/kanade/presentation/theme/TachiyomiTheme.kt` (pattern: `MaterialExpressiveTheme` + `DynamicMaterialExpressiveTheme`) | GPL-3.0 | Re-written around the generated token palettes; only the structure/call shapes are reused |
+| `core/designsystem/.../components/SectionCard.kt`, `core/ui/.../media/MediaCover.kt` (13:18 ratio), `AdaptiveSheet.kt` (concept) | Tatami `E:/Gitbutler Repos/design_system_android` (author's own) | author's own | Adapted to M3E and the token API |
+
+### Link client and key vault (m3e/android-media, AGPL-3.0-or-later)
+
+Code adapted from the author's own repositories (AGPL-3.0-or-later), per decision 1 of docs/redesign/06-user-decisions.md:
+
+- `core/link/.../LinkCrypto.kt` (LinkCrypto, LinkCsr, Der), `PairingPayload.kt`, `LinkHttp.kt`, `LinkError.kt` (structure), `PairingClient.kt`:
+  adapted from Enigmata `app/src/main/java/app/enigmata/temple/{crypto,pairing,client}` (TempleCrypto, TempleCsr, TemplePairingPayload, TempleHttp, TempleError, TemplePairingClient).
+- `core/link/.../LinkKeyVault.kt`: key-sealing model (software P-256 key sealed with an AndroidKeyStore AES-GCM key under `noBackupFilesDir`) from Enigmata `temple/vault/{TempleKeyVault,KeystoreTempleKeyCipher}`.

@@ -38,3 +38,34 @@ Space Grotesk, Outfit and JetBrains Mono: **SIL Open Font License 1.1**. Ship ea
 ## 6. Services
 
 No usage-tracking or crash-reporting code (see apps/README.md, rule 3). Network: the user's own Supabase project, AniList, ani.zip, Kitsu, hosts allowed by installed extensions, and paired phones on the LAN.
+
+## Code copied or adapted from the author's own repositories
+
+### Player, UI and packaging (m3e/desktop-app)
+
+| Origin (author's own repos) | License | Used in |
+|---|---|---|
+| limusic-forge `src-tauri/src/nativevideo_windows.rs` (child `STATIC` window at `HWND_BOTTOM`, no `WS_CLIPSIBLINGS`, hole in the page) - rewritten for windows-sys | GPL-3.0-or-later | `crates/tk-player/src/surface.rs` |
+| limusic-forge `crates/player` (libmpv2 setup, option set, event-thread structure) - rewritten | GPL-3.0-or-later | `crates/tk-player/src/mpv_player.rs` |
+| Miko-Kagura `src/ui/title_bar.rs` (frameless title bar) | see Miko-Kagura LICENSE | `crates/tk-ui/src/components/title_bar.rs` |
+| Miko-Kagura `packaging/windows.nsi` (NSIS template) | see Miko-Kagura LICENSE | `packaging/windows.nsi` |
+| Miko-Kagura `scripts/fetch-upscalers.ps1` (verified-download pattern) | see Miko-Kagura LICENSE | `packaging/fetch-deps.ps1` |
+| Enigmata-Temple `packaging/anime4k.lock.json`, `ffmpeg.lock.json` (pins, hashes) | AGPL-3.0 | `packaging/*.lock.json` |
+| Enigmata-Temple `temple-ui` (QR display approach) | AGPL-3.0 | `crates/tk-ui/src/qr.rs` |
+| limusic-forge `.github/workflows/windows-release.yml` (libmpv URL and SHA-256) | GPL-3.0-or-later | `packaging/libmpv.lock.json` |
+| larper-forge `app/crates/lf-ui/assets/fuentes/JetBrainsMono.woff2` + `OFL-JetBrainsMono.txt` | SIL OFL 1.1 | `crates/tk-ui/assets/fonts/` |
+
+Runtime pieces fetched by the USER with `packaging/fetch-deps.ps1` (not in the repo): libmpv (shinchiro build), FFmpeg (BtbN LGPL build),
+Anime4K shaders (MIT / Unlicense, bloc97), FSR.glsl (MIT, agyild), Space Grotesk and Outfit (SIL OFL 1.1).
+
+### tk-core, tk-ext, tk-link (m3e/desktop-core)
+
+| Code | Origin | License | Notes |
+|---|---|---|---|
+| `tk-link/src/identity.rs` (CA, server certificate, client certificate issuance, SAN renewal) | Enigmata-Temple `crates/temple-core/src/identity.rs` | AGPL-3.0-or-later (own repo of the user) | aws-lc-rs replaced by ring/uuid randomness; keys protected with DPAPI; CSR handled with rcgen `CertificateSigningRequestParams` |
+| `tk-link/src/pairing.rs` (Crockford code, window state machine, device-name sanitising, payload) | Enigmata-Temple `temple-core/src/pairing.rs` | AGPL-3.0-or-later | payload prefix `tatakai-link:v1`; constant-time compare hand-written |
+| `tk-link/src/media/anime4k.rs` (pass chains per mode, `.hook` composition) | Enigmata-Temple `temple-core/src/media/anime4k.rs` | AGPL-3.0-or-later; shaders are Anime4K v4.0 by bloc97 (MIT, AutoDownscalePre: Unlicense) | shaders are NOT embedded; downloaded by `packaging/fetch-deps.ps1` into `LinkConfig::anime4k_dir` and verified against `packaging/anime4k.lock.json` |
+| `tk-link/src/media/args.rs` (graph shape: d3d11va decode, libplacebo + custom_shader_path, frc_amf retention compensation) | Enigmata-Temple `temple-core/src/media/args.rs` | AGPL-3.0-or-later | simplified; argument vectors are golden-tested |
+| `tk-link/src/devices.rs`, `tk-link/src/server.rs` structure | Enigmata-Temple `devices.rs` / `server.rs` | AGPL-3.0-or-later | rewritten for axum 0.8 + hyper-util without the `tower` crate |
+| `tk-ext/src/js/prelude.js` shim semantics | `src/core/extensions/mobile/{requireShim,parseHtml}.ts` of this repository (MPL-2.0) | MPL-2.0 | re-implemented in JS for QuickJS |
+| metadata router semantics | `src/lib/metadata/router.ts` of this repository | MPL-2.0 | |
