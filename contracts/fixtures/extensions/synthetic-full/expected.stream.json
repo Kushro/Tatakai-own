@@ -1,0 +1,18 @@
+{
+  "$comment": "Request: stream?anilistId=1&episode=3&titles[]=Synthetic. Assert these fields on the normalized sources, in this order (providerPriority ascending, then quality descending). The token is sha1('1:3').slice(0,8), computed by the bundle through require('crypto').",
+  "request": { "route": "stream", "params": { "anilistId": 1, "episode": 3, "titles": ["Synthetic"], "stream": "0" } },
+  "providerStatus": [
+    { "provider": "alpha", "status": "ok", "resultCount": 1 },
+    { "provider": "beta", "status": "ok", "resultCount": 2 }
+  ],
+  "count": 3,
+  "sources": [
+    { "providerName": "alpha", "type": "hls", "quality": "1080p", "url": "https://cdn.alpha.example.invalid/hls/1/3/master.m3u8?t=a28b1e3e", "providerPriority": 0, "audioLanguage": "ja", "headers": { "Referer": "https://alpha.example.invalid/", "User-Agent": "TatakaiFixture/1.0" }, "subtitleCount": 1 },
+    { "providerName": "beta", "type": "mp4", "quality": "720p", "url": "https://cdn.beta.example.invalid/mp4/1/3_720.mp4?t=a28b1e3e", "providerPriority": 1, "audioLanguage": "en", "headers": { "Referer": "https://beta.example.invalid/" }, "subtitleCount": 0 },
+    { "providerName": "beta", "type": "mp4", "quality": "480p", "url": "https://cdn.beta.example.invalid/mp4/1/3_480.mp4?t=a28b1e3e", "providerPriority": 1, "audioLanguage": "en", "headers": { "Referer": "https://beta.example.invalid/" }, "subtitleCount": 0 }
+  ],
+  "providers": { "route": "providers", "count": 2, "names": ["alpha", "beta"] },
+  "customHome": { "route": "custom/home", "params": { "sourceId": "demo" }, "sections": 1, "firstItemId": "x1" },
+  "networkGate": { "bundleMethod": "probeNetwork", "expectedMessage": "Network permission denied" },
+  "compat": "full"
+}
