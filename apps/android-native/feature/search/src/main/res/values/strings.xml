@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_hint">Search anime</string>
+    <string name="search_clear">Clear search</string>
+    <string name="search_idle_title">Find your next anime</string>
+    <string name="search_idle_message">Type a title to search AniList, Kitsu and more.</string>
+    <string name="search_empty_title">No results for \"%1$s\"</string>
+    <string name="search_empty_message">Check the spelling or try another title.</string>
+    <string name="search_load_more">Load more</string>
+</resources>
