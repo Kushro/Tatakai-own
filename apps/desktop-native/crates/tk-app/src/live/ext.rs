@@ -1,16 +1,7 @@
-//! Extension host glue. Written against docs/redesign/04 section 3.3:
+//! Extension host glue over tk-ext.
 //!
-//! ```text
-//! pub struct ExtensionHost;  // install_kai(path) -> InstalledExtension ; list() ; set_enabled ; remove
-//! impl ExtensionHost { pub async fn resolve_streams(&self, media: &Media, episode: u32) -> Vec<StreamSource>; }
-//! ```
-//!
-//! CONTRACT-GUESS (tk-ext was a placeholder when this was written; adjust to the real signatures):
-//! * `ExtensionHost::new(dir: PathBuf) -> Result<Self, ExtError>`
-//! * `install_kai(&self, &Path) -> Result<InstalledExtension, ExtError>` (sync)
-//! * `list(&self) -> Vec<InstalledExtension>`, `set_enabled(&self, &str, bool) -> Result<(), ExtError>`,
-//!   `remove(&self, &str) -> Result<(), ExtError>` (sync)
-//! * `ExtError: Display`
+//! Real API (tk-ext): `ExtensionHost::open(root)`, sync `install_kai` / `list` / `get` / `set_enabled` / `remove`,
+//! async `resolve_streams`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -45,7 +36,12 @@ fn err(e: impl std::fmt::Display) -> UiError {
 
 impl Extensions {
     pub fn new(dir: PathBuf) -> anyhow::Result<Self> {
-        Ok(Self { host: Arc::new(ExtensionHost::new(dir).map_err(|e| anyhow::anyhow!("{e}"))?) })
+        Ok(Self { host: Arc::new(ExtensionHost::open(dir).map_err(|e| anyhow::anyhow!("{e}"))?) })
+    }
+
+    /// Shared host, also used by the Link server to look up extension permissions.
+    pub fn host(&self) -> Arc<ExtensionHost> {
+        self.host.clone()
     }
 
     pub async fn list(&self) -> Result<Vec<ExtensionVm>, UiError> {

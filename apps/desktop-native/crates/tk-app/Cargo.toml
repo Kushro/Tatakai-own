@@ -11,11 +11,9 @@ publish.workspace = true
 workspace = true
 
 [features]
-default = ["mpv"]
+default = ["mpv", "live"]
 mpv = ["tk-player/mpv"]
-# `live` wires the real backend (src/live/*) over tk-core / tk-ext / tk-link. It is OFF by default only
-# because those crates were placeholders in the B6 branch; the integrator turns it on (add "live" to
-# `default`) and fixes any signature drift against src/live/ext.rs and src/live/link.rs.
+# `live` wires the real backend (src/live/*) over tk-core / tk-ext / tk-link; on by default.
 live = ["dep:tk-core", "dep:tk-ext", "dep:tk-link", "dep:reqwest", "dep:time"]
 
 [[bin]]
