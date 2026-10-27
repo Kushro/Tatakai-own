@@ -1,0 +1,51 @@
+[package]
+name = "tk-link"
+description = "Tatakai Link v1 server: CA, pairing, mTLS axum, SSRF fetcher, FFmpeg/libplacebo sessions, HLS fMP4 - owner B5"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Placeholder from B1. B5 (m3e/desktop-core) owns this crate.
+[dependencies]
+tk-core = { workspace = true }
+anyhow = { workspace = true }
+axum = { workspace = true }
+base32 = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+hex = { workspace = true }
+hickory-resolver = { workspace = true }
+hmac = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+ipnet = { workspace = true }
+m3u8-rs = { workspace = true }
+qrcode = { workspace = true }
+rcgen = { workspace = true }
+reqwest = { workspace = true }
+rustls = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+x509-parser = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

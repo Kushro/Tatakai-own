@@ -1,0 +1,33 @@
+[package]
+name = "tk-app"
+description = "tatakai-next binary: wiring of tk-ui + tk-core + tk-ext + tk-link + tk-player - owner B6"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Placeholder from B1. B6 (m3e/desktop-app) owns this crate.
+[features]
+default = ["mpv"]
+mpv = ["tk-player/mpv"]
+
+[[bin]]
+name = "tatakai-next"
+path = "src/main.rs"
+
+[dependencies]
+tk-core = { workspace = true }
+tk-ext = { workspace = true }
+tk-link = { workspace = true }
+tk-player = { workspace = true }
+tk-ui = { workspace = true }
+anyhow = { workspace = true }
+directories = { workspace = true }
+dioxus = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
