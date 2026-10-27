@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="details_watch">Watch</string>
+    <string name="details_continue">Continue episode %1$d</string>
+    <string name="details_episodes">Episodes</string>
+    <string name="details_no_episodes">No episode list is available for this title.</string>
+    <string name="details_sources_title">Sources for episode %1$d</string>
+    <string name="details_no_sources_title">No source available</string>
+    <string name="details_no_sources_message">Install or enable an extension that provides streams for this title.</string>
+    <string name="details_open_extensions">Manage extensions</string>
+    <string name="details_enhance_on_pc">Enhance on PC</string>
+</resources>

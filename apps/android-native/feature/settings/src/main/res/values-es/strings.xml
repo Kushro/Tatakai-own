@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_title">Ajustes</string>
+    <string name="settings_appearance">Apariencia</string>
+    <string name="settings_palette">Paleta de color</string>
+    <string name="settings_amoled">Negro AMOLED</string>
+    <string name="settings_dynamic">Usar colores del sistema</string>
+    <string name="settings_contrast">Contraste</string>
+    <string name="settings_contrast_standard">Estándar</string>
+    <string name="settings_contrast_medium">Medio</string>
+    <string name="settings_contrast_high">Alto</string>
+    <string name="settings_metadata">Proveedores de metadata</string>
+    <string name="settings_metadata_hint">Se usa el primer proveedor que responde; los demás son respaldo.</string>
+    <string name="settings_move_up">Subir</string>
+    <string name="settings_move_down">Bajar</string>
+    <string name="settings_account">Cuenta</string>
+    <string name="settings_account_hint">Iniciar sesión solo sincroniza tu historial. La app funciona sin cuenta.</string>
+    <string name="settings_email">Correo</string>
+    <string name="settings_password">Contraseña</string>
+    <string name="settings_sign_in">Iniciar sesión</string>
+    <string name="settings_signing_in">Iniciando sesión…</string>
+    <string name="settings_sign_out">Cerrar sesión</string>
+    <string name="settings_signed_in_as">Sesión iniciada como %1$s</string>
+    <string name="settings_error_invalid">No se pudo iniciar sesión. Revisá tu correo y contraseña.</string>
+    <string name="settings_error_suspended">Esta cuenta está suspendida.</string>
+    <string name="settings_more">Más</string>
+    <string name="settings_extensions">Extensiones</string>
+    <string name="settings_link">Tatakai Link</string>
+</resources>

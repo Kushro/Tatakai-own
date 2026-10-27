@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ui_retry">Reintentar</string>
+    <string name="ui_back">Volver</string>
+    <string name="ui_close">Cerrar</string>
+    <string name="ui_error_offline">Sin conexión. Revisá tu red e intentá de nuevo.</string>
+    <string name="ui_error_rate_limited">%1$s limitó las solicitudes. Probá de nuevo en un momento.</string>
+    <string name="ui_error_extension">La extensión %1$s falló: %2$s</string>
+    <string name="ui_error_http">El servidor respondió con el error %1$d.</string>
+    <string name="ui_error_unknown">Algo salió mal: %1$s</string>
+    <string name="ui_error_title">No se pudo cargar</string>
+    <string name="ui_episode_number">Episodio %1$d</string>
+    <string name="ui_episode_watched">Visto</string>
+    <string name="ui_filler">Relleno</string>
+    <string name="ui_score_format">%1$s</string>
+</resources>
