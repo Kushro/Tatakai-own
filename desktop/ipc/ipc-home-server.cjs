@@ -396,6 +396,10 @@ module.exports = function registerHomeServerIpc(
   }
 
   const adapters = {
+    compatibilityBroker: () => getExtensionRuntime?.()?.compatibilityBroker,
+    isLocalMediaUrl: (url) => {
+      try { const runtime = getExtensionRuntime?.(); return !!runtime?.localProxy && new URL(url).origin === runtime.localProxy.baseUrl() && /^\/stream\/[a-f0-9]{32}$/i.test(new URL(url).pathname); } catch { return false; }
+    },
     async getCatalogHome() {
       try {
         return await fetchTatakaiApi('/content/home', {}, catalogApiBase());
@@ -578,6 +582,7 @@ module.exports = function registerHomeServerIpc(
   ipcMain.handle('home-server:get-config', async () => {
     const config = runtime.store.read();
     return {
+      extensionServerBootstrap: await runtime.getExtensionServerBootstrap(),
       enabled: config.enabled,
       port: config.port,
       bindMode: config.bindMode,

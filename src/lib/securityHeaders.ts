@@ -15,6 +15,7 @@ export const CSP_POLICY = {
     'https://www.googletagmanager.com',
     'https://www.google-analytics.com',
     'https://challenges.cloudflare.com', // Cloudflare Turnstile widget
+    'https://cdn.jwplayer.com', // Optional licensed player and its modules
   ],
   'style-src': [
     "'self'",
@@ -65,6 +66,10 @@ export const CSP_POLICY = {
   ],
   'frame-src': [
     "'self'",
+    'https://www.youtube-nocookie.com',
+    'https://www.redditmedia.com',
+    'https://player.vimeo.com',
+    'https://open.spotify.com',
     'https://*.supabase.co',
     'https://challenges.cloudflare.com', // Cloudflare Turnstile challenge iframe
   ],

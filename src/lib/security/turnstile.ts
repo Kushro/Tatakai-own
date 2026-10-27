@@ -31,10 +31,41 @@ export const TURNSTILE_SCRIPT_SRC =
  * build), where the widget can't render and siteverify rejects the null host.
  */
 export function isTurnstileEnabled(): boolean {
-  if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') return false;
+  // Packaged iOS cannot render the widget on capacitor://; it needs an HTTPS
+  // page we host ourselves (VITE_TURNSTILE_HOSTED_URL), otherwise stay disabled.
+  if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios' && !HOSTED_TURNSTILE_URL) return false;
   if (!TURNSTILE_SITE_KEY) return false;
   if (typeof window !== "undefined" && window.location.protocol === "file:") return false;
   return true;
+}
+
+/** WKWebView's custom-scheme origin cannot host the challenge directly. */
+export function needsHostedTurnstile(): boolean {
+  return Boolean(HOSTED_TURNSTILE_URL) && Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios';
+}
+
+/** Operator-hosted widget page; empty in this fork (the upstream site is not used). */
+export const HOSTED_TURNSTILE_URL = String(import.meta.env.VITE_TURNSTILE_HOSTED_URL || '').trim();
+
+export type HostedTurnstileMessage = {
+  type: 'tatakai-turnstile';
+  id: string;
+  event: 'ready' | 'token' | 'expired' | 'error' | 'timeout';
+  token?: string;
+};
+
+/** Accept tokens only from this widget's HTTPS frame and current render. */
+export function readHostedTurnstileMessage(
+  event: MessageEvent,
+  source: Window | null,
+  id: string,
+): HostedTurnstileMessage | null {
+  if (!HOSTED_TURNSTILE_URL || !source || event.source !== source || event.origin !== new URL(HOSTED_TURNSTILE_URL).origin) return null;
+  const data = event.data;
+  if (!data || data.type !== 'tatakai-turnstile' || data.id !== id) return null;
+  if (!['ready', 'token', 'expired', 'error', 'timeout'].includes(data.event)) return null;
+  if (data.event === 'token' && (typeof data.token !== 'string' || !data.token || data.token.length > 2048)) return null;
+  return data;
 }
 
 /**

@@ -1,4 +1,6 @@
+import { ReviewPopup } from '@/components/ui/ReviewPopup';
 import { useDeveloperMode } from '@/hooks/ui/useDeveloperMode';
+import { useProfilePresentation } from '@/contexts/ProfilePresentationContext';
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Capacitor } from '@capacitor/core';
@@ -39,7 +41,8 @@ import { MobileUpdateBanner } from "@/components/mobile/MobileUpdateBanner";
 import { EasterEggs } from "@/components/layout/EasterEggs";
 import { CelebrationHost } from "@/components/effects/Celebrate";
 import { MagnetAlignmentModal } from "@/components/modals/MagnetAlignmentModal";
-import { SettingsModal } from "@/components/settings/SettingsModal";
+import { useSettingsModal } from "@/contexts/SettingsModalContext";
+const SettingsModal = React.lazy(() => import("@/components/settings/SettingsModal").then(module => ({default:module.SettingsModal})));
 import { MediaQuickPeekHost } from "@/components/media/MediaQuickPeek";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { CommunityRulesGateProvider } from "@/components/community/CommunityRulesGate";
@@ -51,6 +54,10 @@ import { useMobileUpdateOrchestrator } from '@/core/update/mobile-update';
 import { EmailProofBanner } from '@/components/auth/EmailProofBanner';
 
 const MainLayout = ({ children }: { children: React.ReactNode }) => {
+  const { fullPage: fullPageProfile } = useProfilePresentation();
+  const { open: settingsOpen } = useSettingsModal();
+  const [settingsReady, setSettingsReady] = useState(false);
+  useEffect(() => { if (settingsOpen) setSettingsReady(true); }, [settingsOpen]);
   useTheme();
   const { enabled: isDeveloperMode } = useDeveloperMode();
   useMobileUpdateOrchestrator();
@@ -146,7 +153,7 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
   }, [deferredStartupReady, isDesktopApp]);
 
   const online = useOnline();
-  const hideSidebarPages = ['/', '/welcome', '/download', '/downloads', '/auth', '/onboarding', '/setup', '/maintenance', '/banned', '/error', '/smarttv', '/manga/read', '/novel/read'];
+  const hideSidebarPages = ['/', '/welcome', '/download', '/downloads', '/auth', '/onboarding', '/setup', '/maintenance', '/banned', '/error', '/smarttv', '/manga/read', '/novel/read', '/translate'];
   const isHiddenPage = hideSidebarPages.some(page => page === '/' ? location.pathname === '/' : location.pathname.startsWith(page));
   // The community feed ships its own X-style CommunitySidebar, so suppress the
   // global Sidebar there. The single-post /community/forum/:id view and the
@@ -158,7 +165,7 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
   // Phone widths get the bottom nav instead (Sidebar is `hidden md:flex`, MobileNav is `md:hidden`).
   // The native-shell check is intentionally absent: a Capacitor tablet should still get the
   // floating sidebar rather than a stretched bottom bar.
-  const showSidebar = !isMobile && !isHiddenPage && !isCommunityFeed && online;
+  const showSidebar = !fullPageProfile && !isMobile && !isHiddenPage && !isCommunityFeed && online;
 
   useEffect(() => {
     if (isNative) document.body.classList.add('native-app');
@@ -234,8 +241,10 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
     <IdleReclaimProvider />
     <div
       data-main-layout
+      style={{ '--desktop-content-height': isDesktopApp && !titlebarHidden && !isMac ? 'calc(100dvh - 2rem)' : '100dvh' } as React.CSSProperties}
       className={cn(
-        "min-h-screen relative flex flex-col transition-[padding] duration-300",
+        "min-h-screen relative flex flex-col",
+        !fullPageProfile && "transition-[padding] duration-300",
         isDesktopApp && showSidebar && online && "lg:pl-[var(--sidebar-width)]",
         // macOS keeps only a transparent drag overlay (native traffic lights),
         // so it needs no 32px layout clearance — Windows/Linux keep the solid bar.
@@ -249,6 +258,7 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
       <OfflineBanner />
       <MobileBackHandler />
       <MobilePullToRefresh />
+      {!/^\/(watch|manga\/read|novel\/read|auth|welcome|setup|onboarding|integration)(\/|$)/.test(location.pathname) && <ReviewPopup />}
       {/* Rendered OUTSIDE OfflineGate: the titlebar (drag region + window
           controls) must stay visible even when NoInternetPage takes over the
           viewport, otherwise the desktop window can't be moved or closed. */}
@@ -280,7 +290,7 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
               initialTorrentBuffer={initialTorrentBuffer}
             />
 
-            <SettingsModal />
+            {(settingsOpen || settingsReady) && <React.Suspense fallback={null}><SettingsModal /></React.Suspense>}
 
             {/* Long-press quick peek for anime/manga cards (global sheet). */}
             <MediaQuickPeekHost />
@@ -290,7 +300,7 @@ const MainLayout = ({ children }: { children: React.ReactNode }) => {
               {children}
             </main>
 
-            <ConditionalFooter />
+            {!fullPageProfile && <ConditionalFooter />}
           </>
       </OfflineGate>
     </div>
@@ -304,7 +314,7 @@ function ConditionalFooter() {
   const isNative = useIsNativeApp();
   if (isNative) return null;
   const hideFooter = ['/welcome', '/download', '/watch/', '/novel/comingsoon', '/dmca', '/suggestions','/privacy', '/terms', '/community-guidelines', '/community-rules', '/char/', '/genre/', '/manga/', '/manga', '/isshoni/', '/search', '/image-search', '/status', '/banned', '/maintenance', '/service-unavailable', '/503', '/error', '/auth', '/reset-password', '/update-password', '/onboarding', '/setup', '/mal-redirect', '/anilist-redirect', '/favorites', '/', '/trending', '/settings' , '/recommendations' , '/admin', '/mobile-app'].some(path => location.pathname === '/' ? path === '/' : location.pathname.startsWith(path));
-  if (hideFooter || location.pathname.startsWith('/novel/read')) return null;
+  if (hideFooter || location.pathname.startsWith('/novel/read') || location.pathname.startsWith('/translate')) return null;
   return <Footer />;
 }
 

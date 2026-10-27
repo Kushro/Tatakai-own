@@ -12,8 +12,9 @@ export function nextCandidate<T extends { rect: Rect }>(
   const sign = direction === "left" || direction === "up" ? -1 : 1;
   const cx = (origin.left + origin.right) / 2,
     cy = (origin.top + origin.bottom) / 2;
-  return candidates
-    .map((candidate) => {
+  let best: T | undefined;
+  let bestScore = Infinity;
+  for (const candidate of candidates) {
       const r = candidate.rect,
         x = (r.left + r.right) / 2,
         y = (r.top + r.bottom) / 2;
@@ -22,16 +23,11 @@ export function nextCandidate<T extends { rect: Rect }>(
         ? Math.min(origin.bottom, r.bottom) - Math.max(origin.top, r.top)
         : Math.min(origin.right, r.right) - Math.max(origin.left, r.left);
       const perpendicular = Math.abs(horizontal ? y - cy : x - cx);
-      return {
-        candidate,
-        primary,
-        inDirection: overlap > -0.5 || primary >= perpendicular * 0.5,
-        // Prefer alignment without skipping a nearer hero action for a distant rail.
-        score: primary + perpendicular * 0.5 + Math.max(0, -overlap) * 0.75,
-      };
-    })
-    .filter((c) => c.primary > 0.5 && c.inDirection)
-    .sort((a, b) => a.score - b.score)[0]?.candidate;
+      const inDirection = overlap > -0.5 || primary >= perpendicular * 0.5;
+      const score = primary + perpendicular * 0.5 + Math.max(0, -overlap) * 0.75;
+      if (primary > 0.5 && inDirection && score < bestScore) { best = candidate; bestScore = score; }
+  }
+  return best;
 }
 const selector =
   'a[href],summary,button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[role="button"],[role="link"],[role="tab"],[role="slider"],[role="checkbox"],[role="switch"],[role="radio"],[role="menuitem"],[role="option"],[role="menuitemcheckbox"],[role="menuitemradio"],[data-tv-focus]';
@@ -57,23 +53,45 @@ export function installSpatialNavigation(
       el.getClientRects().length > 0
     );
   }
-  const candidates = () =>
-    [...getScope().querySelectorAll<HTMLElement>(selector)].filter(visible);
+  let dirty = true;
+  let cachedScope: HTMLElement | undefined;
+  let cachedElements: HTMLElement[] = [];
+  const candidates = () => {
+    const scope = getScope();
+    if (dirty || cachedScope !== scope) {
+      cachedElements = [...scope.querySelectorAll<HTMLElement>(selector)];
+      cachedScope = scope; dirty = false;
+    }
+    return cachedElements.filter(visible);
+  };
+  let lastContentFocus: HTMLElement | undefined;
   function focus(el: HTMLElement) {
-    candidates().forEach((c) => {
-      c.tabIndex = c === el ? 0 : -1;
-    });
+    const previous = document.activeElement as HTMLElement | null;
+    if (previous && previous !== el && previous.matches(selector)) previous.tabIndex = -1;
+    el.tabIndex = 0;
     el.focus({ preventScroll: true });
+    // Fixed sidebar controls must never scroll the catalogue behind them.
+    if (el.closest('.tv-icon-rail')) {
+      if (previous && root.contains(previous) && !previous.closest('.tv-icon-rail') && previous.matches(selector)) lastContentFocus = previous;
+      return;
+    }
+    lastContentFocus = el;
+    const hero = el.closest<HTMLElement>('.tv-cinema');
+    if (hero && getScope() === root) {
+      // Nearest reveals just the button, leaving the title and artwork clipped.
+      const top = root.scrollTop + hero.getBoundingClientRect().top - root.getBoundingClientRect().top;
+      root.scrollTo({ top: Math.max(0, top), behavior: "instant" });
+      return;
+    }
     el.scrollIntoView({
       block: "nearest",
       inline: "nearest",
-      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "auto"
-        : "smooth",
+      behavior: "auto",
     });
   }
   const key = (event: KeyboardEvent) => {
     if (event.defaultPrevented) return;
+    if (event.key.startsWith("Arrow")) root.dataset.tvInput = "remote";
     const active = document.activeElement as HTMLElement;
     const editing = active?.matches(
       'input:not([type="checkbox"]):not([type="radio"]),textarea,[role="slider"],[contenteditable="true"]'
@@ -142,16 +160,43 @@ export function installSpatialNavigation(
       return;
     }
     if (!event.key.startsWith("Arrow")) return;
+    // Rails already encode horizontal order. Avoid laying out the entire page
+    // for each repeat from a remote, including cards hundreds of rows away.
+    const rail = active?.closest('.tv-rail-items');
+    if (rail && getScope() === root && ["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      const row = [...rail.querySelectorAll<HTMLElement>(selector)];
+      const step = event.key === 'ArrowRight' ? 1 : -1;
+      for (let index = row.indexOf(active) + step; index >= 0 && index < row.length; index += step) {
+        if (!visible(row[index])) continue;
+        event.preventDefault(); focus(row[index]); return;
+      }
+      if (step < 0) {
+        const nav = nextCandidate(active.getBoundingClientRect(), candidates().filter(el => el.closest('.tv-icon-rail')).map(el => ({ el, rect: el.getBoundingClientRect() })), 'left')?.el;
+        if (nav) { event.preventDefault(); focus(nav); return; }
+      }
+    }
     // Analytics can have long stretches of reading content between actions.
     const profile = active?.closest('[data-tv-profile]');
     const list = candidates();
-    const target = !list.includes(active)
-      ? list[0]
+    const inSidebar = !!active?.closest('.tv-icon-rail');
+    const vertical = ["ArrowDown", "ArrowUp"].includes(event.key);
+    let pool = list.filter(el => el !== active);
+    if (getScope() === root) {
+      // Up/Down stays in the current region. Left explicitly opens navigation.
+      if (vertical) pool = pool.filter(el => !!el.closest('.tv-icon-rail') === inSidebar);
+      else if (inSidebar) pool = event.key === 'ArrowRight' ? pool.filter(el => !el.closest('.tv-icon-rail')) : [];
+      else {
+        const content = pool.filter(el => !el.closest('.tv-icon-rail'));
+        const horizontalTarget = nextCandidate(active.getBoundingClientRect(), content.map(el => ({ el, rect: el.getBoundingClientRect() })), event.key === 'ArrowLeft' ? 'left' : 'right');
+        if (horizontalTarget || event.key === 'ArrowRight') pool = content;
+      }
+    }
+    const returningToContent = getScope() === root && inSidebar && event.key === 'ArrowRight' && lastContentFocus?.isConnected && visible(lastContentFocus);
+    const target = returningToContent ? lastContentFocus : !list.includes(active)
+      ? pool[0]
       : nextCandidate(
           active.getBoundingClientRect(),
-          list
-            .filter((el) => el !== active)
-            .map((el) => ({ el, rect: el.getBoundingClientRect() })),
+          pool.map(el => ({ el, rect: el.getBoundingClientRect() })),
           event.key.slice(5).toLowerCase() as Direction
         )?.el;
     event.preventDefault();
@@ -171,12 +216,26 @@ export function installSpatialNavigation(
     }
     if (target) focus(target);
   };
+  const pointer = (event: PointerEvent) => {
+    if (event.movementX || event.movementY) root.dataset.tvInput = "pointer";
+  };
+  root.addEventListener("pointermove", pointer, { passive: true });
   document.addEventListener("keydown", key);
-  const initial =
-    candidates().find((el) => el.dataset.tvKey === "nav-Home") ||
-    candidates()[0];
+  const initialCandidates = candidates();
+  initialCandidates.forEach(el => { el.tabIndex = el === document.activeElement ? 0 : -1; });
+  const initial = initialCandidates.find((el) => el.dataset.tvKey === "nav-Home") || initialCandidates[0];
   if (initial && !root.contains(document.activeElement)) focus(initial);
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver(records => {
+    dirty = true;
+    for (const record of records) for (const node of record.addedNodes) {
+      if (node.nodeType !== 1) continue;
+      const element = node as HTMLElement;
+      const additions = [...element.querySelectorAll<HTMLElement>(selector)];
+      if (element.matches(selector)) additions.push(element);
+      for (const el of additions) if (el !== document.activeElement && el.tabIndex !== -1) el.tabIndex = -1;
+    }
+    const active = document.activeElement as HTMLElement | null;
+    if (active?.isConnected && getScope().contains(active) && visible(active)) return;
     const list = candidates();
     if (
       !list.includes(document.activeElement as HTMLElement) &&
@@ -186,9 +245,10 @@ export function installSpatialNavigation(
     )
       list[0] && focus(list[0]);
   });
-  observer.observe(root, { subtree: true, childList: true });
+  observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'inert', 'aria-hidden', 'aria-disabled', 'role'] });
   return () => {
     observer.disconnect();
     document.removeEventListener("keydown", key);
+    root.removeEventListener("pointermove", pointer);
   };
 }

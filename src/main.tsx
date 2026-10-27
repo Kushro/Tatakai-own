@@ -3,8 +3,11 @@ import { HelmetProvider } from "react-helmet-async";
 import { MotionPreferences } from '@/components/ui/MotionPreferences';
 import App from "./App.tsx";
 import "./index.css";
-import "./utils/debug-extension"; // Extension debugger for console
-import "@/lib/i18n"; // Must be loaded once before React renders
+import { isDeveloperModeEnabled, DEVELOPER_MODE_EVENT } from "@/lib/developerMode";
+const loadExtensionDebugger = () => { if (isDeveloperModeEnabled()) void import("./utils/debug-extension"); };
+loadExtensionDebugger();
+window.addEventListener(DEVELOPER_MODE_EVENT, loadExtensionDebugger);
+import { i18nReady } from "@/lib/i18n";
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { WebappWrapper } from '@/components/WebappWrapper';
 import { initConsoleProtection, logger } from '@/lib/logger';
@@ -84,7 +87,7 @@ if (typeof window !== 'undefined') {
   }
 
   // Register service worker for PWA only in production (non-webapp mode).
-  if ('serviceWorker' in navigator && !isCapacitor() && import.meta.env.PROD && import.meta.env.MODE !== 'web') {
+  if ('serviceWorker' in navigator && !isCapacitor() && import.meta.env.VITE_PACKAGED_BUILD !== 'true' && import.meta.env.PROD && import.meta.env.MODE !== 'web') {
     window.addEventListener('load', () => {
       navigator.serviceWorker
         .register('/sw.js')
@@ -103,7 +106,7 @@ async function renderApp() {
   // Native source discovery must be ready before routes/nav mount. Otherwise
   // their first React Query request caches an empty extension/custom-source
   // catalogue for five minutes.
-  await Promise.all([bootstrapMobile(), initializeMediaMetadataCache()]);
+  await Promise.all([bootstrapMobile(), initializeMediaMetadataCache(), i18nReady]);
   createRoot(document.getElementById("root")!).render(
     <HelmetProvider>
       <ErrorBoundary>

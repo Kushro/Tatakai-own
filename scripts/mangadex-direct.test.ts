@@ -135,13 +135,13 @@ test("website chapter catalog calls the MangaDex API directly (no backend JSON p
 test("native catalog calls MangaDex directly and repeat visits reuse the built-in metadata cache", async () => {
   native = true;
   calls = [];
-  const result = await getMangaChapters("101");
+  const result = await getMangaChapters("101", undefined, undefined, null);
   expect(result.mappedChapters).toHaveLength(4);
   expect(
     calls.filter((c) => c.startsWith("https://api.mangadex.org"))
   ).toHaveLength(2);
   const count = calls.length;
-  await getMangaChapters("101");
+  await getMangaChapters("101", undefined, undefined, null);
   expect(calls.length).toBe(count);
   expect(extensionCalls).toBeGreaterThan(1);
 });
@@ -149,7 +149,7 @@ test("Refresh clears the MangaDex catalog cache and fetches chapters again", asy
   native = true;
   const before = calls.length;
   await clearMangaChaptersCache("101");
-  const result = await getMangaChapters("101");
+  const result = await getMangaChapters("101", undefined, undefined, null);
   expect(result.mappedChapters).toHaveLength(4);
   expect(calls.length - before).toBe(1);
 });
