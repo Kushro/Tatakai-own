@@ -262,7 +262,8 @@ impl SafeHttp {
         Ok(())
     }
 
-    fn ip_ok(&self, ip: IpAddr) -> bool {
+    /// Whether `ip` may be connected to under this client's policy.
+    pub fn ip_allowed(&self, ip: IpAddr) -> bool {
         (self.policy.allow_loopback && ip.is_loopback()) || !is_blocked_ip(ip)
     }
 
@@ -280,7 +281,7 @@ impl SafeHttp {
             return Err(NetError::Dns);
         }
         // Reject if ANY answer is forbidden: a mixed answer is how rebinding/rotation attacks hide.
-        if let Some(bad) = ips.iter().find(|ip| !self.ip_ok(**ip)) {
+        if let Some(bad) = ips.iter().find(|ip| !self.ip_allowed(**ip)) {
             return Err(NetError::BlockedIp(*bad));
         }
         Ok(ips.into_iter().map(|ip| SocketAddr::new(ip, port)).collect())

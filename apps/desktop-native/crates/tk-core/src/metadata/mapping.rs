@@ -45,19 +45,18 @@ pub fn clean_synopsis(text: Option<&str>) -> Option<String> {
     let chars: Vec<char> = text.chars().collect();
     let mut i = 0;
     while i < chars.len() {
-        if chars[i] == '<' {
-            if let Some(rel) = chars[i + 1..].iter().position(|c| *c == '>') {
-                if rel > 0 {
-                    let inner: String = chars[i + 1..i + 1 + rel].iter().collect();
-                    let lower = inner.to_ascii_lowercase();
-                    let t = lower.trim_end_matches(is_ws).trim_end_matches('/').trim_end_matches(is_ws);
-                    if t == "br" {
-                        out.push('\n');
-                    }
-                    i += rel + 2;
-                    continue;
-                }
+        if chars[i] == '<'
+            && let Some(rel) = chars[i + 1..].iter().position(|c| *c == '>')
+            && rel > 0
+        {
+            let inner: String = chars[i + 1..i + 1 + rel].iter().collect();
+            let lower = inner.to_ascii_lowercase();
+            let t = lower.trim_end_matches(is_ws).trim_end_matches('/').trim_end_matches(is_ws);
+            if t == "br" {
+                out.push('\n');
             }
+            i += rel + 2;
+            continue;
         }
         out.push(chars[i]);
         i += 1;

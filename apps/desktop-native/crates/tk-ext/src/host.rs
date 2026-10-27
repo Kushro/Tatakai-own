@@ -212,10 +212,11 @@ impl ExtensionHost {
         if !e.enabled {
             return Err(ExtError::Disabled(id.to_owned()));
         }
-        if let Some(route) = route_for_gate {
-            if matches!(route, "sources" | "stream" | "torrent") && !e.manifest.gated_routes().iter().any(|r| r == route) {
-                return Err(ExtError::RouteNotAllowed(route.to_owned()));
-            }
+        if let Some(route) = route_for_gate
+            && matches!(route, "sources" | "stream" | "torrent")
+            && !e.manifest.gated_routes().iter().any(|r| r == route)
+        {
+            return Err(ExtError::RouteNotAllowed(route.to_owned()));
         }
         if let Some(w) = &e.worker {
             return Ok(w.clone());

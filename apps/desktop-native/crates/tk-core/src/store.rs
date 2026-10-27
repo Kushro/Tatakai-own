@@ -261,7 +261,7 @@ mod tests {
         let e = entry(1, 1, 100, 10);
         s.record_history(&e).unwrap();
         assert_eq!(s.dirty_history().unwrap().len(), 1);
-        s.mark_synced(&[e.clone()]).unwrap();
+        s.mark_synced(std::slice::from_ref(&e)).unwrap();
         assert!(s.dirty_history().unwrap().is_empty());
         s.merge_remote(&[entry(2, 1, 1, 1)]).unwrap();
         assert!(s.dirty_history().unwrap().is_empty());
