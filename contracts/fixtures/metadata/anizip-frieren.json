@@ -1,0 +1,136 @@
+{
+ "titles": {
+  "x-jat": "Sousou no Frieren",
+  "uk": "Фрірен кінця шляху",
+  "ja": "葬送のフリーレン",
+  "en": "Frieren: Beyond Journey`s End",
+  "de": "Frieren: Nach dem Ende der Reise",
+  "fr": "Frieren",
+  "it": "Frieren - Oltre la Fine del Viaggio",
+  "es": "Frieren: Tras finalizar el viaje",
+  "ru": "Фрирен, провожающая в последний путь",
+  "pl": "Frieren. U kresu drogi",
+  "pt": "Frieren e a Jornada para o Além",
+  "pt-BR": "Frieren e a Jornada para o Além",
+  "he": "פרירן: מעבר לסוף המסע",
+  "th": "คำอธิษฐานในวันที่จากลา FRIEREN",
+  "zh-Hant": "葬送的芙莉蓮",
+  "zh-Hans": "葬送的芙莉莲",
+  "es-419": "Frieren: Más allá del final del viaje"
+ },
+ "episodes": {
+  "1": {
+   "tvdbShowId": 424536,
+   "tvdbId": 9350138,
+   "seasonNumber": 1,
+   "episodeNumber": 1,
+   "absoluteEpisodeNumber": 1,
+   "title": {
+    "ja": "冒険の終わり",
+    "en": "The Journey`s End",
+    "de": "Das Ende der Reise",
+    "fr": "La fin de l`aventure",
+    "x-jat": "Bouken no Owari",
+    "uk": "Кінець мандрівки",
+    "zh-Hans": "冒险的结束"
+   },
+   "airDate": "2023-09-29",
+   "airDateUtc": "2023-09-29T14:00:00Z",
+   "runtime": 26,
+   "overview": "The world celebrates the Demon King's defeat at the hands of the Hero and his companions. Now that their great adventure is over, what will Frieren the mage do next?",
+   "image": "https://artworks.thetvdb.com/banners/v4/episode/9350138/screencap/6516db4c3a389.jpg",
+   "episode": "1",
+   "anidbEid": 271418,
+   "length": 30,
+   "airdate": "2023-09-29",
+   "rating": "8.03",
+   "summary": "The world celebrates the Demon King`s defeat at the hands of the Hero and his companions. Now that their great adventure is over, what will Frieren the mage do next?\nSource: Crunchyroll"
+  },
+  "2": {
+   "tvdbShowId": 424536,
+   "tvdbId": 9993737,
+   "seasonNumber": 1,
+   "episodeNumber": 2,
+   "absoluteEpisodeNumber": 2,
+   "title": {
+    "ja": "別に魔法じゃなくたって...",
+    "en": "It Didn`t Have to Be Magic...",
+    "de": "Es hätte nicht unbedingt Magie sein müssen ...",
+    "fr": "Magie ou pas, peu importe",
+    "x-jat": "Betsu ni Mahou ja Nakutatte...",
+    "uk": "Це не може бути магією...",
+    "zh-Hans": "也不一定要是魔法…"
+   },
+   "airDate": "2023-09-29",
+   "airDateUtc": "2023-09-29T14:00:00Z",
+   "runtime": 26,
+   "overview": "Frieren instructs Fern in the use of magic while deciphering a grimoire for Heiter.",
+   "image": "https://artworks.thetvdb.com/banners/v4/episode/9993737/screencap/6516dba58b3fb.jpg",
+   "episode": "2",
+   "anidbEid": 271419,
+   "length": 30,
+   "airdate": "2023-09-29",
+   "rating": "8.27",
+   "summary": "Frieren instructs Fern in the use of magic while deciphering a grimoire for Heiter.\nSource: Crunchyroll"
+  },
+  "S1": {
+   "tvdbShowId": 424536,
+   "tvdbId": 10117637,
+   "seasonNumber": 0,
+   "episodeNumber": 1,
+   "airedBeforeSeasonNumber": 1,
+   "airedBeforeEpisodeNumber": 6,
+   "title": {
+    "ja": "●●の魔法 第1回: 考えていることを言ってしまう魔法",
+    "en": "Magic Episode 1: Magic to Say What You Are Thinking",
+    "x-jat": "Marumaru no Mahou Dai 1 Kai: Kangaete Iru Koto o Itte Shimau Mahou",
+    "zh-Hans": "迷你动画「〇〇的魔法」第1话：「把心里想的事说出来的魔法」"
+   },
+   "airDate": "2023-10-11",
+   "airDateUtc": "2023-10-11T14:00:00Z",
+   "runtime": 1,
+   "overview": "Frieren, Heiter, and Eisen test the spell that causes the user to say whatever they are thinking on Himmel, who begins to wax-poetic about his looks aloud. The three of them agree that it would be unbearable to listen to it long term.",
+   "image": "https://artworks.thetvdb.com/banners/v4/episode/10117637/screencap/6555d83a87b95.jpg",
+   "episode": "S1",
+   "anidbEid": 273428,
+   "length": 1,
+   "airdate": "2023-10-11",
+   "rating": "5.70",
+   "summary": "Frieren, Heiter, and Eisen test the spell that causes the user to say whatever they are thinking on Himmel, who begins to wax-poetic about his looks aloud. The three of them agree that it would be unbearable to listen to it long term."
+  }
+ },
+ "episodeCount": 28,
+ "specialCount": 25,
+ "images": [
+  {
+   "coverType": "Banner",
+   "url": "https://artworks.thetvdb.com/banners/v4/series/424536/banners/663e9840b8b26.jpg"
+  },
+  {
+   "coverType": "Poster",
+   "url": "https://artworks.thetvdb.com/banners/v4/series/424536/posters/64e6a8b95dfad.jpg"
+  },
+  {
+   "coverType": "Fanart",
+   "url": "https://artworks.thetvdb.com/banners/v4/series/424536/backgrounds/64e6cbe29d9c0.jpg"
+  },
+  {
+   "coverType": "Clearlogo",
+   "url": "https://artworks.thetvdb.com/banners/v4/series/424536/clearlogo/696a802a5aa22.png"
+  }
+ ],
+ "mappings": {
+  "animeplanet_id": "frieren-beyond-journeys-end",
+  "kitsu_id": 46474,
+  "mal_id": 52991,
+  "type": "TV",
+  "anilist_id": 154587,
+  "anisearch_id": 17669,
+  "anidb_id": 17617,
+  "notifymoe_id": null,
+  "livechart_id": 11376,
+  "thetvdb_id": 424536,
+  "imdb_id": "tt22248376",
+  "themoviedb_id": "209867"
+ }
+}
