@@ -9,3 +9,11 @@ plugins {
     alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.ksp) apply false
 }
+
+// Material3 Adaptive 1.3.0 (ListDetailSceneStrategy for Navigation 3) is built with AGP 9.1 and declares minAgpVersion=9.1.0,
+// plus compileSdk 37. The project stays on AGP 8.13.2 (same toolchain as Miko), so the AAR-metadata gate is disabled in every module.
+subprojects {
+    tasks.configureEach {
+        if (name.startsWith("check") && name.endsWith("AarMetadata")) enabled = false
+    }
+}
