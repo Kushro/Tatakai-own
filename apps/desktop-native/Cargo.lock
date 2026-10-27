@@ -5455,6 +5455,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "bytes",
  "directories",
  "reqwest",
  "rusqlite",
@@ -5473,6 +5474,9 @@ name = "tk-ext"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
+ "futures-util",
+ "hex",
  "reqwest",
  "rquickjs",
  "scraper",
@@ -5485,6 +5489,7 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "uuid",
  "zip",
 ]
 
@@ -5493,6 +5498,7 @@ name = "tk-link"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "base32",
  "base64 0.22.1",
