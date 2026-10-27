@@ -1,0 +1,47 @@
+{
+  "$comment": "POST https://graphql.anilist.co  Page(media(type: ANIME, search: \"frieren\", sort: SEARCH_MATCH)). Same fragment as the trending page; 1 result.",
+  "data": {
+    "Page": {
+      "pageInfo": { "total": 1, "currentPage": 1, "lastPage": 1, "hasNextPage": false, "perPage": 20 },
+      "media": [
+        {
+          "id": 154587,
+          "idMal": 52991,
+          "type": "ANIME",
+          "format": "TV",
+          "status": "FINISHED",
+          "season": "FALL",
+          "seasonYear": 2023,
+          "episodes": 28,
+          "chapters": null,
+          "volumes": null,
+          "duration": 24,
+          "title": { "romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End", "native": "葬送のフリーレン" },
+          "synonyms": ["Frieren at the Funeral"],
+          "coverImage": {
+            "extraLarge": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx154587-n1fmjRv4JQUd.jpg",
+            "large": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/bx154587-n1fmjRv4JQUd.jpg",
+            "medium": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/small/bx154587-n1fmjRv4JQUd.jpg",
+            "color": "#d6f1c9"
+          },
+          "bannerImage": "https://s4.anilist.co/file/anilistcdn/media/anime/banner/154587-ivXNJ23SM1xB.jpg",
+          "startDate": { "year": 2023, "month": 9, "day": 29 },
+          "endDate": { "year": 2024, "month": 3, "day": 22 },
+          "averageScore": 91,
+          "meanScore": 91,
+          "popularity": 515000,
+          "favourites": 98000,
+          "isAdult": false,
+          "countryOfOrigin": "JP",
+          "source": "MANGA",
+          "genres": ["Adventure", "Drama", "Fantasy"],
+          "tags": [],
+          "studios": { "edges": [{ "isMain": true, "node": { "id": 569, "name": "MADHOUSE", "siteUrl": "https://anilist.co/studio/569" } }] },
+          "nextAiringEpisode": null,
+          "description": "The demon king has been defeated, and the victorious hero party returns home before disbanding.",
+          "trailer": { "id": "qgZlDEmX1fo", "site": "youtube" }
+        }
+      ]
+    }
+  }
+}

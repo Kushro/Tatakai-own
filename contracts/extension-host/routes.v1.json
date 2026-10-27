@@ -1,0 +1,273 @@
+{
+  "$comment": "Frozen contract of the .kai extension host as implemented today by desktop/runtime/extension-api-host/host-server.cjs and src/core/extensions/mobile/mobileExtensionHost.ts. Native hosts (Kotlin QuickJS in apps/android-native/core/extensions*, Rust rquickjs in apps/desktop-native/crates/tk-ext) must expose the same bundle methods and answer the same logical routes. Field shapes come from src/core/extensions/sdk/types.ts and abstract-source.ts.",
+  "contract": "tatakai-extension-host",
+  "version": 1,
+  "package": {
+    "format": "ZIP (.kai)",
+    "manifestFile": "manifest.json",
+    "bundleFile": "bundle.js",
+    "bundleFormat": "CommonJS (esbuild platform:node format:cjs); module.exports.default || module.exports; if a function it is `new`-ed",
+    "bundleMaxBytes": 10485760,
+    "manifest": {
+      "required": ["id", "name", "version", "type", "description", "permissions"],
+      "properties": {
+        "id": "string, URL-safe unique id (e.g. nyaasearch)",
+        "name": "string",
+        "version": "string, semver",
+        "type": "torrent | onlinestream | custom",
+        "description": "string",
+        "permissions": "string[]; network:domain:<hostname|*>, parse:<parser>",
+        "apiServer": "{ namespace: string, contract: string, routes: string[], healthPath?: string }",
+        "capabilities": "string[]; known: manga, preview, websiteIndex, theme, metrics-sink, service, module, ui, custom-source",
+        "customSources": "CustomSourceDescriptor[] { id, kind: read|watch, name, icon?, description? }; non-empty when capabilities has custom-source",
+        "priority": "number, lower = earlier, default 100",
+        "contributes": "{ rendererEntry?, themes?, metrics sinks? }  (renderer entries are NOT supported by native hosts; ignored, never executed)",
+        "ignoredLegacy": ["signature", "signedBy", "sideloaded", "approvedAt", "browserDomains", "icon", "banner", "screenshots", "versionHistory", "categories", "deprecated"]
+      },
+      "networkPermission": {
+        "pattern": "network:domain:<host>",
+        "match": "request host === <host> or endsWith('.' + <host>); '*' allows any host (still subject to the SSRF policy of the native fetch)"
+      }
+    }
+  },
+  "mount": {
+    "legacyBase": "/api/v3/<namespace>/<route>",
+    "namespace": "manifest.apiServer.namespace, falling back to manifest.id",
+    "hostRoutes": [
+      { "path": "/health", "alias": "/api/v3/health", "response": { "ok": true, "service": "extension-api-host", "namespaces": "NamespaceInfo[]" } },
+      { "path": "/api/v3/probe", "note": "URL reachability check used by the legacy UI only. NOT part of the native contract." }
+    ],
+    "nativeNote": "Native hosts do not open an HTTP port. The same logical routes are in-process calls: ExtensionHost.call(extId, route, params) (Rust) / ExtensionHost.call(extensionId, route, params) (Kotlin). Params are the legacy query-string keys below, as a JSON object; the result is the JSON body the legacy host returned."
+  },
+  "responses": {
+    "NamespaceInfo": {
+      "namespace": "string",
+      "extensionId": "string",
+      "contract": "string | null",
+      "routes": "string[] (default ['sources','stream','torrent'])",
+      "providerRoutes": ["providers", "providers/:name"],
+      "capabilities": "string[]",
+      "customSources": "CustomSourceDescriptor[]",
+      "customRoutes": "string[] (the 5 custom/* routes when customSources is non-empty)"
+    },
+    "errorStatuses": {
+      "400": "missing required param",
+      "404": "unknown namespace / unknown route / unknown provider",
+      "501": "bundle does not implement the method (e.g. a streaming-only bundle asked for manga/*)",
+      "502": "bundle threw; body carries error message"
+    }
+  },
+  "routes": [
+    {
+      "id": "health",
+      "path": "health",
+      "method": "GET",
+      "bundleMethod": null,
+      "gated": false,
+      "response": { "ok": true, "namespace": "string", "extensionId": "string" }
+    },
+    {
+      "id": "sources",
+      "path": "sources",
+      "method": "GET",
+      "gated": "manifest.apiServer.routes must include it",
+      "bundleMethod": "sourcesAll(opts, onChunk) -> fallback single/batch",
+      "query": { "$ref": "#/queryParams/sourceOptions" },
+      "transport": "SSE by default (stream!=0): events `source` (SourceResultNormalized), `provider_status` (ProviderDiagnostic), `done` {totalCount, cached}, `error` {message}; JSON when stream=0",
+      "response": { "sources": "SourceResultNormalized[]", "byLanguage": "object", "byType": "object", "providerStatus": "ProviderDiagnostic[]", "count": "number", "cached": "boolean", "fetchedAt": "ISO-8601" },
+      "cache": { "ttlSeconds": 600, "bypass": "refresh=1 or nocache=1" },
+      "milestone": "M0"
+    },
+    {
+      "id": "stream",
+      "path": "stream",
+      "method": "GET",
+      "gated": "manifest.apiServer.routes must include it",
+      "bundleMethod": "streamAll(opts, onChunk) -> fallback single(opts)",
+      "query": { "$ref": "#/queryParams/sourceOptions" },
+      "transport": "same as sources",
+      "response": "same as sources",
+      "cache": { "ttlSeconds": 600 },
+      "milestone": "M0 (this is the playback route)"
+    },
+    {
+      "id": "torrent",
+      "path": "torrent",
+      "method": "GET",
+      "gated": "manifest.apiServer.routes must include it",
+      "bundleMethod": "torrentAll(opts, onChunk) -> fallback batch(opts) filtered to sourceType torrent",
+      "query": { "$ref": "#/queryParams/sourceOptions" },
+      "transport": "same as sources",
+      "cache": { "ttlSeconds": 1800 },
+      "milestone": "M2 (native hosts answer but the apps do not play torrents in M0)"
+    },
+    {
+      "id": "providers",
+      "path": "providers",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "listProviders()",
+      "response": { "namespace": "string", "count": "number", "byKind": "Record<string, number>", "providers": "object[] (each has at least name and kind)", "fetchedAt": "ISO-8601" },
+      "milestone": "M0"
+    },
+    {
+      "id": "providers/{id}",
+      "path": "providers/{name}",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "runProvider(name, opts)",
+      "query": { "$ref": "#/queryParams/sourceOptions" },
+      "response": { "provider": "string", "kind": "string|null", "status": "ok|empty|error|timeout", "durationMs": "number|null", "attempts": "number|null", "error": "string|null", "count": "number", "sources": "SourceResultNormalized[]", "byLanguage": "object", "byType": "object", "fetchedAt": "ISO-8601" },
+      "errors": { "404": "bundle error message matches /unknown provider/i" },
+      "milestone": "M0"
+    },
+    {
+      "id": "manga/chapters",
+      "path": "manga/chapters",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "debugMangaChapters(params) -> getMangaChapters(params)",
+      "query": { "anilistId": "number?", "malId": "number?", "title": "string?", "titles[]": "string[]?", "refresh": "1?" },
+      "response": { "namespace": "string", "provider": "string", "count": "number", "chapters": "MangaChapterRow[] (one row per chapter x source; `provider` = sub-provider)", "providerStatus": "ProviderDiagnostic[]", "cached": "boolean", "fetchedAt": "ISO-8601" },
+      "cache": { "ttlSeconds": 1800 },
+      "milestone": "M1"
+    },
+    {
+      "id": "manga/pages",
+      "path": "manga/pages",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "getMangaPages(params)",
+      "query": { "chapterKey": "string (required)", "anilistId": "number?", "provider": "string?", "providerChapterId": "string?" },
+      "response": { "namespace": "string", "pages": "{ pageNumber, imageUrl, headers? }[]", "count": "number" },
+      "milestone": "M1"
+    },
+    {
+      "id": "novel/search",
+      "path": "novel/search",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "getNovelSearch({ query, provider? })",
+      "query": { "query": "string", "provider": "string?" },
+      "response": { "namespace": "string", "results": "object[]" },
+      "milestone": "M1"
+    },
+    {
+      "id": "novel/chapters",
+      "path": "novel/chapters",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "debugNovelChapters(params) -> getNovelChapters(params)",
+      "query": { "anilistId": "number?", "malId": "number?", "title": "string?", "titles[]": "string[]?", "provider": "string?", "seriesId": "string?", "fullScan": "1?", "refresh": "1?" },
+      "response": { "namespace": "string", "count": "number", "chapters": "object[]" },
+      "milestone": "M1"
+    },
+    {
+      "id": "novel/content",
+      "path": "novel/content",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "getNovelContent(params)",
+      "query": { "chapterKey": "string (required)", "anilistId": "number?", "provider": "string?", "providerChapterId": "string?" },
+      "response": { "namespace": "string", "paragraphs": "string[]", "count": "number" },
+      "milestone": "M1"
+    },
+    {
+      "id": "custom/home",
+      "path": "custom/home",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "customHome(sourceId)",
+      "query": { "sourceId": "string (required)" },
+      "response": { "namespace": "string", "sourceId": "string", "sections": "CustomHomeSection[]", "filters": "CustomFilterSchema|null", "fetchedAt": "ISO-8601" },
+      "milestone": "M1"
+    },
+    {
+      "id": "custom/search",
+      "path": "custom/search",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "customSearch(sourceId, query, page, filters)",
+      "query": { "sourceId": "string (required)", "q|query": "string", "page": "number (default 1)", "filters": "JSON-encoded CustomSearchFilters?" },
+      "response": { "namespace": "string", "results": "CustomMediaCard[]", "hasNextPage": "boolean?" },
+      "milestone": "M1"
+    },
+    {
+      "id": "custom/info",
+      "path": "custom/info",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "customInfo(sourceId, id)",
+      "query": { "sourceId": "string (required)", "id": "string (required)" },
+      "response": "CustomInfoResult (+ namespace)",
+      "milestone": "M1"
+    },
+    {
+      "id": "custom/watch",
+      "path": "custom/watch",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "customWatch(sourceId, id, episodeId)",
+      "query": { "sourceId": "string", "id": "string", "episodeId": "string (all required)" },
+      "response": { "namespace": "string", "sources": "SourceResultNormalized[]", "byLanguage": "object", "byType": "object", "fetchedAt": "ISO-8601" },
+      "milestone": "M1"
+    },
+    {
+      "id": "custom/read",
+      "path": "custom/read",
+      "method": "GET",
+      "gated": false,
+      "bundleMethod": "customRead(sourceId, id, chapterId)",
+      "query": { "sourceId": "string", "id": "string", "chapterId": "string (all required)" },
+      "response": "CustomReadResult { pages: CustomReadPageImage[] } (+ namespace)",
+      "milestone": "M1"
+    }
+  ],
+  "queryParams": {
+    "sourceOptions": {
+      "anilistId": "number > 0 (0 when absent/invalid)",
+      "titles | titles[]": "string[] (repeatable); merged with titles fetched from AniList by the legacy host, native hosts MAY skip the AniList prefetch because the app passes titles",
+      "episode": "number, default 1",
+      "resolution": "string, default '1080p'",
+      "preferredLanguage": "string? (deprecated)",
+      "preferredLanguages": "comma-separated string?",
+      "maxConcurrency | maxRetries | retryDelayMs | timeoutMs": "number? -> opts.providerOptions (default timeoutMs 20000)",
+      "stream": "'0' disables SSE",
+      "refresh | nocache": "'1' bypasses the result cache"
+    }
+  },
+  "types": {
+    "SourceOptions": "see src/core/extensions/sdk/types.ts: { anilistId: number, titles: string[], episode?: number, episodeCount?: number, resolution: string, tatakaiId?: string, countryCode?: string, exclusions?: string[], preferredLanguage?: string, preferredLanguages?: string[], providerOptions?: { maxConcurrency?, maxRetries?, retryDelayMs?, timeoutMs? } }",
+    "SourceResult": "{ source: string, url: string, quality: string, headers: Record<string,string>, refererCandidates?: string[], subtitles: SubtitleTrack[], audioLanguage?: string, sourceType?: 'torrent'|'hls'|'mp4'|'custom', server?: string }",
+    "SubtitleTrack": "{ url: string, label: string, language: string, default?: boolean }",
+    "SourceResultNormalized": "SourceResult plus host-added fields: providerName, providerKey, server, providerPriority, audioLanguage, language, languageLabel, isDub, type, sourceType (hls|mp4|embed|torrent), fileFormat, isM3U8, isEmbed, isTorrent, seeders?, leechers?, peers?, torrentTitle?, fileSize?",
+    "ProviderDiagnostic": "{ provider: string, status: 'ok'|'empty'|'error'|'timeout', resultCount: number, durationMs: number, attempts: number, error?: string }",
+    "LanguageCapability": "{ language: string, label: string, type: 'audio'|'subtitle', sourceHint?: string }",
+    "CustomMediaCard": "{ id, title, image?, subtitle?, badge? }",
+    "CustomHomeSection": "{ title: string, items: CustomMediaCard[] }",
+    "CustomFilterSchema": "{ tags?: string[], groups?: { key, label, options: { value, label }[] }[] }",
+    "CustomSearchFilters": "{ tags?: string[], [groupKey]: string | string[] }",
+    "CustomInfoResult": "{ id, title, image?, description?, meta?: Record<string,string>, entries: { id, label, number? }[] }",
+    "CustomReadPageImage": "{ pageNumber: number, imageUrl: string, headers?: Record<string,string> }"
+  },
+  "abstractSource": {
+    "$comment": "src/core/extensions/sdk/abstract-source.ts. The aggregate methods above (sourcesAll/streamAll/torrentAll/...) are what the real Toko/Aurora bundles expose; AbstractSource is the minimal fallback shape.",
+    "fields": ["id", "name", "version", "type: torrent|onlinestream|custom"],
+    "methods": ["validate(): Promise<boolean>", "getLanguages(options): Promise<LanguageCapability[]> (default [])", "single(options): Promise<SourceResult[]>", "batch(options): Promise<SourceResult[]>", "movie(options): Promise<SourceResult[]>"],
+    "hostFallback": "route stream without streamAll -> single(opts); sources/torrent without *All -> batch(opts) (torrent filtered by sourceType 'torrent')"
+  },
+  "nativeMapping": {
+    "$comment": "How the native apps turn a normalized source into core:model StreamSource / tk-core StreamSource. Only hls and mp4 are playable in M0.",
+    "StreamSource": {
+      "url": "SourceResult.url",
+      "headers": "SourceResult.headers (all, attached to the player's HTTP requests; no local proxy exists natively). Try refererCandidates[] in order if the first Referer 403s",
+      "container": { "hls": "HLS", "mp4": "MP4", "dash": "DASH (only if url ends .mpd)" },
+      "quality": "SourceResult.quality",
+      "provider": "normalized.providerName",
+      "extensionId": "manifest.id",
+      "subtitles": "SourceResult.subtitles -> SubtitleTrack{ url, lang=language, label, format inferred from extension: vtt|srt|ass }"
+    },
+    "skipped": { "embed": "type embed / custom: not playable natively in M0, listed as unsupported in the UI", "torrent": "M2" },
+    "ordering": "providerPriority ascending, then quality descending, then preferredLanguages order"
+  }
+}

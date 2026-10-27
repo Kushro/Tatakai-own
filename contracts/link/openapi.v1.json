@@ -1,0 +1,1986 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Tatakai Link v1 (M0)",
+    "version": "1.0.0",
+    "description": "PC <-> phone link served by apps/desktop-native/crates/tk-link and consumed by apps/android-native/core/link. Derived from docs/redesign/03-pairing-upscale.md (which in turn rewrites the Temple v1 contract), trimmed by review E6 and E7: NO mDNS / TOFU in M0 (pairing = QR or pasted code only), NO /v1/settings, NO events/handoff/control/sync/downloads, NO phone source and source channel, library = one user-chosen folder, non-recursive, listed with ffprobe (optional in M0; the url source is the one that matters). Every response carries the header `Tatakai-Link: v1`. Error bodies are `{\"error\":{\"code\",\"message\"}}` with FIXED messages (no paths, secrets, tokens or pairing codes).",
+    "license": {
+      "name": "AGPL-3.0-or-later",
+      "url": "https://www.gnu.org/licenses/agpl-3.0.html"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://{host}:{port}",
+      "variables": {
+        "host": {
+          "default": "192.168.0.10",
+          "description": "PC LAN IPv4 (from the pairing payload)"
+        },
+        "port": {
+          "default": "47321"
+        }
+      }
+    }
+  ],
+  "x-transport": {
+    "scheme": "https",
+    "defaultPort": 47321,
+    "tls": "TLS 1.3 and 1.2 via rustls with the `ring` provider (no aws-lc), ECDSA P-256, ALPN http/1.1, no session resumption, max 64 connections",
+    "server": "Own CA generated on first start (%APPDATA%\\Tatakai-Next\\link\\ca.{der,key}; key protected with DPAPI). Server cert SAN = every active LAN IPv4 + 127.0.0.1 + DNS localhost; re-issued when the IP changes.",
+    "clientIdentity": "The phone pins the SHA-256 of the CA DER. Client cert issued by the CA, CN = device_id, 365 days. Client key = software P-256 sealed at rest with an AndroidKeyStore AES-GCM key in noBackupFilesDir (review E4, same model as Enigmata TempleCrypto/TempleKeyVault); held in memory behind an X509KeyManager; exported as temporary PKCS#8 only when the M1 mpv engine needs it.",
+    "mtls": "Required on every route except POST /v1/pairing. Active device checked PER REQUEST. Unknown route with an authorized device -> 404 session_not_found. Undefined method on an existing route -> 405 without JSON body.",
+    "revocation": "In-memory list + file; effect <= 2 s; live connections of the device are closed.",
+    "bodyLimits": "Every JSON body has a per-route cap and must be fully received within 10 s of the headers (408 body_timeout, connection closed).",
+    "bind": "Private LAN interfaces only; never 0.0.0.0 on a Public Windows profile. The Windows Firewall rule (Private profile) is created ONLY from Settings > Link > \"Allow on private network\" with a UAC prompt, never on first launch (review E6)."
+  },
+  "x-pairing-payload": {
+    "scheme": "tatakai-link:v1",
+    "format": "tatakai-link:v1?h=<ipv4>&p=<port>&ca=<sha256 hex of CA DER>&c=<10 Crockford base32>&x=<unix exp seconds>&n=<PC name, url-encoded>",
+    "rules": [
+      "Not an HTTP URL; contains the pairing code, so it is never logged.",
+      "Single window of 5 minutes, single use, <= 5 failed attempts. Validation order: window -> CSR -> code.",
+      "The phone REJECTS payloads whose scheme is not exactly tatakai-link:v1 (e.g. tatakai-link:v0, enigmata-temple:*), expired payloads (x in the past) and malformed ones.",
+      "The phone verifies that the CA returned by POST /v1/pairing matches the pinned `ca` and that the issued cert contains its public key."
+    ],
+    "qr": "The phone scans it with CameraX + zxing (no Google Play services) or the user pastes the text; the paste option is always available."
+  },
+  "x-ffmpeg": {
+    "note": "Contract for the desktop implementation, not an HTTP surface.",
+    "protocolWhitelist": "http,tcp,crypto (E6: `crypto` is required for #EXT-X-KEY AES-128 HLS). FFmpeg only ever reads the loopback fetcher, never an external URL.",
+    "ssrfFetcher": {
+      "loopback": "http://127.0.0.1:<ephemeral>/u/<session_token>/...",
+      "rules": [
+        "https only (http only if the \"allow HTTP\" setting is on); ports 80/443/8080/8443.",
+        "The fetcher resolves DNS itself, rejects loopback, RFC1918, CGNAT 100.64/10, link-local 169.254/16 and fe80::/10, ULA fc00::/7, multicast, 0.0.0.0/8 and cloud-metadata addresses, and connects to the already-validated IP (anti DNS-rebinding: a name that resolves public first and private later is rejected).",
+        "Redirects: max 5, every hop re-validated (a redirect to a private IP is rejected); Cookie and Authorization are dropped on origin change.",
+        "Request headers: allow-list Referer, Origin, User-Agent, Accept, Accept-Language, Cookie, Range; total <= 8 KiB; no CR/LF in names or values (a header containing CR/LF rejects the whole request); Cookie only towards the initial origin.",
+        "HLS playlists (master/media/#EXT-X-KEY/#EXT-X-MAP) are rewritten so every URI goes through the fetcher with the same policy (segments and keys alike). The rewriter REJECTS data: and file: URIs and any scheme other than http(s); playlists are capped at 2 MiB; depth master -> media only (no further nesting).",
+        "#EXT-X-KEY with an absolute URI to a host that the policy does not allow is rejected.",
+        "If the phone sends extension_id AND the PC has that extension installed, each host is also intersected with its network:domain:* permissions; otherwise only the generic policy applies.",
+        "Limits: 64 concurrent requests per session, 2 GiB per session, 20 s timeout per request; logs redacted (no query strings)."
+      ]
+    },
+    "jobObject": "The FFmpeg process tree lives in a Windows Job Object and dies with the app."
+  },
+  "x-profiles": {
+    "ids": [
+      "p-none",
+      "p-anime4k-1080",
+      "p-anime4k-1440",
+      "p-anime4k-2160",
+      "p-anime4k-1080-fg2x"
+    ],
+    "pipeline": "decode (FFmpeg, d3d11va -> software fallback) -> upscale (Anime4K 4.0 via libplacebo/Vulkan) -> frame generation (none by default; frc_amf on AMD only for p-anime4k-1080-fg2x) -> encode (h264_amf | h264_nvenc | h264_qsv | libopenh264) -> fMP4 HLS",
+    "measuredSustain": "true | false | \"unknown\": 10 s benchmark on first use, stored. `p-none` is always available."
+  },
+  "tags": [
+    {
+      "name": "pairing",
+      "description": "No client certificate (TLS without mTLS)."
+    },
+    {
+      "name": "capabilities"
+    },
+    {
+      "name": "library"
+    },
+    {
+      "name": "sessions"
+    },
+    {
+      "name": "playback",
+      "description": "VOD fMP4-HLS, 2 s segments, produced on demand, RAM window 512 MiB."
+    }
+  ],
+  "paths": {
+    "/v1/pairing": {
+      "post": {
+        "tags": [
+          "pairing"
+        ],
+        "summary": "Pair a device with the open pairing window",
+        "description": "Body <= 16 KiB. Unreadable or invalid JSON -> 400 request_invalid, larger -> 413 body_too_large, not received in 10 s -> 408 body_timeout; none of these consume attempts. The window is closed BEFORE the certificate is issued.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Paired",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/request_invalid"
+          },
+          "403": {
+            "$ref": "#/components/responses/pairing_code_invalid"
+          },
+          "408": {
+            "$ref": "#/components/responses/body_timeout"
+          },
+          "409": {
+            "$ref": "#/components/responses/pairing_closed"
+          },
+          "413": {
+            "$ref": "#/components/responses/body_too_large"
+          },
+          "429": {
+            "$ref": "#/components/responses/pairing_attempts_exceeded"
+          },
+          "500": {
+            "$ref": "#/components/responses/internal"
+          }
+        }
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "capabilities"
+        ],
+        "summary": "GPU, encoders and upscale profiles of the PC",
+        "responses": {
+          "200": {
+            "description": "Capabilities",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/client_certificate_required"
+          },
+          "403": {
+            "$ref": "#/components/responses/device_not_authorized"
+          }
+        }
+      }
+    },
+    "/v1/library": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "library"
+        ],
+        "summary": "Files of the PC library folder (OPTIONAL in M0)",
+        "description": "One user-chosen folder, non-recursive (E7), metadata via ffprobe cached by (path, mtime, size). `id` = HMAC-SHA256(32-byte install salt, folder id || relative path) truncated to 128 bits, hex (32 chars). Paths are NEVER returned. If B5 does not ship it, M0 has only the `url` source.",
+        "x-milestone": "M0 (optional)",
+        "responses": {
+          "200": {
+            "description": "Library",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Library"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/devices/self": {
+      "delete": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "pairing"
+        ],
+        "summary": "Forget this device (revokes its own certificate)",
+        "responses": {
+          "204": {
+            "description": "Revoked. `Connection: close`."
+          }
+        }
+      }
+    },
+    "/v1/sessions": {
+      "post": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Create a transcoding session",
+        "description": "Body <= 4 KiB. One active session per device: creating another closes the previous one (its resources answer 410) and increments `generation`. `session_id` is opaque (not a credential).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/request_invalid"
+          },
+          "403": {
+            "$ref": "#/components/responses/url_source_denied"
+          },
+          "404": {
+            "$ref": "#/components/responses/library_item_not_found"
+          },
+          "408": {
+            "$ref": "#/components/responses/body_timeout"
+          },
+          "413": {
+            "$ref": "#/components/responses/body_too_large"
+          },
+          "422": {
+            "$ref": "#/components/responses/profile_unavailable"
+          },
+          "503": {
+            "$ref": "#/components/responses/source_unavailable"
+          }
+        }
+      }
+    },
+    "/v1/sessions/{id}": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Session state (counts as activity)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "UUIDv4, lowercase with hyphens. Any other form -> 404 session_not_found."
+          }
+        ],
+        "description": "A closed session answers 200 with state \"closed\" for 30 min, then 404.",
+        "responses": {
+          "200": {
+            "description": "State",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionState"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/session_not_found"
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Close a session (idempotent while remembered)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "UUIDv4, lowercase with hyphens. Any other form -> 404 session_not_found."
+          }
+        ],
+        "description": "Frees FFmpeg, window, fetcher and scratch BEFORE reporting closed.",
+        "responses": {
+          "204": {
+            "description": "Closed"
+          },
+          "404": {
+            "$ref": "#/components/responses/session_not_found"
+          }
+        }
+      }
+    },
+    "/v1/sessions/{id}/position": {
+      "post": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Heartbeat every 4 s",
+        "description": "Body <= 1 KiB. position_secs outside [0, duration] or non-finite -> 400 request_invalid. Accepted while preparing; failed -> 503 source_unavailable; closed -> 410 session_gone. 120 s without requests or heartbeats closes the session.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "UUIDv4, lowercase with hyphens. Any other form -> 404 session_not_found."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Heartbeat"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Accepted"
+          },
+          "400": {
+            "$ref": "#/components/responses/request_invalid"
+          },
+          "404": {
+            "$ref": "#/components/responses/session_not_found"
+          },
+          "410": {
+            "$ref": "#/components/responses/session_gone"
+          },
+          "503": {
+            "$ref": "#/components/responses/source_unavailable"
+          }
+        }
+      }
+    },
+    "/v1/sessions/{id}/master.m3u8": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "playback"
+        ],
+        "summary": "HLS master playlist",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "UUIDv4, lowercase with hyphens. Any other form -> 404 session_not_found."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resource",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/vnd.apple.mpegurl": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/session_not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/session_not_ready"
+          },
+          "410": {
+            "$ref": "#/components/responses/session_gone"
+          },
+          "503": {
+            "$ref": "#/components/responses/segment_wait_timeout"
+          }
+        }
+      }
+    },
+    "/v1/sessions/{id}/media.m3u8": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "playback"
+        ],
+        "summary": "HLS media playlist (full VOD list with ENDLIST, generated from metadata)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "UUIDv4, lowercase with hyphens. Any other form -> 404 session_not_found."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resource",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/vnd.apple.mpegurl": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/session_not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/session_not_ready"
+          },
+          "410": {
+            "$ref": "#/components/responses/session_gone"
+          },
+          "503": {
+            "$ref": "#/components/responses/segment_wait_timeout"
+          }
+        }
+      }
+    },
+    "/v1/sessions/{id}/init.mp4": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "playback"
+        ],
+        "summary": "fMP4 init segment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "UUIDv4, lowercase with hyphens. Any other form -> 404 session_not_found."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resource",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/session_not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/session_not_ready"
+          },
+          "410": {
+            "$ref": "#/components/responses/session_gone"
+          },
+          "503": {
+            "$ref": "#/components/responses/segment_wait_timeout"
+          }
+        }
+      }
+    },
+    "/v1/sessions/{id}/seg_{k}.m4s": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "playback"
+        ],
+        "summary": "fMP4 media segment k",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "UUIDv4, lowercase with hyphens. Any other form -> 404 session_not_found."
+          },
+          {
+            "name": "k",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resource",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "video/iso.segment": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/session_not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/session_not_ready"
+          },
+          "410": {
+            "$ref": "#/components/responses/session_gone"
+          },
+          "503": {
+            "$ref": "#/components/responses/segment_wait_timeout"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "mutualTls": {
+        "type": "mutualTLS",
+        "description": "Client certificate issued by the PC CA at pairing. The server checks the device is active on every request."
+      }
+    },
+    "headers": {
+      "TatakaiLink": {
+        "description": "Always `v1`.",
+        "schema": {
+          "type": "string",
+          "const": "v1"
+        }
+      }
+    },
+    "responses": {
+      "client_certificate_required": {
+        "description": "401 client_certificate_required",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "client_certificate_required",
+                "message": "a client certificate is required"
+              }
+            }
+          }
+        }
+      },
+      "device_not_authorized": {
+        "description": "403 device_not_authorized",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "device_not_authorized",
+                "message": "this device is not authorized"
+              }
+            }
+          }
+        }
+      },
+      "pairing_closed": {
+        "description": "409 pairing_closed",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "pairing_closed",
+                "message": "no pairing window is open"
+              }
+            }
+          }
+        }
+      },
+      "pairing_code_invalid": {
+        "description": "403 pairing_code_invalid",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "pairing_code_invalid",
+                "message": "the pairing code is invalid"
+              }
+            }
+          }
+        }
+      },
+      "pairing_attempts_exceeded": {
+        "description": "429 pairing_attempts_exceeded",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "pairing_attempts_exceeded",
+                "message": "too many failed attempts; the pairing window is closed"
+              }
+            }
+          }
+        }
+      },
+      "csr_invalid": {
+        "description": "400 csr_invalid",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "csr_invalid",
+                "message": "the certificate signing request is invalid"
+              }
+            }
+          }
+        }
+      },
+      "request_invalid": {
+        "description": "400 request_invalid",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "request_invalid",
+                "message": "the request is invalid"
+              }
+            }
+          }
+        }
+      },
+      "body_too_large": {
+        "description": "413 body_too_large",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "body_too_large",
+                "message": "the request body is too large"
+              }
+            }
+          }
+        }
+      },
+      "body_timeout": {
+        "description": "408 body_timeout",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "body_timeout",
+                "message": "the request body was not received in time"
+              }
+            }
+          }
+        }
+      },
+      "profile_unavailable": {
+        "description": "422 profile_unavailable",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "profile_unavailable",
+                "message": "the requested profile is not available"
+              }
+            }
+          }
+        }
+      },
+      "policy_unavailable": {
+        "description": "422 policy_unavailable (not produced in M0)",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "policy_unavailable",
+                "message": "the requested policy is not available"
+              }
+            }
+          }
+        }
+      },
+      "library_item_not_found": {
+        "description": "404 library_item_not_found",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "library_item_not_found",
+                "message": "the library item was not found"
+              }
+            }
+          }
+        }
+      },
+      "source_unavailable": {
+        "description": "503 source_unavailable",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "source_unavailable",
+                "message": "the source is not available"
+              }
+            }
+          }
+        }
+      },
+      "session_not_found": {
+        "description": "404 session_not_found",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "session_not_found",
+                "message": "session or resource not found"
+              }
+            }
+          }
+        }
+      },
+      "session_gone": {
+        "description": "410 session_gone",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "session_gone",
+                "message": "the session is closed"
+              }
+            }
+          }
+        }
+      },
+      "session_not_ready": {
+        "description": "409 session_not_ready",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "session_not_ready",
+                "message": "the session is still being prepared"
+              }
+            }
+          }
+        }
+      },
+      "segment_wait_timeout": {
+        "description": "503 segment_wait_timeout",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "segment_wait_timeout",
+                "message": "the segment is not ready yet"
+              }
+            }
+          }
+        }
+      },
+      "range_not_found": {
+        "description": "404 range_not_found (not produced in M0)",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "range_not_found",
+                "message": "the range request is unknown or expired"
+              }
+            }
+          }
+        }
+      },
+      "range_invalid": {
+        "description": "400 range_invalid (not produced in M0)",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "range_invalid",
+                "message": "the range body does not match the request"
+              }
+            }
+          }
+        }
+      },
+      "settings_invalid": {
+        "description": "400 settings_invalid (not produced in M0)",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "settings_invalid",
+                "message": "the settings are invalid"
+              }
+            }
+          }
+        }
+      },
+      "settings_conflict": {
+        "description": "409 settings_conflict (not produced in M0)",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "settings_conflict",
+                "message": "the settings changed; read them again"
+              }
+            }
+          }
+        }
+      },
+      "server_busy": {
+        "description": "503 server_busy",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "server_busy",
+                "message": "the server is busy"
+              }
+            }
+          }
+        }
+      },
+      "internal": {
+        "description": "500 internal",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "internal",
+                "message": "internal server error"
+              }
+            }
+          }
+        }
+      },
+      "url_source_denied": {
+        "description": "403 url_source_denied",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "url_source_denied",
+                "message": "the url source is not allowed"
+              }
+            }
+          }
+        }
+      },
+      "extension_unavailable": {
+        "description": "422 extension_unavailable (not produced in M0)",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "extension_unavailable",
+                "message": "the extension is not available"
+              }
+            }
+          }
+        }
+      },
+      "handoff_rejected": {
+        "description": "409 handoff_rejected (not produced in M0)",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "handoff_rejected",
+                "message": "the handoff was rejected"
+              }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "client_certificate_required",
+                  "device_not_authorized",
+                  "pairing_closed",
+                  "pairing_code_invalid",
+                  "pairing_attempts_exceeded",
+                  "csr_invalid",
+                  "request_invalid",
+                  "body_too_large",
+                  "body_timeout",
+                  "profile_unavailable",
+                  "policy_unavailable",
+                  "library_item_not_found",
+                  "source_unavailable",
+                  "session_not_found",
+                  "session_gone",
+                  "session_not_ready",
+                  "segment_wait_timeout",
+                  "range_not_found",
+                  "range_invalid",
+                  "settings_invalid",
+                  "settings_conflict",
+                  "server_busy",
+                  "internal",
+                  "url_source_denied",
+                  "extension_unavailable",
+                  "handoff_rejected"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "PairingRequest": {
+        "type": "object",
+        "required": [
+          "code",
+          "device_name",
+          "csr_pem",
+          "platform"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[0-9A-HJKMNP-TV-Z]{10}$",
+            "description": "Crockford base32, 10 chars"
+          },
+          "device_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "csr_pem": {
+            "type": "string",
+            "maxLength": 8192,
+            "description": "PEM PKCS#10, ECDSA P-256, CN = anything (the server assigns the device_id)"
+          },
+          "platform": {
+            "enum": [
+              "android"
+            ]
+          }
+        }
+      },
+      "PairingResponse": {
+        "type": "object",
+        "required": [
+          "device_id",
+          "client_cert_pem",
+          "ca_cert_pem",
+          "server_name"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "client_cert_pem": {
+            "type": "string"
+          },
+          "ca_cert_pem": {
+            "type": "string"
+          },
+          "server_name": {
+            "type": "string",
+            "description": "PC name for the UI"
+          }
+        }
+      },
+      "Capabilities": {
+        "type": "object",
+        "required": [
+          "contract",
+          "server_version",
+          "instance_id",
+          "server_name",
+          "gpu",
+          "encoders",
+          "profiles",
+          "default_profile",
+          "client_fg",
+          "limits"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "contract": {
+            "const": "v1"
+          },
+          "server_version": {
+            "type": "string"
+          },
+          "instance_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "New UUIDv4 on every server start; a client seeing another value treats its sessions as lost and creates a new one at its position."
+          },
+          "server_name": {
+            "type": "string"
+          },
+          "gpu": {
+            "type": "object",
+            "required": [
+              "vendor",
+              "name",
+              "vulkan"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "vendor": {
+                "enum": [
+                  "amd",
+                  "nvidia",
+                  "intel",
+                  "other",
+                  "unknown"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "vulkan": {
+                "type": "boolean"
+              }
+            }
+          },
+          "encoders": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "h264_amf",
+                "h264_nvenc",
+                "h264_qsv",
+                "libopenh264"
+              ]
+            },
+            "description": "Detected with `ffmpeg -encoders`"
+          },
+          "default_profile": {
+            "type": "string"
+          },
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Profile"
+            }
+          },
+          "client_fg": {
+            "enum": [
+              "allowed",
+              "suppressed"
+            ],
+            "description": "Whether the phone may apply its own frame generation on top (M3, experimental). Clients that do not receive it treat it as suppressed."
+          },
+          "limits": {
+            "type": "object",
+            "required": [
+              "max_ram_bytes",
+              "segment_wait_secs"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "max_ram_bytes": {
+                "type": "integer",
+                "const": 536870912
+              },
+              "segment_wait_secs": {
+                "type": "integer",
+                "const": 20
+              }
+            }
+          }
+        }
+      },
+      "Profile": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "upscale",
+          "output",
+          "measured_sustain"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "enum": [
+              "p-none",
+              "p-anime4k-1080",
+              "p-anime4k-1440",
+              "p-anime4k-2160",
+              "p-anime4k-1080-fg2x"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "upscale": {
+            "enum": [
+              "none",
+              "anime4k"
+            ]
+          },
+          "fg": {
+            "enum": [
+              "none",
+              "frc_amf"
+            ],
+            "default": "none"
+          },
+          "output": {
+            "type": "object",
+            "required": [
+              "width",
+              "height"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              }
+            }
+          },
+          "measured_sustain": {
+            "oneOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "const": "unknown"
+              }
+            ]
+          },
+          "encoder": {
+            "type": "string"
+          }
+        }
+      },
+      "Library": {
+        "type": "object",
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 10000,
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "title",
+                "duration_secs",
+                "width",
+                "height",
+                "size_bytes"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{32}$"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "duration_secs": {
+                  "type": "number"
+                },
+                "width": {
+                  "type": "integer"
+                },
+                "height": {
+                  "type": "integer"
+                },
+                "size_bytes": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SessionCreate": {
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LibrarySource"
+              },
+              {
+                "$ref": "#/components/schemas/UrlSource"
+              }
+            ],
+            "discriminator": {
+              "propertyName": "kind"
+            }
+          },
+          "profile": {
+            "type": "string",
+            "description": "A profile id from /v1/capabilities. Default = default_profile. Unknown -> 422 profile_unavailable."
+          },
+          "audio_track": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "start_secs": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0
+          }
+        }
+      },
+      "LibrarySource": {
+        "type": "object",
+        "required": [
+          "kind",
+          "item_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "library"
+          },
+          "item_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{32}$"
+          }
+        }
+      },
+      "UrlSource": {
+        "type": "object",
+        "required": [
+          "kind",
+          "url"
+        ],
+        "additionalProperties": false,
+        "description": "An external stream resolved by an extension on the phone. FFmpeg never receives this URL: the SSRF fetcher does (see x-ffmpeg).",
+        "properties": {
+          "kind": {
+            "const": "url"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "https (http only if the PC allows it); denied by policy -> 403 url_source_denied"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "description": "Allow-listed names only: Referer, Origin, User-Agent, Accept, Accept-Language, Cookie, Range. Total <= 8 KiB; CR/LF -> 400 request_invalid."
+          },
+          "extension_id": {
+            "type": "string"
+          },
+          "container": {
+            "enum": [
+              "hls",
+              "mp4",
+              "dash"
+            ]
+          }
+        }
+      },
+      "SessionCreated": {
+        "type": "object",
+        "required": [
+          "session_id",
+          "generation",
+          "playback_path",
+          "segment_secs",
+          "heartbeat_interval_secs",
+          "idle_timeout_secs"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "playback_path": {
+            "type": "string",
+            "examples": [
+              "/v1/sessions/6f1d3c1e-8d0f-4b6a-9a76-0c2a8d9d2f11/master.m3u8"
+            ]
+          },
+          "duration_secs": {
+            "type": "number",
+            "description": "Absent when unknown (live-like url sources)"
+          },
+          "segment_secs": {
+            "const": 2
+          },
+          "heartbeat_interval_secs": {
+            "const": 4
+          },
+          "idle_timeout_secs": {
+            "const": 120
+          }
+        }
+      },
+      "SessionState": {
+        "type": "object",
+        "required": [
+          "state",
+          "generation",
+          "instance_id",
+          "profile"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "enum": [
+              "preparing",
+              "ready",
+              "failed",
+              "closed"
+            ]
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "instance_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "degraded_from": {
+            "type": "string"
+          },
+          "frontier_segment": {
+            "type": "integer"
+          },
+          "window": {
+            "type": "object",
+            "properties": {
+              "first_segment": {
+                "type": "integer"
+              },
+              "bytes": {
+                "type": "integer"
+              }
+            }
+          },
+          "lead_secs": {
+            "type": "number"
+          },
+          "throttled": {
+            "type": "boolean"
+          },
+          "error": {
+            "enum": [
+              "source_unavailable",
+              "source_read_failed",
+              "shortfall",
+              "memory_limit",
+              "engine_unavailable",
+              "url_source_denied"
+            ],
+            "description": "Only when state = failed"
+          },
+          "output": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "integer"
+              },
+              "height": {
+                "type": "integer"
+              },
+              "fps": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      },
+      "Heartbeat": {
+        "type": "object",
+        "required": [
+          "position_secs",
+          "paused"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "position_secs": {
+            "type": "number",
+            "minimum": 0
+          },
+          "paused": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
+  "x-errors": {
+    "note": "Temple v1 catalog (23 codes) plus the 3 Link additions. `m0: false` codes are defined for forward compatibility but never produced by the M0 server.",
+    "codes": [
+      {
+        "code": "client_certificate_required",
+        "http": 401,
+        "message": "a client certificate is required",
+        "m0": true
+      },
+      {
+        "code": "device_not_authorized",
+        "http": 403,
+        "message": "this device is not authorized",
+        "m0": true
+      },
+      {
+        "code": "pairing_closed",
+        "http": 409,
+        "message": "no pairing window is open",
+        "m0": true
+      },
+      {
+        "code": "pairing_code_invalid",
+        "http": 403,
+        "message": "the pairing code is invalid",
+        "m0": true
+      },
+      {
+        "code": "pairing_attempts_exceeded",
+        "http": 429,
+        "message": "too many failed attempts; the pairing window is closed",
+        "m0": true
+      },
+      {
+        "code": "csr_invalid",
+        "http": 400,
+        "message": "the certificate signing request is invalid",
+        "m0": true
+      },
+      {
+        "code": "request_invalid",
+        "http": 400,
+        "message": "the request is invalid",
+        "m0": true
+      },
+      {
+        "code": "body_too_large",
+        "http": 413,
+        "message": "the request body is too large",
+        "m0": true
+      },
+      {
+        "code": "body_timeout",
+        "http": 408,
+        "message": "the request body was not received in time",
+        "m0": true
+      },
+      {
+        "code": "profile_unavailable",
+        "http": 422,
+        "message": "the requested profile is not available",
+        "m0": true
+      },
+      {
+        "code": "policy_unavailable",
+        "http": 422,
+        "message": "the requested policy is not available",
+        "m0": false
+      },
+      {
+        "code": "library_item_not_found",
+        "http": 404,
+        "message": "the library item was not found",
+        "m0": true
+      },
+      {
+        "code": "source_unavailable",
+        "http": 503,
+        "message": "the source is not available",
+        "m0": true
+      },
+      {
+        "code": "session_not_found",
+        "http": 404,
+        "message": "session or resource not found",
+        "m0": true
+      },
+      {
+        "code": "session_gone",
+        "http": 410,
+        "message": "the session is closed",
+        "m0": true
+      },
+      {
+        "code": "session_not_ready",
+        "http": 409,
+        "message": "the session is still being prepared",
+        "m0": true
+      },
+      {
+        "code": "segment_wait_timeout",
+        "http": 503,
+        "message": "the segment is not ready yet",
+        "m0": true
+      },
+      {
+        "code": "range_not_found",
+        "http": 404,
+        "message": "the range request is unknown or expired",
+        "m0": false
+      },
+      {
+        "code": "range_invalid",
+        "http": 400,
+        "message": "the range body does not match the request",
+        "m0": false
+      },
+      {
+        "code": "settings_invalid",
+        "http": 400,
+        "message": "the settings are invalid",
+        "m0": false
+      },
+      {
+        "code": "settings_conflict",
+        "http": 409,
+        "message": "the settings changed; read them again",
+        "m0": false
+      },
+      {
+        "code": "server_busy",
+        "http": 503,
+        "message": "the server is busy",
+        "m0": true
+      },
+      {
+        "code": "internal",
+        "http": 500,
+        "message": "internal server error",
+        "m0": true
+      },
+      {
+        "code": "url_source_denied",
+        "http": 403,
+        "message": "the url source is not allowed",
+        "m0": true
+      },
+      {
+        "code": "extension_unavailable",
+        "http": 422,
+        "message": "the extension is not available",
+        "m0": false
+      },
+      {
+        "code": "handoff_rejected",
+        "http": 409,
+        "message": "the handoff was rejected",
+        "m0": false
+      }
+    ]
+  },
+  "x-out-of-m0": {
+    "deferredToM1": [
+      "mDNS discovery + TOFU pairing",
+      "GET/PUT /v1/settings",
+      "GET /v1/events",
+      "POST /v1/handoff",
+      "POST /v1/control",
+      "source kind \"extension\"",
+      "subtitle tracks (GET /v1/sessions/{id}/subtitles/{n}.vtt)",
+      "Windows Firewall rule UI beyond the manual button"
+    ],
+    "deferredToM2": [
+      "GET /v1/sync/state, POST /v1/sync/push",
+      "GET /v1/downloads, GET /v1/downloads/{id}/file",
+      "source kind \"phone\" and its source channel",
+      "HEVC"
+    ]
+  }
+}
