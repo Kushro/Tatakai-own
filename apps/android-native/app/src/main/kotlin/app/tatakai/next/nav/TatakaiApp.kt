@@ -31,6 +31,8 @@ import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
+import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import app.tatakai.next.R
 import app.tatakai.next.designsystem.theme.TatakaiTheme
@@ -118,17 +120,21 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>) {
         backStack = backStack,
         onBack = ::back,
         sceneStrategy = listDetail,
+        entryDecorators = listOf(
+            rememberSaveableStateHolderNavEntryDecorator(),
+            rememberViewModelStoreNavEntryDecorator(),
+        ),
         modifier = Modifier.fillMaxSize(),
         entryProvider = entryProvider {
             entry<Route.Home> {
                 HomeScreen(
-                    onMediaClick = { media -> media.ref.anilistId?.let(::openDetails) },
+                    onMediaClick = { media -> media.ref.anilistId?.let { openDetails(it) } },
                     onSearchClick = { backStack.navigateTop(Route.Search) },
                     onPlay = ::play,
                 )
             }
             entry<Route.Search>(metadata = ListDetailSceneStrategy.listPane()) {
-                SearchScreen(onMediaClick = { media -> media.ref.anilistId?.let(::openDetails) })
+                SearchScreen(onMediaClick = { media -> media.ref.anilistId?.let { openDetails(it) } })
             }
             entry<Route.Library>(metadata = ListDetailSceneStrategy.listPane()) {
                 LibraryScreen(

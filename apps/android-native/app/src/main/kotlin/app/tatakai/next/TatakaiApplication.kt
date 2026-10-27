@@ -14,12 +14,20 @@ import app.tatakai.next.feature.settings.settingsModule
 import app.tatakai.next.link.linkModule
 import app.tatakai.next.metadata.metadataModule
 import app.tatakai.next.network.networkModule
+import app.tatakai.next.data.HistorySyncScheduler
+import app.tatakai.next.player.HistoryFlush
 import app.tatakai.next.player.playerModule
 import app.tatakai.next.supabase.PROP_SUPABASE_ANON_KEY
 import app.tatakai.next.supabase.PROP_SUPABASE_URL
 import app.tatakai.next.supabase.supabaseModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
+import org.koin.dsl.module
+
+/** Player -> data bridge: flush pending watch history on pause / exit. */
+private val appModule = module {
+    single<HistoryFlush> { HistoryFlush { get<HistorySyncScheduler>().requestSync(immediate = true) } }
+}
 
 /**
  * Koin starts here, before WorkManager's default initializer runs (HistorySyncWorker is a KoinComponent), so the
@@ -44,6 +52,7 @@ class TatakaiApplication : Application() {
                 // B2 - feature ViewModels
                 homeModule, searchModule, detailsModule, libraryModule, settingsModule,
                 extensionsFeatureModule, linkFeatureModule,
+                appModule,
             )
         }
     }

@@ -11,7 +11,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 /** Shared constants. Keep in sync with apps/README.md. */
 object TatakaiAndroid {
-    const val COMPILE_SDK = 36
+    const val COMPILE_SDK = 37
     const val TARGET_SDK = 36
     const val MIN_SDK = 26
     val JAVA = JavaVersion.VERSION_17
