@@ -7,6 +7,7 @@ import { here, loadTokens, generateAll, OUTPUTS } from '../generate.mjs';
 import { computeAll, ROLES, MODES, CONTRAST_LEVELS } from '../lib/colors.mjs';
 import { AA_PAIRS, AA_MIN, contrastRatio } from '../lib/contrast.mjs';
 import { springToCss } from '../lib/spring.mjs';
+import { Hct, argbFromHex } from '../vendor/material-color-utilities/index.js';
 
 const schema = JSON.parse(readFileSync(join(here, 'tokens.schema.json'), 'utf8'));
 const tokens = loadTokens();
@@ -154,4 +155,20 @@ test('contrast: pair list is exactly the 9 pairs of review E12', () => {
 test('contrast ratio helper matches known WCAG values', () => {
   assert.equal(contrastRatio('#000000', '#FFFFFF').toFixed(2), '21.00');
   assert.equal(contrastRatio('#777777', '#FFFFFF').toFixed(2), '4.48');
+});
+
+test('every non-monochrome palette keeps its seed hue in the primary role (no hue-rotating schemes)', () => {
+  // SchemeExpressive rotates the primary hue by design (violet seed -> teal primary), so it must not be used as a brand palette.
+  const hueOf = (hexColor) => Hct.fromInt(argbFromHex(hexColor)).hue;
+  const dist = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+  for (const [id, palette] of Object.entries(tokens.palettes)) {
+    if (palette.style === 'Monochrome') continue;
+    assert.notEqual(palette.style, 'Expressive', `${id}: Expressive rotates the primary hue`);
+    const seedHue = hueOf(palette.seed);
+    for (const mode of MODES) {
+      const primary = computeAll(tokens)[id].standard[mode].primary;
+      const d = dist(seedHue, hueOf(primary));
+      assert.ok(d <= 20, `${id}/${mode}: primary ${primary} hue is ${d.toFixed(0)} deg from seed ${palette.seed}`);
+    }
+  }
 });
