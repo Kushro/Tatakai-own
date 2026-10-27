@@ -218,6 +218,9 @@ pub struct InstalledExtension {
     pub kind: String,
     pub permissions: Vec<String>,
     pub compat: Compat,
+    /// Human-readable reason when `compat` is not `Full` (shown in the Extensions screen).
+    #[serde(default)]
+    pub compat_reason: Option<String>,
     pub enabled: bool,
 }
 
