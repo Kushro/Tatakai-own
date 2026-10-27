@@ -1,0 +1,38 @@
+# Dioxus CLI configuration for Tatakai Next. Run by the USER from apps/desktop-native, never by CI/agents:
+#   dx bundle --release -p tk-app --package-types nsis
+# after `packaging/fetch-deps.ps1` and `. packaging/deps/env.ps1` (libmpv link path).
+[application]
+name = "tatakai-next"
+default_platform = "desktop"
+
+[bundle]
+identifier = "app.tatakai.own.next"
+publisher = "Tatakai"
+short_description = "Tatakai Next - native anime player"
+copyright = "Copyright (c) Tatakai contributors. AGPL-3.0-or-later."
+category = "public.app-category.entertainment"
+icon = []
+# Runtime payload next to the exe (see packaging/fetch-deps.ps1). Layout expected by tk-app/src/paths.rs:
+#   libmpv-2.dll, shaders/*.glsl, ffmpeg/bin/*.exe, assets/fonts/*.woff2 (+ OFL texts).
+# TODO(first dx bundle): confirm that dx keeps these directory prefixes; if not, stage the folders into
+# the NSIS payload from packaging/windows.nsi (File /r).
+resources = [
+    "packaging/deps/libmpv/libmpv-2.dll",
+    "packaging/deps/shaders/*",
+    "packaging/deps/ffmpeg/**/*",
+    "packaging/deps/fonts/*",
+    "crates/tk-ui/assets/fonts/*",
+]
+
+[bundle.windows]
+webview_install_mode = { EmbedBootstrapper = { silent = true } }
+
+[bundle.windows.nsis]
+template = "packaging/windows.nsi"
+install_mode = "CurrentUser"
+languages = ["English", "Spanish"]
+display_language_selector = true
+license = "LICENSE"
+
+[web.app]
+title = "Tatakai"

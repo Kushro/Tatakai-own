@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "fsr",
+  "note": "FSR.glsl is the mpv user shader port of AMD FidelityFX Super Resolution 1.0 by agyild (MIT). The gist URL has no revision, so SHA-256 is null: run `fetch-deps.ps1 -Only fsr -Pin`, review the file, and paste the hash here. Without it the FSR preset reports that its shader is missing.",
+  "files": [
+    {
+      "path": "FSR.glsl",
+      "url": "https://gist.githubusercontent.com/agyild/82219c545228d70c5604f865ce0b0ce5/raw/FSR.glsl",
+      "sha256": null,
+      "license": "MIT"
+    }
+  ]
+}
