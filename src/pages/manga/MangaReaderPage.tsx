@@ -1,3 +1,12 @@
+import { useReadingViewTracker } from '@/hooks/user/useReadingViews';
+import { ReaderPageRail } from '@/components/reader/ReaderPageRail';
+import { MangaSourceStatus } from '@/components/manga/MangaSourceStatus';
+import { readingViewId } from '@/lib/readingViewId';
+import { readerImageStyles, readerPageIsEager } from "@/components/reader/readerImageStyles";
+import { useReaderFullscreen } from "@/hooks/media/useReaderFullscreen";
+import { ReaderToolButton as ToolBtn, ReaderTopbar, ReaderToolbar, ReaderSettingsSheet, ReaderNavigationSheet } from "@/components/reader/ReaderChrome";
+import { ThemedSelect } from '@/components/ui/themed-select';
+import { useReaderPinchZoom } from '@/pages/manga/hooks/useReaderPinchZoom';
 import uiI18n from '@/lib/uiI18n';
 import { useTVReader } from '@/core/tv/useTVReader';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
@@ -25,6 +34,8 @@ import {
   ZoomOut,
   Play,
   Pause,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import { getMangaReadByKey } from "@/core/content/manga-client";
 import { useIsNativeApp } from "@/hooks/ui/useIsNativeApp";
@@ -54,32 +65,12 @@ import { KeepAwake } from "@capacitor-community/keep-awake";
 import { triggerHaptic } from "@/lib/haptics";
 import { setReadingMangaRpc, clearDiscordRpc } from "@/lib/discordRpc";
 import { readerPageRenderKey } from "@/lib/reader/imageLifecycle";
+import { TranslateChapterButton } from '@/components/translate/TranslateChapterButton';
 import {
   nextMangaChapterSource,
   pickMangaChapterSource,
   sortMangaChapterSources,
 } from "@/lib/reader/mangaSourceSelection";
-
-function ToolBtn({ label, onClick, active, children }: {
-  label: string;
-  onClick: () => void;
-  active?: boolean;
-  children: ReactNode;
-}) {
-  useUiTranslation();
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      aria-label={label}
-      aria-pressed={active}
-      className={`ui-button flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border backdrop-blur transition-colors duration-150 motion-safe:active:scale-[0.98] ${active ? "bg-primary text-primary-foreground" : "bg-card/95 text-foreground hover:bg-muted"}`}
-    >
-      {children}
-    </button>
-  );
-}
 
 function ChapterDivider({ label, sub }: { label: string; sub?: string | null }) {
   useUiTranslation();
@@ -135,6 +126,8 @@ export default function MangaReaderPage() {
 
   const chapterKey = searchParams.get("chapterKey") || searchParams.get("chapter") || "";
   const provider = searchParams.get("provider") || "";
+  const lockedProvider = searchParams.get("lockedProvider") || "";
+  const [blockedChapter, setBlockedChapter] = useState<MappedMangaChapter | null>(null);
   // Resume links (home/profile history) persist the public chapter key but do
   // not always have the provider's private chapter id. Do not invent one from
   // `chapterKey`: once the chapter list arrives, its source alternative carries
@@ -147,7 +140,7 @@ export default function MangaReaderPage() {
   // offline gate) — badge it so the offline state is visible, not confusing.
   const isOfflineChapter = searchParams.get("offline") === "true";
 
-  const { data: chaptersResp } = useMangaChapters(mangaId);
+  const { data: chaptersResp, isFetching: fetchingChapterSources } = useMangaChapters(mangaId);
   const chapters = useMemo<MappedMangaChapter[]>(() => {
     const list = chaptersResp?.mappedChapters ?? [];
     return [...list].sort((a, b) => a.canonicalOrder - b.canonicalOrder);
@@ -183,8 +176,8 @@ export default function MangaReaderPage() {
       const k = `${s.provider}::${s.chapterKey}::${s.providerChapterId || ""}`;
       if (!seen.has(k)) { seen.add(k); merged.push(s); }
     }
-    return merged;
-  }, [stateAlternatives, matchedSources]);
+    return merged.filter((source) => !lockedProvider || source.provider === lockedProvider);
+  }, [stateAlternatives, matchedSources, lockedProvider]);
 
   // Alternatives fingerprint in the query key. Without it, the prefetch below
   // (primary-only, no alternatives) and the main query (with alternatives)
@@ -220,6 +213,8 @@ export default function MangaReaderPage() {
   // Never cache an empty read: a failure cached for 10min is what made ch2
   // unloadable after navigating from ch1 (prefetch stored the failure, the
   // navigation hit the same key). Evict empties immediately.
+  useReadingViewTracker('manga',readingViewId(mangaId),!!data&&!isLoading&&!error);
+
   useEffect(() => {
     if (isFetching || !data) return;
     if ((data.data?.pages?.length ?? 0) > 0) return;
@@ -305,13 +300,14 @@ export default function MangaReaderPage() {
   // header, nav buttons and progress so everything tracks what you're reading.
   const continuous = settings.continuousScroll && settings.readingMode === "vertical";
   const {
-    before, after, appendNext, prependPrev, loadingNext, loadingPrev, hasNext, hasPrev,
+    before, after, appendNext, prependPrev, loadingNext, loadingPrev, hasNext, hasPrev, blockedIndex,
   } = useContinuousReader({
     enabled: continuous,
     mangaId: mangaId || "",
     chapters,
     entryIndex: currentIndex,
     preferProvider: resolvedProvider,
+    lockedProvider,
   });
 
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -397,9 +393,14 @@ export default function MangaReaderPage() {
     // previous fallback winner when the next chapter lacks it forced a dead
     // source (ch1 fallback allmanga → ch2 forced allmanga even when dead).
     // Otherwise fall back to the chapter's first (reliability-ordered) source.
-    const source = pickMangaChapterSource(src, resolvedProvider);
-    if (!source) return;
+    const source = pickMangaChapterSource(src, lockedProvider || displayProvider, Boolean(lockedProvider));
+    if (!source) {
+      if (lockedProvider) setBlockedChapter(chapter);
+      return;
+    }
+    setBlockedChapter(null);
     const params = new URLSearchParams();
+    if (lockedProvider) params.set("lockedProvider", lockedProvider);
     params.set("chapterKey", source.chapterKey);
     if (source.provider) params.set("provider", source.provider);
     if (source.providerChapterId) params.set("providerChapterId", source.providerChapterId);
@@ -410,7 +411,7 @@ export default function MangaReaderPage() {
     // reader reachable for the whole downloaded run (ban / maintenance / down).
     if (searchParams.get("offline") === "true") params.set("offline", "true");
     navigate(`/manga/read/${mangaId}?${params.toString()}`, { state: { sources: src } });
-  }, [mangaId, navigate, resolvedProvider, searchParams]);
+  }, [mangaId, navigate, displayProvider, lockedProvider, searchParams]);
 
   const switchProvider = useCallback((
     source: MangaChapterSource,
@@ -420,6 +421,8 @@ export default function MangaReaderPage() {
     const params = new URLSearchParams(searchParams);
     params.set("chapterKey", source.chapterKey);
     params.set("provider", source.provider);
+    if (lockedProvider) params.set("lockedProvider", source.provider);
+    setBlockedChapter(null);
     if (source.providerChapterId) params.set("providerChapterId", source.providerChapterId);
     else params.delete("providerChapterId");
     if (targetChapter?.chapterNumber != null) {
@@ -433,7 +436,7 @@ export default function MangaReaderPage() {
       : alternatives;
     navigate(`/manga/read/${mangaId}?${params.toString()}`, { state: { sources: targetSources } });
     void triggerHaptic('select');
-  }, [mangaId, alternatives, navigate, searchParams]);
+  }, [mangaId, alternatives, navigate, searchParams, lockedProvider]);
 
   const retryChapterPages = useCallback(() => {
     const currentProvider = resolvedProvider || provider;
@@ -465,7 +468,7 @@ export default function MangaReaderPage() {
   const retryStreamedChapter = useCallback((seg: ReaderSegment) => {
     const chapter = chapters[seg.index];
     if (!chapter) return;
-    const fallback = nextMangaChapterSource(chapter.sources, {
+    const fallback = nextMangaChapterSource(chapter.sources.filter((s) => !lockedProvider || s.provider === lockedProvider), {
       provider: seg.provider,
       chapterKey: seg.key,
       providerChapterId: seg.providerChapterId,
@@ -480,7 +483,7 @@ export default function MangaReaderPage() {
       return;
     }
     navToChapter(chapter);
-  }, [chapters, navToChapter, switchProvider]);
+  }, [chapters, navToChapter, switchProvider, lockedProvider]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -532,7 +535,7 @@ export default function MangaReaderPage() {
   // Placed after the pageIndex state — effects may not read it before init.
   useEffect(() => {
     if (!nextChapter || total === 0 || pageIndex < total - 3) return;
-    const orderedNextSources = sortMangaChapterSources(nextChapter.sources);
+    const orderedNextSources = sortMangaChapterSources(nextChapter.sources).filter((s) => !lockedProvider || s.provider === lockedProvider);
     const src = pickMangaChapterSource(orderedNextSources, resolvedProvider);
     if (!src) return;
     const nextAlternatives = orderedNextSources;
@@ -543,7 +546,7 @@ export default function MangaReaderPage() {
     void queryClient.prefetchQuery({
       queryKey: [
         "manga-read", mangaId, src.chapterKey, src.provider,
-        src.providerChapterId || src.chapterKey, nextAltKey, 0,
+        src.providerChapterId || "", nextAltKey, 0,
       ],
       queryFn: async () => {
         const res = await getMangaReadByKey(mangaId || "", src.chapterKey, {
@@ -558,7 +561,7 @@ export default function MangaReaderPage() {
       },
       staleTime: 10 * 60 * 1000,
     }).catch(() => {});
-  }, [pageIndex, total, nextChapter, mangaId, resolvedProvider, queryClient]);
+  }, [pageIndex, total, nextChapter, mangaId, resolvedProvider, queryClient, lockedProvider]);
 
   // Vertical mode (single chapter): track the top-most visible page for progress.
   useEffect(() => {
@@ -617,7 +620,7 @@ export default function MangaReaderPage() {
     }, { root, rootMargin: "400px 0px" });
     io.observe(el);
     return () => io.disconnect();
-  }, [continuous, hasNext, appendNext, before.length, after.length]);
+  }, [continuous, total, hasNext, appendNext, before.length, after.length]);
 
   // Top sentinel → prepend the previous chapter (once the reader's been scrolled),
   // snapshotting scroll geometry so the layout effect below can pin the viewport.
@@ -634,7 +637,7 @@ export default function MangaReaderPage() {
     }, { root, rootMargin: "300px 0px" });
     io.observe(el);
     return () => io.disconnect();
-  }, [continuous, hasPrev, prependPrev, before.length, after.length]);
+  }, [continuous, total, hasPrev, prependPrev, before.length, after.length]);
 
   // After a previous chapter is prepended, restore the scroll offset by the height
   // that was inserted above, so the reader stays on the same page (no jump).
@@ -700,101 +703,8 @@ export default function MangaReaderPage() {
 
   // ── Fullscreen: OS-level in Electron (hides titlebar + sidebar + tray via the
   // `app-fullscreen` class, mirroring EmbedPlayer), DOM Fullscreen on the web. ──
-  const [isFs, setIsFs] = useState(false);
-
-  const electronBridge = () =>
-    (window as unknown as { electron?: {
-      setFullscreen?: (v: boolean) => Promise<unknown>;
-      onFullscreenChanged?: (cb: (v: boolean) => void) => (() => void) | void;
-    } }).electron;
-
-  const enterFullscreen = useCallback(async () => {
-    const bridge = electronBridge();
-    try {
-      if (bridge?.setFullscreen) {
-        await bridge.setFullscreen(true);
-        document.documentElement.classList.add("app-fullscreen");
-      } else {
-        if (!containerRef.current?.requestFullscreen) return;
-        await containerRef.current.requestFullscreen();
-      }
-      setIsFs(true);
-    } catch {
-      document.documentElement.classList.remove("app-fullscreen");
-      setIsFs(false);
-    }
-  }, []);
-
-  const exitFullscreen = useCallback(() => {
-    const bridge = electronBridge();
-    setIsFs(false);
-    if (bridge?.setFullscreen) {
-      document.documentElement.classList.remove("app-fullscreen");
-      void bridge.setFullscreen(false).catch(() => {});
-    } else if (document.fullscreenElement) {
-      void document.exitFullscreen?.().catch(() => {});
-    }
-  }, []);
-
-  const toggleFullscreen = useCallback(() => {
-    if (isFs) exitFullscreen();
-    else enterFullscreen();
-  }, [isFs, enterFullscreen, exitFullscreen]);
-
-  // Sync state when leaving fullscreen via Esc, F11 or native window chrome, and
-  // always drop the CSS class on unmount so the app never gets stranded fullscreen.
-  useEffect(() => {
-    const onFsChange = () => {
-      if (!electronBridge()?.setFullscreen) setIsFs(document.fullscreenElement === containerRef.current);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") exitFullscreen();
-    };
-    document.addEventListener("fullscreenchange", onFsChange);
-    document.addEventListener("keydown", onKey);
-    const unsub = electronBridge()?.onFullscreenChanged?.((full: boolean) => {
-      if (!full) {
-        document.documentElement.classList.remove("app-fullscreen");
-        setIsFs(false);
-      }
-    });
-    return () => {
-      document.removeEventListener("fullscreenchange", onFsChange);
-      document.removeEventListener("keydown", onKey);
-      if (typeof unsub === "function") unsub();
-      document.documentElement.classList.remove("app-fullscreen");
-    };
-  }, [exitFullscreen]);
-
-  const autoFsRef = useRef(false);
-  useEffect(() => {
-    if (settings.autoFullscreen && !autoFsRef.current && total > 0) {
-      autoFsRef.current = true;
-      enterFullscreen();
-    }
-  }, [settings.autoFullscreen, total, enterFullscreen]);
-
+  const { isFs, enterFullscreen, exitFullscreen, toggleFullscreen, fullscreenExitVisible } = useReaderFullscreen(containerRef, settings.autoFullscreen, total);
   const chromeVisible = !isFs || !settings.hideChromeInFullscreen;
-  const [fullscreenExitVisible, setFullscreenExitVisible] = useState(true);
-  useEffect(() => {
-    if (!isFs) { setFullscreenExitVisible(true); return; }
-    let timer: ReturnType<typeof setTimeout>;
-    const reveal = () => {
-      setFullscreenExitVisible(true);
-      clearTimeout(timer);
-      timer = setTimeout(() => setFullscreenExitVisible(false), 2500);
-    };
-    reveal();
-    window.addEventListener('pointermove', reveal);
-    window.addEventListener('pointerdown', reveal);
-    window.addEventListener('keydown', reveal);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('pointermove', reveal);
-      window.removeEventListener('pointerdown', reveal);
-      window.removeEventListener('keydown', reveal);
-    };
-  }, [isFs]);
 
   // ── Keep the screen awake while reading. Native shells use the KeepAwake
   // plugin (the Web Wake Lock API doesn't exist in the Capacitor WebView);
@@ -881,7 +791,8 @@ export default function MangaReaderPage() {
       ),
     );
   }, [chapterSearch, chapters]);
-  const navigatorChapter = navIndex >= 0 ? chapters[navIndex] ?? null : null;
+  const unavailableChapter = blockedChapter || (blockedIndex != null ? chapters[blockedIndex] : null);
+  const navigatorChapter = unavailableChapter || (navIndex >= 0 ? chapters[navIndex] ?? null : null);
   const navigatorSources = useMemo(
     () => sortMangaChapterSources(navigatorChapter?.sources),
     [navigatorChapter],
@@ -891,39 +802,21 @@ export default function MangaReaderPage() {
   const updateRef = useRef(updateSetting);
   updateRef.current = updateSetting;
   const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
-  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const lastReaderTapRef = useRef<{ at: number; x: number; y: number } | null>(null);
+  const pinchGesture = useReaderPinchZoom(scrollRef, settings.zoom, (zoom) => updateRef.current('zoom', zoom), settings.zoomWithWheel);
 
   const handleReaderPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'touch') return;
     if (settingsRef.current.autoScroll) updateRef.current('autoScroll', false);
     activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (activePointersRef.current.size === 2) {
-      const [a, b] = [...activePointersRef.current.values()];
-      pinchRef.current = {
-        distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
-        zoom: settingsRef.current.zoom,
-      };
-      lastReaderTapRef.current = null;
-    }
-  }, []);
-
-  const handleReaderPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== 'touch' || !activePointersRef.current.has(event.pointerId)) return;
-    activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (activePointersRef.current.size !== 2 || !pinchRef.current) return;
-    event.preventDefault();
-    const [a, b] = [...activePointersRef.current.values()];
-    const distance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
-    const next = Math.min(300, Math.max(50, Math.round((pinchRef.current.zoom * distance / pinchRef.current.distance) / 5) * 5));
-    if (next !== settingsRef.current.zoom) updateRef.current('zoom', next);
+    if (activePointersRef.current.size > 1) lastReaderTapRef.current = null;
   }, []);
 
   const handleReaderPointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'touch') return;
-    const wasPinching = pinchRef.current !== null;
+    const wasPinching = pinchGesture.current;
     activePointersRef.current.delete(event.pointerId);
-    if (activePointersRef.current.size < 2) pinchRef.current = null;
+
     if (wasPinching) return;
     const previous = lastReaderTapRef.current;
     const current = { at: Date.now(), x: event.clientX, y: event.clientY };
@@ -939,11 +832,10 @@ export default function MangaReaderPage() {
       void triggerHaptic('light');
       lastReaderTapRef.current = null;
     }
-  }, [isFs, exitFullscreen]);
+  }, [isFs, exitFullscreen, pinchGesture]);
 
   const handleReaderPointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     activePointersRef.current.delete(event.pointerId);
-    if (activePointersRef.current.size < 2) pinchRef.current = null;
   }, []);
 
   const goNextPage = useCallback(() => {
@@ -976,33 +868,20 @@ export default function MangaReaderPage() {
     interactedRef.current = true;
     setPageIndex(next);
     if (settings.readingMode === 'vertical') {
-      const entry = scrollRef.current?.querySelector(`[data-ch="${currentIndex}"]`) ?? scrollRef.current;
+      const entry = scrollRef.current?.querySelector(`[data-ch="${navIndex}"]`) ?? scrollRef.current;
       const page = entry?.querySelectorAll<HTMLElement>('[data-page]')[next];
       if (page && scrollRef.current) {
         const root = scrollRef.current;
         root.scrollTo({ top: root.scrollTop + page.getBoundingClientRect().top - root.getBoundingClientRect().top, behavior: 'auto' });
       }
     }
-  }, [total, activeMeta?.total, currentIndex, settings.readingMode]);
+  }, [total, activeMeta?.total, navIndex, settings.readingMode]);
 
-  // Ctrl + wheel and trackpad pinch (which the browser reports as ctrl-wheel) zoom
-  // the pages. Needs a non-passive native listener to cancel the browser's own
-  // page-zoom. Gated by the `zoomWithWheel` setting; keyboard zoom stays separate.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey || !settingsRef.current.zoomWithWheel) return;
-      e.preventDefault();
-      const step = Math.abs(e.deltaY) > 40 ? 8 : 3;
-      const dir = e.deltaY < 0 ? 1 : -1;
-      const cur = settingsRef.current.zoom;
-      const next = Math.min(300, Math.max(50, cur + dir * step));
-      if (next !== cur) updateRef.current("zoom", next);
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+  const scrollReader = (direction: number) => {
+    interactedRef.current = true;
+    if (settings.autoScroll) updateSetting('autoScroll', false);
+    scrollRef.current?.scrollBy({ top: direction * 120, behavior: reducedMotion ? 'instant' : 'smooth' });
+  };
 
   // Auto-scroll (vertical mode): advance the scroll position continuously.
   useEffect(() => {
@@ -1060,9 +939,10 @@ export default function MangaReaderPage() {
 
   useReaderKeyboard(keybinds, {
     nextPage: goNextPage, prevPage: goPrevPage,
+    scrollDown: () => scrollReader(1), scrollUp: () => scrollReader(-1),
     nextChapter: () => navToChapter(nextChapter), prevChapter: () => navToChapter(prevChapter),
     toggleFullscreen, toggleDirection, zoomIn, zoomOut, toggleComments: isFs ? undefined : toggleComments, reload,
-  }, !showSettings && !showCommentsDrawer);
+  }, !showSettings && !showReaderNavigator && !showCommentsDrawer);
   useTVReader({ next: goNextPage, previous: goPrevPage, controls: () => setShowSettings(true) });
 
   const isCoarsePointer = useMemo(
@@ -1073,82 +953,9 @@ export default function MangaReaderPage() {
     [],
   );
 
-  const zoomFactor = settings.zoom / 100;
-  const maxWidthCap = settings.maxWidthPx > 0 ? `${settings.maxWidthPx}px` : undefined;
+  const { vertical: widthStyle, paged: pagedStyle } = readerImageStyles(settings, isCoarsePointer || isNative);
 
-  // Mobile default is edge-to-edge pages: when the user never changed the
-  // desktop-oriented 70% default, touch devices render full width instead. An
-  // explicit width choice is always honored.
-  const effectiveWidthPercent =
-    (isCoarsePointer || isNative) &&
-    settings.widthPercent === DEFAULT_READER_SETTINGS.widthPercent
-      ? 100
-      : settings.widthPercent;
-
-  // Panel crop (small phones): full-bleed vertical pages, height-fit paged
-  // pages — no letterboxing on narrow screens.
-  const cropVerticalStyle: CSSProperties | null = settings.panelCrop
-    ? { width: "100%", maxWidth: "none" }
-    : null;
-
-  // Vertical (webtoon) sizing: width-based, scaled by zoom, capped by maxWidthPx.
-  const widthStyle: CSSProperties =
-    cropVerticalStyle ??
-    (settings.sizing === "natural"
-      ? {
-          width: zoomFactor === 1 ? "auto" : `${Math.round(100 * zoomFactor)}%`,
-          maxWidth: maxWidthCap ?? (zoomFactor > 1 ? "none" : "100%"),
-        }
-      : {
-          width: `${effectiveWidthPercent * zoomFactor}%`,
-          maxWidth: maxWidthCap ?? (zoomFactor > 1 ? "none" : "100%"),
-        });
-
-  // Paged sizing honors the page-fit mode (fit width / height / both / original).
-  const pagedStyle: CSSProperties = (() => {
-    // Panel crop forces height-fit in paged mode so each page fills the phone
-    // screen edge to edge.
-    if (settings.panelCrop) {
-      return { height: `${88 * zoomFactor}vh`, width: "auto", maxWidth: "none" };
-    }
-    switch (settings.pageFit) {
-      case "height":
-        return { height: `${88 * zoomFactor}vh`, width: "auto", maxWidth: maxWidthCap ?? "none" };
-      case "both":
-        return {
-          maxHeight: `${90 * zoomFactor}vh`,
-          maxWidth: maxWidthCap ?? `${effectiveWidthPercent * zoomFactor}%`,
-          width: "auto",
-          height: "auto",
-        };
-      case "original":
-        return {
-          width: zoomFactor === 1 ? "auto" : `${Math.round(100 * zoomFactor)}%`,
-          maxWidth: maxWidthCap ?? "none",
-        };
-      case "width":
-      default:
-        return {
-          width: `${effectiveWidthPercent * zoomFactor}%`,
-          maxWidth: maxWidthCap ?? (zoomFactor > 1 ? "none" : "100%"),
-        };
-    }
-  })();
-
-  const eagerFor = (idx: number) => {
-    // 'partial' is the reader's own default; when the user hasn't changed it,
-    // let the effective memory profile pick the preload window (data-saver
-    // forces Low → minimal preload). An explicit 'none'/'full' is honored.
-    const effectivePreloading =
-      settings.preloading === "partial"
-        ? getProfileKnobs(getEffectiveMemoryProfile()).readerPreload
-        : settings.preloading;
-    if (settings.loadingStrategy === "eager" || effectivePreloading === "full") return true;
-    // Mobile radio: keep a wider eager window so pages ahead are already
-    // decoded when the user scrolls into them (lazy + slow fetch = black gaps).
-    const win = effectivePreloading === "none" ? 1 : isCoarsePointer || isNative ? 6 : 3;
-    return Math.abs(idx - pageIndex) <= win;
-  };
+  const eagerFor = (idx: number) => readerPageIsEager(settings, idx, pageIndex, isCoarsePointer || isNative);
 
   // Streamed (non-entry) chapters can't use the entry's page-index window; eager-load
   // their first couple of pages so the boundary is seamless, lazy-load the rest.
@@ -1182,47 +989,12 @@ export default function MangaReaderPage() {
     };
   }, [pages, pageIndex, chapterKey]);
 
-  if (!isNative) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-6">
-        <Background />
-        <GlassPanel className="w-full max-w-2xl p-8 border border-border">
-          <div className="flex items-start gap-3">
-            <Puzzle className="w-6 h-6 text-primary mt-1" />
-            <div>
-              <h2 className="text-2xl font-black">{uiI18n.t('app.read_in_the_tatakai_app_5b277ca2')}</h2>
-              <p className="mt-2 text-muted-foreground">
-                {uiI18n.t('app.manga_chapter_pages_are_delivered_by_tatakai_ext_07247e26')}
-              </p>
-            </div>
-          </div>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <a
-              href="https://github.com/snozxyx/tatakai/releases"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-bold"
-              target="_blank" rel="noreferrer"
-            >
-              {uiI18n.t('app.download_tatakai_app_f18969bd')}
-            </a>
-            <button
-              onClick={() => navigate(mangaId ? `/manga/${mangaId}` : "/manga")}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border font-bold"
-            >
-              <ArrowLeft className="w-4 h-4" /> {uiI18n.t('app.back_b52b36b7')}
-            </button>
-          </div>
-        </GlassPanel>
-      </div>
-    );
-  }
 
   return (
     <div ref={containerRef} data-reader-fullscreen={isFs || undefined} className="relative min-h-screen text-foreground" style={{ backgroundColor: settings.backgroundColor }}>
       {chapterNotification && settings.showNotifications && <div role="status" className="pointer-events-none fixed left-1/2 top-20 z-50 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-xl border border-border bg-background/95 px-4 py-3 text-sm shadow-lg">{chapterNotification}</div>}
-      {/* Top nav — comick layout: Prev · Manga Info · Next (compact on mobile) */}
-      {chromeVisible && <div
-        className={`reader-topbar z-40 flex items-center gap-1.5 sm:gap-2 border-b border-border bg-background/95 px-2 sm:px-3 py-2 backdrop-blur transition-[transform,opacity] duration-200 pt-[max(0.5rem,env(safe-area-inset-top))] ${"sticky top-0"} ${chromeVisible ? "" : reducedMotion ? "opacity-0 pointer-events-none" : "-translate-y-full"}`}
-      >
+      {/* The title and page counter open navigation; the back arrow opens manga info. */}
+      {chromeVisible && <ReaderTopbar>
         <button
           onClick={() => navigate(mangaId ? `/manga/${mangaId}` : "/manga")}
           className="ui-button inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border border-border px-2 sm:px-2.5 py-1.5 text-xs sm:text-sm font-semibold hover:bg-muted active:scale-95"
@@ -1238,9 +1010,10 @@ export default function MangaReaderPage() {
           <ChevronLeft className="h-4 w-4" /><span className="hidden min-[380px]:inline">{uiI18n.t('app.prev_e96fea52')}</span>
         </button>
         <button
-          onClick={() => navigate(`/manga/${mangaId}`)}
+          onClick={() => setShowReaderNavigator(true)}
           className="flex min-h-11 min-w-0 flex-1 flex-col items-center px-1 sm:px-2 text-center"
-          title={uiI18n.t('app.manga_info_087808bc')}
+          title={uiI18n.t('app.open_chapter_and_provider_navigator_cb69d7c3')}
+          aria-label={uiI18n.t('app.open_chapter_and_provider_navigator_cb69d7c3')}
         >
           <span className="w-full truncate text-xs sm:text-sm font-bold">
             {mangaTitle}
@@ -1268,7 +1041,7 @@ export default function MangaReaderPage() {
         >
           <span className="hidden min-[380px]:inline">{uiI18n.t('app.next_bc981983')}</span> <ChevronRight className="h-4 w-4" />
         </button>
-      </div>}
+      </ReaderTopbar>}
 
       {settings.showProgressBar && total > 0 && (
         <div role="progressbar" aria-label={uiI18n.t('app.chapter_reading_progress_ad38d32c')} aria-valuemin={0} aria-valuemax={activeMeta?.total || total} aria-valuenow={pageIndex + 1} className="pointer-events-none fixed inset-x-0 bottom-0 z-50 h-1 bg-muted/40">
@@ -1277,9 +1050,8 @@ export default function MangaReaderPage() {
       )}
 
       {/* Right vertical toolbar — slimmer + lower on mobile so it never covers pages */}
-      <div
-        className={`reader-tools fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 z-40 flex max-w-[calc(100vw-1rem)] -translate-x-1/2 items-center gap-1 overflow-x-auto rounded-2xl border border-border bg-background/95 p-1.5 shadow-lg backdrop-blur-xl transition-opacity duration-200 sm:bottom-auto sm:left-auto sm:right-3 sm:top-1/2 sm:-translate-x-0 sm:-translate-y-1/2 sm:flex-col sm:gap-2 ${chromeVisible || fullscreenExitVisible ? "opacity-100" : "pointer-events-none opacity-0"}`}
-      >
+      <ReaderToolbar visible={chromeVisible || fullscreenExitVisible}>
+        {chromeVisible && <TranslateChapterButton anilistId={Number(mangaId)} chapterKey={activeMeta?.key || chapterKey} title={mangaTitle} chapterLabel={displayTitle} provider={displayProvider || undefined} providerChapterId={providerChapterId || undefined} chapterNumber={resolvedNumber ?? undefined} />}
         {chromeVisible && <ToolBtn label={uiI18n.t('app.settings_c7f73bb5')} onClick={() => setShowSettings(true)}><Settings2 className="h-5 w-5" /></ToolBtn>}
         <ToolBtn label={isFs ? uiI18n.t('app.exit_fullscreen_1302df0b') : uiI18n.t('app.fullscreen_bb08d10b')} onClick={toggleFullscreen} active={isFs}>
           {isFs ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
@@ -1292,12 +1064,22 @@ export default function MangaReaderPage() {
         {settings.showComments && <ToolBtn label={uiI18n.t('app.comments_fce06e20')} onClick={toggleComments} active={showCommentsDrawer}><MessageSquare className="h-5 w-5" /></ToolBtn>}
         {settings.showReloadButton && <ToolBtn label={uiI18n.t('app.reload_cce71553')} onClick={reload}><RefreshCw className={`h-5 w-5 ${isFetching ? "animate-spin" : ""}`} /></ToolBtn>}
         </>}
-      </div>
+      </ReaderToolbar>
 
+      <div className="relative">
+      {chromeVisible && <ReaderPageRail page={pageIndex} total={activeMeta?.total || total} onPage={jumpToPage} />}
       <div
         ref={scrollRef}
         data-reader-scroll
-        onScroll={() => { interactedRef.current = true; }}
+        onScroll={(event) => {
+          interactedRef.current = true;
+          // At high zoom the narrow sentinel can be outside the horizontal
+          // viewport. Vertical proximity must still advance the chapter.
+          const root = event.currentTarget;
+          if (continuous && hasNext && root.scrollHeight - root.scrollTop - root.clientHeight < 400) {
+            void appendNext();
+          }
+        }}
         onDoubleClick={(event) => {
           const capabilities = (event.nativeEvent as MouseEvent & { sourceCapabilities?: { firesTouchEvents?: boolean } }).sourceCapabilities;
           if (capabilities?.firesTouchEvents) return;
@@ -1306,15 +1088,16 @@ export default function MangaReaderPage() {
           void triggerHaptic('light');
         }}
         onPointerDown={handleReaderPointerDown}
-        onPointerMove={handleReaderPointerMove}
         onPointerUp={handleReaderPointerUp}
         onPointerCancel={handleReaderPointerCancel}
         onWheel={() => { if (settingsRef.current.autoScroll) updateRef.current('autoScroll', false); }}
-        className={`mx-auto overflow-y-auto overscroll-contain px-0 py-0 sm:px-4 sm:py-6 ${settings.zoom > 100 ? 'overflow-x-auto' : 'overflow-x-hidden'}`}
+        className={`mx-auto overflow-y-auto overscroll-contain py-0 sm:pr-4 sm:py-6 ${chromeVisible ? 'pl-2 sm:pl-4' : 'pl-0 sm:pl-4'} ${settings.zoom > 100 ? 'overflow-x-auto' : 'overflow-x-hidden'}`}
         style={{
           height: `${scrollH}px`,
           filter: settings.brightness < 100 ? `brightness(${settings.brightness / 100})` : undefined,
           touchAction: 'pan-x pan-y',
+          overflowAnchor: 'none',
+          scrollBehavior: 'auto',
         }}
       >
         {isLoading ? (
@@ -1484,7 +1267,7 @@ export default function MangaReaderPage() {
               className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-white/5 px-4 py-3 text-sm font-semibold hover:bg-muted"
             >
               <MessageSquare className="h-4 w-4" />
-              {showInlineComments ? uiI18n.t('app.hide_comments_ac7a3920') : uiI18n.t('app.show_comments_44811513')}
+                  {showInlineComments ? uiI18n.t('app.hide_comments_ac7a3920') : uiI18n.t('app.show_comments_44811513')}
             </button>
             {showInlineComments ? (
               <div className="mt-5 space-y-8">
@@ -1495,47 +1278,22 @@ export default function MangaReaderPage() {
                     episodeId={String(displayNumber)}
                     entityName={`${mangaTitle} · ${displayTitle}`}
                   />
-                ) : null}
-                <Comments entityType="manga" entityId={mangaId} entityName={mangaTitle} />
+                ) : <Comments entityType="manga" entityId={mangaId} entityName={mangaTitle} />}
               </div>
             ) : null}
           </div>
         ) : null}
       </div>
 
-      <Sheet open={showReaderNavigator} onOpenChange={setShowReaderNavigator}>
-        <SheetContent side="bottom" className="max-h-[82dvh] rounded-t-3xl border-border bg-background/95 px-0 pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-xl sm:mx-auto sm:max-w-xl">
-          <SheetHeader className="px-5 text-left"><SheetTitle>{uiI18n.t('app.reader_navigation_911835f9')}</SheetTitle></SheetHeader>
-          <div className="mt-5 space-y-5 overflow-y-auto px-5 scrollbar-thin">
-            <section className="space-y-3 rounded-xl border border-border p-4">
-              <div className="flex items-center justify-between text-sm font-medium">
-                <label htmlFor="reader-page-seek">{uiI18n.t('app.page_fb06270f')}</label>
-                <span className="tabular-nums">{pageIndex + 1} / {activeMeta?.total || total}</span>
-              </div>
-              <input id="reader-page-seek" aria-label={uiI18n.t('app.jump_to_page_8a8ded94')} type="range" min={0} max={Math.max(0, (activeMeta?.total || total) - 1)} value={pageIndex} disabled={total === 0} onChange={event => jumpToPage(Number(event.target.value))} className="h-8 w-full accent-primary" />
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm">{uiI18n.t('app.zoom_9b3cbed5')}</span>
-                <div className="flex items-center gap-2">
-                  <ToolBtn label={uiI18n.t('app.zoom_out_a4ae4b24')} onClick={zoomOut}><ZoomOut className="h-5 w-5" /></ToolBtn>
-                  <button onClick={() => updateSetting('zoom', 100)} aria-label={uiI18n.t('app.reset_reader_zoom_85463402')} className="min-h-11 min-w-14 rounded-lg border border-border px-2 text-sm tabular-nums hover:bg-muted">{settings.zoom}%</button>
-                  <ToolBtn label={uiI18n.t('app.zoom_in_4fc05f27')} onClick={zoomIn}><ZoomIn className="h-5 w-5" /></ToolBtn>
-                </div>
-              </div>
-              <div className="flex gap-2" role="group" aria-label={uiI18n.t('app.reading_mode_d75871a6')}>
-                {(['vertical', 'paged'] as const).map(mode => <button key={mode} aria-pressed={settings.readingMode === mode} onClick={() => updateSetting('readingMode', mode)} className={`min-h-11 flex-1 rounded-lg border px-3 text-sm font-medium ${settings.readingMode === mode ? 'border-primary/50 bg-primary/10 text-primary' : 'border-border hover:bg-muted'}`}>{mode === 'vertical' ? uiI18n.t('app.webtoon_scroll_e517e75b') : uiI18n.t('app.page_by_page_3fe49ff6')}</button>)}
-              </div>
-              {settings.readingMode === 'vertical' && <div className="flex items-center justify-between gap-3">
-                <button onClick={() => updateSetting('autoScroll', !settings.autoScroll)} aria-pressed={settings.autoScroll} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border px-3 text-sm hover:bg-muted">
-                  {settings.autoScroll ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                  {settings.autoScroll ? uiI18n.t('app.pause_auto_scroll_8039aadb') : uiI18n.t('app.auto_scroll_a03e7fab')}
-                </button>
-                <label className="flex items-center gap-2 text-sm">{uiI18n.t('app.speed_2d2cb022')}
-                  <select aria-label={uiI18n.t('app.auto_scroll_speed_1b63a4e6')} value={settings.autoScrollSpeed} onChange={event => updateSetting('autoScrollSpeed', Number(event.target.value))} className="min-h-11 rounded-lg border border-border bg-background px-2">
-                    {[1, 2, 4, 6, 8, 10].map(speed => <option key={speed} value={speed}>{speed}</option>)}
-                  </select>
-                </label>
-              </div>}
-            </section>
+      </div>
+      {lockedProvider && unavailableChapter && (
+        <div role="status" className="fixed inset-x-3 bottom-20 z-50 mx-auto flex max-w-xl flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background p-4 text-sm shadow-lg">
+          <p>No more sources available from {chapters.flatMap((c) => c.sources).find((s) => s.provider === lockedProvider)?.providerName || lockedProvider} for chapter {unavailableChapter.chapterNumber ?? unavailableChapter.canonicalOrder + 1}.</p>
+          <button type="button" onClick={() => setShowReaderNavigator(true)} className="ui-button min-h-11 rounded-lg bg-primary px-4 font-semibold text-primary-foreground">{uiI18n.t('app.change_provider_85169368')}</button>
+        </div>
+      )}
+
+      <ReaderNavigationSheet open={showReaderNavigator} onOpenChange={setShowReaderNavigator} page={pageIndex} total={activeMeta?.total || total} onPage={jumpToPage} settings={settings} updateSetting={updateSetting}>
             <label className="relative block">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
@@ -1548,6 +1306,27 @@ export default function MangaReaderPage() {
             </label>
             <section>
               <h3 className="mb-2 text-xs font-bold uppercase tracking-widest text-muted-foreground">{uiI18n.t('app.provider_7ceee3f3')}</h3>
+              <div className="mb-3"><MangaSourceStatus count={new Set(navigatorSources.map(source => source.provider)).size} fetching={fetchingChapterSources || !!chaptersResp?.sourcesPending} /></div>
+              <button type="button" aria-pressed={Boolean(lockedProvider)} disabled={!displayProvider} onClick={() => {
+                const params = new URLSearchParams(searchParams);
+                if (lockedProvider) params.delete('lockedProvider');
+                else {
+                  params.set('lockedProvider', displayProvider);
+                  params.set('provider', displayProvider);
+                  params.set('chapterKey', activeMeta?.key || data?.data?.chapter?.chapterKey || chapterKey);
+                  const activeProviderChapterId = activeMeta?.providerChapterId || data?.data?.chapter?.providerChapterId || providerChapterId;
+                  if (activeProviderChapterId) params.set('providerChapterId', activeProviderChapterId);
+                  else params.delete('providerChapterId');
+                  if (displayNumber != null) params.set('chapterNumber', String(displayNumber));
+                  params.set('chapterTitle', displayTitle);
+                  params.set('page', String(pageIndex));
+                }
+                setBlockedChapter(null);
+                navigate(`${location.pathname}?${params}`, { replace: true, state: location.state });
+              }} className="ui-button mb-3 flex min-h-11 w-full items-center gap-3 rounded-xl border border-border px-4 py-3 text-left text-sm disabled:opacity-50">
+                {lockedProvider ? <Lock className="h-4 w-4 shrink-0" /> : <Unlock className="h-4 w-4 shrink-0" />}
+                <span><span className="block font-semibold">Lock provider{lockedProvider ? ' · On' : ' · Off'}</span><span className="text-xs text-muted-foreground">Stay with your selected provider across chapters.</span></span>
+              </button>
               <div className="max-h-48 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
                 {navigatorSources.map((source) => {
                   const active = source.provider === displayProvider && source.chapterKey === (activeMeta?.key || chapterKey);
@@ -1555,7 +1334,7 @@ export default function MangaReaderPage() {
                     <span className="font-medium">{source.providerName || source.provider}</span><span className="text-xs text-muted-foreground">{source.scanlator || uiI18n.t('app.chapter_source_8a19e6fa')}</span>
                   </button>;
                 })}
-                {!navigatorSources.length && <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">{uiI18n.t('app.no_alternative_providers_are_available_for_this__4a054308')}</p>}
+                {!navigatorSources.length && !fetchingChapterSources && !chaptersResp?.sourcesPending && <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">{uiI18n.t('app.no_alternative_providers_are_available_for_this__4a054308')}</p>}
               </div>
             </section>
             <section>
@@ -1567,30 +1346,11 @@ export default function MangaReaderPage() {
                 {!filteredChapters.length && <p className="py-8 text-center text-sm text-muted-foreground">{uiI18n.t('app.no_chapters_match_65196bae')}{chapterSearch}”.</p>}
               </div>
             </section>
-          </div>
-        </SheetContent>
-      </Sheet>
+      </ReaderNavigationSheet>
 
       {/* Settings — reuse the Settings-page ReaderPanel (one source of truth).
           Right-side sheet on desktop, thumb-friendly bottom sheet on mobile. */}
-      <Sheet open={showSettings} onOpenChange={setShowSettings}>
-        <SheetContent
-          side={compactReader ? "bottom" : "right"}
-          className="flex flex-col gap-0 overflow-hidden border-border bg-background/95 p-0 backdrop-blur-xl md:w-[400px] md:max-w-[400px] max-md:inset-x-2 max-md:bottom-2 max-md:top-auto max-md:h-auto max-md:max-h-[85dvh] max-md:w-auto max-md:rounded-3xl max-md:border max-md:shadow-2xl"
-        >
-          <div className="shrink-0 pt-2.5 md:hidden" aria-hidden>
-            <div className="mx-auto h-1 w-10 rounded-full bg-muted-foreground/40" />
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:p-6">
-            <SheetHeader>
-              <SheetTitle>{uiI18n.t('app.reader_settings_bf922fa5')}</SheetTitle>
-            </SheetHeader>
-            <div className="mt-4">
-              <ReaderPanel />
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
+      <ReaderSettingsSheet open={showSettings} onOpenChange={setShowSettings} compact={compactReader} />
 
       {/* Comments — global (per-manga) + per-chapter (canonical number scope). */}
       <Sheet open={showCommentsDrawer} onOpenChange={setShowCommentsDrawer}>
@@ -1606,12 +1366,12 @@ export default function MangaReaderPage() {
               </TabsList>
             </div>
             <TabsContent value="chapter" className="flex-1 overflow-y-auto px-4 py-3">
-              {mangaId && resolvedNumber != null ? (
+              {mangaId && displayNumber != null ? (
                 <Comments
                   entityType="manga"
                   entityId={mangaId}
-                  episodeId={String(resolvedNumber)}
-                  entityName={`${mangaTitle} · ${title}`}
+                  episodeId={String(displayNumber)}
+                  entityName={`${mangaTitle} · ${displayTitle}`}
                 />
               ) : (
                 <p className="py-8 text-center text-sm text-muted-foreground">

@@ -11,6 +11,7 @@
 
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
+import { requireKaiArchive } from './kai-payload';
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -197,18 +198,18 @@ export async function downloadExtensionKai(mainUrl: string): Promise<ArrayBuffer
       throw new Error(`downloadExtensionKai: HTTP ${response.status}`);
     }
     const data = (response as any).data;
-    if (data instanceof ArrayBuffer) return data;
+    if (data instanceof ArrayBuffer) return requireKaiArchive(data);
     if (ArrayBuffer.isView(data)) {
       const copy = new Uint8Array(data.byteLength);
       copy.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
-      return copy.buffer;
+      return requireKaiArchive(copy.buffer);
     }
     if (typeof data === 'string') {
       const compact = data.replace(/^data:[^,]*;base64,/, '').replace(/\s+/g, '');
       const binary = atob(compact);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-      return bytes.buffer;
+      return requireKaiArchive(bytes.buffer);
     }
     throw new Error('downloadExtensionKai: native client returned an unsupported payload');
   }
@@ -221,5 +222,5 @@ export async function downloadExtensionKai(mainUrl: string): Promise<ArrayBuffer
     throw new Error(await describeDownloadFailure(response, mainUrl));
   }
 
-  return response.arrayBuffer();
+  return requireKaiArchive(await response.arrayBuffer());
 }

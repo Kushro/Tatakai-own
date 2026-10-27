@@ -8,7 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { anilistGql, ANILIST_URL } from '@/lib/anilist/client';
 import { fetchJsonWithFallback } from '@/lib/api/proxy-utils';
 import { PREMIUM_BACKGROUND_EFFECTS, type ProfileAppSettings } from '@/lib/profileSettings';
-import { hasPremiumCosmetics } from '@/lib/profileCosmetics';
+import { hasPremiumCosmetics, isFreeCosmetic } from '@/lib/profileCosmetics';
 
 // ── API Providers (all verified working) ────────────────────────────────────
 // Every request goes through the backend's /api/proxy/json passthrough: these
@@ -504,9 +504,9 @@ export function useUpdateProfileSettings() {
       if (!user) throw new Error(uiI18n.t('app.not_logged_in_53802e67'));
 
       const premiumSelection = (patch.backgroundEffect && PREMIUM_BACKGROUND_EFFECTS.includes(patch.backgroundEffect))
-        || (patch.avatarDecoration && patch.avatarDecoration !== 'none')
-        || (patch.profileEffect && patch.profileEffect !== 'none')
-        || (patch.nameplate && patch.nameplate !== 'none');
+        || (patch.avatarDecoration && !isFreeCosmetic('avatarDecoration', patch.avatarDecoration))
+        || (patch.profileEffect && !isFreeCosmetic('profileEffect', patch.profileEffect))
+        || (patch.nameplate && !isFreeCosmetic('nameplate', patch.nameplate));
       if (premiumSelection) {
         const [roleResult, badgeResult] = await Promise.all([
           supabase.from('profiles').select('is_admin, role').eq('user_id', user.id).maybeSingle(),
@@ -547,6 +547,7 @@ export function useUpdateProfileSettings() {
       queryClient.invalidateQueries({ queryKey: ['profile'] });
       queryClient.invalidateQueries({ queryKey: ['public_profile'] });
       queryClient.invalidateQueries({ queryKey: ['profile_widget'] });
+      queryClient.invalidateQueries({ queryKey: ['profile_cosmetics'] });
     },
   });
 }

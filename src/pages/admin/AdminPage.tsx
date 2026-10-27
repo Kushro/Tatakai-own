@@ -1,3 +1,4 @@
+import { ThemedSelect } from '@/components/ui/themed-select';
 import uiI18n from '@/lib/uiI18n';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { useMemo, useState, useEffect } from 'react';
@@ -672,14 +673,14 @@ export default function AdminPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-sm font-medium mb-1.5 block">{uiI18n.t('app.target_type_4266916b')}</label>
-                          <select
+                          <ThemedSelect
                             className="w-full bg-muted/30 border border-input rounded-md px-3 py-2 text-sm"
                             value={notifyTarget}
                             onChange={(e) => setNotifyTarget(e.target.value === 'user' ? 'user' : 'all')}
                           >
                             <option value="all">{uiI18n.t('app.broadcast_all_users_4bc5a93d')}</option>
                             <option value="user">{uiI18n.t('app.specific_user_ce8985a1')}</option>
-                          </select>
+                          </ThemedSelect>
                         </div>
                         {notifyTarget === 'user' && (
                           <div>

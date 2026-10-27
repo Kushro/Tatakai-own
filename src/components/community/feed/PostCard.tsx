@@ -1,3 +1,4 @@
+import { CosmeticAvatar, CosmeticName } from '@/components/profile/IdentityCosmetics';
 import { isTV } from "@/core/tv/device";
 import uiI18n from '@/lib/uiI18n';
 import { requestTVWriting } from '@/core/tv/writingHandoff';
@@ -10,7 +11,7 @@ import { toast } from 'sonner';
 import { MessageCircle, Repeat2, Heart, Bookmark, Share, MoreHorizontal, Quote as QuoteIcon, Pencil, Trash2, Pin, PinOff, Loader2, BadgeCheck } from 'lucide-react';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,7 +31,6 @@ import { useToggleRepost, useToggleBookmark } from '@/hooks/community/usePostSoc
 import { useTagEngagement } from '@/hooks/community/useTagEngagement';
 import { useCreateForumPost, useUpdateForumPost, useDeleteForumPost, useSetPinned } from '@/hooks/community/useForum';
 import { useMyCommunityRole } from '@/hooks/community/useCommunities';
-import { tombstoneLabel } from '@/lib/tombstone';
 import { ModerationMenuItems } from '@/components/moderation/ModerationMenu';
 import { useContentFlags } from '@/hooks/moderation/useModeration';
 import { useAuth } from '@/contexts/AuthContext';
@@ -222,15 +222,7 @@ export function PostCard({ post, defaultShowComments = false, contextCommunityId
   const author = post.profiles;
   const authorName = author?.display_name || author?.username || 'Anonymous';
 
-  if (post.is_deleted) {
-    return (
-      <div data-mobile-community-post>
-        <GlassPanel className="p-4 border-dashed border-white/10">
-          <p className="text-sm italic text-muted-foreground">{tombstoneLabel(post.deleted_by_role)}</p>
-        </GlassPanel>
-      </div>
-    );
-  }
+  if (post.is_deleted) return null;
 
   return (
     <div data-mobile-community-post>
@@ -250,10 +242,10 @@ export function PostCard({ post, defaultShowComments = false, contextCommunityId
             rankScore={post.author_rank_score || 0}
           >
             <button data-tv-key={isTV() ? `post-${post.id}-avatar` : undefined} type="button" onClick={(e) => e.stopPropagation()} className="shrink-0 mt-0.5">
-              <Avatar className="h-11 w-11 ring-1 ring-white/10 transition-transform hover:scale-105">
+              <CosmeticAvatar userId={post.user_id} className="h-11 w-11 ring-1 ring-white/10 transition-transform hover:scale-105">
                 <AvatarImage src={author?.avatar_url || undefined} className="object-cover" />
                 <AvatarFallback>{authorName[0]?.toUpperCase() || 'U'}</AvatarFallback>
-              </Avatar>
+              </CosmeticAvatar>
             </button>
           </ProfileWidgetCard>
 
@@ -273,7 +265,7 @@ export function PostCard({ post, defaultShowComments = false, contextCommunityId
                   className={cn('truncate text-[15px] font-bold text-foreground hover:underline decoration-white/30 underline-offset-2', rankStyle.className)}
                   style={rankStyle.style}
                 >
-                  {authorName}
+                  <CosmeticName userId={post.user_id}>{authorName}</CosmeticName>
                 </button>
               </ProfileWidgetCard>
               {post.author_is_official && (
@@ -477,7 +469,7 @@ export function PostCard({ post, defaultShowComments = false, contextCommunityId
               onClick={(e) => e.stopPropagation()}
             >
               <div className="border-t border-white/[0.08] pt-4 mt-2">
-                <Comments entityType="forum_post" entityId={post.id} entityName={post.title} />
+                <Comments entityType="forum_post" entityId={post.id} entityName={post.title} generalCommunity={!post.community_id} />
               </div>
             </motion.div>
           )}

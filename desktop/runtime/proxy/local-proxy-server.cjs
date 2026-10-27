@@ -44,6 +44,7 @@ class LocalProxyServer {
         this._trustedLocalOrigins = Array.isArray(options.trustedLocalOrigins) ? options.trustedLocalOrigins : [];
         this._allowPrivateTargets = options.allowPrivateTargets === true;
         this._server = null;
+        this._starting = null;
         this._port = null;
         this._tokenMap = new Map();
         this._shareSecret = null; // minted lazily; gates public (tunneled) /stream
@@ -67,9 +68,15 @@ class LocalProxyServer {
     }
 
     async ensureStarted() {
+        if (this._starting) return this._starting;
         if (this._server && this._port) {
             return this.baseUrl();
         }
+        this._starting = this._startOnce().finally(() => { this._starting = null; });
+        return this._starting;
+    }
+
+    async _startOnce() {
         
         this._server = http.createServer(this._handleRequest.bind(this));
         await new Promise((resolve, reject) => {
@@ -232,6 +239,7 @@ class LocalProxyServer {
     }
 
     async stop() {
+        if (this._starting) await this._starting.catch(() => {});
         if (!this._server) return;
         const server = this._server;
         this._server = null;

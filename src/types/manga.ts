@@ -180,6 +180,8 @@ export interface MappedMangaChapter {
 }
 
 export interface MangaChapterResponse {
+  sourcesPending?: boolean;
+  providersAvailable?: string[];
   mangaUpdates?: {
     seriesId: number;
     title: string;

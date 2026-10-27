@@ -1,4 +1,6 @@
 import Dexie, { type Table } from 'dexie';
+import { extensionDeadline } from './deadline';
+import { extensionRequestId } from '../compatibility/request-id';
 import { detectEcosystem, normalizeManifestUrl, EXTENSION_INSTALLED_EVENT } from '../ecosystems';
 import { fetchExtensionJson, extensionFetch } from './transport';
 import { buildSeanimeBundle, wrapSeanimeCode } from './seanime';
@@ -28,7 +30,7 @@ export async function installRemoteExtension(input: string | Record<string, any>
   if (ecosystem === 'seanime' && !['onlinestream-provider', 'anime-torrent-provider', 'manga-provider', 'custom-source'].includes(manifest.type)) throw new Error('This Seanime extension type requires Seanime');
   const all = await listRemoteExtensions();
   const previous = all.find(row => row.id === existingId || (row.ecosystem === ecosystem && row.manifestUrl === manifestUrl && row.manifest.id === manifest.id));
-  const id = previous?.id || `${ecosystem}-${crypto.randomUUID()}`;
+  const id = previous?.id || `${ecosystem}-${extensionRequestId()}`;
   let bundleCode: string | undefined;
   if (ecosystem === 'seanime') {
     let payload = manifest.payload;
@@ -84,7 +86,7 @@ export async function invokeRemote(row: RemoteExtension, method: string, args: a
   if (!row.enabled) throw new Error('Extension is disabled');
   const runtime = (window as any).tatakaiRuntime;
   if (runtime?.invokeExtension && (window as any).electron) {
-    const result = await runtime.invokeExtension(row.id, method, { ...args, preferences: row.preferences });
+    const result = await extensionDeadline<{ success?: boolean; error?: string; result?: unknown }>(() => runtime.invokeExtension(row.id, method, { ...args, preferences: row.preferences }), 30000);
     if (!result?.success) throw new Error(result?.error || 'Seanime provider call failed');
     return result.result;
   }

@@ -36,7 +36,7 @@ mock.module('../src/core/extensions/remote/custom', () => ({
   remoteCustomHome: async () => null, remoteCustomSearch: async () => null,
   remoteCustomInfo: async () => null, remoteCustomWatch: async () => null, remoteCustomRead: async () => null,
 }));
-mock.module('../src/core/extensions/remote/media', () => ({ proxyCustomSources: async (sources: any) => sources }));
+mock.module('../src/core/extensions/remote/media', () => ({ proxyCustomSources: async (sources: any) => sources, proxyRemoteSources: async (sources: any) => sources, proxyRemoteUrl: async (url: any) => url }));
 mock.module('../src/hooks/media/useExtensionSourceStream', () => ({
   MOBILE_EXT_BASE: 'mobile://extensions', resolveExtensionApiBase: async () => ({
     baseUrl: 'mobile://extensions', namespaces: hydrated ? [{ namespace: 'custom', customSources: [{ id: 'books', name: 'Books' }] }] : [],
