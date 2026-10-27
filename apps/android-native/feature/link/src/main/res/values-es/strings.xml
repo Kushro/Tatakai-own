@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="link_title">Tatakai Link</string>
+    <string name="link_status_unpaired">Sin PC emparejada</string>
+    <string name="link_unpaired_hint">Emparejá con Tatakai en tu PC para mejorar el video con Anime4K.</string>
+    <string name="link_status_pairing">Emparejando…</string>
+    <string name="link_status_failed">Problema con el enlace</string>
+    <string name="link_reachable">Conectada</string>
+    <string name="link_unreachable">Inalcanzable</string>
+    <string name="link_forget">Olvidar esta PC</string>
+    <string name="link_pair_title">Emparejar una PC</string>
+    <string name="link_pair_hint">En la PC abrí Ajustes, Enlace, Emparejar y escaneá el QR o pegá el código.</string>
+    <string name="link_scan">Escanear QR</string>
+    <string name="link_scan_cancel">Cancelar escaneo</string>
+    <string name="link_camera_denied">Permiso de cámara denegado. Pegá el código abajo.</string>
+    <string name="link_paste_label">Código de emparejamiento</string>
+    <string name="link_pair">Emparejar</string>
+    <string name="link_pairing">Emparejando…</string>
+    <string name="link_profiles_title">Sesión de mejora</string>
+    <string name="link_sustain_ok">Sostenido en tiempo real</string>
+    <string name="link_sustain_no">Puede entrecortarse</string>
+    <string name="link_sustain_unknown">Aún sin medir</string>
+    <string name="link_session_url">URL del stream</string>
+    <string name="link_session_hint">La PC descarga y mejora este stream.</string>
+    <string name="link_start">Iniciar sesión</string>
+    <string name="link_starting">Iniciando…</string>
+</resources>
