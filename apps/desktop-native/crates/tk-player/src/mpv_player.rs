@@ -1,5 +1,5 @@
 //! libmpv-backed player. Structure after limusic-forge `crates/player` (GPL-3.0-or-later, same
-//! author; see NOTICES-B6.md): create the handle, set options through the property API, observe the
+//! author; see THIRD_PARTY_NOTICES.md): create the handle, set options through the property API, observe the
 //! few properties the UI needs and pump events on a dedicated thread.
 
 use std::path::PathBuf;

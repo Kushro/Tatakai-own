@@ -1,5 +1,5 @@
 ; NSIS template rendered by `dx bundle` (Dioxus 0.7). Adapted from Miko-Kagura packaging/windows.nsi
-; (same author, see crates/tk-app/NOTICES-B6.md).
+; (same author, see THIRD_PARTY_NOTICES.md).
 ;
 ; Per-user install, no elevation. The uninstaller removes ONLY the files and folders listed below and never
 ; touches the data folder %APPDATA%\Tatakai-Next (history, extensions, Link keys, logs).

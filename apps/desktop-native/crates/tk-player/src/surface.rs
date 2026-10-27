@@ -1,5 +1,5 @@
 //! The child window mpv draws into (E5). Pattern from limusic-forge `nativevideo_windows.rs`
-//! (GPL-3.0-or-later, same author; see NOTICES-B6.md), rewritten for windows-sys.
+//! (GPL-3.0-or-later, same author; see THIRD_PARTY_NOTICES.md), rewritten for windows-sys.
 //!
 //! The main window is transparent and WebView2 is above this child in z-order, so the picture shows
 //! through the "hole" the page leaves for it. The child is a plain `STATIC` control created WITHOUT

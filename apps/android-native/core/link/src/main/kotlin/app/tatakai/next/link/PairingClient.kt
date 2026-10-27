@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Adapted from Enigmata (app.enigmata.temple.client.TemplePairingClient), same author, AGPL-3.0-or-later. See NOTICES-B4.md.
+// Adapted from Enigmata (app.enigmata.temple.client.TemplePairingClient), same author, AGPL-3.0-or-later. See apps/android-native/THIRD_PARTY_NOTICES.md.
 package app.tatakai.next.link
 
 import kotlinx.coroutines.CoroutineDispatcher
