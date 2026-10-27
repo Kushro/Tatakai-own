@@ -1,0 +1,6 @@
+{
+  "compat": "unsupported",
+  "reason": "Uses Node module 'fs' which the native runtime does not provide",
+  "installs": true,
+  "enabled": false
+}

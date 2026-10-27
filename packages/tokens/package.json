@@ -1,0 +1,12 @@
+{
+  "name": "@tatakai/tokens",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Design tokens for the native Tatakai apps (tokens.json -> Tokens.kt + tokens.css)",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "generate": "node generate.mjs",
+    "test": "node --test test"
+  }
+}

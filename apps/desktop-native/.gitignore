@@ -1,0 +1,4 @@
+/target/
+# downloaded by packaging/fetch-deps.ps1 (run by the user, never by the build)
+/packaging/deps/
+*.pdb
