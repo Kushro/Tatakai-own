@@ -8,3 +8,6 @@ fun Throwable.toAppError(): AppError = when (this) {
     is AppException -> error
     else -> AppError.Unknown(message ?: this::class.simpleName.orEmpty())
 }
+
+/** Sign-in succeeded but `profiles.is_banned = true`: the app shows "account suspended" and does not sync. */
+class AccountSuspendedException : Exception("Account suspended")
