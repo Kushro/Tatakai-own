@@ -1,9 +1,11 @@
-// Placeholder from B1 (m3e/foundation). The branch that owns this module may overwrite it freely.
-// Dependencies below pre-wire what the module is expected to need; the version catalog itself is frozen (NOTES-deps.md for additions).
+// B4 (m3e/android-media): player screen. Media3-Compose / M3E APIs used here were checked against .deps-sources (review E2).
 plugins { id("tatakai.android.feature") }
 
 dependencies {
     implementation(projects.core.player)
+    implementation(projects.core.link)   // RemotePlaybackAccess (Link HLS + heartbeat)
     implementation(libs.bundles.media3)
     implementation(libs.media3.ui.compose)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.compose.material.icons.extended)
 }
