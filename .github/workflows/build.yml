@@ -21,8 +21,13 @@ env:
   NODE_VERSION: '22'
 
 jobs:
+  # Picks Avrea or GitHub-hosted runner labels (see runner.yml and docs/ci.md).
+  runner:
+    uses: ./.github/workflows/runner.yml
+
   quality-gates:
-    runs-on: ubuntu-latest
+    needs: runner
+    runs-on: ${{ needs.runner.outputs.linux }}
 
     steps:
       - name: Checkout code
@@ -66,19 +71,20 @@ jobs:
   #  which electron-updater reads to detect new versions
   # ──────────────────────────────────────────────────────
   build-desktop:
-    needs: [quality-gates]
+    needs: [runner, quality-gates]
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            platform: win
-          - os: macos-latest
-            platform: mac
-          - os: ubuntu-latest
-            platform: linux
+          - platform: win
+          - platform: linux
+          # macOS is DISABLED until further notice (see docs/ci.md). To re-enable,
+          # restore `- platform: mac`, the mac rust targets, the codesign verify
+          # step and the macOS parts of the `release` job.
 
-    runs-on: ${{ matrix.os }}
+    # Matrix platform -> runner label. Windows cannot run gh on Avrea, so tagged
+    # releases are staged from the Linux `stage-windows` job.
+    runs-on: ${{ matrix.platform == 'win' && needs.runner.outputs.windows || needs.runner.outputs.linux }}
 
     steps:
       - name: Checkout code
@@ -163,7 +169,6 @@ jobs:
         uses: dtolnay/rust-toolchain@ee868d7805ade43a1b47dd054727ab76c9108b4f # 1.94.1
         with:
           toolchain: 1.94.1
-          targets: ${{ matrix.platform == 'mac' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
 
       - name: Cache cargo (translate engine)
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -190,17 +195,6 @@ jobs:
           # Replace it with Developer ID signing/notarization when secrets exist.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
-      - name: Verify macOS ad-hoc code signature
-        if: matrix.platform == 'mac'
-        shell: bash
-        run: |
-          set -e
-          for app in dist_electron/mac*/Tatakai.app; do
-            echo "=== $app"
-            codesign --verify --deep --strict --verbose=2 "$app"
-            codesign -dv "$app" 2>&1 | grep -E 'Identifier|Signature|Sealed Resources'
-          done
-
       - name: Debug — list `dist_electron` contents
         shell: bash
         run: |
@@ -218,34 +212,36 @@ jobs:
             exit 1
           fi
 
+      # Linux can run gh; Windows cannot on Avrea (x509), so Windows tag builds
+      # hand their files to the `stage-windows` job via a short-lived artifact.
       - name: Stage desktop files in the draft release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.platform != 'win'
         run: node scripts/publish-native-assets.mjs desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifacts
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        if: ${{ matrix.platform == 'win' || !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
           name: tatakai-${{ matrix.platform }}
           path: |
             dist_electron/*.exe
-            dist_electron/*.dmg
             dist_electron/*.zip
             dist_electron/*.AppImage
             dist_electron/*.deb
             dist_electron/*.yml
             dist_electron/*.blockmap
-          if-no-files-found: warn
-          retention-days: 30
+          if-no-files-found: ${{ matrix.platform == 'win' && 'error' || 'warn' }}
+          # Tag runs: transient hand-off only (the draft release keeps the files).
+          retention-days: ${{ startsWith(github.ref, 'refs/tags/v') && 1 || 30 }}
 
   # ──────────────────────────────────────────────────────
   #  Android — Capacitor APK (self-signed developer build)
   # ──────────────────────────────────────────────────────
   build-android:
-    needs: [quality-gates]
-    runs-on: ubuntu-latest
+    needs: [runner, quality-gates]
+    runs-on: ${{ needs.runner.outputs.linux }}
 
     steps:
       - name: Checkout code
@@ -374,7 +370,10 @@ jobs:
   # ──────────────────────────────────────────────────────
   #  iOS — unsigned .ipa archive (no Apple signing identity, same as macOS)
   # ──────────────────────────────────────────────────────
+  # DISABLED until further notice (macOS/iOS are off; see docs/ci.md). Remove
+  # `if: false` to re-enable, and restore this job in `release.needs` / `if`.
   build-ios-unsigned:
+    if: false
     needs: [quality-gates]
     runs-on: macos-latest
 
@@ -462,7 +461,8 @@ jobs:
   #  legacy `Tatakai-v*` globs never touch them.
   # ──────────────────────────────────────────────────────
   build-android-native:
-    runs-on: ubuntu-latest
+    needs: [runner]
+    runs-on: ${{ needs.runner.outputs.linux }}
     timeout-minutes: 60
 
     steps:
@@ -579,7 +579,8 @@ jobs:
           retention-days: 30
 
   build-desktop-native:
-    runs-on: windows-latest
+    needs: [runner]
+    runs-on: ${{ needs.runner.outputs.windows }}
     timeout-minutes: 90
     defaults:
       run:
@@ -686,31 +687,72 @@ jobs:
           Write-Host "exit=$($p.ExitCode) output=$text"
           if ($p.ExitCode -ne 0 -or $text -notmatch '^tatakai-next \d+\.\d+\.\d+') { throw '--version smoke check failed' }
 
-      - name: Stage native files in the draft release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: node scripts/publish-native-assets.mjs native
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      # No gh here (x509 on Avrea's Windows image): tagged runs pass the zip to
+      # the Linux `stage-windows` job through a short-lived artifact.
       - name: Upload preview Windows artifact
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         uses: actions/upload-artifact@v4
         with:
           name: tatakai-next-windows-preview
           path: Tatakai-Next-v*-windows-x64-preview.zip
           if-no-files-found: error
-          retention-days: 30
+          retention-days: ${{ startsWith(github.ref, 'refs/tags/v') && 1 || 30 }}
+
+  # ──────────────────────────────────────────────────────
+  #  Stage Windows files into the draft release. Runs on Linux because gh
+  #  cannot verify api.github.com on Avrea's Windows image.
+  # ──────────────────────────────────────────────────────
+  stage-windows:
+    needs: [runner, build-desktop, build-desktop-native]
+    runs-on: ${{ needs.runner.outputs.linux }}
+    if: |
+      always() &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.build-desktop.result == 'success'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download Windows desktop artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tatakai-win
+          path: dist_electron
+
+      - name: Stage Windows desktop files in the draft release
+        run: node scripts/publish-native-assets.mjs desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Preview is optional: a failed preview build must not block the release.
+      - name: Download Windows preview artifact
+        if: needs.build-desktop-native.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: tatakai-next-windows-preview
+          path: .
+
+      - name: Stage Windows preview in the draft release
+        if: needs.build-desktop-native.result == 'success'
+        run: node scripts/publish-native-assets.mjs native
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release:
-    needs: [build-desktop, build-android, build-ios-unsigned, build-android-native, build-desktop-native]
-    runs-on: ubuntu-latest
+    # build-ios-unsigned is disabled (macOS/iOS off until further notice).
+    needs: [runner, build-desktop, stage-windows, build-android, build-android-native, build-desktop-native]
+    runs-on: ${{ needs.runner.outputs.linux }}
     # Publish only after every platform has staged its complete assets.
     if: |
       always() &&
       startsWith(github.ref, 'refs/tags/') &&
       needs.build-android.result == 'success' &&
       needs.build-desktop.result == 'success' &&
-      needs.build-ios-unsigned.result == 'success' &&
+      needs.stage-windows.result == 'success' &&
       needs.build-android-native.result != 'cancelled' &&
       needs.build-desktop-native.result != 'cancelled'
 
@@ -724,12 +766,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          mkdir -p desktop-artifacts/{windows,macos,linux} mobile-artifacts/{android,ios}
+          mkdir -p desktop-artifacts/{windows,linux} mobile-artifacts/android
           gh release download "$GITHUB_REF_NAME" -D desktop-artifacts/windows -p '*win*.exe' -p '*win*.blockmap' -p 'latest.yml'
-          gh release download "$GITHUB_REF_NAME" -D desktop-artifacts/macos -p '*mac*.dmg' -p '*mac*.zip' -p '*mac*.blockmap' -p 'latest-mac.yml'
           gh release download "$GITHUB_REF_NAME" -D desktop-artifacts/linux -p '*.AppImage' -p '*.deb' -p 'latest-linux.yml'
           gh release download "$GITHUB_REF_NAME" -D mobile-artifacts/android -p '*-android*.apk'
-          gh release download "$GITHUB_REF_NAME" -D mobile-artifacts/ios -p '*-ios-unsigned.ipa'
 
       # PREVIEW assets of the new native apps. A failed preview job must not block
       # the legacy release, so these are optional: the notes below list only what
@@ -764,29 +804,16 @@ jobs:
             echo 'NATIVE_NOTES_EOF'
           } >> "$GITHUB_OUTPUT"
 
-      # Regenerate the AltStore/SideStore/StikStore source with the real IPA
-      # byte size (the committed file ships size 0 as a placeholder). The
-      # script auto-detects mobile-artifacts/ios/*.ipa. This copy is attached
-      # to the release as a fallback; the canonical hosted source is
-      # public/altstore/apps.json served at https://tatakai.me/altstore/apps.json
-      # (updated whenever the version bump commit lands + Vercel deploys).
+      # AltStore source regeneration needs the iOS IPA, so it is disabled together
+      # with the iOS build. The hosted source is public/altstore/apps.json.
       - name: Setup Node.js (release job)
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Regenerate AltStore source with real IPA size
-        shell: bash
-        run: |
-          set -e
-          node scripts/generate-altstore-source.mjs --out altstore-apps.json
-          node -e "JSON.parse(require('fs').readFileSync('altstore-apps.json','utf8')); console.log('apps.json is valid JSON')"
-          ls -la altstore-apps.json mobile-artifacts/ios/
-
       - name: Upload all artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: altstore-apps.json
           draft: false
           prerelease: false
           append_body: true
@@ -797,23 +824,12 @@ jobs:
             | Platform | Installer | Portable / alt |
             |----------|-----------|----------------|
             | Windows (x64) | `.exe` | `.zip` (portable) |
-            | macOS Apple Silicon (M1/M2/M3, arm64) | `Tatakai-*-mac-arm64.dmg` | `Tatakai-*-mac-arm64.zip` |
-            | macOS Intel (x64) | `Tatakai-*-mac-x64.dmg` | `Tatakai-*-mac-x64.zip` |
             | Linux (x64) | `.AppImage` | `.deb` |
 
             > Windows + Linux update automatically via electron-updater.
             > Each device is identified by a unique Client ID (CID) sent with update checks.
 
-            ### macOS — certificate-less manual install
-            > Mac builds are ad-hoc signed for bundle integrity, but are not Developer
-            > ID signed or notarized. Pick `mac-arm64` for Apple Silicon or `mac-x64`
-            > for Intel, drag Tatakai into Applications, and approve the first launch
-            > with System Settings → Privacy & Security → Open Anyway.
-            > You can alternatively run:
-            > ```bash
-            > xattr -cr /Applications/Tatakai.app
-            > ```
-            > macOS updates remain manual: download the latest DMG and replace the app.
+            > macOS and iOS builds are temporarily unavailable.
 
             ${{ steps.native.outputs.section }}
 
@@ -821,16 +837,9 @@ jobs:
             - Android: download `Tatakai-*-android.apk` and install it directly. It is
               signed with the developer key, not a Play Store distribution key, so
               Play Protect flags the first install — allow it.
-            - iOS: download `Tatakai-*-ios-unsigned.ipa`, then sign and sideload it
-              with your own Apple account/tool (AltStore / SideStore / TrollStore).
-              iOS cannot install an unsigned IPA directly.
             - Mobile update checks open this release page; the app never self-installs.
 
-            ### Sideload stores & open-source clients
-            - iOS (AltStore / SideStore / StikStore): add the official source
-              `https://tatakai.me/altstore/apps.json` (Sources tab → + → paste URL),
-              or use the `altstore-apps.json` file attached to this release.
-              TrollStore users can open the unsigned `.ipa` directly — no Apple ID refresh needed.
+            ### Open-source clients
             - Android (Obtainium / Droid-ify / Neo Store): track
               `github.com/snozxyx/tatakai` in your client to get update notices for
               the APK above. F-Droid listing is in preparation — note its builds will
