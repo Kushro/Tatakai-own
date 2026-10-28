@@ -52,8 +52,11 @@ if (!await gh(['release', 'view', tag, '--repo', repo], { optional: true, retrie
 }
 
 const component = process.argv[2];
+// `native` = PREVIEW builds of the new apps/ (Tatakai-Next-v<version>-android-preview.apk, ...-windows-x64-preview.zip).
 const files = component === 'desktop'
   ? readdirSync('dist_electron').filter(n => /\.(exe|dmg|zip|AppImage|deb|blockmap)$/.test(n) || /^latest(?:-[a-z]+)?\.yml$/.test(n)).map(n => 'dist_electron/' + n)
+  : component === 'native'
+  ? readdirSync('.').filter(n => n.startsWith(`Tatakai-Next-v${version}-`) && /-preview\.(apk|zip)$/.test(n))
   : readdirSync('.').filter(n => n.startsWith(`Tatakai-v${version}-`) && (component === 'android' ? /-android(?:-tv)?\.apk$/.test(n) : /-ios-unsigned\.ipa$/.test(n)));
 
 if (!files.length) throw new Error('No native release files');

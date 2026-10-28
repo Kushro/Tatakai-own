@@ -56,6 +56,11 @@ fn window_config(paths: &paths::AppPaths) -> Config {
 }
 
 fn main() -> anyhow::Result<()> {
+    // CI smoke check: print the version and exit before touching data dirs, the single-instance lock or any window.
+    if std::env::args_os().skip(1).any(|a| a == "--version" || a == "-V") {
+        println!("tatakai-next {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let paths = paths::AppPaths::resolve()?;
     paths.ensure()?;
     if let Err(e) = logging::init(&paths.logs_dir()) {
