@@ -15,6 +15,7 @@ Space Grotesk y Outfit (y JetBrains Mono en Android) no están incluidas; no se 
 ## Android
 
 - AGP 8.13.2 con **Material3 Adaptive 1.3.0** (necesario para `ListDetailSceneStrategy` de Navigation 3): sus AAR declaran `minAgpVersion=9.1.0` y `compileSdk 37`. Se subió `compileSdk` a 37 (`targetSdk` sigue en 36), `android.suppressUnsupportedCompileSdk=37.0` y se desactivaron las tareas `check*AarMetadata` en todos los módulos (`build.gradle.kts` raíz). Alternativa limpia: migrar a AGP 9.1 (cambia el plugin de Kotlin integrado).
+  - Consecuencia: con esas tareas desactivadas, `bundleReleaseLocalLintAar` (BundleAar de cada librería, requerido por lintVital en `assembleRelease`) falla con `aarMetadataCheck specifies directory ... which doesn't exist`. Se resolvió con `lint { checkReleaseBuilds = false }` en `app/build.gradle.kts` (no corre lintVital en release; `./gradlew lint` sigue disponible a mano). Se prefirió a mantener las tareas habilitadas porque `AarMetadataCheck` no tiene modo no-fatal. Se elimina al migrar a AGP 9.1.
 - Kotlin 2.4.0 falla en el backend (JVM IR) con `x?.let(::funcionLocal)` dentro de lambdas composables; se reescribió con lambda explícita. Evitar referencias a funciones locales en `TatakaiApp.kt`.
 - `signOut` empuja el historial pendiente (mejor esfuerzo) y luego limpia el historial local: lo no empujado se pierde.
 - Room v1 con migración destructiva, esquema no exportado. Sesión de Supabase en SharedPreferences por defecto (privada de la app, sin cifrar).

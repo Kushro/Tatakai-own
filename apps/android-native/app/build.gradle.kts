@@ -30,6 +30,10 @@ android {
         buildConfigField("String", "TATAKAI_SUPABASE_ANON_KEY", supabaseAnonKey.asBuildConfigString())
     }
     buildFeatures { buildConfig = true }
+    // The check*AarMetadata tasks are disabled repo-wide (see root build.gradle.kts), but release lintVital
+    // pulls in each library's bundleReleaseLocalLintAar, which requires that task's output directory to exist.
+    // Skip lintVital on assembleRelease; run `./gradlew lint` explicitly when needed.
+    lint { checkReleaseBuilds = false }
 }
 
 val checkTatakaiConfig by tasks.registering {
