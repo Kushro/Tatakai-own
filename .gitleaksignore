@@ -1,0 +1,7 @@
+# Findings reviewed and accepted. One fingerprint per line; keep each one justified.
+#
+# GTX_PUBLIC_KEY (src/lib/translation/providers.ts): the public API key Google embeds in
+# its te_lib web-translate loader, added upstream in 71b073e. It is not a credential of
+# this project and grants nothing beyond the free translate-pa endpoint. The commit is part
+# of the merged upstream history and cannot be rewritten.
+71b073ea0be405c14db102908028f68cfa685cd5:src/lib/translation/providers.ts:gcp-api-key:147
