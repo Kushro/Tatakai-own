@@ -1,6 +1,27 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electron', {
+    translate: {
+        request: (command, args) => ipcRenderer.invoke('translate:request', { command, args }),
+        importPages: (args) => ipcRenderer.invoke('translate:import', args),
+        exportPages: (args) => ipcRenderer.invoke('translate:export', args),
+        backup: () => ipcRenderer.invoke('translate:backup'),
+        restore: () => ipcRenderer.invoke('translate:restore'),
+        importFont: (args) => ipcRenderer.invoke('translate:font', args),
+        offlineStatus: () => ipcRenderer.invoke('translate:offline-status'),
+        setupOffline: (args) => ipcRenderer.invoke('translate:offline-setup', args),
+        cancelOfflineSetup: () => ipcRenderer.invoke('translate:offline-cancel'),
+        modelStatus: () => ipcRenderer.invoke('translate:model-status'),
+        startModel: (args) => ipcRenderer.invoke('translate:model-start', args),
+        stopModel: () => ipcRenderer.invoke('translate:model-stop'),
+        importChapter: (args) => ipcRenderer.invoke('translate:chapter', args),
+        onEvent: (callback) => {
+            const handler = (_event, message) => callback(message);
+            ipcRenderer.on('translate:event', handler);
+            return () => ipcRenderer.removeListener('translate:event', handler);
+        },
+    },
+    compatibilityRequest: (payload) => ipcRenderer.invoke('compatibility:request', payload),
     configureExtension: (url) => ipcRenderer.invoke('extension:configure', url),
     onConfiguredExtension: (callback) => {
         const handler = (_event, url) => callback(url);
@@ -53,6 +74,7 @@ contextBridge.exposeInMainWorld('electron', {
     repairAnime: (params) => ipcRenderer.invoke('repair-anime', params),
     selectDirectory: () => ipcRenderer.invoke('select-directory'),
     selectFile: (options) => ipcRenderer.invoke('select-file', options),
+    pickExtensionPackage: () => ipcRenderer.invoke('extension:pick-package'),
     openPath: (path) => ipcRenderer.invoke('open-path', path),
     streamLocalFile: (filePath) => ipcRenderer.invoke('media:stream-local-file', filePath),
     debridRequest: (payload) => ipcRenderer.invoke('debrid:request', payload),
@@ -179,7 +201,12 @@ contextBridge.exposeInMainWorld('electron', {
     listInstalledExtensions: () => ipcRenderer.invoke('electron.listInstalledExtensions'),
 
     // Home Server — must live on window.electron (settings UI)
-    invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
+    // NOTE: there is deliberately NO generic `invoke(channel, ...)` passthrough
+    // here (see docs/security/SECURITY_AUDIT.md, finding DESK-1). Mirroring the
+    // whole ipcMain surface into the renderer turns any renderer-side code
+    // execution into arbitrary main-process IPC — file reads/writes, downloads,
+    // torrent control, home-server admin. Every capability must be a named,
+    // reviewable entry in this bridge.
     homeServerGetStatus: () => ipcRenderer.invoke('home-server:get-status'),
     homeServerGetConfig: () => ipcRenderer.invoke('home-server:get-config'),
     homeServerSetConfig: (patch) => ipcRenderer.invoke('home-server:set-config', patch),
@@ -379,9 +406,6 @@ contextBridge.exposeInMainWorld('tatakaiRuntime', {
     extractAudioTrack: (url, trackIndex) => ipcRenderer.invoke('media:extract-audio-track', url, trackIndex),
     readLocalFile: (filePath) => ipcRenderer.invoke('media:read-local-file', filePath),
 
-    // Generic invoke (fallback for newer channels if preload is stale)
-    invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
-
     // FlareSolverr — configure and query the external bypass service
     flareSolverrConfig: (config) => ipcRenderer.invoke('runtime:flaresolverr-config', config),
     flareSolverrStatus: () => ipcRenderer.invoke('runtime:flaresolverr-status'),
@@ -452,7 +476,6 @@ contextBridge.exposeInMainWorld('tatakaiRuntime', {
         listConsent: () => ipcRenderer.invoke('home-server:list-consent'),
         decideConsent: (payload) => ipcRenderer.invoke('home-server:decide-consent', payload),
     },
-    invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
 
     // Cleanup
     removeTorrentProgressListeners: () => ipcRenderer.removeAllListeners('torrent:progress'),

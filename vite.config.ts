@@ -5,6 +5,9 @@ import path from "path";
 import { createRequire } from 'node:module';
 import packageJson from "./package.json";
 import { seoPreviewPlugin } from "./scripts/seo/vite-seo-preview.mjs";
+import { packagedAssetsPlugin } from './scripts/packaged-assets.mjs';
+import { mediaCachePlugin } from './scripts/media-cache.mjs';
+import { publicImageUrl } from './src/lib/media/imageUrl';
 
 // Resolve the translation library's own ONNX runtime; KittenTTS uses another version.
 const configRequire = createRequire(import.meta.url);
@@ -16,19 +19,36 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   // Keep React dev JSX runtime consistent; production env strips jsxDEV.
-  if (mode !== "production" && mode !== "web") {
+  if (mode !== "production" && mode !== "web" && mode !== 'native') {
     process.env.NODE_ENV = "development";
   }
 
   const isWebMode = mode === 'web';
   const isElectronBuild = (process.env.ELECTRON_BUILD || env.ELECTRON_BUILD) === 'true';
+  const isPackagedBuild = isElectronBuild || mode === 'native';
   const hmrClientPort = env.VITE_HMR_CLIENT_PORT
     ? Number(env.VITE_HMR_CLIENT_PORT)
     : undefined;
   const apiV3Origin = env.VITE_API_V3_ORIGIN || "https://api.tatakai.me";
 
   return {
-    plugins: [react(), seoPreviewPlugin()],
+    plugins: [react({ jsxImportSource: '@/lib/media-jsx' }), mediaCachePlugin(), seoPreviewPlugin(),
+      // CSS backgrounds don't pass through React's JSX factories. Rewrite public
+      // raster assets at build time; packaged styles retain their offline URLs.
+      ...(!isPackagedBuild ? [{
+        name: 'tatakai-public-image-styles',
+        apply: 'build' as const,
+        enforce: 'pre' as const,
+        transform(code: string, id: string) {
+          if (!/\.css(?:\?|$)/.test(id)) return;
+          const result = code.replace(/url\(\s*(["']?)(\/assets\/[^"')]+)\1\s*\)/g, (match, _quote, source: string) => {
+            const original = new URL(source, env.VITE_SITE_URL || 'http://localhost').href;
+            const optimized = publicImageUrl(original);
+            return optimized !== original ? `url("${optimized}")` : match;
+          });
+          return result !== code ? { code: result, map: null } : undefined;
+        },
+      }] : []), ...(isPackagedBuild ? [packagedAssetsPlugin()] : [])],
     // ONNX Runtime model files for the on-device KittenTTS narrator.
     assetsInclude: ['**/*.wasm'],
     worker: { format: 'es' },
@@ -36,6 +56,9 @@ export default defineConfig(({ mode }) => {
     esbuild: mode === 'production' || mode === 'web' ? { drop: ['debugger'] } : {},
     base: isElectronBuild ? './' : '/',
     resolve: {
+      // Workers explicitly supply the packaged WASM URL; avoid bundling every
+      // ONNX backend variant through the SDK fallback imports.
+      conditions: ['onnxruntime-web-use-extern-wasm', 'module', 'browser', 'development|production'],
       alias: {
         '@translation-ort-assets': translationOrtAssets,
         "@tatakai/release-parser": path.resolve(__dirname, "./desktop/runtime/torrent/naming/release-parser.cjs"),
@@ -77,9 +100,12 @@ export default defineConfig(({ mode }) => {
         'react/jsx-runtime',
         '@tanstack/react-query',
         'react-router-dom',
+        'linkedom/worker',
       ],
     },
     build: {
+      modulePreload: !isPackagedBuild,
+      copyPublicDir: !isPackagedBuild,
       commonjsOptions: { include: [/node_modules/, /desktop[\\/]runtime[\\/]torrent[\\/]naming/, /src[\\/]core[\\/]download/], extensions: ['.js', '.cjs'] },
       // Only generate sourcemaps if explicitly enabled (for debugging)
       sourcemap: mode === 'production' && ((process.env.ENABLE_SOURCEMAPS || env.ENABLE_SOURCEMAPS) === 'true'),
@@ -123,7 +149,9 @@ export default defineConfig(({ mode }) => {
             if (id.includes('@supabase')) return 'supabase';
             if (id.includes('@tanstack')) return 'tanstack';
             if (id.includes('lucide-react')) return 'icons';
-            return 'vendor';
+            // Let Rollup split the remaining dependencies by actual usage.
+            // A catch-all vendor merges lazy AI/reader/player libraries into startup.
+            return undefined;
           },
         },
       },
@@ -178,6 +206,7 @@ export default defineConfig(({ mode }) => {
 
     },
     define: {
+      'import.meta.env.VITE_PACKAGED_BUILD': JSON.stringify(String(isPackagedBuild)),
       __APP_VERSION__: JSON.stringify(packageJson.version),
       __WEBAPP_MODE__: isWebMode,
     },

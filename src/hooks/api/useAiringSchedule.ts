@@ -3,15 +3,13 @@ import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { useQuery } from '@tanstack/react-query';
 
 /**
- * Weekly anime airing schedule. Routed through the TatakaiAPI proxy
- * (`/api/v3/anilist/graphql`) like every other AniList call, but with
- * `forceUpstream: true` so it reads real AniList instead of the mirror's stored
- * schedule — airing times are volatile and must stay fresh. The bundled
+ * Weekly anime airing schedule. Read straight from AniList via
+ * `anilistGql` — airing times are volatile and must stay fresh. The bundled
  * `nextAiringEpisode` per media isn't enough to fill a calendar grid, so the
  * Google-Calendar week view queries `Page.airingSchedules` for the requested
  * window and buckets the results by local day.
  */
-import { ANILIST_GRAPHQL_ENDPOINT as ANILIST_ENDPOINT } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
 
 const QUERY = `
 query ($start: Int, $end: Int, $page: Int) {
@@ -53,14 +51,13 @@ async function fetchAiringWindow(startSec: number, endSec: number): Promise<Airi
   let page = 1;
   // AniList caps at 50/page; a busy week is comfortably under a few pages.
   for (let i = 0; i < 6; i++) {
-    const res = await fetch(ANILIST_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ query: QUERY, variables: { start: startSec, end: endSec, page }, forceUpstream: true }),
-    });
-    if (!res.ok) throw new Error(uiI18n.t('app.anilist_request_failed_i18n_value_0_9455a5b4', { value0: res.status }));
-    const json = await res.json();
-    const p = json?.data?.Page;
+    let data: any;
+    try {
+      data = await anilistGql<any>(QUERY, { start: startSec, end: endSec, page });
+    } catch (err: any) {
+      throw new Error(uiI18n.t('app.anilist_request_failed_i18n_value_0_9455a5b4', { value0: err?.status ?? 0 }));
+    }
+    const p = data?.Page;
     const schedules: any[] = p?.airingSchedules ?? [];
     for (const s of schedules) {
       const m = s?.media ?? {};

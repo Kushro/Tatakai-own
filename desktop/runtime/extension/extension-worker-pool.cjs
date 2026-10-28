@@ -10,12 +10,24 @@
  * Requirements: 9.1, 9.3, 9.4
  */
 
+const path = require('node:path');
 const { Worker } = require('worker_threads');
 const { SeanimeBrowserHost } = require('./seanime-browser-host.cjs');
-const { extractAllowedDomains } = require('./extension-sandbox.cjs');
+const {
+  extractAllowedDomains,
+  isHostAllowed,
+  buildPermissionExecArgv,
+  isProcessIsolationAvailable,
+  WORKER_GLOBAL_HARDENING_SOURCE,
+} = require('./extension-sandbox.cjs');
 
 // Per-call timeout: 30 seconds (Requirement 9.3)
 const CALL_TIMEOUT_MS = 30_000;
+
+// App directory (repo root in development, `resources/app.asar` when packaged).
+// Extension workers are allowed to *read* from here only — it is where the
+// helper modules they legitimately need (cheerio, anitomyscript) live.
+const APP_ROOT = path.resolve(__dirname, '..', '..', '..');
 
 /**
  * Inline worker bootstrap script.
@@ -38,6 +50,12 @@ const window      = undefined;
 const localStorage  = undefined;
 const indexedDB   = undefined;
 const XMLHttpRequest = undefined;
+
+// ── Remove Node builtin escape hatches (injected by extension-sandbox.cjs) ────
+// Runs BEFORE the helper code and BEFORE any extension code. With the permission
+// model enabled this is redundant belt-and-braces; without it (older runtime) it
+// is the only thing standing between a hostile bundle and child_process.
+${WORKER_GLOBAL_HARDENING_SOURCE}
 
 // ── Inject runtime helpers from workerData.helperCode ────────────────────────
 // The allowed-domains array must be defined before eval-ing helperCode because
@@ -192,19 +210,47 @@ class ExtensionWorkerPool {
       console.warn(`[Worker] WARNING: Proxy base URL not set! Extension requests may fail.`);
     }
 
-    const worker = new Worker(WORKER_BOOTSTRAP, {
-      eval: true,
-      workerData: {
-        extensionId,
-        extensionCode,
-        cheerioModulePath: require.resolve('cheerio'),
-        manifest,
-        allowedDomains: extractAllowedDomains(Array.isArray(manifest && manifest.permissions) ? manifest.permissions : []),
-        tatakaiApiBaseUrl: (process.env.VITE_BACKEND_ORIGIN || 'http://localhost:4001') + '/api/v3',
-        tatakaiProxyBaseUrl: this._fetchProxyBaseUrl,
-        helperCode: [TATAKAI_FETCH_HELPER_CODE, TATAKAI_PARSE_HTML_HELPER_CODE, TATAKAI_ANITOMY_HELPER_CODE].join('\n'),
-      },
-    });
+    const workerData = {
+      extensionId,
+      extensionCode,
+      cheerioModulePath: require.resolve('cheerio'),
+      manifest,
+      allowedDomains: extractAllowedDomains(Array.isArray(manifest && manifest.permissions) ? manifest.permissions : []),
+      tatakaiApiBaseUrl: (process.env.VITE_BACKEND_ORIGIN || 'http://localhost:4001') + '/api/v3',
+      tatakaiProxyBaseUrl: this._fetchProxyBaseUrl,
+      helperCode: [TATAKAI_FETCH_HELPER_CODE, TATAKAI_PARSE_HTML_HELPER_CODE, TATAKAI_ANITOMY_HELPER_CODE].join('\n'),
+    };
+
+    // ── Process-level isolation (see extension-sandbox.cjs) ──────────────────
+    // Without this, extension code reaches the real `process` global and gets
+    // arbitrary code execution on the user's machine. With it, the worker can
+    // read the app directory (helper modules) and nothing else: no arbitrary
+    // file reads/writes, no child processes, no native addons, no WASI.
+    //
+    // `--permission` must be accepted at Worker construction time; when the
+    // runtime has no permission model at all we fall back to running unsandboxed
+    // (the previous behaviour) but record it, because a silently unisolated
+    // worker is exactly the state this fix exists to remove.
+    let worker;
+    let isolation = 'process-permission';
+    const sandboxExecArgv = buildPermissionExecArgv({ readPaths: [APP_ROOT] });
+    if (sandboxExecArgv) {
+      try {
+        worker = new Worker(WORKER_BOOTSTRAP, { eval: true, workerData, execArgv: sandboxExecArgv });
+      } catch (err) {
+        console.warn(
+          `[Worker] Process isolation unavailable for ${extensionId} (${err.message}); ` +
+            'falling back to JS-only hardening. Extensions should be treated as trusted.'
+        );
+        isolation = 'js-only';
+        worker = null;
+      }
+    } else {
+      isolation = 'js-only';
+    }
+    if (!worker) {
+      worker = new Worker(WORKER_BOOTSTRAP, { eval: true, workerData });
+    }
 
     const networkDomains = extractAllowedDomains(manifest?.permissions || []);
     const browserHost = new SeanimeBrowserHost((manifest?.browserDomains || []).filter(domain => networkDomains.some(allowed => allowed === '*' || domain === allowed || domain.endsWith('.' + allowed))));
@@ -216,6 +262,7 @@ class ExtensionWorkerPool {
       cumulativeMs: 0,
       lastActivity: Date.now(),
       fetchProxyBaseUrl: this._fetchProxyBaseUrl,
+      isolation,
       codeHash: require('crypto').createHash('sha1').update(extensionCode).digest('hex').slice(0, 16),
       /** Map<msgId, { resolve, reject, timer, startedAt }> */
       pending: new Map(),
@@ -423,10 +470,14 @@ const TATAKAI_FETCH_HELPER_CODE = `
 // Domain-gated HTTP helper injected into every extension worker.
 // __tatakai_allowedDomains__ must be defined in the surrounding scope before
 // this code is eval'd (it is set from workerData.allowedDomains in Task 2.4).
-const __tatakai_fetch__ = async function __tatakai_fetch__(url, init) {
-  init = init || {};
+// Captured before the gated global fetch below replaces it; only the helpers
+// use it, and only to reach the loopback proxy.
+const __tatakai_native_fetch__ = globalThis.fetch;
+const __tatakai_isHostAllowed__ = ${isHostAllowed.toString()};
 
-  // 1. Domain allowlist check (Req 1.4)
+// Throws PermissionDeniedError unless the URL's hostname is declared in the
+// manifest's network:domain permissions.
+const __tatakai_checkUrl__ = function __tatakai_checkUrl__(url) {
   let __hostname__;
   try {
     __hostname__ = new URL(url).hostname;
@@ -435,14 +486,28 @@ const __tatakai_fetch__ = async function __tatakai_fetch__(url, init) {
     __err__.name = 'PermissionDeniedError';
     throw __err__;
   }
-
-  if (!__tatakai_allowedDomains__.includes("*") && !__tatakai_allowedDomains__.includes(__hostname__)) {
+  if (!__tatakai_isHostAllowed__(__hostname__, __tatakai_allowedDomains__)) {
     const __err__ = new Error(
       'PermissionDeniedError: hostname "' + __hostname__ + '" is not in the extension\\'s allowed domain list'
     );
     __err__.name = 'PermissionDeniedError';
     throw __err__;
   }
+};
+
+const __tatakai_proxyBase__ = function __tatakai_proxyBase__() {
+  return (typeof TATAKAI_PROXY_URL !== 'undefined' && TATAKAI_PROXY_URL)
+    ? TATAKAI_PROXY_URL
+    : (typeof process !== 'undefined' && process.env && process.env.TATAKAI_PROXY_URL)
+    ? process.env.TATAKAI_PROXY_URL
+    : 'http://localhost:9001';
+};
+
+const __tatakai_fetch__ = async function __tatakai_fetch__(url, init) {
+  init = init || {};
+
+  // 1. Domain allowlist check (Req 1.4)
+  __tatakai_checkUrl__(url);
 
   // 2. Forward caller-supplied headers only (Req 1.6)
   // Normalise to lowercase for lookup; emit with canonical casing.
@@ -471,11 +536,7 @@ const __tatakai_fetch__ = async function __tatakai_fetch__(url, init) {
   const __timeoutHandle__ = setTimeout(function() { __controller__.abort(); }, 30000);
 
   // 4. Build proxy URL (Req 1.7)
-  const __proxyBase__ = (typeof TATAKAI_PROXY_URL !== 'undefined' && TATAKAI_PROXY_URL)
-    ? TATAKAI_PROXY_URL
-    : (typeof process !== 'undefined' && process.env && process.env.TATAKAI_PROXY_URL)
-    ? process.env.TATAKAI_PROXY_URL
-    : 'http://localhost:9001';
+  const __proxyBase__ = __tatakai_proxyBase__();
   
   // Debug logging
   const __proxyUrl__ = new URL('/proxy', __proxyBase__);
@@ -483,7 +544,7 @@ const __tatakai_fetch__ = async function __tatakai_fetch__(url, init) {
 
   // 5. Execute the proxied request
   try {
-        const __response__ = await fetch(__proxyUrl__.toString(), {
+        const __response__ = await __tatakai_native_fetch__(__proxyUrl__.toString(), {
       method: init.method || 'GET',
       headers: __forwardedHeaders__,
       body: init.body !== undefined ? init.body : undefined,
@@ -523,6 +584,19 @@ const __tatakai_fetch__ = async function __tatakai_fetch__(url, init) {
 };
 // Promote to globalThis so free-variable references in the extension bundle resolve.
 globalThis.__tatakai_fetch__ = __tatakai_fetch__;
+
+// Bundles that call plain fetch() (e.g. a fallback when __tatakai_fetch__ is
+// missing) would otherwise skip the allowlist and the proxy's private-address
+// policy entirely. Replace the global with a gated version that returns a real
+// Response. This closes accidental bypasses only: the worker still exposes
+// require and process, so it is not a boundary against hostile code.
+globalThis.fetch = async function fetch(input, init) {
+  const __url__ = typeof input === 'string' ? input : (input && (input.href || input.url)) || String(input);
+  __tatakai_checkUrl__(__url__);
+  const __proxyUrl__ = new URL('/proxy', __tatakai_proxyBase__());
+  __proxyUrl__.searchParams.set('url', __url__);
+  return __tatakai_native_fetch__(__proxyUrl__.toString(), init);
+};
 `;
 
 // ── Worker helper: __tatakai_parse_html__ ────────────────────────────────────
@@ -736,7 +810,7 @@ async function __tatakai_fetch__(allowedDomains, url, init = {}) {
     throw err;
   }
 
-  if (!allowedDomains.includes("*") && !allowedDomains.includes(hostname)) {
+  if (!isHostAllowed(hostname, allowedDomains)) {
     const err = new Error(
       `PermissionDeniedError: hostname "${hostname}" is not in the extension's allowed domain list`
     );

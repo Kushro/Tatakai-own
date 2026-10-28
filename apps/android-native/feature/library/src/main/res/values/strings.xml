@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_in_progress">Continue watching</string>
+    <string name="library_history">History</string>
+    <string name="library_empty_title">Nothing watched yet</string>
+    <string name="library_empty_message">Episodes you watch show up here. Your library works without an account.</string>
+    <string name="library_explore">Explore anime</string>
+</resources>

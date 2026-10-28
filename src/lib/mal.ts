@@ -1,246 +1,72 @@
-
 /**
- * MyAnimeList OAuth2 Integration
- * Uses PKCE flow for security.
+ * MyAnimeList integration (client side).
+ *
+ * Login is OAuth2 + PKCE with a public client id (see `@/lib/mal/auth`); list
+ * reads and writes are MAL REST v2 calls made straight from the app with the
+ * user's own token. Nothing goes through TatakaiAPI and the Supabase session
+ * never leaves Supabase.
  */
 
-import { resolveApiV3Base } from '@/lib/api/backendOrigin';
-import { getWebMalRedirectUri, isNativeOAuthApp, MAL_PROD_ORIGIN, MAL_REDIRECT_PATH } from '@/lib/desktopOAuth';
+import {
+    MAL_API_URL,
+    MAL_DEFAULT_REDIRECT_URI,
+    MalAuthExpiredError,
+    clearMalCredentials,
+    clearMalLoginStorage,
+    clearMalPendingMarker as clearPendingMarker,
+    completeMalLogin,
+    isMalLoginPending,
+    malFetch,
+    malJson,
+    startMalLogin,
+} from '@/lib/mal/auth';
 
-const MAL_CLIENT_ID = import.meta.env.VITE_MAL_CLIENT_ID;
-/** Canonical production redirect URI (register this in the MAL app settings). */
-export const MAL_CANONICAL_REDIRECT_URI = `${MAL_PROD_ORIGIN}${MAL_REDIRECT_PATH}`;
-/** Fresh redirect URI per call — never captured at module load (Vite bakes env). */
-function getMalRedirectUri(): string {
-    return getWebMalRedirectUri();
-}
+export { MalAuthExpiredError };
 
-function getMalAuthFunctionUrl(): string {
-    return `${resolveApiV3Base()}/sync/mal/legacy`;
-}
-
-// Helper to generate a random string for code_verifier
-function generateRandomString(length: number) {
-    let text = "";
-    const possible = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-    // Rejection sampling keeps all PKCE characters equally likely.
-    while (text.length < length) {
-        for (const byte of crypto.getRandomValues(new Uint8Array(length))) {
-            if (byte < 256 - (256 % possible.length)) text += possible[byte % possible.length];
-            if (text.length === length) break;
-        }
-    }
-    return text;
-}
+/** The redirect URL to register in the MAL app settings (and the build default). */
+export const MAL_CANONICAL_REDIRECT_URI = MAL_DEFAULT_REDIRECT_URI;
 
 /**
- * Generates the MAL authorization URL.
- * Also stores the code_verifier in localStorage for later use.
+ * Generates the MAL authorization URL (PKCE, plain challenge). Also stores the
+ * code_verifier/state and marks a login as in flight.
  */
-const MAL_REDIRECT_STORAGE_KEY = 'mal_redirect_uri';
-const MAL_STATE_STORAGE_KEY = 'mal_oauth_state';
-const MAL_OAUTH_STARTED_AT_KEY = 'mal_oauth_started_at';
-/** A login that never reached the callback page within this window still counts as pending. */
-const MAL_PENDING_FLOW_TTL_MS = 10 * 60 * 1000;
-
-/**
- * The `redirect_uri` sent on the authorize call must be a SINGLE URL that
- * exactly matches one entry in the MAL app settings. MAL's dashboard accepts
- * MULTIPLE urls (one per line) — register both the production URL and the
- * localhost URL there. What it does NOT accept is a comma-joined pair sent as
- * one literal string: the authorize call then answers 401 with
- * `WWW-Authenticate: Basic`, so Chromium / Electron pops a native
- * "Please Sign In — https://myanimelist.net" HTTP-auth dialog that loops.
- * Guard here so a misconfigured value surfaces a readable error instead.
- */
-function assertSingleRedirectUri(redirectUri: string): string {
-    const value = String(redirectUri || '').trim();
-    if (!value) {
-        throw new Error('Missing MAL redirect URI (no window location context and no VITE_MAL_REDIRECT_URI)');
-    }
-    if (value.includes(',') || /[\s]/.test(value)) {
-        throw new Error(
-            `Invalid MAL redirect URI: send exactly one URL (canonical: ${MAL_CANONICAL_REDIRECT_URI}). ` +
-            'Register each URL on its own line in the MAL app settings — never send a comma/space-separated pair as one URL, ' +
-            'or MAL answers 401 and the browser shows an HTTP login prompt that loops forever.',
-        );
-    }
-    return value;
-}
-
-export function getMalAuthUrl(redirectUriOverride?: string, stateOverride?: string) {
-    if (!MAL_CLIENT_ID) {
-        throw new Error('Missing VITE_MAL_CLIENT_ID');
-    }
-    const redirectUri = assertSingleRedirectUri(redirectUriOverride || getMalRedirectUri());
-    // Persist so exchangeMalCode sends the identical redirect_uri (required by MAL).
-    localStorage.setItem(MAL_REDIRECT_STORAGE_KEY, redirectUri);
-    // Marks a login in flight. Starting a second flow overwrites the verifier,
-    // which permanently invalidates any code issued for the first challenge
-    // (MAL answers `invalid_grant`), so callers check isMalLoginPendingFresh()
-    // before silently restarting.
-    localStorage.setItem(MAL_OAUTH_STARTED_AT_KEY, String(Date.now()));
-
-    const codeVerifier = generateRandomString(128);
-    localStorage.setItem('mal_code_verifier', codeVerifier);
-
-    // MAL uses the plain PKCE challenge method.
-    const codeChallenge = codeVerifier;
-
-    // Desktop passes its bridge marker here so the https redirect page can
-    // forward the callback to the app; web flows keep a random CSRF value.
-    const state = stateOverride || generateRandomString(16);
-    localStorage.setItem(MAL_STATE_STORAGE_KEY, state);
-
-    const params = new URLSearchParams({
-        response_type: 'code',
-        client_id: MAL_CLIENT_ID,
-        code_challenge: codeChallenge,
-        code_challenge_method: 'plain',
-        state,
-        redirect_uri: redirectUri,
-    });
-
-    return `https://myanimelist.net/v1/oauth2/authorize?${params.toString()}`;
+export function getMalAuthUrl(redirectUriOverride?: string, _stateOverride?: string): string {
+    return startMalLogin(redirectUriOverride);
 }
 
 /**
- * True when a login was started recently but its callback never ran — i.e. the
- * user still has a MAL tab open for the previous challenge. Starting a new
- * flow now would overwrite the stored verifier and doom the old tab to
- * `invalid_grant`. Terminal callback states (success / exchange failure) clear
- * the marker, so a fresh `true` here always means "in flight".
+ * True when a login was started recently but its callback never ran. Starting a
+ * new flow now would overwrite the stored verifier and doom the old attempt.
  */
 export function isMalLoginPendingFresh(): boolean {
-    try {
-        const startedAt = Number(localStorage.getItem(MAL_OAUTH_STARTED_AT_KEY) || 0);
-        return Number.isFinite(startedAt) && startedAt > 0 && Date.now() - startedAt < MAL_PENDING_FLOW_TTL_MS;
-    } catch {
-        return false;
-    }
+    return isMalLoginPending();
 }
 
 /** Clears a pending/in-flight login so a brand-new flow can start. */
 export function clearMalOAuthStorage(): void {
-    try {
-        localStorage.removeItem('mal_code_verifier');
-        localStorage.removeItem(MAL_REDIRECT_STORAGE_KEY);
-        localStorage.removeItem(MAL_STATE_STORAGE_KEY);
-        localStorage.removeItem(MAL_OAUTH_STARTED_AT_KEY);
-    } catch {
-        /* ignore */
-    }
+    clearMalLoginStorage();
 }
 
 /** Clears just the in-flight marker (the flow reached the callback page and is over). */
 export function clearMalPendingMarker(): void {
-    try {
-        localStorage.removeItem(MAL_OAUTH_STARTED_AT_KEY);
-    } catch {
-        /* ignore */
-    }
+    clearPendingMarker();
 }
 
 /**
- * Pre-flight for pure-web logins: the PKCE verifier + state live in the
- * CURRENT origin's localStorage, so the redirect URI MAL sends the user back
- * to MUST share this origin. With the origin-aware `getWebMalRedirectUri`
- * above this should rarely trigger — it fires only when a stale stored URI or
- * an explicit override points elsewhere.
- *
- * Fix: in the MAL app settings (API panel → App Redirect URL) register BOTH
- * URLs, one per line:
- *   https://tatakai.me/api/mal/redirect
- *   <this-origin>/api/mal/redirect
- * (MAL supports multiple redirect URIs line-separated in the SAME app — no
- * second app / second client ID needed.)
- *
- * Native apps are exempt: the https page forwards to `tatakai://` and the
- * desktop session owns the verifier.
+ * Kept for the settings panel. The tatakai:// redirect has no origin to compare,
+ * so there is nothing to assert any more.
  */
-export function assertWebMalRedirectMatchesOrigin(redirectUri: string): void {
-    if (isNativeOAuthApp()) return;
-    if (typeof window === 'undefined') return;
-    let redirectOrigin: string;
-    try {
-        redirectOrigin = new URL(redirectUri).origin;
-    } catch {
-        return; // Malformed URL — let the authorize call surface the error.
-    }
-    if (redirectOrigin !== window.location.origin) {
-        throw new Error(
-            `MAL login can't complete from ${window.location.origin}: this build sends redirect URI ${redirectUri}, ` +
-            `which points at a different origin. In your MAL app settings, register BOTH URLs (one per line): ` +
-            `${MAL_CANONICAL_REDIRECT_URI} and ${window.location.origin}${MAL_REDIRECT_PATH} — then reconnect. ` +
-            `No second MAL app is needed.`,
-        );
-    }
+export function assertWebMalRedirectMatchesOrigin(_redirectUri: string): void {
+    /* tatakai:// deep link: no web origin involved */
 }
 
 /**
- * Completes the MAL authentication by exchanging the code for tokens.
- * Calls TatakaiAPI to keep the client_secret secure.
+ * Completes the MAL authentication: validates `state`, exchanges the code for
+ * tokens (PKCE, no secret) and stores them on the user's profile.
  */
-export async function exchangeMalCode(code: string) {
-    const codeVerifier = localStorage.getItem('mal_code_verifier');
-    if (!codeVerifier) {
-        throw new Error('Missing code_verifier');
-    }
-    const redirectUri = assertSingleRedirectUri(
-        localStorage.getItem(MAL_REDIRECT_STORAGE_KEY) || getMalRedirectUri(),
-    );
-
-    const { supabase } = await import('@/integrations/supabase/client');
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-        console.error('[MAL Auth] No active session found');
-        throw new Error('You must be logged in to link MyAnimeList.');
-    }
-
-    console.debug('[MAL Auth] Calling TatakaiAPI exchange...');
-
-    const response = await fetch(`${resolveApiV3Base()}/sync/exchange`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            integration: 'mal',
-            code,
-            codeVerifier,
-            redirectUri,
-            // Public (non-secret) app id used at authorize time. The server
-            // compares it with its own exchange credentials to diagnose the
-            // classic dev/prod app mismatch ("issued to another client").
-            clientId: MAL_CLIENT_ID,
-        })
-    });
-
-    if (!response.ok) {
-        let errorBody;
-        try {
-            errorBody = await response.json();
-        } catch (e) {
-            errorBody = { raw: await response.text().catch(() => 'No body') };
-        }
-
-        console.error('[MAL Auth] TatakaiAPI exchange error response:', {
-            status: response.status,
-            statusText: response.statusText,
-            body: errorBody
-        });
-
-        const message = errorBody.error || errorBody.details || 'Failed to exchange code';
-        const details = typeof errorBody.details === 'object' ? JSON.stringify(errorBody.details) : (errorBody.details || '');
-        throw new Error(`MAL Error (${response.status}): ${message}${details ? ` - ${details}` : ''}`);
-    }
-
-    const data = await response.json();
-    console.debug('[MAL Auth] TatakaiAPI exchange success:', data);
-
-    clearMalOAuthStorage();
-    return data;
+export async function exchangeMalCode(code: string, state?: string | null) {
+    const result = await completeMalLogin({ code, state: state ?? null });
+    return result;
 }
 
 /**
@@ -248,36 +74,18 @@ export async function exchangeMalCode(code: string) {
  * This is used as a fallback when the ID is missing in our database.
  */
 export async function resolveMalIdFromEpisodes(animeId: string): Promise<number | null> {
-    console.log(`[MAL Sync] Fallback - Resolving MAL ID for ${animeId} via Episode 1...`);
     try {
         const { fetchEpisodes, fetchTatakaiEpisodeSources, fetchCombinedSources } = await import('@/lib/api');
 
-        // 1. Get episode list
         const { episodes } = await fetchEpisodes(animeId);
-        if (!episodes || episodes.length === 0) {
-            console.warn('[MAL Sync] Fallback - No episodes found for', animeId);
-            return null;
-        }
+        if (!episodes || episodes.length === 0) return null;
 
-        // 2. Get sources for the first episode (reliable source for MAL ID)
         const firstEpisode = episodes[0];
         const sourceData = await fetchTatakaiEpisodeSources(firstEpisode.episodeId);
+        if (sourceData?.malID) return Number(sourceData.malID);
 
-        if (sourceData?.malID) {
-            const malId = Number(sourceData.malID);
-            console.log(`[MAL Sync] Fallback - Successfully resolved MAL ID: ${malId}`);
-            return malId;
-        }
-
-        // 3. Broader fallback: combined sources often carry provider-derived IDs.
         const combined = await fetchCombinedSources(firstEpisode.episodeId, animeId, 1, 'hd-2', 'sub');
-        if (combined?.malID) {
-            const malId = Number(combined.malID);
-            console.log(`[MAL Sync] Fallback - Resolved MAL ID via combined sources: ${malId}`);
-            return malId;
-        }
-
-        console.warn('[MAL Sync] Fallback - No MAL ID found in episode sources for', animeId);
+        if (combined?.malID) return Number(combined.malID);
         return null;
     } catch (error) {
         console.error('[MAL Sync] Fallback - Error during resolution:', error);
@@ -285,189 +93,47 @@ export async function resolveMalIdFromEpisodes(animeId: string): Promise<number 
     }
 }
 
-/**
- * Updates the status of an anime on the user's MyAnimeList.
- * If malId is not provided or animeId is a HiAnime ID, it will attempt to look it up from the database.
- */
-export async function updateMalAnimeStatus(
-    animeIdOrMalId: string | number,
-    status: string,
-    score?: number,
-    numWatchedEpisodes?: number
-) {
-    console.log('[MAL Sync] INIT - Attempting sync for:', { animeIdOrMalId, status, score, numWatchedEpisodes });
+// ── Status mapping ───────────────────────────────────────────────────────────
 
-    // Explicitly import supabase inside function to avoid circular deps if they exist
-    const { supabase } = await import('@/integrations/supabase/client');
+const MAL_ANIME_STATUSES = new Set(['watching', 'completed', 'on_hold', 'dropped', 'plan_to_watch']);
+const MAL_MANGA_STATUSES = new Set(['reading', 'completed', 'on_hold', 'dropped', 'plan_to_read']);
 
-    // 1. Determine MAL ID
-    let malId: number;
+/** AniList names -> Tatakai/MAL names, so either vocabulary can be passed in. */
+const ALIASES: Record<string, string> = {
+    current: 'watching', repeating: 'watching', planning: 'plan_to_watch', paused: 'on_hold',
+};
 
-    if (typeof animeIdOrMalId === 'number') {
-        malId = animeIdOrMalId;
-        console.log('[MAL Sync] ID - Using provided numeric MAL ID:', malId);
-    } else if (/^\d+$/.test(animeIdOrMalId)) {
-        malId = parseInt(animeIdOrMalId);
-        console.log('[MAL Sync] ID - Parsed numeric string to MAL ID:', malId);
-    } else {
-        console.log('[MAL Sync] ID - Non-numeric ID detected, looking up from DB:', animeIdOrMalId);
-
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-            console.error('[MAL Sync] ERR - User not authenticated');
-            throw new Error('Not authenticated');
-        }
-
-        console.log('[MAL Sync] DB - Checking watchlist for MAL ID...');
-        let { data: watchlistEntry } = await supabase
-            .from('watchlist')
-            .select('mal_id')
-            .eq('user_id', user.id)
-            .eq('anime_id', animeIdOrMalId)
-            .maybeSingle();
-
-        if (watchlistEntry?.mal_id) {
-            malId = watchlistEntry.mal_id;
-            console.log('[MAL Sync] DB - Found MAL ID in watchlist:', malId);
-        } else {
-            console.log('[MAL Sync] DB - Not in watchlist, checking watch_history...');
-            let { data: historyEntry } = await supabase
-                .from('watch_history')
-                .select('mal_id')
-                .eq('user_id', user.id)
-                .eq('anime_id', animeIdOrMalId)
-                .order('watched_at', { ascending: false })
-                .limit(1)
-                .maybeSingle();
-
-            if (historyEntry?.mal_id) {
-                malId = historyEntry.mal_id;
-                console.log('[MAL Sync] DB - Found MAL ID in history:', malId);
-            } else {
-                console.log('[MAL Sync] Fallback - ID missing everywhere, attempting live resolution...');
-                const resolvedId = await resolveMalIdFromEpisodes(animeIdOrMalId);
-
-                if (resolvedId) {
-                    malId = resolvedId;
-
-                    // 1.1 Persist found ID to DB for future efficiency
-                    console.log('[MAL Sync] DB - Persisting resolved ID to watchlist/history...');
-
-                    // Update watchlist
-                    await supabase
-                        .from('watchlist')
-                        .update({ mal_id: malId })
-                        .eq('user_id', user.id)
-                        .eq('anime_id', animeIdOrMalId);
-
-                    // Update watch history
-                    await supabase
-                        .from('watch_history')
-                        .update({ mal_id: malId })
-                        .eq('user_id', user.id)
-                        .eq('anime_id', animeIdOrMalId);
-                } else {
-                    console.error('[MAL Sync] ERR - No MAL ID found for:', animeIdOrMalId);
-                    throw new Error('MAL ID not found for this anime. Try watching an episode first.');
-                }
-            }
-        }
-    }
-
-    // 2. Call TatakaiAPI to sync
-    console.log('[MAL Sync] REQ - Calling TatakaiAPI single-sync for malId:', malId);
-
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error('Not authenticated');
-
-    const response = await fetch(`${resolveApiV3Base()}/sync/single-sync`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            type: 'anime',
-            malId,
-            status,
-            score,
-            progress: numWatchedEpisodes
-        })
-    });
-
-    if (!response.ok) {
-        let errorData;
-        try {
-            errorData = await response.json();
-        } catch (e) {
-            errorData = { error: 'Unknown server error', details: await response.text().catch(() => 'No body') };
-        }
-
-        console.error('[MAL Sync] Sync failed in TatakaiAPI:', errorData);
-        throw new Error(`MAL Sync Error: ${errorData.error || 'Failed to update MAL'}${errorData.details ? `: ${JSON.stringify(errorData.details)}` : ''}`);
-    }
-
-    const result = await response.json();
-    console.log('[MAL Sync] OK - Sync successful result:', result);
-    return result;
-}
-
-/**
- * Fetches the user's entire anime list from MyAnimeList.
- */
-export async function fetchMalUserList() {
-    const { supabase } = await import('@/integrations/supabase/client');
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error('Not authenticated');
-
-    const functionUrl = getMalAuthFunctionUrl();
-
-    console.log('[MAL Sync] REQ - Fetching user list via Edge Function');
-
-    const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
-        },
-        body: JSON.stringify({
-            action: 'fetch_list'
-        })
-    });
-
-    if (!response.ok) {
-        let errorData;
-        try {
-            errorData = await response.json();
-        } catch (e) {
-            errorData = { error: 'Unknown server error' };
-        }
-
-        const details = errorData.details ? (typeof errorData.details === 'string' ? errorData.details : JSON.stringify(errorData.details)) : '';
-        const message = errorData.error || 'Failed to fetch list';
-
-        console.error('[MAL Sync] Fetch List failed:', { errorData, details });
-        throw new Error(`MAL Fetch Error: ${message}${details ? ` (${details})` : ''}`);
-    }
-
-    const { data } = await response.json();
-    return data;
+/** Maps a Tatakai (or AniList) anime status to MAL's. */
+export function mapTatakaiStatusToMal(status: string): string {
+    const normalized = String(status || '').trim().toLowerCase();
+    const value = ALIASES[normalized] ?? normalized;
+    return MAL_ANIME_STATUSES.has(value) ? value : 'plan_to_watch';
 }
 
 /**
  * Maps MAL status strings to Tatakai status strings.
  */
 export function mapMalStatusToTatakai(malStatus: string): any {
-    const map: Record<string, string> = {
-        'watching': 'watching',
-        'completed': 'completed',
-        'plan_to_watch': 'plan_to_watch',
-        'dropped': 'dropped',
-        'on_hold': 'on_hold'
-    };
-    return map[malStatus] || 'plan_to_watch';
+    return mapTatakaiStatusToMal(malStatus);
 }
+
+/**
+ * Maps MAL manga status strings to local manga readlist status strings.
+ */
+export function mapMalMangaStatusToTatakai(malStatus: string): any {
+    const normalized = String(malStatus || '').trim().toLowerCase();
+    const value = normalized === 'current' || normalized === 'repeating' ? 'reading' : normalized === 'planning' ? 'plan_to_read' : normalized === 'paused' ? 'on_hold' : normalized;
+    return MAL_MANGA_STATUSES.has(value) ? value : 'plan_to_read';
+}
+
+/**
+ * Maps local manga readlist status strings to MAL manga status strings.
+ */
+export function mapTatakaiMangaStatusToMal(status: string): any {
+    return mapMalMangaStatusToTatakai(status);
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseMalNumericId(value: string | number): number | null {
     if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
@@ -487,6 +153,70 @@ function parseMalNumericId(value: string | number): number | null {
     }
 
     return null;
+}
+
+/** MAL scores are integers 0-10 (0 = unscored). */
+function malScore(score: number | undefined): number | undefined {
+    if (score === undefined || !Number.isFinite(score)) return undefined;
+    return Math.max(0, Math.min(10, Math.round(score)));
+}
+
+async function failIfNotOk(res: { ok: boolean; status: number; text(): Promise<string> }, what: string): Promise<void> {
+    if (res.ok) return;
+    const body = await res.text().catch(() => '');
+    throw new Error(`${what} failed (${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`);
+}
+
+/**
+ * Fetch every page of a MAL list endpoint. `paging.next` is followed only while
+ * it stays on api.myanimelist.net, so the bearer token cannot be redirected away.
+ */
+async function fetchAllMalPages(firstPath: string): Promise<any[]> {
+    const out: any[] = [];
+    let next: string | undefined = firstPath;
+    for (let page = 0; next && page < 100; page++) {
+        const data: any = await malJson<any>(next);
+        out.push(...(data.data || []));
+        const candidate: string | undefined = data.paging?.next;
+        next = candidate && new URL(candidate).hostname === 'api.myanimelist.net' ? candidate : undefined;
+    }
+    return out;
+}
+
+async function resolveMalAnimeId(animeIdOrMalId: string | number): Promise<number> {
+    if (typeof animeIdOrMalId === 'number') return animeIdOrMalId;
+    if (/^\d+$/.test(animeIdOrMalId)) return parseInt(animeIdOrMalId, 10);
+    const prefixed = parseMalNumericId(animeIdOrMalId);
+    if (prefixed) return prefixed;
+
+    const { supabase } = await import('@/integrations/supabase/client');
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Not authenticated');
+
+    const { data: watchlistEntry } = await supabase
+        .from('watchlist')
+        .select('mal_id')
+        .eq('user_id', user.id)
+        .eq('anime_id', animeIdOrMalId)
+        .maybeSingle();
+    if (watchlistEntry?.mal_id) return watchlistEntry.mal_id;
+
+    const { data: historyEntry } = await supabase
+        .from('watch_history')
+        .select('mal_id')
+        .eq('user_id', user.id)
+        .eq('anime_id', animeIdOrMalId)
+        .order('watched_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+    if (historyEntry?.mal_id) return historyEntry.mal_id;
+
+    const resolvedId = await resolveMalIdFromEpisodes(animeIdOrMalId);
+    if (!resolvedId) throw new Error('MAL ID not found for this anime. Try watching an episode first.');
+    // Persist for next time.
+    await supabase.from('watchlist').update({ mal_id: resolvedId }).eq('user_id', user.id).eq('anime_id', animeIdOrMalId);
+    await supabase.from('watch_history').update({ mal_id: resolvedId }).eq('user_id', user.id).eq('anime_id', animeIdOrMalId);
+    return resolvedId;
 }
 
 async function resolveMalMangaId(mangaIdOrMalId: string | number): Promise<number> {
@@ -528,80 +258,64 @@ async function resolveMalMangaId(mangaIdOrMalId: string | number): Promise<numbe
     throw new Error('MAL manga ID not found for this entry');
 }
 
+// ── Anime ────────────────────────────────────────────────────────────────────
+
 /**
- * Fetches the user's entire manga list from MyAnimeList.
+ * Updates the status of an anime on the user's MyAnimeList
+ * (`PATCH /anime/{id}/my_list_status`).
+ */
+export async function updateMalAnimeStatus(
+    animeIdOrMalId: string | number,
+    status: string,
+    score?: number,
+    numWatchedEpisodes?: number
+) {
+    const malId = await resolveMalAnimeId(animeIdOrMalId);
+    const res = await malFetch(`/anime/${malId}/my_list_status`, {
+        method: 'PATCH',
+        form: {
+            status: mapTatakaiStatusToMal(status),
+            score: malScore(score),
+            num_watched_episodes: numWatchedEpisodes !== undefined ? Math.max(0, Math.trunc(numWatchedEpisodes)) : undefined,
+        },
+    });
+    await failIfNotOk(res, 'MAL anime sync');
+    return res.json();
+}
+
+/**
+ * Fetches the user's entire anime list from MyAnimeList (every page).
+ */
+export async function fetchMalUserList() {
+    return fetchAllMalPages('/users/@me/animelist?fields=list_status&limit=1000&nsfw=true');
+}
+
+/**
+ * Removes an anime from the user's MyAnimeList library.
+ */
+export async function deleteMalAnimeStatus(animeIdOrMalId: string): Promise<void> {
+    let malId: number;
+    try {
+        malId = await resolveMalAnimeId(animeIdOrMalId);
+    } catch {
+        return; // can't identify the entry: nothing to delete
+    }
+    const res = await malFetch(`/anime/${malId}/my_list_status`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 404) console.error('[MAL Sync] Delete failed', res.status);
+}
+
+// ── Manga ────────────────────────────────────────────────────────────────────
+
+/**
+ * Fetches the user's entire manga list (manga and novels) from MyAnimeList.
  */
 export async function fetchMalMangaList() {
-    const { supabase } = await import('@/integrations/supabase/client');
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error('Not authenticated');
-
-    const functionUrl = getMalAuthFunctionUrl();
-
-    const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
-        },
-        body: JSON.stringify({
-            action: 'fetch_manga_list'
-        })
-    });
-
-    if (!response.ok) {
-        let errorData;
-        try {
-            errorData = await response.json();
-        } catch {
-            errorData = { error: 'Unknown server error' };
-        }
-
-        const details = errorData.details
-            ? (typeof errorData.details === 'string' ? errorData.details : JSON.stringify(errorData.details))
-            : '';
-        const message = errorData.error || 'Failed to fetch manga list';
-
-        throw new Error(`MAL Manga Fetch Error: ${message}${details ? ` (${details})` : ''}`);
-    }
-
-    const { data } = await response.json();
-    return data;
+    return fetchAllMalPages('/users/@me/mangalist?fields=list_status,media_type&limit=1000&nsfw=true');
 }
 
 /**
- * Maps MAL manga status strings to local manga readlist status strings.
- */
-export function mapMalMangaStatusToTatakai(malStatus: string): any {
-    const normalized = String(malStatus || '').trim().toLowerCase();
-    const map: Record<string, string> = {
-        'reading': 'reading',
-        'completed': 'completed',
-        'plan_to_read': 'plan_to_read',
-        'dropped': 'dropped',
-        'on_hold': 'on_hold'
-    };
-    return map[normalized] || 'plan_to_read';
-}
-
-/**
- * Maps local manga readlist status strings to MAL manga status strings.
- */
-export function mapTatakaiMangaStatusToMal(status: string): any {
-    const normalized = String(status || '').trim().toLowerCase();
-    const map: Record<string, string> = {
-        'reading': 'reading',
-        'completed': 'completed',
-        'plan_to_read': 'plan_to_read',
-        'dropped': 'dropped',
-        'on_hold': 'on_hold'
-    };
-    return map[normalized] || 'plan_to_read';
-}
-
-/**
- * Updates the status of a manga on the user's MyAnimeList.
+ * Updates the status of a manga on the user's MyAnimeList
+ * (`PATCH /manga/{id}/my_list_status`).
  */
 export async function updateMalMangaStatus(
     mangaIdOrMalId: string | number,
@@ -609,146 +323,46 @@ export async function updateMalMangaStatus(
     score?: number,
     numReadChapters?: number
 ) {
-    const { supabase } = await import('@/integrations/supabase/client');
     const malId = await resolveMalMangaId(mangaIdOrMalId);
-
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error('Not authenticated');
-
-    const response = await fetch(`${resolveApiV3Base()}/sync/single-sync`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            type: 'manga',
-            malId,
+    const res = await malFetch(`/manga/${malId}/my_list_status`, {
+        method: 'PATCH',
+        form: {
             status: mapTatakaiMangaStatusToMal(status),
-            score,
-            progress: numReadChapters,
-        })
+            score: malScore(score),
+            num_chapters_read: numReadChapters !== undefined ? Math.max(0, Math.trunc(numReadChapters)) : undefined,
+        },
     });
-
-    if (!response.ok) {
-        let errorData;
-        try {
-            errorData = await response.json();
-        } catch {
-            errorData = { error: 'Unknown server error' };
-        }
-
-        throw new Error(`MAL Manga Sync Error: ${errorData.error || 'Failed to update MAL manga status'}`);
-    }
-
-    return response.json();
+    await failIfNotOk(res, 'MAL manga sync');
+    return res.json();
 }
 
 /**
  * Removes a manga from the user's MyAnimeList library.
  */
 export async function deleteMalMangaStatus(mangaIdOrMalId: string): Promise<void> {
-    const { supabase } = await import('@/integrations/supabase/client');
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error('Not authenticated');
-
     const malId = await resolveMalMangaId(mangaIdOrMalId);
-    const functionUrl = getMalAuthFunctionUrl();
-
-    const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
-        },
-        body: JSON.stringify({
-            action: 'delete_manga',
-            malId,
-        })
-    });
-
-    if (!response.ok) {
-        console.error('[MAL Manga Sync] Delete failed in Edge Function');
-    }
+    const res = await malFetch(`/manga/${malId}/my_list_status`, { method: 'DELETE' });
+    if (!res.ok && res.status !== 404) console.error('[MAL Manga Sync] Delete failed', res.status);
 }
 
-
-/**
- * Removes an anime from the user's MyAnimeList library.
- */
-export async function deleteMalAnimeStatus(animeIdOrMalId: string): Promise<void> {
-    const { supabase } = await import('@/integrations/supabase/client');
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
-
-    let malId: number;
-    if (/^\d+$/.test(animeIdOrMalId)) {
-        malId = parseInt(animeIdOrMalId);
-    } else {
-        // Try searching in watchlist first
-        const { data: watchlistEntry } = await supabase
-            .from('watchlist')
-            .select('mal_id')
-            .eq('user_id', user.id)
-            .eq('anime_id', animeIdOrMalId)
-            .maybeSingle();
-
-        if (watchlistEntry?.mal_id) {
-            malId = watchlistEntry.mal_id;
-        } else {
-            console.warn('[MAL Sync] ERR - No MAL ID found to delete for:', animeIdOrMalId);
-            return; // Exit silently if we can't find the ID to delete
-        }
-    }
-
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) throw new Error('Not authenticated');
-
-    const functionUrl = getMalAuthFunctionUrl();
-
-    console.log('[MAL Sync] REQ - Calling Edge Function delete for malId:', malId);
-
-    const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'Content-Type': 'application/json',
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY
-        },
-        body: JSON.stringify({
-            action: 'delete',
-            malId
-        })
-    });
-
-    if (!response.ok) {
-        console.error('[MAL Sync] Delete failed in Edge Function');
-    } else {
-        console.log('[MAL Sync] OK - Delete successful');
-    }
-}
+// ── Account ──────────────────────────────────────────────────────────────────
 
 /**
  * Checks if the user is linked to MAL.
  */
 export async function getMalStatus(profile: any) {
-    return !!(profile?.mal_access_token);
+    // The token itself is private; mal_user_id on the (public) profile is the linked signal.
+    return !!(profile?.mal_user_id);
 }
+
 /**
  * Disconnects the user's MyAnimeList account by clearing tokens.
  */
-export async function disconnectMal(userId: string): Promise<void> {
-    const { supabase } = await import('@/integrations/supabase/client');
-    const { error } = await supabase
-        .from('profiles')
-        .update({
-            mal_user_id: null,
-            mal_access_token: null,
-            mal_refresh_token: null,
-            mal_token_expires_at: null,
-        })
-        .eq('user_id', userId);
-
-    if (error) throw error;
+export async function disconnectMal(_userId?: string): Promise<void> {
+    await clearMalCredentials();
 }
+
+/** Clear the stored login for the signed-in user (used after an unrecoverable 401). */
+export const clearStoredMalLogin = clearMalCredentials;
+
+export { MAL_API_URL };

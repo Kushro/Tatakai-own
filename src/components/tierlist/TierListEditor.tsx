@@ -17,7 +17,7 @@ import { cn } from '@/lib/utils';
 import { contentGraph, toAnimeCard } from '@/core';
 import { searchManga } from '@/core/content/manga-client';
 import { searchNovels } from '@/core/content/novel-client';
-import { ANILIST_GRAPHQL_ENDPOINT } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
 
 type TierSearchType = 'anime' | 'manga' | 'novel' | 'character';
 
@@ -359,17 +359,12 @@ export function TierListEditor({ initialData, onSave, onClose }: TierListEditorP
             }
           }
         `;
-        const res = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: charGql, variables: { search: query, page: pageNum } })
-        });
-        const json = await res.json();
+        const data = await anilistGql<any>(charGql, { search: query, page: pageNum });
         
         if (requestId !== latestSearchRequestRef.current) return;
         
-        const characters = json?.data?.Page?.characters || [];
-        const hasNext = json?.data?.Page?.pageInfo?.hasNextPage || false;
+        const characters = data?.Page?.characters || [];
+        const hasNext = data?.Page?.pageInfo?.hasNextPage || false;
         
         const newResults = characters.map((char: any) => ({
           id: `char:${char.id}`,

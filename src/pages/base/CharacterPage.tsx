@@ -26,7 +26,7 @@ import { useIsDesktopApp } from '@/hooks/ui/useIsNativeApp';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { cn } from '@/lib/utils';
 import { useIsCharacterFavorited, useToggleCharacterFavorite } from '@/hooks/user/useCharacterFavorites';
-import { ANILIST_GRAPHQL_ENDPOINT } from '@/lib/api/backendOrigin';
+import { anilistGql, AniListError } from '@/lib/anilist/client';
 
 // AniList Character GraphQL
 const ANILIST_CHAR_QUERY = `
@@ -73,13 +73,12 @@ export default function CharacterPage() {
             
             // 1. Try by ID if numeric
             if (isNumericId) {
-                const res = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: ANILIST_CHAR_QUERY, variables: { id: parseInt(charname) } })
-                });
-                const json = await res.json();
-                if (json?.data?.Character) return json.data.Character;
+                try {
+                    const data = await anilistGql<any>(ANILIST_CHAR_QUERY, { id: parseInt(charname) });
+                    if (data?.Character) return data.Character;
+                } catch {
+                    // fall through to the name search
+                }
             }
 
             // 2. Try by name (using fallbackName or charname slug)
@@ -105,13 +104,13 @@ export default function CharacterPage() {
                     }
                 }
             `;
-            const searchRes = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query: searchGql, variables: { search: searchQuery } })
-            });
-            const searchJson = await searchRes.json();
-            return searchJson?.data?.Character;
+            try {
+                const data = await anilistGql<any>(searchGql, { search: searchQuery });
+                return data?.Character ?? null;
+            } catch (err) {
+                if (err instanceof AniListError && err.isNotFound) return null;
+                throw err;
+            }
         },
         staleTime: 1000 * 60 * 60
     });

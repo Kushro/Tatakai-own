@@ -1,0 +1,110 @@
+# Tatakai native desktop (Windows first) - workspace root.
+# [workspace.dependencies] is FROZEN after B1: a branch that needs a new dependency records it in
+# crates/<crate>/NOTES-deps.md (full coordinates + version + reason) and the integrator adds it here.
+[workspace]
+resolver = "3"
+members = [
+    "crates/tk-core",
+    "crates/tk-ext",
+    "crates/tk-link",
+    "crates/tk-player",
+    "crates/tk-ui",
+    "crates/tk-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.1"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+# --- internal crates ---
+tk-core = { path = "crates/tk-core" }
+tk-ext = { path = "crates/tk-ext" }
+tk-link = { path = "crates/tk-link" }
+tk-player = { path = "crates/tk-player", default-features = false }
+tk-ui = { path = "crates/tk-ui" }
+
+# --- UI ---
+dioxus = { version = "0.7.10", features = ["desktop", "router"] }
+
+# --- async / http client ---
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = "0.3"
+bytes = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+url = "2"
+hickory-resolver = "0.25"
+
+# --- serde / errors / logging ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+async-trait = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+time = { version = "0.3", features = ["serde-well-known", "formatting", "parsing"] }
+
+# --- storage / paths ---
+rusqlite = { version = "0.32", features = ["bundled"] }
+directories = "6"
+
+# --- extension host (QuickJS + HTML) ---
+rquickjs = { version = "0.9", features = ["futures", "loader", "parallel"] }
+scraper = "0.24"
+zip = { version = "2.6", default-features = false, features = ["deflate"] }
+
+# --- Link server (axum + rustls with the `ring` provider; NO aws-lc: it needs CMake + NASM on Windows) ---
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "matched-path", "original-uri", "query", "tokio"] }
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "server-auto", "http1", "service"] }
+http-body-util = "0.1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem", "x509-parser"] }
+x509-parser = "0.18"
+ipnet = "2"
+m3u8-rs = "6"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+base32 = "0.5"
+base64 = "0.22"
+# mdns-sd: mDNS discovery is OUT of M0 (review E7). Add it with M1.
+
+# --- player (libmpv embedded in a child HWND) ---
+libmpv2 = "4"
+raw-window-handle = "0.6"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_System_JobObjects",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+# --- tests only ---
+tempfile = "3"
+
+[workspace.lints.rust]
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

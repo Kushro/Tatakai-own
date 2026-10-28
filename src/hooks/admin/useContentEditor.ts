@@ -1,20 +1,13 @@
-import uiI18n from '@/lib/uiI18n';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { TATAKAI_API_URL, withClientHeaders, unwrapApiData } from '@/lib/api/api-client';
 import { contentGraph } from '@/core/content/content-graph';
 import type { TatakaiMedia } from '@/core/content/types';
 
 /**
  * Admin content-editor mutation.
  *
- * PATCHes a catalog item to the TatakaiAPI `/admin/content/:id` route, which
- * verifies the caller's Supabase JWT (profiles.is_admin) and writes to
- * content_items with the service-role client. `id` is either the AniList
- * numeric id or the tatakai uuid — the backend resolves (and creates the row if
- * the item wasn't stored yet). On success we purge the item's cached copies so
- * the info page refetches the edited values.
+ * Disabled in this fork: it depended on the upstream TatakaiAPI
+ * `/admin/content/:id` route. The mutation rejects with a clear message.
  */
 
 export interface UpdateContentInput {
@@ -30,25 +23,8 @@ export function useUpdateContent() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, fields, reason }: UpdateContentInput) => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (!token) throw new Error(uiI18n.t('app.you_must_be_signed_in_as_an_admin_to_edit_conten_e3da8132'));
-
-      const res = await fetch(`${TATAKAI_API_URL}/admin/content/${encodeURIComponent(id)}`, {
-        method: 'PATCH',
-        headers: withClientHeaders({
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        }),
-        body: JSON.stringify({ fields, reason }),
-      });
-
-      const json = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(json?.error || `Failed to save (HTTP ${res.status})`);
-      }
-      return unwrapApiData<TatakaiMedia>(json);
+    mutationFn: async (_input: UpdateContentInput): Promise<TatakaiMedia> => {
+      throw new Error('Content editing is not available in this build.');
     },
     onSuccess: async (_data, variables) => {
       await contentGraph.purgeMedia(variables.id);

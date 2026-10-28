@@ -23,12 +23,8 @@ export interface Profile {
   is_moderator?: boolean;
   is_public?: boolean;
   show_calendar?: boolean;
-  mal_access_token?: string | null;
-  mal_refresh_token?: string | null;
   mal_user_id?: string | null;
-  mal_token_expires_at?: string | null;
   mal_auto_delete?: boolean;
-  anilist_access_token?: string | null;
   anilist_user_id?: string | null;
   anilist_username?: string | null;
   showcase_anime_ids?: string[] | null;
@@ -306,19 +302,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, displayName?: string, captchaToken?: string) => {
-    if (import.meta.env.VITE_OPERATIONS_AUTH_ENABLED === 'true') {
-      try {
-        const { resolveApiV3Base } = await import('@/lib/api/backendOrigin');
-        const response = await fetch(`${resolveApiV3Base()}/auth/signup`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, displayName, captchaToken }),
-        });
-        const result = await response.json();
-        if (!response.ok) return { error: new Error(result.error || 'Registration unavailable') };
-        if (result.mode !== 'restricted' && result.mode !== 'otp_required') return { error: new Error(uiI18n.t('app.invalid_registration_response_2c1e735e')) };
-        return { error: null, mode: result.mode as 'restricted' | 'otp_required' };
-      } catch { return { error: new Error(uiI18n.t('app.registration_temporarily_unavailable_30b74395')) }; }
-    }
     const redirectUrl = `${window.location.origin}/`;
 
     const { error } = await supabase.auth.signUp({

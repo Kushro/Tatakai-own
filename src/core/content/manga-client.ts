@@ -10,9 +10,12 @@ import type {
 import type {
   MangaFeedSection,
   MangaHomeBundle,
-  MangaSectionsPage,
+  MediaStatus,
+  SearchFilters,
   TatakaiMedia,
 } from "./types";
+import { metadata, type FeedOptions, type MetadataFeedKind } from "@/lib/metadata";
+import { parseMediaId } from "./content-graph";
 import {
   readCachedItemsSync,
   hydrateCachedItems,
@@ -22,6 +25,7 @@ import {
 } from "@/lib/cache/extensionResultCache";
 import { isCapacitor } from "@/lib/platform/platform";
 import { removeMangaChapterOutliers } from '@/lib/reader/mangaChapterReliability';
+import { mangaExtensionContext } from '@/core/extensions/compatibility/title-context';
 
 /** Cache-key builder shared by the client + the query hook's placeholder. */
 let chaptersCacheGeneration = 0;
@@ -156,6 +160,8 @@ export type MangaSearchOptions = {
   minYear?: number;
   minScore?: number;
   minChapters?: number;
+  maxYear?: number;
+  maxScore?: number;
 };
 
 // Manga provider types
@@ -216,77 +222,84 @@ export async function getMangaFilterCounts(_query?: string): Promise<Record<stri
 }
 
 /**
- * Origin to resolve `/api/v3/manga/…` paths against. Same rationale as
- * content-graph: on the web the page origin is correct (same-origin proxy); in
- * the packaged desktop app the renderer runs from `file://`, so fall back to the
- * explicit absolute backend origin instead of `file:///api/v3/…`.
+ * Total-chapter reporting went to the TatakaiAPI mirror, which no longer exists.
+ * Kept as a no-op so existing call sites keep compiling.
  */
-function resolveApiOrigin(): string {
-  // Capacitor's origin is the WebView scheme (`https://localhost` /
-  // `capacitor://`), not the backend — skip straight to the explicit origin.
-  if (
-    typeof window !== 'undefined' &&
-    /^https?:$/i.test(window.location.protocol) &&
-    !isCapacitor()
-  ) {
-    return window.location.origin;
-  }
-  const explicit = String(import.meta.env.VITE_BACKEND_ORIGIN || '').trim();
-  if (explicit && /^https?:\/\//i.test(explicit)) return explicit.replace(/\/+$/, '');
-  const apiUrl = String(import.meta.env.VITE_TATAKAI_API_URL || '').trim();
-  try {
-    if (apiUrl) return new URL(apiUrl).origin;
-  } catch {
-    /* fall through */
-  }
-  return 'https://api.tatakai.me';
+export async function storeMangaTotalChapters(_mangaId: string, _total: number): Promise<void> {
+  /* intentionally empty */
 }
 
-async function apiGet<T>(path: string, params?: Record<string, string | number | boolean | undefined>, onMeta?: (meta: { total?: number; hasNextPage?: boolean; lastPage?: number; source?: string }) => void, timeoutMs = 30_000): Promise<T> {
-  const url = new URL(path, resolveApiOrigin());
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
-    }
+const STATUS_FILTERS: Record<string, MediaStatus> = {
+  ongoing: "RELEASING", completed: "FINISHED", hiatus: "HIATUS",
+  cancelled: "CANCELLED", unreleased: "NOT_YET_RELEASED",
+};
+
+const ORIGIN_COUNTRY: Record<string, string> = {
+  jp: "JP", kr: "KR", cn: "CN", zh: "CN", tw: "TW", us: "US",
+  manga: "JP", manhwa: "KR", manhua: "CN", comics: "US",
+};
+
+const UPPER_SORTS = new Set<NonNullable<SearchFilters["sortBy"]>>([
+  "TRENDING_DESC", "POPULARITY_DESC", "SCORE_DESC", "START_DATE_DESC", "TITLE_ROMAJI",
+  "FAVOURITES_DESC", "UPDATED_AT_DESC", "CHAPTERS_DESC", "END_DATE_DESC",
+]);
+
+/** Manga/novel UI sort + mode values → router sort (undefined = relevance). */
+function toSortBy(sort?: string, mode?: string): SearchFilters["sortBy"] {
+  const s = String(sort || "");
+  if (UPPER_SORTS.has(s as NonNullable<SearchFilters["sortBy"]>)) return s as SearchFilters["sortBy"];
+  switch (s.toLowerCase()) {
+    case "trending": return "TRENDING_DESC";
+    case "rating": case "score": return "SCORE_DESC";
+    case "popularity": return "POPULARITY_DESC";
+    case "follows": return "FAVOURITES_DESC";
+    case "chaptercount": return "CHAPTERS_DESC";
+    case "newest": return "START_DATE_DESC";
+    case "latestupdate": return "UPDATED_AT_DESC";
   }
-  const res = await fetch(url.toString(), { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(timeoutMs) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  if (json?.meta) onMeta?.(json.meta);
-  return (json?.data ?? json) as T;
+  switch (mode) {
+    case "popular": return "POPULARITY_DESC";
+    case "latest": case "new-chap": case "recent": return "UPDATED_AT_DESC";
+    case "added": return "START_DATE_DESC";
+  }
+  return undefined;
 }
 
-async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const url = new URL(path, resolveApiOrigin());
-  const res = await fetch(url.toString(), {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify(body ?? {}),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  return (json?.data ?? json) as T;
-}
-
-/**
- * Report a manga's discovered total chapter count to the mirror ("Tiger DB").
- *
- * Chapters are scraped client-side, so the backend only learns the real total
- * when the reader sends it here. The server bump is upward-only, so calling this
- * whenever a chapter list loads is safe (and cheap — one small POST). Best-effort:
- * failures are swallowed so this never disrupts reading. `mangaId` may be a bare
- * numeric AniList id or an `anilist:`/`mal:` id — the route resolves all three.
- */
-export async function storeMangaTotalChapters(mangaId: string, total: number): Promise<void> {
-  const id = String(mangaId || "").trim();
-  if (!id || !Number.isFinite(total) || total <= 0) return;
-  try {
-    await apiPost(`/api/v3/manga/${encodeURIComponent(id)}/total-chapters`, {
-      total: Math.floor(total),
-    });
-  } catch {
-    /* best-effort; scraped totals are non-critical metadata */
-  }
+/** Map the manga/novel UI search options onto router filters (shared with novel-client). */
+export function toMetadataSearchFilters(
+  query: string,
+  page: number,
+  limit: number,
+  options: MangaSearchOptions & { novelsOnly?: boolean },
+): SearchFilters & { novelsOnly?: boolean; countryOfOrigin?: string } {
+  const mangaType = String(options.mangaType || options.types?.[0] || "").toLowerCase();
+  const origin = String(options.origin || "").toLowerCase();
+  const countryOfOrigin = ORIGIN_COUNTRY[origin] ?? ORIGIN_COUNTRY[mangaType];
+  const statuses = (options.statuses || [])
+    .map((s) => STATUS_FILTERS[String(s).toLowerCase()] ?? (String(s).toUpperCase() as MediaStatus))
+    .filter(Boolean);
+  const year = options.minYear || options.maxYear
+    ? { min: options.minYear || undefined, max: options.maxYear || undefined }
+    : undefined;
+  const rating = options.minScore || options.maxScore
+    ? {
+        min: options.minScore ? Math.round(options.minScore * 10) : undefined,
+        max: options.maxScore ? Math.round(options.maxScore * 10) : undefined,
+      }
+    : undefined;
+  return {
+    query: query.trim() || undefined,
+    page,
+    perPage: limit,
+    isAdult: options.adult ? true : false,
+    genres: options.genre ? [options.genre] : undefined,
+    status: statuses.length ? statuses : undefined,
+    sortBy: toSortBy(options.sort, options.mode),
+    year,
+    rating,
+    countryOfOrigin,
+    novelsOnly: options.novelsOnly || mangaType === "novel" || undefined,
+  };
 }
 
 export async function searchManga(
@@ -299,22 +312,9 @@ export async function searchManga(
     const { searchMangaTags } = await import('./manga-tag-search');
     return searchMangaTags(query, page, limit, options);
   }
-  let metadata: { total?: number; hasNextPage?: boolean; lastPage?: number; source?: string } = {};
-  const rows = await apiGet<any[]>("/api/v3/manga/search", {
-    q: query || undefined,
-    page,
-    perPage: limit,
-    isAdult: options.adult,
-    mode: options.mode,
-    provider: options.provider,
-    genre: options.genre,
-    tags: options.tags?.join(','),
-    sort: options.sort,
-    origin: options.origin,
-    type: options.mangaType || options.types?.[0],
-    minYear: options.minYear,
-    minScore: options.minScore,
-  }, meta => { metadata = meta; });
+  const { value, provider } = await metadata.search("MANGA", toMetadataSearchFilters(query, page, limit, options));
+  let rows: TatakaiMedia[] = value.media;
+  if (options.minChapters) rows = rows.filter((m) => (m.chapters ?? 0) >= options.minChapters!);
   const getMangaType = (media: any) => {
     const fmt = String(media?.format || "").toUpperCase();
     if (fmt === "NOVEL" || fmt === "LIGHT_NOVEL") return "novel";
@@ -323,16 +323,13 @@ export async function searchManga(
     if (media?.countryOfOrigin === "CN") return "manhua";
     return "manga";
   };
-  const results = rows.map((row) => {
-    const media = row?.media ?? row;
+  const results = rows.map((media) => {
     return {
       id: media?.anilistId
         ? String(media.anilistId)
         : media?.malId
           ? `mal:${media.malId}`
-          : media?.tatakaiId
-            ? String(media.tatakaiId)
-            : "",
+          : "",
       mediaType: "manga" as const,
       type: getMangaType(media),
       // Raw AniList format (MANGA/MANHWA/MANHUA/OEL/ONE_SHOT/NOVEL) so callers can
@@ -364,31 +361,23 @@ export async function searchManga(
     partial: false,
     failedProviders: [],
     results,
-    currentPage: page,
-    totalPages: metadata.lastPage ?? (results.length < limit ? page : page + 1),
-    total: metadata.total,
+    currentPage: value.pageInfo.currentPage || page,
+    totalPages: value.pageInfo.lastPage,
+    total: value.pageInfo.total,
     totalIsApproximate: true,
-    hasNextPage: metadata.hasNextPage ?? results.length >= limit,
-    source: metadata.source || "api-v3",
+    hasNextPage: value.pageInfo.hasNextPage,
+    source: provider,
   };
 }
 
 export async function getMangaDetail(id: string): Promise<MangaDetailResponse> {
   const normalizedId = String(id || "");
-  let row: any;
-
-  if (normalizedId.startsWith("anilist:")) {
-    const aniId = normalizedId.replace("anilist:", "");
-    row = await apiGet<any>(`/api/v3/manga/by-anilist/${aniId}`);
-  } else if (normalizedId.startsWith("mal:")) {
-    // Current API might not have by-mal, fallback to general lookup or search
-    row = await apiGet<any>(`/api/v3/manga/${encodeURIComponent(normalizedId)}`);
-  } else {
-    const raw = Number(normalizedId);
-    row = Number.isFinite(raw)
-      ? await apiGet<any>(`/api/v3/manga/by-anilist/${raw}`)
-      : await apiGet<any>(`/api/v3/manga/${encodeURIComponent(normalizedId)}`);
-  }
+  const parsed = parseMediaId(normalizedId);
+  if (!parsed) throw new Error(`Invalid manga ID: ${id}`);
+  let found = (await metadata.media("MANGA", parsed.ref)).value;
+  if (!found && parsed.alt) found = (await metadata.media("MANGA", parsed.alt)).value;
+  if (!found) throw new Error(`Manga not found: ${id}`);
+  const row: any = found;
 
   const media = row?.media ?? row;
   const authors = media?.staff?.filter((s: any) => s.role?.toLowerCase().includes("story")).map((s: any) => s.name) || [];
@@ -454,7 +443,7 @@ export async function getMangaDetail(id: string): Promise<MangaDetailResponse> {
   };
 }
 
-export async function getMangaChapters(id: string, _providers?: string, _language?: string): Promise<MangaChapterResponse> {
+export async function getMangaChapters(id: string, _providers?: string, _language?: string, metadata?: MangaDetailResponse | null | Promise<MangaDetailResponse | null>): Promise<MangaChapterResponse> {
   const generation = chaptersCacheGeneration;
   const { fetchMangaDexChapters } = await import('./mangadex-api');
   const { fetchMangaUpdatesCatalog, applyMangaUpdatesCatalog } = await import('./mangaupdates-api');
@@ -463,12 +452,12 @@ export async function getMangaChapters(id: string, _providers?: string, _languag
   const [mangaDex, updatesCatalog, extensionPayload] = await Promise.all([
     fetchMangaDexChapters(id),
     fetchMangaUpdatesCatalog(id),
-    runtime.fetchExtensionMangaChapters({anilistId:Number.isFinite(anilistId)?anilistId:undefined})
-      .catch(() => ({chapters:[],providersAvailable:[],failedProviders:[]})),
+    (async () => runtime.fetchExtensionMangaChapters(mangaExtensionContext(id, metadata === undefined ? await getMangaDetail(id).catch(() => undefined) : await metadata || undefined)))()
+      .catch(() => ({chapters:[],providersAvailable:[],failedProviders:[],pending:false})),
   ]);
   const empty: MangaChapterResponse = {anilistId:Number.isFinite(anilistId)?anilistId:0,partial:false,failedProviders:[],chapters:[],mappedChapters:[]};
   // Reader providers always contribute, regardless of which metadata API answers.
-  const base = mangaDex || (updatesCatalog || extensionPayload.chapters.length ? empty : await apiGet<MangaChapterResponse>(`/api/v3/manga/${encodeURIComponent(id)}/chapters`,undefined,undefined,10000).catch(()=>empty));
+  const base = mangaDex || empty;
   const cacheKey = mangaChaptersCacheKey(id, _providers, _language);
 
   const merged = applyMangaUpdatesCatalog(runtime.mergeChaptersWithExtensions(base, extensionPayload), updatesCatalog);
@@ -701,7 +690,7 @@ export async function getMangaReadByKey(
     }
     return failure;
   }
-  if (isNative && provider && provider !== "tatakai_media") {
+  if ((isNative || provider?.startsWith('server-')) && provider && provider !== "tatakai_media") {
     const { fetchExtensionMangaPages } = await import("@/core/content/manga-extension-runtime");
     const anilistId = Number(String(id).replace(/^anilist:/i, ""));
     return fetchExtensionMangaPages({
@@ -720,7 +709,7 @@ export async function getMangaReadByKey(
       code: "EXTENSION_RUNTIME_REQUIRED",
       message: isNative
         ? "Install a manga extension and open a provider source from the chapter hierarchy."
-        : "Manga reader requires the Tatakai desktop app with extensions.",
+        : "Connect an extension server in Extensions Hub and select a provider source from the chapter list.",
       retryable: false,
     },
   };
@@ -750,7 +739,7 @@ function rowToMangaCard(row: any): MangaCard {
       ? String(media.anilistId)
       : media?.malId
         ? `mal:${media.malId}`
-        : String(media?.id || media?.tatakaiId || ""),
+        : String(media?.id || ""),
     title: media?.titleEnglish || media?.titleRomaji || media?.titleNative || "Untitled",
     poster: media?.coverImageLarge || media?.coverImageMedium || null,
     score: media?.averageScore ?? null,
@@ -764,56 +753,28 @@ function rowToMangaCard(row: any): MangaCard {
   };
 }
 
-/**
- * Fetch trending manga from AniList via the API proxy.
- * Falls back to "popular" mode if trending is not available.
- */
+async function feedCards(feed: MetadataFeedKind, limit: number, opts: Partial<FeedOptions> = {}): Promise<MangaCard[]> {
+  try {
+    const { value } = await metadata.feed("MANGA", feed, { perPage: limit, ...opts });
+    return value.media.map(rowToMangaCard).filter((m) => m.id);
+  } catch {
+    return [];
+  }
+}
+
+/** Trending Japanese manga (AniList trending, falling back through the router). */
 export async function getTrendingManga(limit = 18): Promise<MangaCard[]> {
-  try {
-    const rows = await apiGet<any[]>("/api/v3/manga/search", {
-      mode: "popular",
-      perPage: limit,
-      sort: "TRENDING_DESC",
-      type: "manga",
-    });
-    return (Array.isArray(rows) ? rows : []).map(rowToMangaCard).filter((m) => m.id);
-  } catch {
-    return [];
-  }
+  return feedCards("trending", limit, { countryOfOrigin: "JP" });
 }
 
-/**
- * Fetch trending manhwa (Korean) — separate query for the manhwa row.
- */
+/** Popular manhwa (Korean). */
 export async function getTrendingManhwa(limit = 12): Promise<MangaCard[]> {
-  try {
-    const rows = await apiGet<any[]>("/api/v3/manga/search", {
-      mode: "popular",
-      perPage: limit,
-      sort: "POPULARITY_DESC",
-      origin: "kr",
-    });
-    return (Array.isArray(rows) ? rows : []).map(rowToMangaCard).filter((m) => m.id);
-  } catch {
-    return [];
-  }
+  return feedCards("popular", limit, { countryOfOrigin: "KR" });
 }
 
-/**
- * Fetch trending manhua (Chinese) — separate query for the manhua row.
- */
+/** Popular manhua (Chinese). */
 export async function getTrendingManhua(limit = 12): Promise<MangaCard[]> {
-  try {
-    const rows = await apiGet<any[]>("/api/v3/manga/search", {
-      mode: "popular",
-      perPage: limit,
-      sort: "POPULARITY_DESC",
-      origin: "cn",
-    });
-    return (Array.isArray(rows) ? rows : []).map(rowToMangaCard).filter((m) => m.id);
-  } catch {
-    return [];
-  }
+  return feedCards("popular", limit, { countryOfOrigin: "CN" });
 }
 
 /**
@@ -821,38 +782,18 @@ export async function getTrendingManhua(limit = 12): Promise<MangaCard[]> {
  * Used in the discovery / recommendation sections.
  */
 export async function getMangaByGenre(genre: string, limit = 12): Promise<MangaCard[]> {
-  try {
-    const rows = await apiGet<any[]>("/api/v3/manga/search", {
-      mode: "genre",
-      genre,
-      perPage: limit,
-      sort: "POPULARITY_DESC",
-    });
-    return (Array.isArray(rows) ? rows : []).map(rowToMangaCard).filter((m) => m.id);
-  } catch {
-    return [];
-  }
+  return feedCards("popular", limit, { genre });
 }
 
 /**
- * Fetch recently-updated manga chapters feed.
+ * Currently-publishing manga (the closest public-API proxy for "new chapters").
  */
 export async function getLatestMangaUpdates(limit = 18): Promise<MangaCard[]> {
-  try {
-    const rows = await apiGet<any[]>("/api/v3/manga/search", {
-      mode: "new-chap",
-      perPage: limit,
-    });
-    return (Array.isArray(rows) ? rows : []).map(rowToMangaCard).filter((m) => m.id);
-  } catch {
-    return [];
-  }
+  return feedCards("airing", limit);
 }
 
-// ─── Server-assembled hub feeds ──────────────────────────────────────────────
-// `/manga/home` and `/manga/sections` replace the fan-out of `/manga/search`
-// calls the hub used to make. Both are cached and de-duplicated upstream, and
-// both return light card records with no mapping writes on the read path.
+// ─── Hub feeds, assembled client-side from the metadata router ───────────────
+// The shelf list below replaces the TatakaiAPI manga home and sections endpoints.
 
 /**
  * `TatakaiMedia` → `MangaSearchItem`.
@@ -921,58 +862,151 @@ const EMPTY_HOME_FEED: MangaHomeFeed = {
   genres: [], fetchedAt: 0,
 };
 
-/**
- * The whole top of `/manga` in one request.
- *
- * `adult` opts into the mature lanes; it maps to a separate cache key server-side
- * rather than a flag on the shared one.
- */
-export async function getMangaHome(adult = false): Promise<MangaHomeFeed> {
-  const bundle = await apiGet<MangaHomeBundle>("/api/v3/manga/home", {
-    adult: adult ? 1 : undefined,
-  });
-  if (!bundle || typeof bundle !== "object") return EMPTY_HOME_FEED;
-
-  return {
-    spotlight: mapLane(bundle.spotlight),
-    trending: mapLane(bundle.trending),
-    popular: mapLane(bundle.popular),
-    topRated: mapLane(bundle.topRated),
-    newChapters: mapLane(bundle.newChapters),
-    manhwa: mapLane(bundle.manhwa),
-    manhua: mapLane(bundle.manhua),
-    adultLatest: mapLane(bundle.adultLatest),
-    adultPopular: mapLane(bundle.adultPopular),
-    genres: Array.isArray(bundle.genres) ? bundle.genres : [],
-    fetchedAt: bundle.fetchedAt ?? Date.now(),
-  };
+/** Fetch one lane; a failing lane is empty rather than failing the whole hub. */
+async function lane(feed: MetadataFeedKind, perPage: number, opts: Partial<FeedOptions> = {}): Promise<TatakaiMedia[]> {
+  try {
+    return (await metadata.feed("MANGA", feed, { perPage, ...opts })).value.media;
+  } catch {
+    return [];
+  }
 }
 
 /**
- * One scroll page of the endless feed — four shelves, one request.
+ * The top of the manga hub, composed from parallel router feeds.
  *
- * The shelf list, its order and its filters all live server-side; the client only
- * asks for a page number.
+ * - spotlight: trending titles with a banner (topped up with the rest)
+ * - newChapters: currently publishing (no per-chapter feed exists publicly)
+ * - manhwa / manhua: popular titles by country of origin (KR / CN)
+ * - adultLatest / adultPopular: only fetched when `adult` is true; titles in the
+ *   Hentai genre
+ * Returns an empty feed only when every lane is empty.
+ */
+export async function getMangaHome(adult = false): Promise<MangaHomeFeed> {
+  const [trending, popular, topRated, newChapters, manhwa, manhua, adultLatest, adultPopular, genres] =
+    await Promise.all([
+      lane("trending", 20),
+      lane("popular", 20),
+      lane("top_rated", 20),
+      lane("airing", 20),
+      lane("popular", 20, { countryOfOrigin: "KR" }),
+      lane("popular", 20, { countryOfOrigin: "CN" }),
+      adult ? lane("airing", 20, { isAdult: true, genre: "Hentai" }) : Promise.resolve([] as TatakaiMedia[]),
+      adult ? lane("popular", 20, { isAdult: true, genre: "Hentai" }) : Promise.resolve([] as TatakaiMedia[]),
+      metadata.genres("MANGA", { includeAdult: adult }).then((r) => r.value).catch(() => [] as string[]),
+    ]);
+
+  const lanes = [trending, popular, topRated, newChapters, manhwa, manhua];
+  if (lanes.every((l) => l.length === 0)) return { ...EMPTY_HOME_FEED, fetchedAt: Date.now() };
+
+  const hero = trending.length ? trending : popular;
+  const banners = hero.filter((m) => m.bannerImage);
+  const spotlight = [...banners, ...hero.filter((m) => !m.bannerImage)].slice(0, 10);
+
+  return {
+    spotlight: mapLane(spotlight),
+    trending: mapLane(trending),
+    popular: mapLane(popular),
+    topRated: mapLane(topRated),
+    newChapters: mapLane(newChapters),
+    manhwa: mapLane(manhwa),
+    manhua: mapLane(manhua),
+    adultLatest: mapLane(adultLatest),
+    adultPopular: mapLane(adultPopular),
+    genres,
+    fetchedAt: Date.now(),
+  };
+}
+
+interface ShelfDef {
+  id: string;
+  title: string;
+  genre: string;
+  layout: string;
+  /** lucide icon name; the hook owns the name -> component map. */
+  icon: string;
+  feed: MetadataFeedKind;
+  opts: Partial<FeedOptions>;
+}
+
+const LAYOUT_CYCLE = ["carousel", "grid", "featured", "compact", "masonry"] as const;
+
+type ShelfSeed = Omit<ShelfDef, "layout">;
+const genreShelf = (genre: string, icon: string, country?: FeedOptions["countryOfOrigin"]): ShelfSeed => {
+  const prefix = country === "KR" ? "Manhwa: " : country === "CN" ? "Manhua: " : "";
+  const slug = genre.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return {
+    id: country ? `${country === "KR" ? "manhwa" : "manhua"}-${slug}` : slug,
+    title: `${prefix}${genre}`,
+    genre,
+    icon,
+    feed: "popular",
+    opts: { genre, countryOfOrigin: country },
+  };
+};
+
+const baseShelves: ShelfSeed[] = [
+  { id: "trending", title: "Trending Manga", genre: "trending", icon: "Flame", feed: "trending", opts: { countryOfOrigin: "JP" } },
+  { id: "popular-manhwa", title: "Popular Manhwa", genre: "manhwa", icon: "Sparkles", feed: "popular", opts: { countryOfOrigin: "KR" } },
+  { id: "popular-manhua", title: "Popular Manhua", genre: "manhua", icon: "Zap", feed: "popular", opts: { countryOfOrigin: "CN" } },
+  { id: "top-rated", title: "Top Rated", genre: "top rated", icon: "Sparkles", feed: "top_rated", opts: {} },
+  { id: "publishing-now", title: "Publishing Now", genre: "ongoing", icon: "Compass", feed: "airing", opts: {} },
+  { id: "upcoming", title: "Coming Soon", genre: "upcoming", icon: "Rocket", feed: "upcoming", opts: {} },
+  { id: "recently-completed", title: "Recently Completed", genre: "completed", icon: "Brain", feed: "recently_completed", opts: {} },
+  genreShelf("Action", "Sword"),
+  genreShelf("Romance", "Heart"),
+  genreShelf("Comedy", "Laugh"),
+  genreShelf("Fantasy", "Sparkles"),
+  genreShelf("Sci-Fi", "Rocket"),
+  genreShelf("Horror", "Ghost"),
+  genreShelf("Slice of Life", "Flower2"),
+  genreShelf("Adventure", "Compass"),
+  genreShelf("Mystery", "Search"),
+  genreShelf("Psychological", "Brain"),
+  genreShelf("Supernatural", "Ghost"),
+  genreShelf("Sports", "Zap"),
+  genreShelf("Drama", "Heart"),
+  genreShelf("Thriller", "Flame"),
+  genreShelf("Mahou Shoujo", "Sparkles"),
+  genreShelf("Action", "Sword", "KR"),
+  genreShelf("Romance", "Heart", "KR"),
+  genreShelf("Fantasy", "Sparkles", "KR"),
+  genreShelf("Action", "Sword", "CN"),
+  genreShelf("Fantasy", "Sparkles", "CN"),
+  genreShelf("Romance", "Heart", "CN"),
+];
+
+const SHELVES: ShelfDef[] = baseShelves.map((shelf, index) => ({
+  ...shelf,
+  layout: LAYOUT_CYCLE[index % LAYOUT_CYCLE.length],
+}));
+
+const SHELVES_PER_PAGE = 4;
+/** Cards fetched per shelf; the hook renders 5 and needs slack for the adult filter. */
+const SHELF_PREVIEW_ITEMS = 7;
+
+/**
+ * One scroll page of the endless feed: four shelves from the local shelf list,
+ * fetched in parallel. Shelves whose fetch fails or comes back empty are dropped.
  */
 export async function getMangaSections(page = 1, adult = false): Promise<MangaSectionsFeed> {
-  const data = await apiGet<MangaSectionsPage>("/api/v3/manga/sections", {
-    page,
-    adult: adult ? 1 : undefined,
-  });
-
-  const sections = Array.isArray(data?.sections) ? data.sections : [];
-  return {
-    page: data?.page ?? page,
-    sections: sections.map((section) => ({
-      id: section.id,
-      title: section.title,
-      genre: section.genre,
-      layout: section.layout,
-      icon: section.icon,
-      items: mapLane(section.items),
+  const totalPages = Math.ceil(SHELVES.length / SHELVES_PER_PAGE);
+  const slice = SHELVES.slice((page - 1) * SHELVES_PER_PAGE, page * SHELVES_PER_PAGE);
+  const filled = await Promise.all(
+    slice.map(async (shelf): Promise<MangaFeedShelf> => ({
+      id: shelf.id,
+      title: shelf.title,
+      genre: shelf.genre,
+      layout: shelf.layout,
+      icon: shelf.icon,
+      items: mapLane(await lane(shelf.feed, SHELF_PREVIEW_ITEMS, { ...shelf.opts, isAdult: adult })),
     })),
-    hasNextPage: Boolean(data?.hasNextPage),
-    totalPages: data?.totalPages ?? page,
+  );
+
+  return {
+    page,
+    sections: filled.filter((section) => section.items.length > 0),
+    hasNextPage: page < totalPages,
+    totalPages,
   };
 }
 
@@ -989,30 +1023,32 @@ export type MangaSectionItemsPage = {
   totalPages: number;
 };
 
-/** Fetch per-section items for infinite scroll within a genre shelf. */
+/** Fetch per-section items for infinite scroll within a shelf. */
 export async function getMangaSectionItems(
   sectionId: string,
   page = 1,
   options: { adult?: boolean; perPage?: number } = {},
 ): Promise<MangaSectionItemsPage | null> {
-  const data = await apiGet<MangaSectionItemsPage>(`/api/v3/manga/sections/${sectionId}`, {
+  const shelf = SHELVES.find((s) => s.id === sectionId);
+  if (!shelf) return null;
+  const perPage = options.perPage ?? 24;
+  const { value } = await metadata.feed("MANGA", shelf.feed, {
+    ...shelf.opts,
     page,
-    adult: options.adult ? 1 : undefined,
-    perPage: options.perPage,
+    perPage,
+    isAdult: options.adult,
   });
 
-  if (!data?.items) return null;
-
   return {
-    id: data.id,
-    title: data.title,
-    layout: data.layout || "grid",
-    icon: data.icon || "",
-    genre: data.genre || "",
-    page: data.page ?? page,
-    perPage: data.perPage ?? 24,
-    items: mapLane(data.items as any[]),
-    hasNextPage: Boolean(data.hasNextPage),
-    totalPages: data.totalPages,
+    id: shelf.id,
+    title: shelf.title,
+    layout: shelf.layout || "grid",
+    icon: shelf.icon,
+    genre: shelf.genre,
+    page,
+    perPage,
+    items: mapLane(value.media),
+    hasNextPage: value.hasNextPage,
+    totalPages: value.hasNextPage ? page + 1 : page,
   };
 }

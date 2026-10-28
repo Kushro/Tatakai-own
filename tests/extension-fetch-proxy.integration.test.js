@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { createRequire } from 'module';
 import http from 'node:http';
 
@@ -7,6 +7,12 @@ const { LocalProxyServer } = require('../desktop/runtime/proxy/local-proxy-serve
 const { ExtensionWorkerPool } = require('../desktop/runtime/extension/extension-worker-pool.cjs');
 
 const logger = { info() {}, error() {} };
+
+// Other test files replace globalThis.fetch without restoring it; these tests
+// need the real network stack on both the client and the proxy side.
+let previousFetch;
+beforeAll(() => { previousFetch = globalThis.fetch; globalThis.fetch = Bun.fetch; });
+afterAll(() => { globalThis.fetch = previousFetch; });
 
 async function startUpstream(handler) {
   const server = http.createServer(handler);
@@ -37,7 +43,8 @@ describe('extension fetch proxy integration', () => {
       res.writeHead(201, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ ok: true }));
     });
-    const proxy = new LocalProxyServer(logger);
+    // The fixture upstream listens on 127.0.0.1, which the proxy refuses by default.
+    const proxy = new LocalProxyServer(logger, undefined, { allowPrivateTargets: true });
 
     try {
       const proxyBaseUrl = await proxy.ensureStarted();
@@ -66,7 +73,8 @@ describe('extension fetch proxy integration', () => {
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.end('https://fixture.test/stream.m3u8');
     });
-    const proxy = new LocalProxyServer(logger);
+    // The fixture upstream listens on 127.0.0.1, which the proxy refuses by default.
+    const proxy = new LocalProxyServer(logger, undefined, { allowPrivateTargets: true });
     const pool = new ExtensionWorkerPool();
 
     try {

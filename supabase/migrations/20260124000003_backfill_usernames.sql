@@ -29,7 +29,7 @@ BEGIN
         WHILE EXISTS (SELECT 1 FROM public.profiles WHERE username = final_username) LOOP
             rand_suffix := floor(random() * 9000 + 1000)::text;
             final_username := base_username || rand_suffix;
-        END WHILE;
+        END LOOP;
 
         -- Update the profile
         UPDATE public.profiles 

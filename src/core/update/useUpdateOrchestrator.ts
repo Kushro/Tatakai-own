@@ -31,7 +31,7 @@ interface ElectronUpdaterBridge {
   openExternal?: (url: string) => unknown;
 }
 
-export const LATEST_RELEASE_URL = 'https://github.com/snozxyx/Tatakai/releases/latest';
+export const LATEST_RELEASE_URL = 'https://github.com/Kushro/Tatakai-own/releases/latest';
 
 export function openManualUpdateDownload(): void {
   void bridge()?.openExternal?.(LATEST_RELEASE_URL);

@@ -1436,6 +1436,7 @@ export type Database = {
           updated_at: string;
           chapters: number | null;
           volumes: number | null;
+          is_hidden: boolean;
         };
         Insert: {
           tatakai_id?: string;
@@ -1486,6 +1487,7 @@ export type Database = {
           updated_at?: string;
           chapters?: number | null;
           volumes?: number | null;
+          is_hidden?: boolean;
         };
         Update: {
           tatakai_id?: string;
@@ -1536,6 +1538,7 @@ export type Database = {
           updated_at?: string;
           chapters?: number | null;
           volumes?: number | null;
+          is_hidden?: boolean;
         };
         Relationships: [];
       };
@@ -4956,6 +4959,44 @@ export type Database = {
             foreignKeyName: "user_follows_following_id_fkey";
             columns: ["following_id"];
             isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      user_integration_tokens: {
+        Row: {
+          user_id: string;
+          anilist_access_token: string | null;
+          anilist_token_expires_at: string | null;
+          mal_access_token: string | null;
+          mal_refresh_token: string | null;
+          mal_token_expires_at: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          anilist_access_token?: string | null;
+          anilist_token_expires_at?: string | null;
+          mal_access_token?: string | null;
+          mal_refresh_token?: string | null;
+          mal_token_expires_at?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          anilist_access_token?: string | null;
+          anilist_token_expires_at?: string | null;
+          mal_access_token?: string | null;
+          mal_refresh_token?: string | null;
+          mal_token_expires_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_integration_tokens_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: true;
             referencedRelation: "users";
             referencedColumns: ["id"];
           },

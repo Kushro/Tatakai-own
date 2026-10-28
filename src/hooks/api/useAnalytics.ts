@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { analytics } from '@/core/analytics/AnalyticsService';
-import { getVisitorId, getVisitSessionId } from '@/lib/analyticsIdentity';
+import { getVisitSessionId } from '@/lib/analyticsIdentity';
 
 // Check if we're online
 function isOnline(): boolean {
@@ -11,76 +11,6 @@ function isOnline(): boolean {
 
 // Generate or get session ID from localStorage
 const getSessionId = getVisitSessionId;
-
-const VISITOR_INFO_CACHE_KEY = 'tatakai_visitor_info_cache_v1';
-const VISITOR_INFO_TTL_MS = 30 * 60 * 1000;
-
-function getCachedVisitorInfo(): { ip?: string; country?: string; city?: string } | null {
-  if (typeof window === 'undefined') return null;
-
-  try {
-    const raw = sessionStorage.getItem(VISITOR_INFO_CACHE_KEY);
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw) as {
-      timestamp?: number;
-      data?: { ip?: string; country?: string; city?: string };
-    };
-
-    if (!parsed?.timestamp || !parsed?.data) return null;
-    if (Date.now() - parsed.timestamp > VISITOR_INFO_TTL_MS) return null;
-    return parsed.data;
-  } catch {
-    return null;
-  }
-}
-
-function setCachedVisitorInfo(data: { ip?: string; country?: string; city?: string }) {
-  if (typeof window === 'undefined') return;
-
-  try {
-    sessionStorage.setItem(
-      VISITOR_INFO_CACHE_KEY,
-      JSON.stringify({ timestamp: Date.now(), data })
-    );
-  } catch {
-    // Ignore storage failures.
-  }
-}
-
-// Fetch visitor info (country, IP via external API)
-async function fetchVisitorInfo(): Promise<{ ip?: string; country?: string; city?: string }> {
-  // Skip if offline
-  if (!isOnline()) return {};
-
-  const cached = getCachedVisitorInfo();
-  if (cached) return cached;
-  
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 1500);
-
-  try {
-    const res = await fetch('https://ipapi.co/json/', {
-      cache: 'force-cache',
-      signal: controller.signal,
-    });
-    if (!res.ok) return {};
-
-    const data = await res.json();
-    const visitorInfo = {
-      ip: data.ip,
-      country: data.country_name,
-      city: data.city,
-    };
-
-    setCachedVisitorInfo(visitorInfo);
-    return visitorInfo;
-  } catch {
-    return {};
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Traffic attribution — shared by the tracker (stored per visit) and the admin
@@ -125,55 +55,6 @@ export function classifyChannel(referrer?: string | null, utmMedium?: string | n
   if (SEARCH_HOSTS.some((h) => host.includes(h))) return 'Organic Search';
   if (SOCIAL_HOSTS.some((h) => host.includes(h))) return 'Social';
   return 'Referral';
-}
-
-/** Read ?utm_* params from the current URL (single source of truth). */
-function readUtm(): { utm_source?: string; utm_medium?: string; utm_campaign?: string } {
-  if (typeof window === 'undefined') return {};
-  try {
-    const q = new URLSearchParams(window.location.search);
-    const out: Record<string, string> = {};
-    for (const k of ['utm_source', 'utm_medium', 'utm_campaign'] as const) {
-      const v = q.get(k)?.trim().slice(0, 120);
-      if (v) out[k] = v;
-    }
-    return out;
-  } catch {
-    return {};
-  }
-}
-
-// Track page visit
-export async function trackPageVisit(pagePath: string, userId?: string): Promise<void> {
-  // Skip tracking when offline
-  if (!isOnline()) return;
-
-  try {
-    const sessionId = getSessionId();
-    const visitorInfo = await fetchVisitorInfo();
-    const referrer = (typeof document !== 'undefined' && document.referrer) || null;
-    const utm = readUtm();
-
-    await supabase.from('page_visits').insert({
-      user_id: userId || null,
-      session_id: sessionId,
-      visitor_id: getVisitorId(),
-      ip_address: visitorInfo.ip,
-      country: visitorInfo.country,
-      city: visitorInfo.city,
-      user_agent: navigator.userAgent,
-      page_path: pagePath,
-      referrer,
-      referrer_host: referrerHostOf(referrer),
-      channel: classifyChannel(referrer, utm.utm_medium),
-      page_title: typeof document !== 'undefined' ? document.title.slice(0, 300) : null,
-      ...utm,
-    });
-  } catch (error) {
-    if (import.meta.env.DEV) {
-      console.warn('Failed to track page visit:', error);
-    }
-  }
 }
 
 // Start watch session - returns session ID
@@ -238,7 +119,6 @@ export async function updateWatchSession(
 
 // Hook to track page visits on navigation
 export function usePageTracking(enabled: boolean = true) {
-  const { user } = useAuth();
   const lastPath = useRef<string>('');
 
   useEffect(() => {
@@ -250,9 +130,6 @@ export function usePageTracking(enabled: boolean = true) {
       // Only track if path changed
       if (currentPath !== lastPath.current) {
         lastPath.current = currentPath;
-        trackPageVisit(currentPath, user?.id);
-
-        // Comprehensive Analytics
         analytics.trackPageView(currentPath);
       }
     };
@@ -298,7 +175,7 @@ export function usePageTracking(enabled: boolean = true) {
       window.history.pushState = originalPushState;
       window.history.replaceState = originalReplaceState;
     };
-  }, [user?.id, enabled]);
+  }, [enabled]);
 }
 
 // Hook to track watch time

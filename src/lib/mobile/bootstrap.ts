@@ -115,9 +115,9 @@ async function initStatusBar(): Promise<void> {
     if (isAndroid()) {
       await StatusBar.setBackgroundColor({ color: '#09090b' });
     }
-    // Do NOT overlay the WebView — the layout reserves the inset via safe-area
-    // CSS vars, and overlaying would double-count it.
-    await StatusBar.setOverlaysWebView({ overlay: false });
+    // SystemBars supplies the safe-area inset and MainLayout applies it once.
+    // Native status-bar clearance on top of that creates an empty header strip.
+    await StatusBar.setOverlaysWebView({ overlay: true });
   } catch {
     /* plugin missing / web — ignore */
   }

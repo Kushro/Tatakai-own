@@ -179,6 +179,30 @@ async function downloadFile(url, outputPath, options = {}) {
 }
 
 module.exports = function registerLibraryHandlers(ipcMain, app, dialog, shell, fs, path, logger, getMainWindow) {
+    ipcMain.handle('extension:pick-package', async () => {
+        const result = await dialog.showOpenDialog(getMainWindow(), {
+            title: 'Install extension from file', properties: ['openFile'],
+            filters: [{ name: 'Tatakai packages and manifests', extensions: ['kai', 'json'] }],
+        });
+        if (result.canceled || !result.filePaths.length) return null;
+        const selected = result.filePaths[0];
+        if (!/\.(kai|json)$/i.test(selected)) throw new Error('Choose a .kai package or .json manifest');
+        const handle = await fs.promises.open(selected, 'r');
+        try {
+            const stat = await handle.stat();
+            if (!stat.isFile() || stat.size > 30 * 1024 * 1024) throw new Error('Extension must be a file under 30 MB');
+            // Bound allocation even if another process grows the selected file.
+            const bytes = Buffer.alloc(stat.size + 1);
+            let bytesRead = 0;
+            while (bytesRead < bytes.length) {
+                const chunk = await handle.read(bytes, bytesRead, bytes.length - bytesRead, bytesRead);
+                if (!chunk.bytesRead) break;
+                bytesRead += chunk.bytesRead;
+            }
+            if (bytesRead > stat.size) throw new Error('Extension changed while reading; select it again');
+            return { name: path.basename(selected), bytes: new Uint8Array(bytes.subarray(0, bytesRead)) };
+        } finally { await handle.close(); }
+    });
     ipcMain.handle('select-directory', async () => {
         const { canceled, filePaths } = await dialog.showOpenDialog(getMainWindow(), { properties: ['openDirectory'] });
         return canceled ? null : filePaths[0];
@@ -477,8 +501,49 @@ module.exports = function registerLibraryHandlers(ipcMain, app, dialog, shell, f
         }
     });
 
+    // SEC audit finding DESK-9.
+    //
+    // `open-path` handed whatever the renderer passed straight to
+    // `shell.openPath()`, which in Electron means "open with the OS default
+    // handler". For a `.exe`/`.bat`/`.lnk`/`.desktop` that is code execution, so
+    // a script-injection bug in the renderer escalated to running a local binary
+    // without any further user consent. The app only ever opens a folder or a
+    // media file it downloaded, so the bridge now allows exactly that.
+    const OPENABLE_EXTENSIONS = new Set([
+        '.mp4', '.mkv', '.avi', '.webm', '.mov', '.m4v', '.ts', '.m2ts',
+        '.mp3', '.m4a', '.flac', '.wav', '.ogg', '.opus', '.aac',
+        '.vtt', '.srt', '.ass', '.ssa', '.sub',
+        '.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif',
+        '.pdf', '.epub', '.cbz', '.cbr', '.zip', '.json', '.log', '.nfo',
+    ]);
+
     ipcMain.handle('open-path', async (_event, filePath) => {
-        await shell.openPath(filePath);
+        try {
+            if (typeof filePath !== 'string' || !filePath.trim()) {
+                return { success: false, error: 'invalid-path' };
+            }
+            const resolved = path.resolve(filePath);
+            let stat;
+            try {
+                stat = await fs.promises.stat(resolved);
+            } catch {
+                return { success: false, error: 'not-found' };
+            }
+            if (stat.isDirectory()) {
+                const error = await shell.openPath(resolved);
+                return { success: !error, error: error || undefined };
+            }
+            if (!stat.isFile()) return { success: false, error: 'unsupported-target' };
+            const ext = path.extname(resolved).toLowerCase();
+            if (!OPENABLE_EXTENSIONS.has(ext)) {
+                logger.warn(`[open-path] Refused to open an unexpected file type: ${ext || '(none)'}`);
+                return { success: false, error: 'unsupported-target' };
+            }
+            const error = await shell.openPath(resolved);
+            return { success: !error, error: error || undefined };
+        } catch (err) {
+            return { success: false, error: err.message };
+        }
     });
 
     ipcMain.handle('select-import-files', async () => {

@@ -1,3 +1,4 @@
+import { ThemedCheckbox } from '@/components/ui/themed-checkbox';
 import uiI18n from '@/lib/uiI18n';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import React, { useState, useEffect, useRef } from 'react';
@@ -15,7 +16,7 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 import { upsertLocalTorrentSessionHistory } from '@/lib/localStorage';
-import { ANILIST_GRAPHQL_ENDPOINT } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { isP2PDisabled } from '@/lib/torrent/p2pPolicy';
 
@@ -169,11 +170,7 @@ export function MagnetAlignmentModal({ isOpen, onClose, initialMagnet, initialTo
 
       const runSearch = async (name: string) => {
         if (!name) return [];
-        const res = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            query: `
+        const data = await anilistGql<any>(`
               query ($search: String) {
                 Page(perPage: 8) {
                   media(search: $search, type: ANIME) {
@@ -185,12 +182,8 @@ export function MagnetAlignmentModal({ isOpen, onClose, initialMagnet, initialTo
                   }
                 }
               }
-            `,
-            variables: { search: name }
-          })
-        });
-        const json = await res.json();
-        return json?.data?.Page?.media || [];
+            `, { search: name });
+        return data?.Page?.media || [];
       };
 
       const allResults: any[] = [];
@@ -643,7 +636,7 @@ export function MagnetAlignmentModal({ isOpen, onClose, initialMagnet, initialTo
                         </div>
                       )}
                       <label className="flex items-center gap-2 text-xs text-muted-foreground px-2">
-                        <input
+                        <ThemedCheckbox
                           type="checkbox"
                           checked={confirmLowConfidence}
                           onChange={(e) => setConfirmLowConfidence(e.target.checked)}

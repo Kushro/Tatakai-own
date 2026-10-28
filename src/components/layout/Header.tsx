@@ -1,3 +1,5 @@
+import { CosmeticAvatar, CosmeticName } from '@/components/profile/IdentityCosmetics';
+import { fetchBetterStackStatus, type BetterStackHealth } from '@/lib/betterStackStatus';
 import uiI18n from '@/lib/uiI18n';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { Search, User, LogOut, Shield, Download, Camera, Loader2, X, Film, Play, ChevronRight, BookOpen, ScrollText } from "lucide-react";
@@ -9,9 +11,8 @@ import { useIsDesktopApp, useIsMacOS, useIsNativeApp } from "@/hooks/ui/useIsNat
 import { useTitlebarHidden } from "@/hooks/ui/useTitlebarHidden";
 import { useMobileAppearance } from '@/hooks/ui/useMobileAppearance';
 
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { NotificationBell } from "@/components/ui/NotificationBell";
-import { supabase } from "@/integrations/supabase/client";
 import { HeaderSearchSuggestions } from "@/components/layout/HeaderSearchSuggestions";
 import {
   DropdownMenu,
@@ -28,7 +29,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { ANILIST_GRAPHQL_ENDPOINT } from "@/lib/api/backendOrigin";
+import { anilistGql } from "@/lib/anilist/client";
 import { triggerHaptic } from "@/lib/haptics";
 
 // ── Image search helpers ──────────────────────────────────────────────────────
@@ -55,19 +56,12 @@ async function runImageSearch(file: File): Promise<any[]> {
   if (ids.length > 0) {
     try {
       const gql = `query ($ids:[Int]){Page(perPage:50){media(id_in:$ids,type:ANIME){id title{english romaji}coverImage{medium}}}}`;
-      const r = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: gql, variables: { ids } }),
-      });
-      if (r.ok) {
-        const j = await r.json();
-        for (const m of j?.data?.Page?.media ?? []) {
-          titleMap.set(m.id, {
-            title: m.title?.english || m.title?.romaji || `Anime #${m.id}`,
-            cover: m.coverImage?.medium || "",
-          });
-        }
+      const d = await anilistGql<any>(gql, { ids });
+      for (const m of d?.Page?.media ?? []) {
+        titleMap.set(m.id, {
+          title: m.title?.english || m.title?.romaji || `Anime #${m.id}`,
+          cover: m.coverImage?.medium || "",
+        });
       }
     } catch {}
   }
@@ -89,13 +83,19 @@ function formatTs(secs: number) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function Header() {
+export interface HeaderProps {
+  providerSearch?: { name: string; query: string; onSearch: (query: string) => void };
+  providerControls?: React.ReactNode;
+}
+
+export function Header({ providerSearch, providerControls }: HeaderProps = {}) {
   useUiTranslation();
   const { t } = useTranslation();
   const refreshed = useMobileAppearance();
   const [searchQuery, setSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [systemStatus, setSystemStatus] = useState<"operational" | "degraded" | "checking">("checking");
+  useEffect(() => { if (providerSearch) setSearchQuery(providerSearch.query); }, [providerSearch?.query, providerSearch?.name]);
+  const [systemStatus, setSystemStatus] = useState<BetterStackHealth | "checking">("checking");
   const searchWrapperRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -119,38 +119,29 @@ export function Header() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const checkStatus = async () => {
-      try {
-        const { error } = await supabase.from("profiles").select("id").limit(1).maybeSingle();
-        setSystemStatus(error ? "degraded" : "operational");
-      } catch {
-        setSystemStatus("degraded");
-      }
+    let disposed=false;
+    let active:AbortController|undefined;
+    const checkStatus=async()=>{
+      if(document.visibilityState==='hidden')return;
+      active?.abort();const controller=new AbortController();active=controller;
+      const timeout=setTimeout(()=>controller.abort(),6000);
+      try{const status=await fetchBetterStackStatus(controller.signal);if(!disposed)setSystemStatus(status);}
+      catch{if(!disposed)setSystemStatus('unknown');}
+      finally{clearTimeout(timeout);}
     };
-    checkStatus();
-    const interval = setInterval(checkStatus, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Keyboard shortcut Ctrl/Cmd+K
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const isMac = navigator.platform.toLowerCase().includes("mac");
-      if ((isMac ? e.metaKey : e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        const ids = ["tatakai-header-search", "tatakai-global-search"];
-        for (const id of ids) {
-          const el = document.getElementById(id) as HTMLInputElement | null;
-          if (el) { el.focus(); el.select(); return; }
-        }
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    const initial=setTimeout(checkStatus,500);
+    const interval=setInterval(checkStatus,60000);
+    document.addEventListener('visibilitychange',checkStatus);
+    return()=>{disposed=true;active?.abort();clearTimeout(initial);clearInterval(interval);document.removeEventListener('visibilitychange',checkStatus);};
   }, []);
 
   const commitSearch = useCallback((term: string) => {
     const trimmed = term.trim();
+    if (providerSearch) {
+      setShowSuggestions(false);
+      providerSearch.onSearch(trimmed);
+      return;
+    }
     if (!trimmed) return;
     try {
       const raw = localStorage.getItem("tatakai_search_history");
@@ -160,7 +151,7 @@ export function Header() {
     } catch {}
     setShowSuggestions(false);
     navigate(`/search?q=${encodeURIComponent(trimmed)}`);
-  }, [navigate]);
+  }, [navigate, providerSearch]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -179,7 +170,7 @@ export function Header() {
       : 'anime';
   const handleCatalogSwitch = useCallback(() => {
     void triggerHaptic('toggle');
-    navigate(catalog === 'anime' ? '/manga' : catalog === 'manga' ? '/novel' : '/');
+    navigate(catalog === 'anime' ? '/manga' : catalog === 'manga' ? '/novel' : '/browse');
     requestAnimationFrame(() => window.scrollTo({ top: 0 }));
   }, [navigate, catalog]);
 
@@ -202,7 +193,7 @@ export function Header() {
 
   useEffect(() => clearLongPressTimer, [clearLongPressTimer]);
 
-  const goCatalog = useCallback((path: '/' | '/manga' | '/novel') => {
+  const goCatalog = useCallback((path: '/browse' | '/manga' | '/novel') => {
     setCatalogMenuOpen(false);
     if (location.pathname === path) return;
     void triggerHaptic('toggle');
@@ -324,6 +315,7 @@ export function Header() {
               />
             </button>
           )}
+          <div className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
           <button
             ref={catalogBtnRef}
             type="button"
@@ -333,7 +325,7 @@ export function Header() {
             onPointerLeave={clearLongPressTimer}
             onPointerCancel={clearLongPressTimer}
             onContextMenu={(e) => e.preventDefault()}
-            className="absolute left-1/2 top-1/2 z-10 inline-flex h-9 -translate-x-1/2 -translate-y-1/2 touch-manipulation select-none items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3.5 text-xs font-bold tracking-wide text-foreground shadow-sm transition-[transform,background-color,border-color,color,box-shadow,filter] duration-150 [-webkit-touch-callout:none] hover:border-primary/40 hover:bg-white/[0.1] active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+            className="inline-flex h-9 touch-manipulation select-none items-center gap-2 rounded-full border border-white/10 bg-white/[0.06] px-3.5 text-xs font-bold tracking-wide text-foreground shadow-sm transition-[transform,background-color,border-color,color,box-shadow,filter] duration-150 [-webkit-touch-callout:none] hover:border-primary/40 hover:bg-white/[0.1] active:scale-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
             aria-label={catalog === 'anime' ? t('migration.switchManga') : catalog === 'manga' ? t('migration.switchNovels') : t('migration.switchAnime')}
             title={t('migration.catalogHint')}
             aria-haspopup="menu"
@@ -344,6 +336,7 @@ export function Header() {
             </span>
             {catalog === 'anime' ? uiI18n.t('app.anime_f1b32a19') : catalog === 'manga' ? uiI18n.t('app.manga_87db0f99') : t('nav.novels')}
           </button>
+          </div>
           {catalogMenuOpen && (
             <div
               ref={catalogMenuRef}
@@ -358,7 +351,7 @@ export function Header() {
                     key={c}
                     type="button"
                     role="menuitem"
-                    onClick={() => goCatalog(c === 'anime' ? '/' : c === 'manga' ? '/manga' : '/novel')}
+                    onClick={() => goCatalog(c === 'anime' ? '/browse' : c === 'manga' ? '/manga' : '/novel')}
                     className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 active:scale-[0.98]"
                   >
                     {c === 'anime'
@@ -378,10 +371,10 @@ export function Header() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button aria-label={t('migration.profileMenu')} className="flex h-11 w-11 items-center justify-center rounded-full outline-none transition-transform active:scale-95 focus-visible:ring-2 focus-visible:ring-primary/60">
-                    <Avatar className="h-9 w-9 ring-1 ring-white/20 transition-shadow hover:ring-primary/40">
+                    <CosmeticAvatar userId={profile?.user_id} className="h-9 w-9 ring-1 ring-white/20 transition-shadow hover:ring-primary/40">
                       <AvatarImage src={profile?.avatar_url || undefined} alt={profile?.display_name || t('settings.groups.User')} />
                       <AvatarFallback className="bg-gradient-to-br from-primary to-secondary text-xs font-bold text-primary-foreground">{profile?.display_name?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || 'U'}</AvatarFallback>
-                    </Avatar>
+                    </CosmeticAvatar>
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-52 rounded-2xl border-white/10 bg-background/90 p-1.5 shadow-2xl backdrop-blur-xl data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:duration-150">
@@ -399,12 +392,21 @@ export function Header() {
         </div>
       </header>
 
-      <header data-desktop-header className={cn(refreshed ? 'hidden' : 'hidden md:flex', "relative items-center mb-4 px-6 z-50 backdrop-blur-md py-2")}>
+      {providerSearch && <div className={cn(refreshed ? 'block' : 'md:hidden', 'relative z-40 space-y-3 border-b border-border/40 py-3 mb-4')}>
+        {providerControls}
+        <form onSubmit={handleSearch} className="flex min-w-0 items-center gap-3 rounded-full border border-border bg-muted/50 px-4 h-11">
+          <Search className="size-4 shrink-0 text-muted-foreground" />
+          <input id="tatakai-provider-search" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder={`Search ${providerSearch.name}…`} aria-label="Search provider" className="min-w-0 flex-1 bg-transparent text-sm outline-none" />
+          {searchQuery && <button type="button" aria-label="Clear provider search" onClick={() => { setSearchQuery(''); providerSearch.onSearch(''); }}><X className="size-4" /></button>}
+          <button type="submit" aria-label="Submit provider search" className="rounded-full px-2 py-1 text-sm font-semibold text-primary">Search</button>
+        </form>
+      </div>}
+      <header data-desktop-header className={cn(refreshed ? 'hidden' : 'hidden md:flex', "relative items-center mb-4 z-50 backdrop-blur-md py-2", providerSearch ? 'px-0' : 'px-6')}>
         <div className="flex items-center justify-between w-full gap-8">
         {/* Left: welcome + status */}
-        <div className="flex items-center gap-3">
+        {providerControls ? <div className="min-w-0 flex-1">{providerControls}</div> : <div className="flex items-center gap-3">
           <h2 className="text-muted-foreground text-sm font-medium tracking-wider uppercase">
-            {t("header.welcomeBack")} <span className="text-foreground">{profile?.display_name || t("header.traveler")}</span>
+            {t("header.welcomeBack")} <span className="text-foreground"><CosmeticName userId={profile?.user_id}>{profile?.display_name || t("header.traveler")}</CosmeticName></span>
           </h2>
           {isBanned && (
             <span className="px-2 py-0.5 rounded-full bg-destructive/20 text-destructive text-xs font-medium animate-pulse">{t("header.banned")}</span>
@@ -412,12 +414,12 @@ export function Header() {
           <Link
             to="/status"
             className="flex items-center gap-2 px-3 py-1 rounded-full bg-muted/30 hover:bg-muted/50 transition-[transform,background-color,border-color,color,box-shadow,filter] duration-150 group"
-            title={systemStatus === "operational" ? t("header.allOperational") : t("header.someDegraded")}
+            title={systemStatus === "operational" ? t("header.allOperational") : systemStatus === "degraded" ? t("header.someDegraded") : systemStatus === "checking" ? "Checking Better Stack status" : "Better Stack status unavailable"}
           >
             <span className={cn("w-2 h-2 rounded-full", statusColor, systemStatus === "operational" && "animate-pulse")} />
             <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">{t("header.status")}</span>
           </Link>
-        </div>
+        </div>}
 
         {/* Right: search + user */}
         <div className="flex items-center gap-4 md:gap-6">
@@ -440,41 +442,42 @@ export function Header() {
                 onKeyDown={(e) => {
                   if (e.key === "Escape") setShowSuggestions(false);
                 }}
-                placeholder={t("header.searchPlaceholder")}
+                placeholder={providerSearch ? `Search ${providerSearch.name}…` : t("header.searchPlaceholder")}
                 className="bg-transparent text-sm text-muted-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus:text-foreground w-24 sm:w-32 lg:w-48"
-                aria-label={t("header.searchAria")}
+                aria-label={providerSearch ? "Search provider" : t("header.searchAria")}
                 autoComplete="off"
               />
               {searchQuery && (
                 <button
                   type="button"
-                  onClick={() => { setSearchQuery(""); setShowSuggestions(false); }}
+                  onClick={() => { setSearchQuery(""); setShowSuggestions(false); providerSearch?.onSearch(''); }}
                   className="p-0.5 hover:bg-muted/50 rounded-full"
                   aria-label={t('discover.clearSearch')}
                 >
                   <X className="w-3.5 h-3.5 text-muted-foreground" />
                 </button>
               )}
-              <button
+              {!providerSearch && <button
                 type="button"
                 onClick={(e) => { e.preventDefault(); setShowImageSearch(true); }}
                 className="p-1 hover:bg-muted/50 rounded-lg transition-colors"
                 title={t("header.searchByImage")}
               >
                 <Camera className="w-4 h-4 text-muted-foreground hover:text-foreground transition-colors" />
-              </button>
+              </button>}
+              {providerSearch && <button type="submit" aria-label="Submit provider search" className="text-sm font-semibold text-primary">Search</button>}
               <div className="hidden lg:flex gap-1 ml-2">
                 <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">⌘</span>
                 <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">K</span>
               </div>
             </form>
 
-            <HeaderSearchSuggestions
+            {!providerSearch && <HeaderSearchSuggestions
               query={searchQuery}
               visible={showSuggestions}
               onSelect={(name) => { setSearchQuery(name); setShowSuggestions(false); }}
               onClose={() => setShowSuggestions(false)}
-            />
+            />}
           </div>
 
           <div className="hidden sm:block">
@@ -487,12 +490,12 @@ export function Header() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus:ring-offset-2 focus:ring-offset-background rounded-full active:scale-95 transition-transform">
-                  <Avatar className="w-10 h-10 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-[transform,background-color,border-color,color,box-shadow,filter] duration-150">
+                  <CosmeticAvatar userId={profile?.user_id} className="w-10 h-10 cursor-pointer hover:ring-2 hover:ring-primary/50 transition-[transform,background-color,border-color,color,box-shadow,filter] duration-150">
                     <AvatarImage src={profile?.avatar_url || undefined} alt={profile?.display_name || t('settings.groups.User')} />
                     <AvatarFallback className="bg-gradient-to-br from-primary to-secondary text-primary-foreground font-bold">
                       {profile?.display_name?.[0]?.toUpperCase() || user.email?.[0]?.toUpperCase() || "U"}
                     </AvatarFallback>
-                  </Avatar>
+                  </CosmeticAvatar>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">

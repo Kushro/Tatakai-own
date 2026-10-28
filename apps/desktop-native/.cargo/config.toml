@@ -1,0 +1,9 @@
+# Workspace-local cargo config for the native desktop app (B1). B6 may extend it (e.g. libmpv link search path).
+[build]
+target-dir = "target"
+
+[net]
+retry = 3
+
+[term]
+color = "auto"

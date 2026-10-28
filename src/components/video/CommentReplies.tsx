@@ -1,10 +1,11 @@
+import { CosmeticAvatar, CosmeticName } from '@/components/profile/IdentityCosmetics';
 import uiI18n from '@/lib/uiI18n';
 import { requestTVWriting } from '@/core/tv/writingHandoff';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { useMemo, useState } from 'react';
 import { formatDistanceToNow } from '@/lib/localeFormat';
 import { Heart, Edit2, Trash2, Save, X, Loader2, Reply } from 'lucide-react';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/confirm-dialog';
 import { Textarea } from '@/components/ui/textarea';
@@ -12,7 +13,8 @@ import { RankBadge } from '@/components/ui/RankBadge';
 import { UserBadges } from '@/components/ui/UserBadges';
 import { getRankNameStyle } from '@/lib/rankUtils';
 import { ProfileWidgetCard } from '@/components/profile/ProfileWidgetCard';
-import { CommentContent, type TimestampTarget } from '@/components/comments/CommentContent';
+import { TranslatedCommentContent } from '@/components/comments/TranslatedCommentContent';
+import { type TimestampTarget } from '@/components/comments/CommentContent';
 import { CommentAttachments } from '@/components/comments/CommentAttachments';
 import { CommentEmbeds } from '@/components/comments/CommentEmbeds';
 import { RichCommentComposer } from '@/components/comments/RichCommentComposer';
@@ -43,6 +45,7 @@ export function CommentReplies({
   fallbackEpisodeId,
   onScreenEpisodeId,
   highlightId,
+  generalCommunity = false,
 }: {
   parentId: string;
   /** Surface the thread belongs to — needed to post a reply-to-a-reply. */
@@ -56,6 +59,7 @@ export function CommentReplies({
   onScreenEpisodeId?: string;
   /** Reply id to transiently highlight (deep-link scroll target). */
   highlightId?: string | null;
+  generalCommunity?: boolean;
 }) {
   useUiTranslation();
   const { data: replies = [], isLoading } = useReplies(parentId);
@@ -78,6 +82,7 @@ export function CommentReplies({
     <div className="mt-3 space-y-3 border-l border-white/[0.06] pl-3 sm:ml-11">
       {replies.map((reply) => (
         <ReplyRow
+          generalCommunity={generalCommunity}
           key={reply.id}
           reply={reply}
           isOwn={reply.user_id === currentUserId}
@@ -108,6 +113,7 @@ function ReplyRow({
   fallbackEpisodeId,
   onScreenEpisodeId,
   highlightId,
+  generalCommunity = false,
 }: {
   reply: any;
   isOwn: boolean;
@@ -121,6 +127,7 @@ function ReplyRow({
   fallbackEpisodeId?: string;
   onScreenEpisodeId?: string;
   highlightId?: string | null;
+  generalCommunity?: boolean;
 }) {
   useUiTranslation();
   const editComment = useEditComment();
@@ -132,6 +139,8 @@ function ReplyRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(reply.content ?? '');
   const [replying, setReplying] = useState(false);
+
+  if (reply.is_deleted && entityType === 'forum_post') return null;
 
   if (reply.is_deleted) {
     return (
@@ -213,18 +222,18 @@ function ReplyRow({
         avatarUrl={reply.profile?.avatar_url}
         rankScore={reply.profile?.total_episodes || 0}
       >
-        <Avatar className="h-7 w-7 flex-shrink-0 cursor-pointer hover:ring-2 ring-primary/30 transition-all">
+        <CosmeticAvatar userId={reply.user_id} className="h-7 w-7 flex-shrink-0 cursor-pointer hover:ring-2 ring-primary/30 transition-all">
           <AvatarImage src={reply.profile?.avatar_url || undefined} />
           <AvatarFallback className="bg-gradient-to-br from-primary/60 to-secondary/60 text-primary-foreground text-[10px] font-bold">
             {reply.profile?.display_name?.[0]?.toUpperCase() || '?'}
           </AvatarFallback>
-        </Avatar>
+        </CosmeticAvatar>
       </ProfileWidgetCard>
 
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex flex-wrap items-center gap-2">
           <span className={cn('text-sm font-semibold truncate', ns.className)} style={ns.style}>
-            {reply.profile?.display_name || uiI18n.t('app.user_9f8a2389')}
+            <CosmeticName userId={reply.user_id}>{reply.profile?.display_name || uiI18n.t('app.user_9f8a2389')}</CosmeticName>
           </span>
           <RankBadge score={reply.profile?.total_episodes || 0} size="xs" showName={false} />
           <UserBadges badges={badges} size={12} />
@@ -257,7 +266,7 @@ function ReplyRow({
           </div>
         ) : (
           <>
-            <CommentContent content={reply.content} className="leading-relaxed" timestampTarget={timestampTarget} clamp />
+            <TranslatedCommentContent content={reply.content} className="leading-relaxed" timestampTarget={timestampTarget} clamp />
             <CommentAttachments attachments={reply.attachments} />
             <CommentEmbeds embeds={reply.embeds} poll={reply.poll} />
 
@@ -305,6 +314,7 @@ function ReplyRow({
             {replying && (
               <div className="mt-2">
                 <RichCommentComposer
+                  generalCommunity={generalCommunity}
                   draftKey={`reply:${threadParentId}:${reply.id}`}
                   compact
                   autoFocus

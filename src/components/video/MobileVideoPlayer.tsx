@@ -1,14 +1,17 @@
 import uiI18n from '@/lib/uiI18n';
+import { OptionalJWPlayer } from './JWPlayer';
+import { PlayerSeekInput } from './controls/PlayerSeekInput';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { ExternalPlayerButton } from './controls/ExternalPlayerButton';
 import { uploadSubtitle, fetchSubtitle, decodeSubtitle } from '@/core/player/subtitle-service';
 import { usePlaybackCoordinator } from '@/core/player/usePlaybackCoordinator';
+import { useMobileCloudProxy } from './hooks/useMobileCloudProxy';
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Play,
   Pause,
-  SkipBack,
-  SkipForward,
+  RotateCcw,
+  RotateCw,
   Settings,
   Subtitles,
   Loader2,
@@ -49,6 +52,8 @@ import { ensureCustomSubtitleFontLoaded } from "@/lib/video/customSubtitleFont";
 import { selectPreferredSource } from "@/lib/video/preferredSource";
 import { triggerHaptic } from "@/lib/haptics";
 import { useActiveCues } from "./hooks/useActiveCues";
+import { useSubtitleTranslation } from "./hooks/useSubtitleTranslation";
+import { useSubtitlePretranslation } from "./hooks/useSubtitlePretranslation";
 import { useAmbientMode } from "./hooks/usePlayerEnhancements";
 import "./mobile-player.css";
 import {
@@ -159,7 +164,11 @@ const STALL_TIMEOUT_MS = 6_000;
 export const MOBILE_PLAYER_FULLSCREEN_CLASS = 'mobile-player-fullscreen';
 export const MOBILE_PLAYER_FULLSCREEN_EVENT = 'tatakai-mobile-player-fullscreen';
 
-export function MobileVideoPlayer({
+export function MobileVideoPlayer(props: MobileVideoPlayerProps) {
+  return <OptionalJWPlayer {...props}><BuiltinMobileVideoPlayer {...props} /></OptionalJWPlayer>;
+}
+
+function BuiltinMobileVideoPlayer({
   sources,
   subtitles: providedSubtitles = [],
   headers,
@@ -298,8 +307,10 @@ export function MobileVideoPlayer({
   const [duration, setDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
+  const [isScrubbing, setIsScrubbing] = useState(false);
   const [buffered, setBuffered] = useState(0);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [playbackAttempt, setPlaybackAttempt] = useState(0);
   const [isBuffering, setIsBuffering] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
   const retryCountRef = useRef(0);
@@ -330,6 +341,8 @@ export function MobileVideoPlayer({
   // like desktop's Audio tab. Native torrent audio stays in the native UI.
   const [hlsAudioTracks, setHlsAudioTracks] = useState<Array<{ id: number; label: string; lang: string }>>([]);
   const [currentHlsAudioTrack, setCurrentHlsAudioTrack] = useState<number>(-1);
+  const preferredAudioRef = useRef(settings.audioLanguage);
+  preferredAudioRef.current = settings.audioLanguage;
 
   // Full settings sheet options — same source as desktop (parity).
   const settingsSubtitleOptions = useMemo(
@@ -378,16 +391,21 @@ export function MobileVideoPlayer({
   const subtitleRequestKey = JSON.stringify(subtitles);
   const subtitlesRef = useRef(subtitles);
   subtitlesRef.current = subtitles;
-  const sourceTypeKey = currentSource?.isM3U8 || (currentSource as any)?.sourceType === 'hls' || /\.m3u8(?:$|[?#/])/i.test(currentSource?.url || '') ? 'm3u8' : 'file';
+  const sourceTypeKey = (currentSource as any)?.sourceType === 'dash' || /\.mpd(?:$|[?#])/i.test((currentSource as any)?.originalUrl || currentSource?.url || '') ? 'dash'
+    : currentSource?.isM3U8 || (currentSource as any)?.sourceType === 'hls' || /\.m3u8(?:$|[?#/])/i.test(currentSource?.url || '') ? 'm3u8' : 'file';
   const sourceHeaders = (currentSource as any)?.headers as Record<string, string> | undefined;
   const playbackReferer = sourceHeaders?.Referer || sourceHeaders?.referer || headers?.Referer || '';
   const playbackUserAgent = sourceHeaders?.["User-Agent"] || sourceHeaders?.['user-agent'] || headers?.["User-Agent"] || '';
   const autoSkippedWindowRef = useRef<string | null>(null);
+  const { cloudProxyUrl, offerCloudProxy, cloudProxyDialog, cloudResumePosition } = useMobileCloudProxy({
+    source: currentSource,
+    headers,
+    enabled: nativeMobile && !isOffline && !['torrent', 'debrid'].includes(sourceType || ''),
+    videoRef,
+  });
 
-  // A source failure replaces the video element with the error surface. This
-  // component is reused for server switches, so clear that source-local error
-  // whenever a different URL is selected; otherwise the new source never gets
-  // a video element or a chance to initialize.
+  // Clear source-local errors on a server switch. Keep the media element
+  // mounted under the error overlay so its effects can initialize the new URL.
   //
   // Resolved debrid stream URL for magnet: sources (async — the mount effect
   // below waits for it). Cleared here so a server switch re-resolves.
@@ -401,6 +419,8 @@ export function MobileVideoPlayer({
     setCurrentHlsAudioTrack(-1);
     setDebridResolvedUrl(null);
   }, [sourceUrlKey]);
+
+  useEffect(() => { if (cloudProxyUrl) setVideoError(null); }, [cloudProxyUrl]);
 
   // Fetch skip times for intro/outro
   useEffect(() => {
@@ -457,8 +477,9 @@ export function MobileVideoPlayer({
 
   // Hide controls after inactivity
   useEffect(() => {
-    if (showControls && (isPlaying || isLocked) && !showFullSettings) {
+    if (showControls && (isPlaying || isLocked) && !showFullSettings && !isScrubbing) {
       controlsTimeoutRef.current = setTimeout(() => {
+        if (!isLocked && document.activeElement?.matches(':focus-visible') && document.activeElement.closest('.mobile-player-controls')) return;
         setShowControls(false);
       }, isLocked ? 1800 : 4000);
     }
@@ -467,7 +488,7 @@ export function MobileVideoPlayer({
         clearTimeout(controlsTimeoutRef.current);
       }
     };
-  }, [showControls, isPlaying, isLocked, controlsActivity, showFullSettings]);
+  }, [showControls, isPlaying, isLocked, controlsActivity, showFullSettings, isScrubbing]);
 
   useEffect(() => {
     if (videoRef.current) {
@@ -489,6 +510,12 @@ export function MobileVideoPlayer({
   // Custom subtitle overlay (desktop parity): tracks run in "hidden" mode and
   // we paint active cues ourselves so size/font/color/BG/position/offset apply.
   const activeCueLines = useActiveCues(videoRef, `${sourceUrlKey}|${currentSubtitle}`, settings.subtitleOffset);
+  useSubtitlePretranslation(videoRef, `${sourceUrlKey}|${currentSubtitle}`);
+  const translatedCues = useSubtitleTranslation(activeCueLines);
+  const displayCueLines =
+    translatedCues.lines && translatedCues.lines.length === activeCueLines.length
+      ? translatedCues.lines
+      : activeCueLines;
   const customCueStyle = useMemo(() => buildSubtitleCueStyle(settings), [settings]);
   useEffect(() => {
     void ensureCustomSubtitleFontLoaded();
@@ -598,9 +625,10 @@ export function MobileVideoPlayer({
     // through the hosted proxy, which was the mobile/desktop speed gap. A
     // cached token from an earlier app process/port is re-minted from the
     // source-carried upstream URL and headers before mounting.
-    let activeSourceUrl = source.url;
+    let activeSourceUrl = cloudProxyUrl || source.url;
+    const startPosition = cloudProxyUrl ? cloudResumePosition.current || initialSeekSeconds : initialSeekSeconds;
     if (
-      !isOffline &&
+      !cloudProxyUrl && !isOffline &&
       isAnyProxyUrl(activeSourceUrl) &&
       !resolveMobileProxy(activeSourceUrl) &&
       (source as any)?.originalUrl
@@ -674,7 +702,7 @@ export function MobileVideoPlayer({
     // Register them here as a final guard so native playback stays on the
     // device-local iOS/Android proxy and never uses Tatakai's hosted proxy.
     if (
-      nativeMobile && !isOffline && !isDebridOrigin &&
+      !cloudProxyUrl && nativeMobile && !isOffline && !isDebridOrigin &&
       /^https?:/i.test(activeSourceUrl) && !isAnyProxyUrl(activeSourceUrl)
     ) {
       activeSourceUrl = registerMobileSource({
@@ -713,7 +741,7 @@ export function MobileVideoPlayer({
       Object.keys(replayHeaders).some((name) =>
         ['referer', 'origin', 'cookie', 'authorization'].includes(String(name).toLowerCase()),
       );
-    let candidates = isAnyProxyUrl(upstreamUrl)
+    let candidates = cloudProxyUrl ? [cloudProxyUrl] : isAnyProxyUrl(upstreamUrl)
       ? [upstreamUrl]
       : buildMobilePlaybackCandidates(
         /^https?:/i.test(upstreamUrl) ? upstreamUrl : activeSourceUrl,
@@ -724,7 +752,7 @@ export function MobileVideoPlayer({
           refererCandidates: (source as any)?.refererCandidates,
         },
       );
-    if (!isAnyProxyUrl(upstreamUrl) && needsHeaderReplay) {
+    if (!cloudProxyUrl && !isAnyProxyUrl(upstreamUrl) && needsHeaderReplay) {
       candidates = candidates.filter((url) => /^https?:/i.test(url) && url !== upstreamUrl);
       if (!candidates.includes(hostedUrl)) candidates.unshift(hostedUrl);
     }
@@ -737,15 +765,21 @@ export function MobileVideoPlayer({
 
     function giveUp(statusCode?: number, reason?: string): void {
       if (disposed || terminalFailure) return;
+      const reportFailure = () => {
+        if (disposed) return;
+        setVideoError("Failed to load video. Please try another server.");
+        onPlaybackErrorRef.current?.({ statusCode, reason });
+      };
       terminalFailure = true;
       try { hlsRef.current?.stopLoad(); video.pause(); } catch { /* detached */ }
-      setVideoError("Failed to load video. Please try another server.");
-      onPlaybackErrorRef.current?.({ statusCode, reason });
+      if (!offerCloudProxy(reportFailure)) reportFailure();
     }
 
     let mounted = false;
     let disposed = false;
     let terminalFailure = false;
+    let dashPlayer: import('dashjs').MediaPlayerClass | null = null;
+    let dashAttempt: AbortController | undefined;
 
     // Shared recovery ladder, reachable from both the hls.js error handler and
     // the media-element stall watchdog (the "server works but the video froze"
@@ -767,7 +801,10 @@ export function MobileVideoPlayer({
         if (retryCountRef.current < MAX_SAME_URL_RETRIES) {
           retryCountRef.current += 1;
           setRetryCount(retryCountRef.current);
+          if (sourceTypeKey === 'dash') { mountAt(candidateIndexRef.current); return; }
           if (hlsRef.current) {
+            // startLoad cannot reload a manifest that never parsed.
+            if (!hlsRef.current.levels.length) { mountAt(candidateIndexRef.current); return; }
             try { hlsRef.current.startLoad(); return; } catch { /* fall through */ }
           }
           try { video.load(); return; } catch { /* fall through */ }
@@ -793,6 +830,7 @@ export function MobileVideoPlayer({
       if (disposed) return;
       mounted = true;
       const finalUrlResolved = candidates[Math.min(Math.max(index, 0), candidates.length - 1)];
+      dashAttempt?.abort(); dashPlayer?.reset(); dashPlayer = null;
 
       // Cleanup previous HLS instance
       if (hlsRef.current) {
@@ -818,7 +856,16 @@ export function MobileVideoPlayer({
         }
       };
 
-      if (isHls && Hls.isSupported()) {
+      if (sourceTypeKey === 'dash') {
+        const controller = new AbortController(); dashAttempt = controller;
+        void import('@/core/player/DashAdapter').then(({ attachDashTransport }) => attachDashTransport({
+          videoElement: video, signal: controller.signal, autoPlay: shouldAutoplayVideo(settings.autoplay), startTime: startPosition || 0,
+          source: { id: 'mobile-dash', mode: 'dash', url: finalUrlResolved, originalUrl: (source as any).originalUrl || source.url,
+            headers: { ...replayHeaders, ...(playbackReferer ? { Referer: playbackReferer } : {}), ...(playbackUserAgent ? { 'User-Agent': playbackUserAgent } : {}) } },
+        }, () => { if (!disposed && !controller.signal.aborted) recover(); })).then(player => {
+          if (disposed || controller.signal.aborted) player.reset(); else dashPlayer = player;
+        }).catch(error => { if (!disposed && !controller.signal.aborted) giveUp(undefined, error instanceof Error ? error.message : 'dash_error'); });
+      } else if (isHls && Hls.isSupported()) {
         // Buffer sizes follow the effective profile (data-saver forces `low`).
         const { backBufferLength, maxBufferLength, maxMaxBufferLength } =
           getProfileKnobs(getEffectiveMemoryProfile()).hls;
@@ -858,6 +905,9 @@ export function MobileVideoPlayer({
           // Referer/UA replay
           // happens inside the native service.
           manifestLoadingMaxRetry: 1,
+          manifestLoadingTimeOut: 8000,
+          levelLoadingTimeOut: 8000,
+          fragLoadingTimeOut: 15000,
           levelLoadingMaxRetry: 2,
           fragLoadingMaxRetry: 1,
           manifestLoadingRetryDelay: 400,
@@ -894,8 +944,12 @@ export function MobileVideoPlayer({
         };
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           syncAudioTracks();
-          if (initialSeekSeconds && initialSeekSeconds > 0) {
-            video.currentTime = initialSeekSeconds;
+          if (preferredAudioRef.current !== 'auto') {
+            const preferred = hls.audioTracks.findIndex(track => String(track.lang || '').toLowerCase().split('-')[0] === preferredAudioRef.current);
+            if (preferred >= 0) { hls.audioTrack = preferred; setCurrentHlsAudioTrack(preferred); }
+          }
+          if (startPosition && startPosition > 0) {
+            video.currentTime = startPosition;
           }
           if (shouldAutoplayVideo(settings.autoplay)) {
             video.play().catch(console.error);
@@ -936,6 +990,9 @@ export function MobileVideoPlayer({
             retryCountRef.current += 1;
             setRetryCount(retryCountRef.current);
             console.warn(`[MobileVideoPlayer] retry ${retryCountRef.current}/${MAX_SAME_URL_RETRIES} (${String(data.details || 'error')}${status ? ` status=${status}` : ''})`);
+            // Fatal network failures must reload the manifest/transport. A
+            // startLoad() alone leaves a failed initial manifest stuck forever.
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) { mountAt(candidateIndexRef.current); return; }
             try { hls.startLoad(); return; } catch { /* fall through */ }
           }
 
@@ -955,8 +1012,8 @@ export function MobileVideoPlayer({
         // Safari native HLS support (iOS has no hls.js MSE path — the native
         // element fetches segments itself, so it needs a network URL).
         video.src = finalUrlResolved;
-        if (initialSeekSeconds && initialSeekSeconds > 0) {
-          video.currentTime = initialSeekSeconds;
+        if (startPosition && startPosition > 0) {
+          video.currentTime = startPosition;
         }
 
         if (shouldAutoplayVideo(settings.autoplay)) {
@@ -978,8 +1035,8 @@ export function MobileVideoPlayer({
         // torrent engine and offline files.
         setIsBuffering(false);
         video.src = finalUrlResolved;
-        if (initialSeekSeconds && initialSeekSeconds > 0) {
-          video.currentTime = initialSeekSeconds;
+        if (startPosition && startPosition > 0) {
+          video.currentTime = startPosition;
         }
 
         if (shouldAutoplayVideo(settings.autoplay)) {
@@ -1034,6 +1091,7 @@ export function MobileVideoPlayer({
 
     return () => {
       disposed = true;
+      dashAttempt?.abort(); dashPlayer?.reset(); dashPlayer = null;
       if (metadataAutoplayCleanup.current) {
         metadataAutoplayCleanup.current();
         metadataAutoplayCleanup.current = null;
@@ -1045,7 +1103,7 @@ export function MobileVideoPlayer({
       }
       try { video.pause(); video.removeAttribute('src'); video.load(); } catch { /* detached */ }
     };
-  }, [sourceUrlKey, sourceTypeKey, sourceHeadersKey, initialSeekSeconds, isOffline, nativeMobile, playbackReferer, playbackUserAgent, headers?.Origin, settings.autoplay, debridResolvedUrl]);
+  }, [sourceUrlKey, sourceTypeKey, sourceHeadersKey, initialSeekSeconds, isOffline, nativeMobile, playbackReferer, playbackUserAgent, headers?.Origin, settings.autoplay, debridResolvedUrl, playbackAttempt, cloudProxyUrl, cloudResumePosition, offerCloudProxy]);
 
   // Load subtitles — parallel + incremental so the first (English) track mounts
   // in ~1s instead of after every track serially times out. Each resolved track
@@ -1780,11 +1838,11 @@ export function MobileVideoPlayer({
     setVideoError(null);
     retryCountRef.current = 0;
     setRetryCount(0);
+    setPlaybackAttempt(attempt => attempt + 1);
   };
 
-  if (videoError) {
-    return (
-      <div className="relative w-full aspect-video bg-black flex items-center justify-center">
+  const errorOverlay = videoError ? (
+      <div role="alert" className="absolute inset-0 z-50 bg-black flex items-center justify-center">
         <div className="text-center p-6">
           <AlertCircle className="w-16 h-16 text-red-500 mx-auto mb-4" />
           <p className="text-white text-lg mb-4">{videoError}</p>
@@ -1814,8 +1872,7 @@ export function MobileVideoPlayer({
           </div>
         </div>
       </div>
-    );
-  }
+    ) : null;
 
   return (
     <div
@@ -1830,6 +1887,8 @@ export function MobileVideoPlayer({
       onTouchCancel={() => { gestureRef.current.moved = true; clearPendingTap(); }}
       onClickCapture={() => setControlsActivity(value => value + 1)}
     >
+      {errorOverlay}
+      {cloudProxyDialog}
       {settings.ambientMode && (
         <canvas ref={ambientCanvasRef} className="mobile-player-ambient" aria-hidden="true" />
       )}
@@ -1884,7 +1943,7 @@ export function MobileVideoPlayer({
       )}
 
       {/* Loading Overlay */}
-      {(isLoading || isBuffering) && (
+      {(isLoading || isBuffering) && (!showControls || isLocked) && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/30">
           <Loader2 className="w-16 h-16 text-primary animate-spin" />
         </div>
@@ -1957,8 +2016,9 @@ export function MobileVideoPlayer({
                   <h3 className="text-white text-base font-bold truncate drop-shadow-lg">
                     {animeName}
                   </h3>
-                  <p className="text-white/80 text-xs truncate">
-                    {t('header.episode', { number: episodeNumber })} {episodeTitle ? uiI18n.t('app.i18n_value_0_723b674d', { value0: episodeTitle }) : ''}
+                  <p className="mobile-player-meta text-white/80 text-xs truncate">
+                    <span className="min-w-0 truncate">{t('header.episode', { number: episodeNumber })} {episodeTitle ? uiI18n.t('app.i18n_value_0_723b674d', { value0: episodeTitle }) : ''}</span>
+                    {serverName && <span className="mobile-player-server">{serverName}</span>}
                   </p>
                 </div>
               </div>
@@ -1987,18 +2047,22 @@ export function MobileVideoPlayer({
             <button
               onClick={() => seek(currentTime - 10)}
               aria-label={t('migration.rewind')}
-              className="p-3 rounded-full bg-white/10 backdrop-blur-md active:bg-white/20 border border-white/10"
+              className="mobile-player-jump relative p-3 rounded-full bg-white/10 active:bg-white/20 border border-white/10"
             >
-              <SkipBack className="w-7 h-7 text-white drop-shadow-lg" />
+              <RotateCcw className="w-7 h-7 text-white" aria-hidden="true" />
+              <span aria-hidden="true">10</span>
             </button>
 
             {/* Play/Pause */}
             <button
               onClick={togglePlay}
               aria-label={isPlaying ? t('player.pause') : t('player.play')}
+              aria-busy={isLoading || isBuffering}
               className="p-5 rounded-full bg-primary backdrop-blur-md active:scale-95 transition-transform shadow-2xl border-2 border-white/20"
             >
-              {isPlaying ? (
+              {isLoading || isBuffering ? (
+                <Loader2 className="w-10 h-10 text-white animate-spin" aria-hidden="true" />
+              ) : isPlaying ? (
                 <Pause className="w-10 h-10 text-white" />
               ) : (
                 <Play className="w-10 h-10 text-white ml-0.5" />
@@ -2009,37 +2073,24 @@ export function MobileVideoPlayer({
             <button
               onClick={() => seek(currentTime + 10)}
               aria-label={t('migration.forward')}
-              className="p-3 rounded-full bg-white/10 backdrop-blur-md active:bg-white/20 border border-white/10"
+              className="mobile-player-jump relative p-3 rounded-full bg-white/10 active:bg-white/20 border border-white/10"
             >
-              <SkipForward className="w-7 h-7 text-white drop-shadow-lg" />
+              <RotateCw className="w-7 h-7 text-white" aria-hidden="true" />
+              <span aria-hidden="true">10</span>
             </button>
           </div>
-
-          {/* Skip Intro Button */}
-          {activeSkip && (
-            <button
-              onClick={skipIntro}
-              className="mobile-player-skip absolute right-[max(1rem,env(safe-area-inset-right))] bottom-32 px-4 py-2 bg-white/95 rounded-xl text-black font-bold text-sm shadow-lg active:scale-95 transition-transform"
-            >
-              {activeSkip.type === 'recap' ? t('player.skipRecap') : activeSkip.type === 'ed' ? t('player.skipOutro') : t('player.skipIntro')}
-            </button>
-          )}
 
           {/* Bottom Controls */}
           <div className="mobile-player-bottom absolute bottom-0 left-0 right-0 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
             {/* Progress Bar */}
-            <input
-              type="range"
-              aria-label={t('migration.seek')}
-              min={0}
-              max={Number.isFinite(duration) && duration > 0 ? duration : 0}
-              step={0.1}
-              value={Number.isFinite(currentTime) ? currentTime : 0}
-              onChange={event => seek(Number(event.target.value))}
-              className="mobile-player-seek relative block w-full h-8 mb-2 accent-primary touch-none"
-              style={{ '--seek-progress': `${duration > 0 ? currentTime / duration * 100 : 0}%`, '--seek-buffered': `${duration > 0 ? buffered / duration * 100 : 0}%` } as React.CSSProperties}
-              data-player-interactive="true"
-            />
+            <div className="mobile-player-timeline relative">
+              <PlayerSeekInput
+                label={t('migration.seek')}
+                currentTime={currentTime} duration={duration} buffered={buffered}
+                onSeek={seek} onScrubbingChange={setIsScrubbing}
+                className="mobile-player-seek relative block w-full h-11 accent-primary touch-none"
+              />
+            </div>
 
             {/* Time & Actions */}
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2138,11 +2189,14 @@ export function MobileVideoPlayer({
         </div>
       )}
 
-      {/* Server Info Badge */}
-      {serverName && showControls && !isLocked && (
-        <div className="mobile-player-server pointer-events-none absolute top-20 right-3 z-40 px-3 py-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/10">
-          <span className="text-white/80 text-xs font-medium">{serverName}</span>
-        </div>
+      {/* Keep the time-sensitive skip action available when the chrome hides. */}
+      {activeSkip && !isLocked && !showFullSettings && (
+        <button
+          onClick={skipIntro}
+          className={cn('mobile-player-skip absolute z-30 right-[max(1rem,env(safe-area-inset-right))] min-h-11 px-4 py-2 bg-white/95 rounded-xl text-black font-bold text-sm shadow-lg active:bg-white', !showControls && 'is-idle')}
+        >
+          {activeSkip.type === 'recap' ? t('player.skipRecap') : activeSkip.type === 'ed' ? t('player.skipOutro') : t('player.skipIntro')}
+        </button>
       )}
 
       {/* Full settings — desktop parity (playback / video / subtitles / audio / keys) */}

@@ -452,7 +452,7 @@ export function useUpsertMangaReadlist() {
       // when neither of them fires.
       let singleSyncPosted = false;
 
-      if (profile?.mal_access_token) {
+      if (profile?.mal_user_id) {
         const targetMalId = toPositiveIntOrNull(data?.mal_id ?? variables?.malId);
         if (targetMalId) {
           singleSyncPosted = true;
@@ -461,12 +461,12 @@ export function useUpsertMangaReadlist() {
         }
       }
 
-      if (profile?.anilist_access_token) {
+      if (profile?.anilist_user_id) {
         const targetAniListId = toPositiveIntOrNull(data?.anilist_id ?? variables?.anilistId);
         if (targetAniListId) {
           singleSyncPosted = true;
           updateAniListMangaStatus(
-            profile.anilist_access_token,
+            null,
             targetAniListId,
             mapTatakaiMangaStatusToAniList(statusForSync),
             chapterProgress,
@@ -662,7 +662,7 @@ export function useSaveMangaReadingProgress() {
 
       let singleSyncPosted = false;
 
-      if (profile?.mal_access_token) {
+      if (profile?.mal_user_id) {
         const targetMalId = toPositiveIntOrNull(data.mal_id);
         if (targetMalId) {
           singleSyncPosted = true;
@@ -671,12 +671,12 @@ export function useSaveMangaReadingProgress() {
         }
       }
 
-      if (profile?.anilist_access_token) {
+      if (profile?.anilist_user_id) {
         const targetAniListId = toPositiveIntOrNull(data.anilist_id);
         if (targetAniListId) {
           singleSyncPosted = true;
           updateAniListMangaStatus(
-            profile.anilist_access_token,
+            null,
             targetAniListId,
             mapTatakaiMangaStatusToAniList(statusForSync),
             chapterProgress,

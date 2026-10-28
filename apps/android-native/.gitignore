@@ -1,0 +1,12 @@
+# Per-developer config (SDK path, Supabase URL/anon key) — never committed (E8)
+local.properties
+keystore.properties
+*.jks
+*.keystore
+.gradle/
+build/
+.idea/
+*.iml
+captures/
+# Sources jars of M3E/Nav3/Media3 used for API grep (E2); fetched with scripts/fetch-sources.mjs
+.deps-sources/

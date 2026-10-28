@@ -1,9 +1,7 @@
 import { isCapacitor, isElectron } from "@/lib/platform/platform";
-import {
-  resolveBackendOrigin,
-  ANILIST_GRAPHQL_ENDPOINT,
-} from "@/lib/api/backendOrigin";
-import { extensionFetch } from "@/core/extensions/remote/transport";
+import { publicJson } from "@/lib/net/publicApi";
+import { anilistGql } from "@/lib/anilist/client";
+import { lookupKitsuByExternal } from "@/lib/mapping/kitsuApi";
 import type {
   MangaChapterResponse,
   MangaReadResponse,
@@ -22,53 +20,54 @@ export function clearMangaDexChapterCache(id: string): void {
   pending.delete(id);
 }
 
-/** Built-in API transport: native HTTP in apps, the JSON proxy on the website. */
-async function json(url: string, init: RequestInit = {}): Promise<any> {
+/**
+ * MangaDex transport: `publicJson` (native HTTP in the apps, paced + retried;
+ * plain browser fetch on the web, where MangaDex's CORS policy applies).
+ * The identifying User-Agent is only sent natively: in a browser it is a
+ * non-safelisted header that would force a CORS preflight.
+ */
+async function json(url: string): Promise<any> {
   const native = isCapacitor() || isElectron();
-  const target =
-    !native && url.startsWith(API)
-      ? `${resolveBackendOrigin()}/api/proxy/json?url=${encodeURIComponent(
-          url
-        )}`
-      : url;
-  const response = native
-    ? await extensionFetch(target, {
-        ...init,
-        headers: {
-          "User-Agent": "Tatakai/6 (https://tatakai.me)",
-          ...Object.fromEntries(new Headers(init.headers).entries()),
-        },
-        signal: AbortSignal.timeout(15_000),
-      })
-    : await fetch(target, { ...init, signal: AbortSignal.timeout(15_000) });
-  if (!response.ok)
-    throw new Error(`MangaDex request failed (${response.status})`);
-  return response.json();
+  return publicJson<any>(url, {
+    headers: native ? { "User-Agent": "Tatakai/6 (https://tatakai.me)" } : undefined,
+    signal: AbortSignal.timeout(15_000),
+  });
+}
+
+/**
+ * Titles used to find the MangaDex entry for an AniList manga. AniList is the
+ * source of truth, but it can be down or rate limited; Kitsu's mappings give the
+ * same crosswalk (AniList id -> titles) without AniList.
+ */
+async function titlesFor(anilistId: number): Promise<string[]> {
+  const unique = (list: Array<string | null | undefined>) => [
+    ...new Set<string>(list.filter((t): t is string => Boolean(t))),
+  ];
+  try {
+    const data = await anilistGql<{
+      Media?: { title?: { english?: string; romaji?: string; native?: string } };
+    }>(
+      "query($id:Int){Media(id:$id,type:MANGA){title{english romaji native} synonyms}}",
+      { id: anilistId },
+      { retries: 0 }
+    );
+    const title = data?.Media?.title;
+    const titles = unique([title?.english, title?.romaji, title?.native]);
+    if (titles.length) return titles;
+  } catch {
+    /* AniList unavailable: fall through to the Kitsu crosswalk. */
+  }
+  try {
+    return (await lookupKitsuByExternal("manga", "anilist", anilistId))?.titles ?? [];
+  } catch {
+    return [];
+  }
 }
 
 async function loadMapping(id: string): Promise<any | null> {
   const anilistId = Number(id.replace(/^anilist:/i, ""));
   if (!Number.isInteger(anilistId) || anilistId <= 0) return null;
-  const metadata = await json(
-    isCapacitor() || isElectron()
-      ? "https://graphql.anilist.co"
-      : ANILIST_GRAPHQL_ENDPOINT,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        query:
-          "query($id:Int){Media(id:$id,type:MANGA){title{english romaji native} synonyms}}",
-        variables: { id: anilistId },
-      }),
-    }
-  );
-  const title = metadata?.data?.Media?.title;
-  const titles: string[] = [
-    ...new Set<string>(
-      [title?.english, title?.romaji, title?.native].filter(Boolean)
-    ),
-  ];
+  const titles = await titlesFor(anilistId);
   let manga: any;
   for (const name of titles.slice(0, 2)) {
     const query = new URLSearchParams({ title: name, limit: "50" });

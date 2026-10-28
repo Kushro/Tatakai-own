@@ -1,6 +1,17 @@
-import { supabase } from '@/integrations/supabase/client';
+import { publicJson } from '@/lib/net/publicApi';
+import { anilistGql } from '@/lib/anilist/client';
+import {
+  AniListAuthExpiredError,
+  buildAniListAuthUrl,
+  clearAniListCredentials,
+  completeAniListLogin,
+  getAniListAccessToken,
+  isAniListConfigured,
+  startAniListLogin,
+  withAniListToken,
+} from '@/lib/anilist/auth';
 import { disconnectMal, exchangeMalCode, getMalAuthUrl } from '@/lib/mal';
-import { ANILIST_GRAPHQL_ENDPOINT, resolveApiV3Base } from '@/lib/api/backendOrigin';
+import { MAL_API_URL } from '@/lib/mal/auth';
 
 export const ALL_GENRES = [
   "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror", "Mahou Shoujo", 
@@ -9,46 +20,41 @@ export const ALL_GENRES = [
 ];
 
 // ===========================================
-// MyAnimeList Integration
+// MyAnimeList Integration (REST v2, user token, direct)
 // ===========================================
 
-const MAL_CLIENT_ID = import.meta.env.VITE_MAL_CLIENT_ID;
-const MAL_API_URL = 'https://api.myanimelist.net/v2';
+const malBearer = (accessToken: string) => ({ Authorization: `Bearer ${accessToken}` });
 
-// Generate MAL OAuth URL
+// Generate MAL OAuth URL (PKCE; see @/lib/mal/auth)
 export function getMALAuthUrl(): string {
-  if (!MAL_CLIENT_ID) {
-    throw new Error('Missing VITE_MAL_CLIENT_ID');
-  }
   return getMalAuthUrl();
 }
 
-// Exchange code for tokens
-export async function exchangeMALCode(code: string, userId: string): Promise<boolean> {
+// Exchange the callback code for tokens and persist them (client side).
+export async function exchangeMALCode(code: string, userId: string, state?: string | null): Promise<boolean> {
   // userId is kept for backward compatibility with existing callers.
   void userId;
-  await exchangeMalCode(code);
+  await exchangeMalCode(code, state);
   return true;
 }
 
 // Fetch MAL user info
 export async function fetchMALUser(accessToken: string): Promise<any> {
-  const response = await fetch(`${MAL_API_URL}/users/@me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) throw new Error('Failed to fetch MAL user');
-  return response.json();
+  return publicJson(`${MAL_API_URL}/users/@me`, { headers: malBearer(accessToken) });
 }
 
-// Fetch MAL anime list
+// Fetch MAL anime list (all pages)
 export async function fetchMALAnimeList(accessToken: string): Promise<any[]> {
-  const response = await fetch(
-    `${MAL_API_URL}/users/@me/animelist?fields=list_status&limit=1000`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
-  if (!response.ok) throw new Error('Failed to fetch MAL anime list');
-  const data = await response.json();
-  return data.data || [];
+  const out: any[] = [];
+  let url: string | undefined = `${MAL_API_URL}/users/@me/animelist?fields=list_status&limit=1000`;
+  for (let page = 0; url && page < 50; page++) {
+    const data: any = await publicJson(url, { headers: malBearer(accessToken) });
+    out.push(...(data.data || []));
+    // Never follow a paging link off MAL's API host: it would carry the bearer token along.
+    const next: unknown = data.paging?.next;
+    url = typeof next === 'string' && next.startsWith('https://api.myanimelist.net/') ? next : undefined;
+  }
+  return out;
 }
 
 // Update MAL anime status
@@ -62,158 +68,53 @@ export async function updateMALAnimeStatus(
   if (episodesWatched !== undefined) {
     body.append('num_watched_episodes', episodesWatched.toString());
   }
-
-  const response = await fetch(`${MAL_API_URL}/anime/${animeId}/my_list_status`, {
+  const { publicFetch } = await import('@/lib/net/publicApi');
+  const response = await publicFetch(`${MAL_API_URL}/anime/${animeId}/my_list_status`, {
     method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body,
+    headers: { ...malBearer(accessToken), 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
   });
   return response.ok;
 }
 
 // ===========================================
-// AniList Integration
+// AniList Integration (implicit grant, direct GraphQL)
 // ===========================================
 
-const ANILIST_CLIENT_ID = import.meta.env.VITE_ANILIST_CLIENT_ID;
-const ANILIST_REDIRECT_URI = String(import.meta.env.VITE_ANILIST_REDIRECT_URI || '').split(',')[0]?.trim() || (typeof window !== 'undefined' ? `${window.location.origin}/integration/anilist/redirect` : 'https://tatakai.me/integration/anilist/redirect');
-const ANILIST_AUTH_URL = 'https://anilist.co/api/v2/oauth/authorize';
-// AniList GraphQL is reached through the TatakaiAPI proxy (see anilistQuery).
+export { isAniListConfigured };
 
-// The redirect URI that AniList sends the code back to must be identical in the
-// authorize request and the token exchange. Desktop uses the same https URI as
-// web (AniList allows only ONE registered redirect URI) plus a `state` marker;
-// the web redirect page forwards desktop-marked callbacks to the app via
-// `tatakai://` (see desktopOAuth.ts). We persist whichever URI initiated the
-// flow and read it back at exchange time.
-const ANILIST_REDIRECT_STORAGE_KEY = 'anilist_redirect_uri';
-const ANILIST_STATE_STORAGE_KEY = 'anilist_oauth_state';
-
-// Generate AniList OAuth URL. Pass an explicit `redirectUri` to override the
-// default web redirect, and `state` to tag the flow (desktop passes
-// `buildDesktopOAuthState()` so the https bridge page can route back to the app).
-export function getAniListAuthUrl(redirectUri?: string, state?: string): string {
-  if (!ANILIST_CLIENT_ID) {
-    throw new Error('Missing VITE_ANILIST_CLIENT_ID');
-  }
-
-  const effectiveRedirect = String(redirectUri || ANILIST_REDIRECT_URI).split(',')[0]?.trim() || ANILIST_REDIRECT_URI;
-  if (String(redirectUri || ANILIST_REDIRECT_URI).includes(',')) {
-    console.warn(
-      '[OAuth] AniList redirect URI contained a comma-separated pair; using only the first URL. ' +
-      'Register exactly one URL — a pair triggers a login prompt that loops.',
-    );
-  }
-  try {
-    localStorage.setItem(ANILIST_REDIRECT_STORAGE_KEY, effectiveRedirect);
-    if (state) localStorage.setItem(ANILIST_STATE_STORAGE_KEY, state);
-    else localStorage.removeItem(ANILIST_STATE_STORAGE_KEY);
-  } catch { /* localStorage unavailable — exchange falls back to default */ }
-
-  const params = new URLSearchParams({
-    client_id: ANILIST_CLIENT_ID,
-    redirect_uri: effectiveRedirect,
-    response_type: 'code',
-  });
-  if (state) params.set('state', state);
-
-  return `${ANILIST_AUTH_URL}?${params.toString()}`;
+/**
+ * Generate the AniList authorize URL (implicit grant: `response_type=token`) and
+ * mark the login in flight. AniList returns to the redirect URL registered on its
+ * client (tatakai://integration/anilist/redirect) with the token in the URL
+ * fragment. The old redirectUri/state parameters are accepted and ignored.
+ */
+export function getAniListAuthUrl(_redirectUri?: string, _state?: string): string {
+  return startAniListLogin();
 }
 
-// Exchange code for tokens via Hono API
-export async function exchangeAniListCode(code: string, userId: string): Promise<boolean> {
-  await supabase.auth.refreshSession().catch(() => { });
-  const { data: { session } } = await supabase.auth.getSession();
+/** Same URL without marking a login as started (diagnostics only). */
+export const previewAniListAuthUrl = buildAniListAuthUrl;
 
-  const bearer = session?.access_token;
-  if (!bearer) throw new Error('Missing auth token for AniList exchange');
-
-  let redirectUri = ANILIST_REDIRECT_URI;
-  try {
-    redirectUri = localStorage.getItem(ANILIST_REDIRECT_STORAGE_KEY) || ANILIST_REDIRECT_URI;
-  } catch { /* ignore */ }
-
-  const res = await fetch(`${resolveApiV3Base()}/sync/exchange`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${bearer}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      integration: 'anilist',
-      code,
-      redirectUri,
-    })
-  });
-
-  if (!res.ok) {
-    const errorBody = await res.json().catch(() => ({ error: 'Exchange failed' }));
-    throw new Error(errorBody.error || 'Failed to exchange AniList code');
-  }
-
-  try { localStorage.removeItem(ANILIST_REDIRECT_STORAGE_KEY); } catch { /* ignore */ }
-  try { localStorage.removeItem(ANILIST_STATE_STORAGE_KEY); } catch { /* ignore */ }
+/**
+ * Finish the AniList login from the redirect fragment (`#access_token=…`) and
+ * persist the token on the signed-in user's profile.
+ */
+export async function exchangeAniListCode(fragment: string, _userId?: string): Promise<boolean> {
+  await completeAniListLogin(fragment);
   return true;
 }
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
 /**
- * GraphQL helper — routed through the TatakaiAPI proxy (/api/v3/anilist/graphql)
- * instead of calling https://graphql.anilist.co directly. Direct browser calls
- * fail CORS on 429 and leak the user's token; the proxy fixes both and holds the
- * OAuth token server-side.
- *
- * The `accessToken` arg is now a *signal* that this is an authenticated call
- * (mutations, viewer/list reads). We no longer send the AniList token from the
- * browser — the server attaches the caller's stored token. Any truthy value here
- * means "use my linked account".
+ * GraphQL helper — straight to https://graphql.anilist.co through `anilistGql`
+ * (paced and retried by publicApi). `accessToken` is the user's real AniList
+ * token and is only sent to AniList. A 401 clears the stored login
+ * (AniListAuthExpiredError); 403/429/5xx/offline raise AniListUnavailableError —
+ * callers surface "AniList is unavailable right now" and nothing loops.
  */
-async function anilistQuery(query: string, variables: Record<string, any>, accessToken?: string, retries = 3): Promise<any> {
-  const useUserToken = !!accessToken;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-
-  // For authed calls the proxy needs our Supabase session to resolve the token.
-  if (useUserToken) {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
-    } catch { /* fall through — proxy will 401 if truly needed */ }
-  }
-
-  try {
-    const response = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ query, variables, useUserToken }),
-    });
-
-    if (response.status === 429 && retries > 0) {
-      const retryAfter = response.headers.get('Retry-After');
-      const delay = retryAfter ? parseInt(retryAfter) * 1000 : 2000;
-      console.warn(`[AniList] Rate limited. Retrying in ${delay}ms...`);
-      await sleep(delay);
-      return anilistQuery(query, variables, accessToken, retries - 1);
-    }
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => null);
-      throw new Error(body?.error || `AniList query failed with status ${response.status}`);
-    }
-    const data = await response.json();
-    if (data.errors) throw new Error(data.errors[0].message);
-    return data.data;
-  } catch (err: any) {
-    if (retries > 0 && (err.name === 'TypeError' || err.message === 'Failed to fetch')) {
-      console.warn(`[AniList] Network error/Fetch failed. Retrying in 2s...`, err);
-      await sleep(2000);
-      return anilistQuery(query, variables, accessToken, retries - 1);
-    }
-    throw err;
-  }
+async function anilistQuery(query: string, variables: Record<string, any>, accessToken?: string): Promise<any> {
+  if (!accessToken) return anilistGql<any>(query, variables);
+  return withAniListToken(accessToken, (token) => anilistGql<any>(query, variables, { token, retries: 1 }));
 }
 
 // ===========================================
@@ -323,11 +224,7 @@ export async function fetchAniListStatistics(accessToken: string): Promise<Exter
 
 // Fetch normalized MyAnimeList statistics for the connected user.
 export async function fetchMALStatistics(accessToken: string): Promise<ExternalStats> {
-  const res = await fetch(`${MAL_API_URL}/users/@me?fields=anime_statistics`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!res.ok) throw new Error('Failed to fetch MAL statistics');
-  const data = await res.json();
+  const data: any = await publicJson(`${MAL_API_URL}/users/@me?fields=anime_statistics`, { headers: malBearer(accessToken) });
   const s = data?.anime_statistics || {};
   const name = data?.name || null;
 
@@ -375,148 +272,125 @@ export async function fetchAniListUser(accessToken: string): Promise<any> {
   return data.Viewer;
 }
 
-// Fetch AniList anime list (chunked for safety)
-export async function fetchAniListUserList(accessToken: string, userId: number): Promise<any[]> {
-  const query = `
-    query ($userId: Int) {
-      MediaListCollection(userId: $userId, type: ANIME) {
-        lists {
-          name
-          status
-          entries {
-            id
-            mediaId
-            status
-            progress
-            score
-            media {
-              id
-              idMal
-              title { romaji english native }
-              coverImage { medium large }
-              episodes
-            }
-          }
-        }
-      }
-    }
-  `;
-  const data = await anilistQuery(query, { userId }, accessToken);
-  // Flatten all lists into one array
-  const allEntries = data.MediaListCollection?.lists?.flatMap((list: any) => list.entries) || [];
-  return allEntries;
+/** One AniList list entry as the sync layer consumes it. */
+export interface AniListListEntry {
+  id: number;
+  mediaId: number;
+  status: string;
+  progress: number | null;
+  progressVolumes?: number | null;
+  /** 0-100 regardless of the user's score format. */
+  score: number | null;
+  updatedAt?: number | null;
+  media: {
+    id: number;
+    idMal?: number | null;
+    format?: string | null;
+    title?: { romaji?: string | null; english?: string | null; native?: string | null } | null;
+    coverImage?: { medium?: string | null; large?: string | null } | null;
+    episodes?: number | null;
+    chapters?: number | null;
+    volumes?: number | null;
+  } | null;
 }
 
-// Fetch AniList manga list
-export async function fetchAniListMangaList(accessToken: string, userId: number): Promise<any[]> {
+const LIST_ENTRY_FIELDS = `
+  id mediaId status progress progressVolumes score(format: POINT_100) updatedAt
+  media { id idMal format title { romaji english native } coverImage { medium large } episodes chapters volumes }
+`;
+
+/**
+ * The whole AniList list (chunked, custom lists de-duplicated). AniList being
+ * down raises AniListUnavailableError once; there is no retry loop.
+ */
+export async function fetchAniListList(accessToken: string, userId: number, type: 'ANIME' | 'MANGA'): Promise<AniListListEntry[]> {
   const query = `
-    query ($userId: Int) {
-      MediaListCollection(userId: $userId, type: MANGA) {
-        lists {
-          name
-          status
-          entries {
-            id
-            mediaId
-            status
-            progress
-            score
-            media {
-              id
-              idMal
-              title { romaji english native }
-              coverImage { medium large }
-              chapters
-              volumes
-            }
-          }
-        }
+    query ($userId: Int, $type: MediaType, $chunk: Int) {
+      MediaListCollection(userId: $userId, type: $type, chunk: $chunk, perChunk: 500, forceSingleCompletedList: true) {
+        hasNextChunk
+        lists { name status entries { ${LIST_ENTRY_FIELDS} } }
       }
     }
   `;
-  const data = await anilistQuery(query, { userId }, accessToken);
-  const allEntries = data.MediaListCollection?.lists?.flatMap((list: any) => list.entries) || [];
-  return allEntries;
+  const byMedia = new Map<number, AniListListEntry>();
+  for (let chunk = 1; chunk <= 40; chunk++) {
+    const data = await anilistQuery(query, { userId, type, chunk }, accessToken);
+    const collection = data?.MediaListCollection;
+    for (const list of collection?.lists || []) {
+      for (const entry of list.entries || []) {
+        if (entry?.mediaId && !byMedia.has(entry.mediaId)) byMedia.set(entry.mediaId, entry);
+      }
+    }
+    if (!collection?.hasNextChunk) break;
+  }
+  return [...byMedia.values()];
+}
+
+// Fetch AniList anime list
+export async function fetchAniListUserList(accessToken: string, userId: number): Promise<any[]> {
+  return fetchAniListList(accessToken, userId, 'ANIME');
+}
+
+// Fetch AniList manga list (manga and novels)
+export async function fetchAniListMangaList(accessToken: string, userId: number): Promise<any[]> {
+  return fetchAniListList(accessToken, userId, 'MANGA');
+}
+
+const ANILIST_LIST_STATUSES = new Set(['CURRENT', 'PLANNING', 'COMPLETED', 'DROPPED', 'PAUSED', 'REPEATING']);
+
+/** Accepts an AniList status or a Tatakai one (watching, reading, plan_to_*, on_hold...). */
+function toAniListListStatus(status: string, manga: boolean): string {
+  const upper = String(status || '').trim().toUpperCase();
+  if (ANILIST_LIST_STATUSES.has(upper)) return upper;
+  return manga ? mapTatakaiMangaStatusToAniList(status) : mapTatakaiStatusToAniList(status);
+}
+
+async function saveAniListEntry(accessTokenArg: string | null | undefined, mediaId: number, status: string, progress: number | undefined, scoreRaw: number | undefined, manga: boolean): Promise<boolean> {
+  const mutation = `
+    mutation ($mediaId: Int, $status: MediaListStatus, $progress: Int, $scoreRaw: Int) {
+      SaveMediaListEntry(mediaId: $mediaId, status: $status, progress: $progress, scoreRaw: $scoreRaw) { id status progress }
+    }
+  `;
+  const accessToken = accessTokenArg || (await getAniListAccessToken());
+  if (!accessToken) throw new AniListAuthExpiredError();
+  const data = await anilistQuery(mutation, {
+    mediaId,
+    status: toAniListListStatus(status, manga),
+    progress: progress !== undefined && Number.isFinite(progress) ? Math.max(0, Math.trunc(progress)) : undefined,
+    scoreRaw: scoreRaw !== undefined && scoreRaw > 0 ? Math.min(100, Math.round(scoreRaw)) : undefined,
+  }, accessToken);
+  return Boolean(data?.SaveMediaListEntry?.id);
 }
 
 // Update AniList anime status
 export async function updateAniListAnimeStatus(
-  accessToken: string,
+  accessToken: string | null | undefined,
   mediaId: number,
   status: 'CURRENT' | 'COMPLETED' | 'PAUSED' | 'DROPPED' | 'PLANNING' | string,
-  progress?: number
+  progress?: number,
+  scoreRaw?: number
 ): Promise<boolean> {
-  const { data: { session } } = await supabase.auth.getSession();
-  const bearer = session?.access_token;
-  if (!bearer) throw new Error('Not authenticated');
-
-  const statusMap: Record<string, string> = {
-    CURRENT: 'watching',
-    COMPLETED: 'completed',
-    PLANNING: 'plan_to_watch',
-    DROPPED: 'dropped',
-    PAUSED: 'on_hold',
-  };
-  const localStatus = statusMap[status] || status;
-
-  const res = await fetch(`${resolveApiV3Base()}/sync/single-sync`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${bearer}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      type: 'anime',
-      anilistId: mediaId,
-      status: localStatus,
-      progress
-    })
-  });
-
-  if (!res.ok) {
-    throw new Error('Failed to update AniList anime status');
-  }
-  return true;
+  return saveAniListEntry(accessToken, mediaId, status, progress, scoreRaw, false);
 }
 
-// Update AniList manga status
+// Update AniList manga status (also used for novels)
 export async function updateAniListMangaStatus(
-  accessToken: string,
+  accessToken: string | null | undefined,
   mediaId: number,
   status: 'CURRENT' | 'COMPLETED' | 'PAUSED' | 'DROPPED' | 'PLANNING' | string,
-  progress?: number
+  progress?: number,
+  scoreRaw?: number
 ): Promise<boolean> {
-  const { data: { session } } = await supabase.auth.getSession();
-  const bearer = session?.access_token;
-  if (!bearer) throw new Error('Not authenticated');
+  return saveAniListEntry(accessToken, mediaId, status, progress, scoreRaw, true);
+}
 
-  const statusMap: Record<string, string> = {
-    CURRENT: 'watching',
-    COMPLETED: 'completed',
-    PLANNING: 'plan_to_watch',
-    DROPPED: 'dropped',
-    PAUSED: 'on_hold',
-  };
-  const localStatus = statusMap[status] || status;
-
-  const res = await fetch(`${resolveApiV3Base()}/sync/single-sync`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${bearer}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      type: 'manga',
-      anilistId: mediaId,
-      status: localStatus,
-      progress
-    })
-  });
-
-  if (!res.ok) {
-    throw new Error('Failed to update AniList manga status');
-  }
-  return true;
+/** Remove a title from the user's AniList (anime or manga). Missing entries are fine. */
+export async function deleteAniListEntry(accessToken: string, mediaId: number): Promise<boolean> {
+  const lookup = await anilistQuery('query ($id: Int) { Media(id: $id) { mediaListEntry { id } } }', { id: mediaId }, accessToken);
+  const entryId = lookup?.Media?.mediaListEntry?.id;
+  if (!entryId) return false;
+  const data = await anilistQuery('mutation ($id: Int) { DeleteMediaListEntry(id: $id) { deleted } }', { id: entryId }, accessToken);
+  return Boolean(data?.DeleteMediaListEntry?.deleted);
 }
 
 export type AniListSort =
@@ -816,21 +690,8 @@ export async function disconnectMAL(userId: string): Promise<void> {
   await disconnectMal(userId);
 }
 
-export async function disconnectAniList(userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('profiles')
-    .update({
-      anilist_user_id: null,
-      anilist_access_token: null,
-      // Cleared too: leaving the refresh token behind meant a "disconnected"
-      // account still held a credential that could mint new access tokens.
-      // `disconnectMal` already clears its counterpart (mal.ts:628).
-      anilist_refresh_token: null,
-      anilist_token_expires_at: null,
-    })
-    .eq('user_id', userId);
-
-  if (error) throw error;
+export async function disconnectAniList(_userId?: string): Promise<void> {
+  await clearAniListCredentials();
 }
 
 export function mapTatakaiStatusToAniList(status: string) {
@@ -842,6 +703,18 @@ export function mapTatakaiStatusToAniList(status: string) {
     'on_hold': 'PAUSED'
   };
   return map[status] || 'PLANNING';
+}
+
+export function mapAniListAnimeStatusToTatakai(status: string) {
+  const map: Record<string, string> = {
+    'CURRENT': 'watching',
+    'REPEATING': 'watching',
+    'COMPLETED': 'completed',
+    'PLANNING': 'plan_to_watch',
+    'DROPPED': 'dropped',
+    'PAUSED': 'on_hold'
+  };
+  return map[String(status || '').toUpperCase()] || 'plan_to_watch';
 }
 
 export function mapAniListMangaStatusToTatakai(status: string) {

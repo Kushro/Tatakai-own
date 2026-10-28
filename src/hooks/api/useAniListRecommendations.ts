@@ -8,16 +8,14 @@ import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
  * one title so the detail pages can blend AniList's human-curated picks with the
  * app's own recommendation engine.
  *
- * It NEVER calls https://graphql.anilist.co directly. Every request goes through
- * the TatakaiAPI proxy at `/api/v3/anilist/graphql`, which serves the in-process
- * mirror first and only falls back to upstream AniList on a mirror miss. The
- * mirror's `recommendations` field takes no arguments, so we ask for the whole
- * connection and sort/slice by vote `rating` client-side.
+ * Requests go straight to AniList through `anilistGql` (paced + retried). The
+ * `recommendations` field is asked for as a whole connection and sorted/sliced
+ * by vote `rating` client-side.
  */
 
 import { useQuery } from '@tanstack/react-query';
 
-import { ANILIST_GRAPHQL_ENDPOINT as ANILIST_GRAPHQL_URL } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
 
 /** One normalized AniList recommendation, shaped to feed both anime + manga cards. */
 export interface AniListRecommendation {
@@ -81,18 +79,15 @@ async function fetchAniListRecommendations(
   anilistId: number,
   signal?: AbortSignal,
 ): Promise<AniListRecommendation[]> {
-  const res = await fetch(ANILIST_GRAPHQL_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query: RECOMMENDATIONS_QUERY, variables: { id: anilistId } }),
-    signal,
-  });
-  if (!res.ok) throw new Error(uiI18n.t('app.anilist_i18n_value_0_ebc40c5f', { value0: res.status }));
+  let data: any;
+  try {
+    data = await anilistGql<any>(RECOMMENDATIONS_QUERY, { id: anilistId }, { signal });
+  } catch (err: any) {
+    if (err?.name === 'AbortError') throw err;
+    throw new Error(uiI18n.t('app.anilist_i18n_value_0_ebc40c5f', { value0: err?.status ?? 0 }));
+  }
 
-  const json = await res.json();
-  if (json.errors?.length) throw new Error(json.errors[0]?.message || 'AniList GraphQL error');
-
-  const nodes: RawRecNode[] = json?.data?.Media?.recommendations?.nodes ?? [];
+  const nodes: RawRecNode[] = data?.Media?.recommendations?.nodes ?? [];
   return nodes
     .map((n): AniListRecommendation | null => {
       const m = n.mediaRecommendation;

@@ -1,3 +1,6 @@
+import { isTV } from "@/core/tv/device";
+import { OptionalJWPlayer } from './JWPlayer';
+import { TVPlaybackOverlay } from "@/components/tv/TVPlaybackOverlay";
 import uiI18n from '@/lib/uiI18n';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { usePlaybackCoordinator } from '@/core/player/usePlaybackCoordinator';
@@ -20,6 +23,7 @@ import { getSubtitleSelectionKey } from "@/core/player/subtitle-utils";
 import { getProxiedImageUrl, getProxiedSubtitleUrl } from "@/lib/api";
 import { formatTime } from "@/core/player/time-utils";
 import { Seekbar } from "./controls/Seekbar";
+import { PlayerSeekInput } from './controls/PlayerSeekInput';
 import { TorrentStatusPanel } from "@/components/torrent/TorrentStatusPanel";
 
 // Hooks
@@ -30,9 +34,12 @@ import { useVideoKeyboard } from "./hooks/useVideoKeyboard";
 import { useControlsVisibility } from "./hooks/useControlsVisibility";
 import { useSubtitleManager } from "./hooks/useSubtitleManager";
 import { useAudioTrackManager } from "./hooks/useAudioTrackManager";
+import { normalizeTrackLanguage } from './hooks/useSubtitleManager';
 import { useMediaProbe } from "./hooks/useMediaProbe";
 import { useVideoProgress } from "./hooks/useVideoProgress";
 import { useActiveCues } from "./hooks/useActiveCues";
+import { useSubtitleTranslation } from "./hooks/useSubtitleTranslation";
+import { useSubtitlePretranslation } from "./hooks/useSubtitlePretranslation";
 import { useStableVolume, useSleepTimer, useAmbientMode } from "./hooks/usePlayerEnhancements";
 import { SubtitleOverlay } from "./overlays/SubtitleOverlay";
 import { Anime4KRenderer, type Anime4KMode } from "@/lib/video/anime4k/Anime4KRenderer";
@@ -107,13 +114,19 @@ const CURSOR_IDLE_MS = 6000;
 // Component
 // ---------------------------------------------------------------------------
 
-export function VideoPlayer({
+export function VideoPlayer(props: VideoPlayerProps & VideoPlayerExtendedProps) {
+  if (isTV()) return <BuiltinVideoPlayer {...props} />;
+  return <OptionalJWPlayer {...props}><BuiltinVideoPlayer {...props} /></OptionalJWPlayer>;
+}
+
+function BuiltinVideoPlayer({
   sources,
   subtitles = [],
   headers,
   poster,
   onError,
   onServerSwitch,
+  bufferingTimeoutMessage,
   onRetryCurrentServer,
   isLoading = false,
   serverName,
@@ -492,6 +505,12 @@ export function VideoPlayer({
   // cues ourselves so color/opacity/outline/position are styleable and sit above
   // the Anime4K canvas. Re-scan when the source or subtitle selection changes.
   const activeCueLines = useActiveCues(videoRef, `${currentSource?.url || ""}|${currentSubtitle}`, settings.subtitleOffset);
+  useSubtitlePretranslation(videoRef, `${currentSource?.url || ""}|${currentSubtitle}`);
+  const translatedCues = useSubtitleTranslation(activeCueLines);
+  const displayCueLines =
+    translatedCues.lines && translatedCues.lines.length === activeCueLines.length
+      ? translatedCues.lines
+      : activeCueLines;
 
   // Register a user-uploaded subtitle font (if any) so 'custom' cues render it.
   useEffect(() => {
@@ -642,6 +661,20 @@ export function VideoPlayer({
     setAudioTracks,
     setInternalSubtitles,
   });
+
+  const autoAudioSource = useRef<string>();
+  const appliedAudioPreference = useRef<string>();
+  useEffect(() => {
+    const url = currentSource?.url;
+    if (autoAudioSource.current !== url) { autoAudioSource.current = url; appliedAudioPreference.current = undefined; return; }
+    if (!url || settings.audioLanguage === 'auto' || !audioTracks.length) return;
+    const key = `${url}:${settings.audioLanguage}`;
+    if (appliedAudioPreference.current === key) return;
+    const preferred = audioTracks.find(track => normalizeTrackLanguage(track.lang) === settings.audioLanguage);
+    if (!preferred) return;
+    appliedAudioPreference.current = key;
+    if (preferred.id !== currentAudioTrack) handleAudioTrackChange(preferred.id);
+  }, [currentSource?.url, audioTracks, settings.audioLanguage, currentAudioTrack, handleAudioTrackChange]);
 
   useVideoProgress({
     videoRef,
@@ -924,7 +957,7 @@ export function VideoPlayer({
     setVideoError(null);
     setIsBuffering(true);
 
-    let mode: "hls" | "direct" | "torrent" | "offline" | "debrid" = "direct";
+    let mode: "hls" | "dash" | "direct" | "torrent" | "offline" | "debrid" = "direct";
     if (isOffline) {
       mode = "offline";
     } else {
@@ -937,6 +970,8 @@ export function VideoPlayer({
         mode = isHlsStream ? "hls" : isPlayableHttpOrFile ? "direct" : "torrent";
       } else if (url.startsWith("magnet:")) {
         mode = "debrid";
+      } else if (currentSource.sourceType === 'dash' || /\.mpd(?:\?|$)/i.test(currentSource.originalUrl || url)) {
+        mode = 'dash';
       } else if (isHlsStream) {
         mode = "hls";
       }
@@ -953,6 +988,7 @@ export function VideoPlayer({
         source: {
           id: currentSource.url,
           url: currentSource.url,
+          originalUrl: currentSource.originalUrl,
           mode: mode,
           episodeNumber: currentSource.episodeNumber ?? episodeNumber,
           filenameHint: currentSource.filenameHint,
@@ -1234,7 +1270,7 @@ export function VideoPlayer({
         const isTorrent =
           currentSource?.url?.startsWith("magnet:") || currentSource?.sourceType === "torrent";
         if (!isTorrent) {
-          setVideoError("Server timed out. Auto-switching server in 3 seconds...");
+          setVideoError(bufferingTimeoutMessage || "Server timed out. Auto-switching server in 3 seconds...");
           if (onError) onError({ reason: "buffer-stall-timeout" });
         } else {
           setIsBuffering(true);
@@ -1248,7 +1284,7 @@ export function VideoPlayer({
         bufferingTimeoutRef.current = null;
       }
     };
-  }, [isBuffering, currentSource?.url, onError]);
+  }, [isBuffering, currentSource?.url, onError, bufferingTimeoutMessage]);
 
   // ---------------------------------------------------------------------------
   // Sync extracted audio
@@ -1340,7 +1376,7 @@ export function VideoPlayer({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "?") {
+      if (e.key === "?" && !e.defaultPrevented && !document.activeElement?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) {
         e.preventDefault();
         setShowShortcuts((prev) => !prev);
       }
@@ -1487,10 +1523,12 @@ export function VideoPlayer({
   return (
     <div
       ref={containerRef}
-      className={`relative aspect-video min-h-[12rem] bg-black rounded-xl md:rounded-2xl overflow-hidden group touch-manipulation video-player-container video-player-modern ${!isMobile && cursorIdle ? "cursor-none" : ""}`}
+          className={`relative aspect-video min-h-[12rem] bg-black rounded-xl md:rounded-2xl overflow-hidden group touch-manipulation video-player-container video-player-modern ${isFullscreen ? "is-player-fullscreen" : ""} ${!isMobile && cursorIdle ? "cursor-none" : ""}`}
       onMouseMove={!isMobile ? handleContainerMouseMove : undefined}
       onMouseLeave={() => !isMobile && isPlaying && setControlsVisible(false)}
       onTouchStart={showControlsTemporarily}
+      onFocusCapture={showControlsTemporarily}
+      onKeyDownCapture={showControlsTemporarily}
     >
       {/* Double-click fullscreen discovery hint (desktop only, one-time).
           Non-interactive so it never swallows clicks. */}
@@ -1649,7 +1687,7 @@ export function VideoPlayer({
 
       {/* Center Play Button */}
       <CenterPlayButton
-        isVisible={!isPlaying && !isLoading && !isBuffering && !videoError && !isLive}
+        isVisible={!isTV() && !isPlaying && !isLoading && !isBuffering && !videoError && !isLive}
         onClick={togglePlay}
       />
 
@@ -1664,7 +1702,7 @@ export function VideoPlayer({
       {/* Custom subtitle overlay — paints active cues above the Anime4K canvas,
           fully styled from user settings (color/opacity/outline/position). */}
       <SubtitleOverlay
-        lines={activeCueLines}
+        lines={displayCueLines}
         settings={settings}
         controlsVisible={getShowControls()}
       />
@@ -1685,6 +1723,13 @@ export function VideoPlayer({
         />
       )}
 
+      {isTV() && !videoError && !isLoading && <TVPlaybackOverlay
+        visible={getShowControls() || !isPlaying} playing={isPlaying}
+        seekingLocked={timelineSeekingLocked || Boolean(isLive)}
+        onToggle={togglePlay} onSeek={skip} fallbackTitle={animeName}
+        episodeTitle={episodeTitle} episodeNumber={episodeNumber}
+      />}
+
       {/* Controls Overlay */}
       <div
         ref={controlsOverlayRef}
@@ -1695,16 +1740,18 @@ export function VideoPlayer({
         {/* Progress Bar */}
         {!timelineUiHidden && (
           <div
-            className={`relative h-1 md:h-1.5 bg-white/20 rounded-full group/progress mb-4 md:mb-5 video-progress-track ${isLive
+            className={`relative h-1 md:h-1.5 bg-white/20 rounded-full group/progress mb-4 md:mb-5 video-progress-track focus-within:outline focus-within:outline-2 focus-within:outline-offset-8 focus-within:outline-primary ${isLive
                 ? "cursor-default pointer-events-none"
                 : timelineSeekingLocked
                   ? "cursor-not-allowed opacity-85"
                   : "cursor-pointer"}`}
-            onClick={!isLive ? (timelineSeekingLocked ? showTimelineLockHint : handleSeek) : undefined}
-            onTouchMove={!isLive && !timelineSeekingLocked ? handleSeek : undefined}
+            onClick={!isLive && timelineSeekingLocked ? showTimelineLockHint : undefined}
             onMouseMove={!isLive && !timelineSeekingLocked ? handleProgressBarHover : undefined}
             onMouseLeave={!isLive ? handleProgressBarLeave : undefined}
           >
+            {!isLive && !timelineSeekingLocked && <PlayerSeekInput currentTime={currentTime} duration={duration} buffered={buffered}
+              label="Seek video" onSeek={handleSeek} onScrubbingChange={showControlsTemporarily}
+              className="absolute left-0 top-1/2 z-40 h-11 w-full -translate-y-1/2 touch-none cursor-pointer opacity-0 accent-primary" />}
             {/* Hover Time Tooltip */}
             {showHoverTime && !isLive && !timelineSeekingLocked && (
               <div
@@ -1763,6 +1810,7 @@ export function VideoPlayer({
         <div className="flex items-center justify-between gap-3 md:gap-4">
           {/* Left Controls */}
           <div className="flex items-center gap-1.5 md:gap-2">
+            <div className={isTV() ? "tv-bottom-transport" : "contents"}>
             <PlaybackControls
               isPlaying={isPlaying}
               isLive={Boolean(isLive)}
@@ -1773,6 +1821,7 @@ export function VideoPlayer({
               onSkip={skip}
             />
 
+            </div>
             <VolumeControl
               volume={volume}
               isMuted={isMuted}
@@ -1900,6 +1949,7 @@ export function VideoPlayer({
       {/* Settings Panel */}
       <VideoSettingsPanel
         isOpen={showSettingsPanel}
+        portalContainer={isFullscreen ? containerRef.current : undefined}
         onClose={() => setShowSettingsPanel(false)}
         currentSubtitle={currentSubtitle}
         onSubtitleChange={handleSubtitleChange}

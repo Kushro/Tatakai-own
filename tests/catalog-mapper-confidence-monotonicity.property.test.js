@@ -18,6 +18,11 @@
 import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import { mapParsedReleaseToAnime } from '../src/core/naming/catalog-mapper.ts';
+import { setHostPacingDisabled } from '../src/lib/net/hostLimiter.ts';
+
+// Stubbed fetch: no real hosts to pace, and retry back-off would only slow the
+// hundreds of property runs past bun's 5 s timeout.
+setHostPacingDisabled(true);
 
 // ---------------------------------------------------------------------------
 // Fetch mock helpers

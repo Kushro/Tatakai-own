@@ -1,0 +1,370 @@
+{
+ "pagination": {
+  "last_visible_page": 10,
+  "has_next_page": true,
+  "current_page": 1,
+  "items": {
+   "count": 4,
+   "total": 40,
+   "per_page": 4
+  }
+ },
+ "data": [
+  {
+   "mal_id": 61469,
+   "url": "https://myanimelist.net/anime/61469/Steel_Ball_Run__JoJo_no_Kimyou_na_Bouken",
+   "images": {
+    "jpg": {
+     "image_url": "https://cdn.myanimelist.net/images/anime/1065/158884.jpg",
+     "small_image_url": "https://cdn.myanimelist.net/images/anime/1065/158884t.jpg",
+     "large_image_url": "https://cdn.myanimelist.net/images/anime/1065/158884l.jpg"
+    },
+    "webp": {
+     "image_url": "https://cdn.myanimelist.net/images/anime/1065/158884.webp",
+     "small_image_url": "https://cdn.myanimelist.net/images/anime/1065/158884t.webp",
+     "large_image_url": "https://cdn.myanimelist.net/images/anime/1065/158884l.webp"
+    }
+   },
+   "title": "Steel Ball Run: JoJo no Kimyou na Bouken",
+   "title_english": "Steel Ball Run: JoJo's Bizarre Adventure",
+   "title_japanese": "スティール・ボール・ラン ジョジョの奇妙な冒険",
+   "title_synonyms": [],
+   "type": "ONA",
+   "episodes": null,
+   "status": "Currently Airing",
+   "aired": {
+    "from": "2026-03-19T00:00:00+00:00",
+    "to": null,
+    "prop": {
+     "from": {
+      "day": 19,
+      "month": 3,
+      "year": 2026
+     },
+     "to": {
+      "day": null,
+      "month": null,
+      "year": null
+     }
+    },
+    "string": "Mar 19, 2026 to ?"
+   },
+   "duration": "27 min",
+   "rating": "R - 17+ (violence & profanity)",
+   "score": 9.04,
+   "members": 249796,
+   "favorites": 8584,
+   "synopsis": "x",
+   "season": "winter",
+   "year": 2026,
+   "studios": [
+    {
+     "mal_id": 287,
+     "type": "anime",
+     "name": "David Production",
+     "url": "https://myanimelist.net/anime/producer/287/David_Production"
+    }
+   ],
+   "genres": [
+    {
+     "mal_id": 1,
+     "type": "anime",
+     "name": "Action",
+     "url": "https://myanimelist.net/anime/genre/1/Action"
+    },
+    {
+     "mal_id": 2,
+     "type": "anime",
+     "name": "Adventure",
+     "url": "https://myanimelist.net/anime/genre/2/Adventure"
+    },
+    {
+     "mal_id": 7,
+     "type": "anime",
+     "name": "Mystery",
+     "url": "https://myanimelist.net/anime/genre/7/Mystery"
+    },
+    {
+     "mal_id": 37,
+     "type": "anime",
+     "name": "Supernatural",
+     "url": "https://myanimelist.net/anime/genre/37/Supernatural"
+    }
+   ],
+   "explicit_genres": [],
+   "themes": [
+    {
+     "mal_id": 13,
+     "type": "anime",
+     "name": "Historical",
+     "url": "https://myanimelist.net/anime/genre/13/Historical"
+    },
+    {
+     "mal_id": 3,
+     "type": "anime",
+     "name": "Racing",
+     "url": "https://myanimelist.net/anime/genre/3/Racing"
+    }
+   ],
+   "demographics": [
+    {
+     "mal_id": 42,
+     "type": "anime",
+     "name": "Seinen",
+     "url": "https://myanimelist.net/anime/genre/42/Seinen"
+    },
+    {
+     "mal_id": 27,
+     "type": "anime",
+     "name": "Shounen",
+     "url": "https://myanimelist.net/anime/genre/27/Shounen"
+    }
+   ]
+  },
+  {
+   "mal_id": 60636,
+   "url": "https://myanimelist.net/anime/60636/Bleach__Sennen_Kessen-hen_-_Kashin-tan",
+   "images": {
+    "jpg": {
+     "image_url": "https://cdn.myanimelist.net/images/anime/1275/158595.jpg",
+     "small_image_url": "https://cdn.myanimelist.net/images/anime/1275/158595t.jpg",
+     "large_image_url": "https://cdn.myanimelist.net/images/anime/1275/158595l.jpg"
+    },
+    "webp": {
+     "image_url": "https://cdn.myanimelist.net/images/anime/1275/158595.webp",
+     "small_image_url": "https://cdn.myanimelist.net/images/anime/1275/158595t.webp",
+     "large_image_url": "https://cdn.myanimelist.net/images/anime/1275/158595l.webp"
+    }
+   },
+   "title": "Bleach: Sennen Kessen-hen - Kashin-tan",
+   "title_english": "Bleach: Thousand-Year Blood War - The Calamity",
+   "title_japanese": "BLEACH 千年血戦篇-禍進譚-",
+   "title_synonyms": [],
+   "type": "TV",
+   "episodes": 10,
+   "status": "Currently Airing",
+   "aired": {
+    "from": "2026-07-25T00:00:00+00:00",
+    "to": "2026-10-27T00:00:00+00:00",
+    "prop": {
+     "from": {
+      "day": 25,
+      "month": 7,
+      "year": 2026
+     },
+     "to": {
+      "day": 27,
+      "month": 10,
+      "year": 2026
+     }
+    },
+    "string": "Jul 25, 2026 to Oct 27, 2026"
+   },
+   "duration": "24 min per ep",
+   "rating": "R - 17+ (violence & profanity)",
+   "score": 8.99,
+   "members": 181378,
+   "favorites": 2613,
+   "synopsis": "x",
+   "season": "summer",
+   "year": 2026,
+   "studios": [
+    {
+     "mal_id": 2951,
+     "type": "anime",
+     "name": "Pierrot Films",
+     "url": "https://myanimelist.net/anime/producer/2951/Pierrot_Films"
+    }
+   ],
+   "genres": [
+    {
+     "mal_id": 1,
+     "type": "anime",
+     "name": "Action",
+     "url": "https://myanimelist.net/anime/genre/1/Action"
+    },
+    {
+     "mal_id": 2,
+     "type": "anime",
+     "name": "Adventure",
+     "url": "https://myanimelist.net/anime/genre/2/Adventure"
+    },
+    {
+     "mal_id": 37,
+     "type": "anime",
+     "name": "Supernatural",
+     "url": "https://myanimelist.net/anime/genre/37/Supernatural"
+    }
+   ],
+   "explicit_genres": [],
+   "themes": [],
+   "demographics": [
+    {
+     "mal_id": 27,
+     "type": "anime",
+     "name": "Shounen",
+     "url": "https://myanimelist.net/anime/genre/27/Shounen"
+    }
+   ]
+  },
+  {
+   "mal_id": 777,
+   "url": "u",
+   "images": {
+    "jpg": {
+     "image_url": "https://cdn/777.jpg"
+    }
+   },
+   "title": "Adult Thing",
+   "title_english": null,
+   "title_japanese": null,
+   "title_synonyms": [],
+   "type": "OVA",
+   "episodes": 2,
+   "status": "Finished Airing",
+   "aired": {
+    "prop": {
+     "from": {
+      "year": 2020,
+      "month": 1,
+      "day": 1
+     },
+     "to": {
+      "year": 2020,
+      "month": 2,
+      "day": 1
+     }
+    }
+   },
+   "duration": "30 min per ep",
+   "rating": "Rx - Hentai",
+   "score": 6.5,
+   "members": 10,
+   "favorites": 1,
+   "synopsis": "x",
+   "season": "winter",
+   "year": 2020,
+   "studios": [],
+   "genres": [],
+   "explicit_genres": [
+    {
+     "mal_id": 12,
+     "name": "Hentai"
+    }
+   ],
+   "themes": [],
+   "demographics": []
+  },
+  {
+   "mal_id": 61469,
+   "url": "https://myanimelist.net/anime/61469/Steel_Ball_Run__JoJo_no_Kimyou_na_Bouken",
+   "images": {
+    "jpg": {
+     "image_url": "https://cdn.myanimelist.net/images/anime/1065/158884.jpg",
+     "small_image_url": "https://cdn.myanimelist.net/images/anime/1065/158884t.jpg",
+     "large_image_url": "https://cdn.myanimelist.net/images/anime/1065/158884l.jpg"
+    },
+    "webp": {
+     "image_url": "https://cdn.myanimelist.net/images/anime/1065/158884.webp",
+     "small_image_url": "https://cdn.myanimelist.net/images/anime/1065/158884t.webp",
+     "large_image_url": "https://cdn.myanimelist.net/images/anime/1065/158884l.webp"
+    }
+   },
+   "title": "Steel Ball Run: JoJo no Kimyou na Bouken",
+   "title_english": "Steel Ball Run: JoJo's Bizarre Adventure",
+   "title_japanese": "スティール・ボール・ラン ジョジョの奇妙な冒険",
+   "title_synonyms": [],
+   "type": "ONA",
+   "episodes": null,
+   "status": "Currently Airing",
+   "aired": {
+    "from": "2026-03-19T00:00:00+00:00",
+    "to": null,
+    "prop": {
+     "from": {
+      "day": 19,
+      "month": 3,
+      "year": 2026
+     },
+     "to": {
+      "day": null,
+      "month": null,
+      "year": null
+     }
+    },
+    "string": "Mar 19, 2026 to ?"
+   },
+   "duration": "27 min",
+   "rating": "R - 17+ (violence & profanity)",
+   "score": 9.04,
+   "members": 249796,
+   "favorites": 8584,
+   "synopsis": "x",
+   "season": "winter",
+   "year": 2026,
+   "studios": [
+    {
+     "mal_id": 287,
+     "type": "anime",
+     "name": "David Production",
+     "url": "https://myanimelist.net/anime/producer/287/David_Production"
+    }
+   ],
+   "genres": [
+    {
+     "mal_id": 1,
+     "type": "anime",
+     "name": "Action",
+     "url": "https://myanimelist.net/anime/genre/1/Action"
+    },
+    {
+     "mal_id": 2,
+     "type": "anime",
+     "name": "Adventure",
+     "url": "https://myanimelist.net/anime/genre/2/Adventure"
+    },
+    {
+     "mal_id": 7,
+     "type": "anime",
+     "name": "Mystery",
+     "url": "https://myanimelist.net/anime/genre/7/Mystery"
+    },
+    {
+     "mal_id": 37,
+     "type": "anime",
+     "name": "Supernatural",
+     "url": "https://myanimelist.net/anime/genre/37/Supernatural"
+    }
+   ],
+   "explicit_genres": [],
+   "themes": [
+    {
+     "mal_id": 13,
+     "type": "anime",
+     "name": "Historical",
+     "url": "https://myanimelist.net/anime/genre/13/Historical"
+    },
+    {
+     "mal_id": 3,
+     "type": "anime",
+     "name": "Racing",
+     "url": "https://myanimelist.net/anime/genre/3/Racing"
+    }
+   ],
+   "demographics": [
+    {
+     "mal_id": 42,
+     "type": "anime",
+     "name": "Seinen",
+     "url": "https://myanimelist.net/anime/genre/42/Seinen"
+    },
+    {
+     "mal_id": 27,
+     "type": "anime",
+     "name": "Shounen",
+     "url": "https://myanimelist.net/anime/genre/27/Shounen"
+    }
+   ]
+  }
+ ]
+}

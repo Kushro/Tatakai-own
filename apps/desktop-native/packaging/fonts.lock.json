@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "note": "Space Grotesk and Outfit are variable fonts under the SIL OFL 1.1. They were not available offline when B6 was written, so the SHA-256 values are null: run `fetch-deps.ps1 -Only fonts -Pin`, review the printed hashes, and paste them here. The version in each URL is a pin to confirm. JetBrains Mono already ships in crates/tk-ui/assets/fonts with its OFL text.",
+  "files": [
+    {
+      "path": "SpaceGrotesk.woff2",
+      "family": "Space Grotesk",
+      "url": "https://cdn.jsdelivr.net/npm/@fontsource-variable/space-grotesk@5.2.5/files/space-grotesk-latin-wght-normal.woff2",
+      "sha256": null,
+      "license": "OFL-1.1"
+    },
+    {
+      "path": "Outfit.woff2",
+      "family": "Outfit",
+      "url": "https://cdn.jsdelivr.net/npm/@fontsource-variable/outfit@5.2.5/files/outfit-latin-wght-normal.woff2",
+      "sha256": null,
+      "license": "OFL-1.1"
+    },
+    {
+      "path": "OFL-SpaceGrotesk.txt",
+      "family": "Space Grotesk",
+      "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/spacegrotesk/OFL.txt",
+      "sha256": null,
+      "license": "OFL-1.1"
+    },
+    {
+      "path": "OFL-Outfit.txt",
+      "family": "Outfit",
+      "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/outfit/OFL.txt",
+      "sha256": null,
+      "license": "OFL-1.1"
+    }
+  ]
+}

@@ -1620,5 +1620,5 @@ class TorrentSessionManager extends EventEmitter {
     }
 }
 
-module.exports = { TorrentSessionManager };
+module.exports = { TorrentSessionManager, TORRENT_STREAM_ORIGIN: `http://${STREAM_HOST}:${STREAM_PORT}` };
 

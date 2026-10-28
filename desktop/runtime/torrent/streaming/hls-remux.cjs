@@ -320,4 +320,5 @@ module.exports = {
   startRemuxJob,
   summarizeFfmpegError,
   ATTEMPT_COUNT,
+  HLS_REMUX_ORIGIN: `http://${HOST}:${PORT}`,
 };

@@ -2,13 +2,15 @@ import { contentGraph, toAnimeCard, toHomeData } from "@/core";
 import { applyEpisodeAvailability } from '@/lib/episodeAvailability';
 import type { EpisodeData, EpisodeServer, HomeData, StreamingData } from "@/types/anime";
 import { getHighQualityImage } from "@/lib/api/proxy-utils";
-import { fetchJikanEpisodes } from "@/core/content/jikan-client";
+import { metadata } from "@/lib/metadata";
+import { publicJson } from "@/lib/net/publicApi";
+import { tenraiGet } from "@/lib/tenrai/client";
 import { fetchAniZipMapping } from "@/lib/mapping/anizip";
 import { resolveApiV3Base } from "@/lib/api/backendOrigin";
 import { withLocaleHeaders } from "@/lib/api/localeHeaders";
 
-// Canonical backend `/api/v3` base. Resolves VITE_BACKEND_ORIGIN → origin of
-// VITE_TATAKAI_API_URL → http page origin (see backendOrigin.ts).
+// Legacy backend `/api/v3` base, still read by admin/status/sync screens that have
+// not been migrated. Catalog data no longer uses it.
 export const TATAKAI_API_URL = resolveApiV3Base();
 
 const GENRE_ALIASES: Record<string, string> = {
@@ -23,32 +25,9 @@ function normalizeGenre(genre: string): string {
   return key.replace(/-/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+/** Locale headers only; no `X-Tatakai-*` identification is sent to any host. */
 export function withClientHeaders(headers: Record<string, string> = {}) {
-  return withLocaleHeaders({
-    ...headers,
-    "X-Tatakai-Client": "web",
-    "X-Tatakai-Version": "6.0.1",
-  });
-}
-
-function shouldAttachClientHeaders(targetUrl: string): boolean {
-  if (typeof window === "undefined") return true;
-
-  try {
-    const targetOrigin = new URL(targetUrl, window.location.origin).origin;
-    if (targetOrigin === window.location.origin) return true;
-
-    try {
-      const apiOrigin = new URL(TATAKAI_API_URL).origin;
-      if (apiOrigin === targetOrigin) return true;
-    } catch {
-      // ignore invalid API URL
-    }
-  } catch {
-    return true;
-  }
-
-  return false;
+  return withLocaleHeaders({ ...headers });
 }
 
 function resolveExternalApiUrl(baseUrl: string, path: string): string {
@@ -71,10 +50,11 @@ function resolveExternalApiUrl(baseUrl: string, path: string): string {
 }
 
 /**
- * Make a request to an external API (Jikan, etc.) with proper error handling
- * @param baseUrl - The base URL of the external API (e.g., 'https://api.jikan.moe/v4')
+ * GET a JSON public API (Tenrai/Jikan-compatible, etc.). Goes through the shared
+ * public transport (host pacing, retries, native HTTP in the apps); never attaches
+ * app credentials or Tatakai identification headers.
+ * @param baseUrl - The base URL of the external API (e.g., 'https://api.tenrai.org/v1')
  * @param path - The path to append (e.g., '/anime/1')
- * @returns Promise<T> The parsed JSON response
  */
 export async function externalApiGet<T>(
   baseUrl: string,
@@ -82,19 +62,8 @@ export async function externalApiGet<T>(
   headers: Record<string, string> = {}
 ): Promise<T> {
   const url = resolveExternalApiUrl(baseUrl, path);
-  const requestHeaders = shouldAttachClientHeaders(url) ? withClientHeaders(headers) : headers;
-  
   try {
-    const response = await fetch(url, {
-      headers: requestHeaders,
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const data = await response.json() as T;
-    return data;
+    return await publicJson<T>(url, { headers });
   } catch (error) {
     console.error(`[externalApiGet] Error fetching ${url}:`, error);
     throw error;
@@ -163,9 +132,9 @@ export async function fetchJikanCover(malId?: number | null, fallbackPoster = ""
   if (!malId) return fallbackPoster;
 
   try {
-    const res = await fetch(`https://api.jikan.moe/v4/anime/${malId}`);
-    if (!res.ok) return fallbackPoster;
-    const json = await res.json();
+    const json = await tenraiGet<{
+      data?: { images?: { webp?: { large_image_url?: string }; jpg?: { large_image_url?: string; image_url?: string } } };
+    }>(`/anime/${malId}`);
     const imageUrl =
       json?.data?.images?.webp?.large_image_url ||
       json?.data?.images?.jpg?.large_image_url ||
@@ -179,7 +148,7 @@ export async function fetchJikanCover(malId?: number | null, fallbackPoster = ""
 /**
  * Known future dates and episode-order/schedule evidence set `hasAired` false.
  *
- * Episodes from the DB/Jikan/count fallbacks carry no air-date signal
+ * Episodes from the router/count fallbacks carry no air-date signal
  * (`hasAired` undefined) remain playable unless a known upcoming episode puts
  * them beyond the current airing boundary. Never invert this to `!== true`: that would
  * brick playback for every fallback-tier episode.
@@ -216,27 +185,28 @@ export async function fetchEpisodes(animeId: string) {
     }));
   }
 
-  if (episodes.length === 0 && media.malId) {
-    let page = 1;
-    let hasNext = true;
-    const maxPages = 25;
-
-    while (hasNext && page <= maxPages) {
-      const res = await fetchJikanEpisodes(media.malId, page);
-      const rows = Array.isArray(res?.data) ? res.data : [];
-      for (const row of rows) {
-        const number = Number(row?.mal_id);
-        if (!Number.isFinite(number) || number <= 0) continue;
+  if (episodes.length === 0 && (media.anilistId || media.malId)) {
+    try {
+      const { value } = await metadata.episodes({
+        anilistId: media.anilistId > 0 ? media.anilistId : undefined,
+        malId: media.malId,
+        kitsuId: media.kitsuId,
+      });
+      for (const row of value) {
+        if (!Number.isFinite(row.number) || row.number <= 0) continue;
         episodes.push({
-          episodeId: `${baseId}?ep=${number}`,
-          number,
-          title: row?.title || `Episode ${number}`,
-          isFiller: Boolean(row?.filler),
+          episodeId: `${baseId}?ep=${row.number}`,
+          number: row.number,
+          title: row.title || `Episode ${row.number}`,
+          isFiller: Boolean(row.isFiller),
+          overview: row.overview,
+          image: row.image,
+          airDate: row.airDate,
+          runtime: row.runtimeMin,
         });
       }
-
-      hasNext = Boolean(res?.pagination?.has_next_page);
-      page += 1;
+    } catch {
+      /* no source has an episode list: fall back to count placeholders */
     }
   }
 

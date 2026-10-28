@@ -1,4 +1,6 @@
+import { CosmeticAvatar } from '@/components/profile/IdentityCosmetics';
 import uiI18n from '@/lib/uiI18n';
+import { GeneralCommunityLanguageWarning } from '@/components/community/GeneralCommunityLanguageWarning';
 import { isTV } from '@/core/tv/device';
 import { requestTVWriting } from '@/core/tv/writingHandoff';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
@@ -11,7 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -65,6 +67,7 @@ const POLL_DURATION = {
 };
 
 interface RichCommentComposerProps {
+  generalCommunity?: boolean;
   onSubmit: (payload: ComposerPayload) => Promise<unknown> | unknown;
   submitting?: boolean;
   placeholder?: string;
@@ -123,6 +126,7 @@ export function RichCommentComposer({
   allowTimestamp = false,
   allowEmbeds = false,
   initialEmbeds,
+  generalCommunity = false,
 }: RichCommentComposerProps) {
   useUiTranslation();
   const { t } = useTranslation();
@@ -540,6 +544,7 @@ export function RichCommentComposer({
         )}
       </div>
 
+      <GeneralCommunityLanguageWarning content={content} enabled={generalCommunity} />
       {/* Textarea + mention dropdown */}
       <div className="relative">
         <Textarea
@@ -580,12 +585,12 @@ export function RichCommentComposer({
                 onClick={() => insertMention(c)}
                 className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent"
               >
-                <Avatar className="h-6 w-6">
+                <CosmeticAvatar userId={c.user_id} className="h-6 w-6">
                   <AvatarImage src={c.avatar_url || undefined} />
                   <AvatarFallback className="text-[10px]">
                     {(c.display_name || c.username || 'U')[0]?.toUpperCase()}
                   </AvatarFallback>
-                </Avatar>
+                </CosmeticAvatar>
                 <span className="truncate font-medium">{c.display_name || c.username}</span>
                 <span className="truncate text-xs text-muted-foreground">@{c.username}</span>
               </button>
