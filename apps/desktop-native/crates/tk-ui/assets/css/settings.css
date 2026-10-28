@@ -1,0 +1,13 @@
+/* Settings - owner: wave 2 D. Colors/type/shape/motion only from tokens.css; layout literals only. */
+
+.tk-setting { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-setting__label { font-size: var(--md-sys-typescale-title-small-size); font-weight: var(--md-sys-typescale-title-small-weight-emphasized); }
+.tk-setting__hint { color: var(--md-sys-color-on-surface-variant); max-width: 70ch; }
+.tk-swatches { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); }
+.tk-swatch { display: flex; align-items: center; gap: var(--tk-space-8); height: 40px; padding: 0 var(--tk-space-16) 0 var(--tk-space-8); border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-surface-container-high); border: 2px solid transparent; }
+.tk-swatch[data-selected="true"] { border-color: var(--md-sys-color-primary); background: var(--md-sys-color-secondary-container); }
+.tk-swatch__dot { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--md-sys-color-outline-variant); }
+.tk-priority { display: flex; flex-direction: column; gap: var(--tk-space-4); max-width: 420px; }
+.tk-priority__row { display: flex; align-items: center; gap: var(--tk-space-8); padding: var(--tk-space-4) var(--tk-space-8) var(--tk-space-4) var(--tk-space-16); border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container-high); }
+.tk-priority__rank { font-family: var(--tk-font-mono); color: var(--md-sys-color-primary); }
+.tk-priority__name { flex: 1; }

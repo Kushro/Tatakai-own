@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 
 use crate::backend::{EpisodeVm, MediaVm};
-use crate::components::chips::Pill;
+use crate::components::chips::{Pill, Tone};
 use crate::i18n::{t, tf};
 
 /// Only `#RGB` / `#RRGGBB` pass: the value comes from a remote metadata provider and lands in a
@@ -107,7 +107,7 @@ pub fn EpisodeRow(
                     }
                 }
                 if episode.is_filler {
-                    Pill { text: t("details.filler"), tone: "warn".to_string() }
+                    Pill { text: t("details.filler"), tone: Tone::Warn }
                 }
             }
         }

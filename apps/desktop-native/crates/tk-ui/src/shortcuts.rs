@@ -15,6 +15,8 @@ pub enum Shortcut {
     /// Ctrl+1..Ctrl+6 -> 1-based preset index.
     Preset(u8),
     Escape,
+    /// 1..6 outside the player -> 1-based index into `NavDest::ALL`.
+    NavTo(u8),
 }
 
 /// Messages posted from the injected script to Rust.
@@ -24,7 +26,17 @@ pub enum JsMsg {
     #[serde(rename = "env")]
     Env { tag: String, dark: bool, w: f64 },
     #[serde(rename = "key")]
-    Key { key: String, ctrl: bool, #[serde(default)] shift: bool, #[serde(default)] editable: bool },
+    Key {
+        key: String,
+        ctrl: bool,
+        #[serde(default)]
+        shift: bool,
+        #[serde(default)]
+        editable: bool,
+        /// The player screen is showing (the bridge checks `.tk-shell[data-player="true"]`).
+        #[serde(default)]
+        player: bool,
+    },
 }
 
 pub fn shortcut(key: &str, ctrl: bool, editable: bool, in_player: bool) -> Option<Shortcut> {
@@ -39,8 +51,14 @@ pub fn shortcut(key: &str, ctrl: bool, editable: bool, in_player: bool) -> Optio
     if key == "Escape" {
         return Some(Shortcut::Escape);
     }
-    if editable || !in_player {
+    if editable {
         return None;
+    }
+    if !in_player {
+        return match key {
+            "1" | "2" | "3" | "4" | "5" | "6" => key.parse().ok().map(Shortcut::NavTo),
+            _ => None,
+        };
     }
     match key {
         " " => Some(Shortcut::TogglePause),
@@ -64,7 +82,7 @@ window.addEventListener('keydown', (e) => {
   const inPlayer = !!document.querySelector('.tk-shell[data-player="true"]');
   if (inPlayer && !editable && (e.key === ' ' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) e.preventDefault();
   if (e.ctrlKey && ['b', 'k', '1', '2', '3', '4', '5', '6'].includes(e.key.toLowerCase())) e.preventDefault();
-  dioxus.send({ t: 'key', key: e.key, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey, editable });
+  dioxus.send({ t: 'key', key: e.key, ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey, editable, player: inPlayer });
 });
 "#;
 
@@ -101,10 +119,19 @@ mod tests {
     }
 
     #[test]
+    fn digits_navigate_outside_the_player_only() {
+        assert_eq!(shortcut("1", false, false, false), Some(Shortcut::NavTo(1)));
+        assert_eq!(shortcut("6", false, false, false), Some(Shortcut::NavTo(6)));
+        assert_eq!(shortcut("7", false, false, false), None);
+        assert_eq!(shortcut("2", false, true, false), None);
+        assert_eq!(shortcut("2", false, false, true), None);
+    }
+
+    #[test]
     fn bridge_messages_deserialize() {
         let env: JsMsg = serde_json::from_str(r#"{"t":"env","tag":"es-AR","dark":true,"w":1280}"#).unwrap();
         assert_eq!(env, JsMsg::Env { tag: "es-AR".into(), dark: true, w: 1280.0 });
         let key: JsMsg = serde_json::from_str(r#"{"t":"key","key":"b","ctrl":true}"#).unwrap();
-        assert_eq!(key, JsMsg::Key { key: "b".into(), ctrl: true, shift: false, editable: false });
+        assert_eq!(key, JsMsg::Key { key: "b".into(), ctrl: true, shift: false, editable: false, player: false });
     }
 }

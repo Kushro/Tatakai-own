@@ -119,7 +119,7 @@ pub fn PlayerControls(
                             onclick: move |_| menu_open.set(!menu_open()),
                         }
                         if menu_open() {
-                            div { class: "tk-menu", role: "menu", "aria-label": "{menu_title}",
+                            div { class: "tk-menu", role: "menu", "aria-label": "{menu_title}", "data-placement": "above", "data-align": "end",
                                 for (i , p) in ShaderPreset::ALL.into_iter().enumerate() {
                                     button {
                                         key: "{p.id()}",
