@@ -153,6 +153,31 @@ jobs:
           node scripts/fetch-cloudflared.cjs
           ls -la resources/bin
 
+      # electron-builder's afterPack hook (scripts/verify-translate-package.cjs)
+      # refuses to package without the native Yomi translation engine for the
+      # target arch. build-translate-engine.mjs builds it into
+      # resources/bin/translate-engine/<arch>; on macOS it builds BOTH x64 and
+      # arm64 (the mac dmg/zip targets are universal-by-pair), so both Rust
+      # targets must be installed. Toolchain pin matches build-desktop-native.
+      - name: Setup Rust 1.94.1 (translate engine)
+        uses: dtolnay/rust-toolchain@ee868d7805ade43a1b47dd054727ab76c9108b4f # 1.94.1
+        with:
+          toolchain: 1.94.1
+          targets: ${{ matrix.platform == 'mac' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
+
+      - name: Cache cargo (translate engine)
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: translate-engine
+
+      - name: Linux credential store build dependencies
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - name: Build translate engine
+        shell: bash
+        run: node scripts/build-translate-engine.mjs
+
       # Tag push → publish to GitHub Release (creates latest.yml for electron-updater)
       # workflow_dispatch with publish → also publish
       # Otherwise → local build only
