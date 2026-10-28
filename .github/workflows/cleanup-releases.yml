@@ -11,8 +11,13 @@ permissions:
   contents: write
 
 jobs:
+  # Picks Avrea or GitHub-hosted runner labels (see runner.yml and docs/ci.md).
+  runner:
+    uses: ./.github/workflows/runner.yml
+
   cleanup:
-    runs-on: ubuntu-latest
+    needs: runner
+    runs-on: ${{ needs.runner.outputs.linux }}
     steps:
       - name: Check confirmation
         run: |
