@@ -71,7 +71,7 @@ Ver `docs/redesign/KNOWN-ISSUES.md`. Resumen: nada ejecutado en dispositivo ni e
 ## Acciones del usuario
 
 1. Aplicar las 14 migraciones nuevas (`20261019000000`..`20261026000007`) primero a un Supabase de pruebas; si el proyecto ya aplicó migraciones posteriores del fork, usar `supabase db push --include-all`.
-2. **Decisión pendiente**: el `preBuild` de Android del legacy descarga los artefactos del puente Aniyomi desde `Snozxyx/TatakaiServer` (verificados por SHA-256); confirmar si se confía en ese pin.
+2. **Puente Aniyomi (resuelto)**: los artefactos ya no salen de `Snozxyx/TatakaiServer`. Se compilan desde el código fuente auditado (`aayush2622/DartotsuExtensionBridge@7778da7`) en [Kushro/TatakaiServer-own](https://github.com/Kushro/TatakaiServer-own/releases/tag/compat-runtime-bridge-2.0.17-own), con atestación de procedencia (`gh attestation verify <asset> --repo Kushro/TatakaiServer-own`). El APK de Android salió idéntico byte a byte al del upstream; el JAR de desktop difiere solo en metadatos de empaquetado y queda fijado a nuestro build. Hallazgos medios de la auditoría (sin verificación de checksums de dependencias Gradle, JitPack sin filtro, descarga de JBR sin hash en la ruta de Cloudflare) quedan documentados en el fork.
 3. Fuentes Space Grotesk / Outfit (OFL): autorizar su descarga o aportarlas.
 4. Ejecutar `fetch-deps.ps1` (libmpv, FFmpeg, Anime4K, FSR, fuentes); revisar hashes (`-Anime4kSource` si difieren).
 5. Humo en dispositivo: instalar la APK debug, Inicio -> Detalles -> reproducir con un `.kai` propio; emparejar con la PC por QR; perfil `p-anime4k-1080`; registrar tamaño de APK y arranque en frío como línea base de M1.

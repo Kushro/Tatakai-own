@@ -3,17 +3,25 @@
   "commit": "7778da72eb450d5108b9672d194414c74bd6caf9",
   "version": "2.0.17",
   "licenseSha256": "82de8e7a46e3d6ae407757f2b1ea2e1d1a2f7eb1bfaaf9f4a768984aeda2288e",
+  "build": {
+    "from": "source",
+    "repository": "https://github.com/Kushro/TatakaiServer-own",
+    "workflow": ".github/workflows/aniyomi-bridge.yml",
+    "run": "https://github.com/Kushro/TatakaiServer-own/actions/runs/40608873608",
+    "attestation": "gh attestation verify <asset> --repo Kushro/TatakaiServer-own",
+    "audit": "https://github.com/Kushro/TatakaiServer-own/blob/main/docs/aniyomi-bridge-audit.md"
+  },
   "desktop": {
     "name": "aniyomiDesktop-plugin.jar",
-    "bytes": 65352900,
-    "url": "https://github.com/Snozxyx/TatakaiServer/releases/download/compat-runtime-bridge-2.0.17/aniyomiDesktop-plugin.jar",
-    "sha256": "8544730c81718c3edd24331208b499fc41c11c36e808fe141d86f8703b85eb42"
+    "bytes": 65353823,
+    "url": "https://github.com/Kushro/TatakaiServer-own/releases/download/compat-runtime-bridge-2.0.17-own/aniyomiDesktop-plugin.jar",
+    "sha256": "2cede32ba1eb97e6d68cc23a48c5d4117922ede72cb61ff155dba263eb722508"
   },
   "android": {
     "name": "aniyomiAndroid-plugin.apk",
     "version": "2.0.12",
     "bytes": 11823531,
-    "url": "https://github.com/Snozxyx/TatakaiServer/releases/download/compat-runtime-bridge-2.0.17/aniyomiAndroid-plugin.apk",
+    "url": "https://github.com/Kushro/TatakaiServer-own/releases/download/compat-runtime-bridge-2.0.17-own/aniyomiAndroid-plugin.apk",
     "sha256": "f21aa9de9ceb5ead0f17b9ef7bc2c3555bb87d07c41b5e2d654516ef5580d8ff"
   },
   "verifier": {
