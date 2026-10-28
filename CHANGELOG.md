@@ -4,6 +4,15 @@ All notable changes to Tatakai are documented here.
 
 ---
 
+## [6.4.2-own] - 2026-10-28
+
+Primera release del fork Tatakai-own.
+
+- Sincroniza upstream 6.4.2 sin TatakaiAPI, sin telemetría y con Supabase propio; detalle en `docs/upstream-sync-6.4.2.md`.
+- Puente Aniyomi compilado desde código auditado en Kushro/TatakaiServer-own, con atestación de procedencia.
+- Previews nativas M0 (Material 3 Expressive): APK Android `Tatakai-Next` y zip portable de Windows con libmpv + Anime4K y servidor Tatakai Link. Se instalan junto a la app legacy.
+- CI en runners Avrea; macOS e iOS deshabilitados hasta nuevo aviso.
+
 ## [6.4.2] - 2026-10-27
 
 - Remove duplicate mobile status-bar and header safe-area spacing.

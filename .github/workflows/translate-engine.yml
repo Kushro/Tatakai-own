@@ -32,23 +32,31 @@ permissions:
   contents: read
 
 jobs:
+  # Picks Avrea or GitHub-hosted runner labels (see runner.yml and docs/ci.md).
+  runner:
+    uses: ./.github/workflows/runner.yml
+
   native-engine:
+    needs: runner
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: windows-latest
+          # x64 entries use the runner.yml outputs (Avrea or GitHub-hosted).
+          # ARM entries stay on GitHub-hosted ARM runners: Avrea has no known ARM label.
+          - runner: ${{ needs.runner.outputs.windows }}
             target: x86_64-pc-windows-msvc
           - runner: windows-11-arm
             target: aarch64-pc-windows-msvc
-          - runner: ubuntu-24.04
+          - runner: ${{ needs.runner.outputs.linux }}
             target: x86_64-unknown-linux-gnu
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-          - runner: macos-15
-            target: aarch64-apple-darwin
+          # macOS targets are DISABLED until further notice (see docs/ci.md):
+          #   - runner: macos-15-intel
+          #     target: x86_64-apple-darwin
+          #   - runner: macos-15
+          #     target: aarch64-apple-darwin
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
