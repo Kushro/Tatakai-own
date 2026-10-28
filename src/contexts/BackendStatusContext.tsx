@@ -14,12 +14,12 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
  *
  * Distinguishes three connectivity states that the app must treat differently:
  *
- *   - 'online'      → internet is up AND at least one Tatakai origin answers.
+ *   - 'online'      → internet is up AND the configured Supabase origin answers.
  *   - 'no-internet' → the device has no network at all (navigator.onLine === false).
- *   - 'server-down' → the device HAS internet, but every Tatakai origin (API +
- *                     Supabase) failed to answer. This is the case the plain
+ *   - 'server-down' → the device HAS internet, but the configured Supabase
+ *                     origin failed to answer. This is the case the plain
  *                     `navigator.onLine` check misses entirely: maintenance,
- *                     API outage, or the whole backend being unreachable while
+ *                     Supabase outage, or the whole backend being unreachable while
  *                     the user's connection is perfectly fine.
  *
  * The distinction matters because in 'server-down' we still want the desktop /
@@ -65,13 +65,11 @@ const SUPABASE_ORIGIN = (() => {
   }
 })();
 
-const API_ORIGIN = (() => {
-  const raw = String(import.meta.env.VITE_API_ORIGIN || '').trim();
-  return raw || 'https://api.tatakai.me';
-})();
-
-/** Origins probed for reachability. Empty entries are filtered out. */
-const PROBE_ORIGINS = [API_ORIGIN, SUPABASE_ORIGIN].filter(Boolean);
+/**
+ * Origins probed for reachability. Only the configured Supabase project is
+ * probed — this fork has no proprietary API backend. Empty → assume reachable.
+ */
+const PROBE_ORIGINS = [SUPABASE_ORIGIN].filter(Boolean);
 
 const PROBE_TIMEOUT_MS = 6_000;
 const POLL_INTERVAL_MS = 30_000;
@@ -86,10 +84,9 @@ function readNavigatorOnline(): boolean {
 
 /** Resolve true if the origin answers at the network layer within the timeout. */
 async function probeOrigin(origin: string): Promise<boolean> {
-  const isApi = origin.replace(/\/+$/, '') === API_ORIGIN.replace(/\/+$/, '');
-  const url = `${origin.replace(/\/+$/, '')}${isApi ? '/health' : '/auth/v1/health'}`;
+  const url = `${origin.replace(/\/+$/, '')}/auth/v1/health`;
   const anonKey = String(import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
-  const headers = !isApi && anonKey ? { apikey: anonKey } : undefined;
+  const headers = anonKey ? { apikey: anonKey } : undefined;
   // Avoid Capacitor's patched fetch interceptor for native health checks.
   // Browser-only fetch options can reject even while the native network stack
   // is healthy. Any HTTP status proves the origin was reached.

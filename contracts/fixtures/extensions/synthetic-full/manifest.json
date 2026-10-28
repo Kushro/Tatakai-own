@@ -1,0 +1,15 @@
+{
+  "id": "synthetic-full",
+  "name": "Synthetic Full",
+  "version": "1.0.0",
+  "type": "onlinestream",
+  "description": "Test fixture. Only uses supported globals and require('crypto'); expected compat level: full.",
+  "permissions": ["network:domain:cdn.alpha.example.invalid", "network:domain:cdn.beta.example.invalid"],
+  "capabilities": ["custom-source"],
+  "customSources": [{ "id": "demo", "kind": "watch", "name": "Demo" }],
+  "apiServer": {
+    "namespace": "synthetic",
+    "contract": "streaming-sources-v3",
+    "routes": ["sources", "stream"]
+  }
+}

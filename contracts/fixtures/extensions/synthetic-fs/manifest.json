@@ -1,0 +1,9 @@
+{
+  "id": "synthetic-fs",
+  "name": "Synthetic FS",
+  "version": "1.0.0",
+  "type": "onlinestream",
+  "description": "Test fixture. Requires the Node 'fs' module; expected compat level: unsupported.",
+  "permissions": [],
+  "apiServer": { "namespace": "syntheticfs", "contract": "streaming-sources-v3", "routes": ["stream"] }
+}

@@ -19,16 +19,21 @@
  * `cloudflared` is bundled per-platform under resources/bin (electron-builder
  * extraResources); if it's missing we fall back to a `cloudflared` on PATH,
  * then to a previously auto-installed copy in <userData>/bin. If none exist we
- * **auto-install** it: download the official per-platform/per-arch binary from
- * Cloudflare's GitHub releases (same assets the CI bundles) via the command
- * line (`curl`, falling back to PowerShell on Windows / `wget` on unix) into
- * <userData>/bin — a writable, app-owned dir, so no admin/UAC or PATH juggling.
+ * **auto-install** it: download the pinned per-platform/per-arch release from
+ * Cloudflare's GitHub releases (cloudflared-pin.cjs) via the command line
+ * (`curl`, falling back to PowerShell on Windows / `wget` on unix), verify its
+ * SHA-256, and place it in <userData>/bin — a writable, app-owned dir, so no
+ * admin/UAC or PATH juggling.
  * Only if the download also fails does hosting degrade to a host-pasted URL.
  */
 
 const { spawn, execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const execFileAsync = promisify(execFile);
+const {
+    CLOUDFLARED_RELEASE_BASE: RELEASE_BASE,
+    verifyCloudflaredAsset,
+} = require('./cloudflared-pin.cjs');
 
 const IS_WIN = process.platform === 'win32';
 const IS_MAC = process.platform === 'darwin';
@@ -36,8 +41,14 @@ const BINARY_NAME = IS_WIN ? 'cloudflared.exe' : 'cloudflared';
 const URL_RE = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
 const START_TIMEOUT_MS = 30_000;
 const DOWNLOAD_TIMEOUT_MS = 180_000; // cloudflared is tens of MB; allow slow links
-const RELEASE_BASE = 'https://github.com/cloudflare/cloudflared/releases/latest/download';
 const MIN_BINARY_BYTES = 1_000_000; // sanity floor — a real cloudflared is >15MB
+
+/** Pinned raw-binary asset for this platform (null on mac, which ships a .tgz). */
+function pinnedAsset() {
+    if (IS_WIN) return 'cloudflared-windows-amd64.exe';
+    if (IS_MAC) return null;
+    return `cloudflared-linux-${process.arch === 'arm64' ? 'arm64' : 'amd64'}`;
+}
 
 function createShareTunnel({ logger, app, path, fs } = {}) {
     let child = null;
@@ -94,8 +105,19 @@ function createShareTunnel({ logger, app, path, fs } = {}) {
         // Previously auto-installed: <userData>/bin/cloudflared[.exe]
         try { candidates.push(path.join(cacheDir(), BINARY_NAME)); } catch (_) {}
 
+        let cached = null;
+        try { cached = path.join(cacheDir(), BINARY_NAME); } catch (_) {}
+
         for (const c of candidates) {
-            if (isSpawnable(c)) { resolvedBinary = c; return c; }
+            if (!isSpawnable(c)) continue;
+            // An auto-installed copy may predate pinning (old `latest` download):
+            // only reuse it if it still matches the pinned digest, else reinstall.
+            if (c === cached && pinnedAsset()) {
+                try { await verifyCloudflaredAsset(pinnedAsset(), c); }
+                catch (err) { log.warn(`cached cloudflared rejected: ${err?.message || err}`); continue; }
+            }
+            resolvedBinary = c;
+            return c;
         }
 
         // PATH fallback
@@ -156,17 +178,21 @@ function createShareTunnel({ logger, app, path, fs } = {}) {
         // mac/linux ship amd64 + arm64.
         const arch = process.arch === 'arm64' ? 'arm64' : 'amd64';
 
-        if (IS_WIN) {
-            await downloadFile(`${RELEASE_BASE}/cloudflared-windows-amd64.exe`, dest);
-        } else if (IS_MAC) {
+        if (IS_MAC) {
+            const asset = `cloudflared-darwin-${arch}.tgz`;
             const tgz = path.join(dir, 'cloudflared.tgz');
-            await downloadFile(`${RELEASE_BASE}/cloudflared-darwin-${arch}.tgz`, tgz);
+            await downloadFile(`${RELEASE_BASE}/${asset}`, tgz);
+            await verifyCloudflaredAsset(asset, tgz);
             await execFileAsync('tar', ['-xzf', tgz, '-C', dir], { timeout: 60_000 });
             try { fs.unlinkSync(tgz); } catch (_) {}
             try { fs.chmodSync(dest, 0o755); } catch (_) {}
         } else {
-            await downloadFile(`${RELEASE_BASE}/cloudflared-linux-${arch}`, dest);
-            try { fs.chmodSync(dest, 0o755); } catch (_) {}
+            const asset = pinnedAsset();
+            const tmp = `${dest}.download`;
+            await downloadFile(`${RELEASE_BASE}/${asset}`, tmp);
+            await verifyCloudflaredAsset(asset, tmp);
+            fs.renameSync(tmp, dest);
+            if (!IS_WIN) { try { fs.chmodSync(dest, 0o755); } catch (_) {} }
         }
 
         if (fs.existsSync(dest) && fs.statSync(dest).size >= MIN_BINARY_BYTES) return dest;

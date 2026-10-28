@@ -11,13 +11,15 @@ import { useQuery } from '@tanstack/react-query';
  * the profile Reviews card can render it instead of "Unknown title". Routed
  * through the TatakaiAPI proxy (mirror-first) — see src/lib/anilist.ts.
  */
-import { ANILIST_GRAPHQL_ENDPOINT as ANILIST_ENDPOINT } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
 
 const QUERY = `
 query ($ids: [Int]) {
   Page(perPage: 50) {
-    media(id_in: $ids) {
+    media(id_in: $ids, type: ANIME) {
       id
+      format
+      isAdult
       title { romaji english }
       coverImage { large medium }
     }
@@ -28,25 +30,28 @@ export interface AnimeMeta {
   id: number;
   title: string;
   coverImage: string | null;
+  format?: string;
+  isAdult?: boolean;
 }
 
 async function fetchMeta(ids: number[]): Promise<Record<number, AnimeMeta>> {
   const out: Record<number, AnimeMeta> = {};
   for (let i = 0; i < ids.length; i += 50) {
     const chunk = ids.slice(i, i + 50);
-    const res = await fetch(ANILIST_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ query: QUERY, variables: { ids: chunk } }),
-    });
-    if (!res.ok) throw new Error(uiI18n.t('app.anilist_request_failed_i18n_value_0_9455a5b4', { value0: res.status }));
-    const json = await res.json();
-    const media: any[] = json?.data?.Page?.media ?? [];
+    let data: any;
+    try {
+      data = await anilistGql<any>(QUERY, { ids: chunk });
+    } catch (err: any) {
+      throw new Error(uiI18n.t('app.anilist_request_failed_i18n_value_0_9455a5b4', { value0: err?.status ?? 0 }));
+    }
+    const media: any[] = data?.Page?.media ?? [];
     for (const m of media) {
       const id = Number(m?.id);
       if (!Number.isFinite(id)) continue;
       out[id] = {
         id,
+        format: m.format,
+        isAdult: m.isAdult === true,
         title: m?.title?.english || m?.title?.romaji || 'Unknown',
         coverImage: m?.coverImage?.large || m?.coverImage?.medium || null,
       };
@@ -74,7 +79,7 @@ export function useAnimeMetaByIds(animeIds: (string | number | null | undefined)
   ).sort((a, b) => a - b);
 
   return useQuery({
-    queryKey: ['anime-meta-by-ids', ids],
+    queryKey: ['anime-meta-by-ids-v2', ids],
     queryFn: () => fetchMeta(ids),
     enabled: ids.length > 0,
     staleTime: 60 * 60 * 1000,

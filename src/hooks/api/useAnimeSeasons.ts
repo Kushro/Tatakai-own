@@ -17,7 +17,7 @@ import uiI18n from '@/lib/uiI18n';
 
 import { useQuery } from '@tanstack/react-query';
 import { contentGraph } from '@/core';
-import { ANILIST_GRAPHQL_ENDPOINT } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
 import type { MediaFormat } from '@/core/content/types';
 
 export interface WatchOrderEntry {
@@ -42,8 +42,7 @@ export interface WatchOrderEntry {
   relationType?: string;
 }
 
-// Routed through the TatakaiAPI proxy (mirror-first) — see src/lib/anilist.ts.
-const ANILIST_GRAPHQL_URL = ANILIST_GRAPHQL_ENDPOINT;
+// Direct AniList access via anilistGql (src/lib/anilist/client.ts).
 
 const ANIME_FORMATS = new Set<string>([
   'TV', 'TV_SHORT', 'MOVIE', 'OVA', 'ONA', 'SPECIAL',
@@ -139,14 +138,8 @@ async function queryAniListMedia(id: number): Promise<AniListMediaNode | null> {
   `;
 
   try {
-    const res = await fetch(ANILIST_GRAPHQL_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ query: gql, variables: { id } }),
-    });
-    if (!res.ok) return null;
-    const json = await res.json();
-    return json?.data?.Media ?? null;
+    const data = await anilistGql<any>(gql, { id });
+    return data?.Media ?? null;
   } catch {
     return null;
   }
@@ -194,14 +187,8 @@ async function queryAniListBatch(ids: number[]): Promise<AniListMediaNode[]> {
   `;
 
   try {
-    const res = await fetch(ANILIST_GRAPHQL_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ query: gql, variables: { ids } }),
-    });
-    if (!res.ok) return [];
-    const json = await res.json();
-    return json?.data?.Page?.media ?? [];
+    const data = await anilistGql<any>(gql, { ids });
+    return data?.Page?.media ?? [];
   } catch {
     return [];
   }

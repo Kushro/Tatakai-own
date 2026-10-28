@@ -1,0 +1,6 @@
+{
+  "$comment": "AniList answers HTTP 429 with this body and a Retry-After header. The router must treat it as a transient provider failure (cooldown 60 s, fall back to the next provider), never as 'no results'.",
+  "httpStatus": 429,
+  "headers": { "Retry-After": "60", "X-RateLimit-Limit": "90", "X-RateLimit-Remaining": "0" },
+  "body": { "errors": [{ "message": "Too Many Requests.", "status": 429 }], "data": null }
+}

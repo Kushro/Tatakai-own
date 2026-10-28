@@ -1,6 +1,5 @@
 import { isCapacitor, isElectron } from "@/lib/platform/platform";
-import { resolveBackendOrigin } from "@/lib/api/backendOrigin";
-import { extensionFetch } from "@/core/extensions/remote/transport";
+import { publicJson } from "@/lib/net/publicApi";
 import { resolveMangaDexMapping } from "./mangadex-api";
 import type { MangaChapterResponse, MappedMangaChapter } from "@/types/manga";
 
@@ -17,6 +16,7 @@ export function clearMangaUpdatesCache(id: string) {
   pending.delete(id);
 }
 
+/** MangaUpdates v1 API, called directly (native HTTP in the apps). */
 async function request(
   operation: "series" | "search" | "releases",
   id: string,
@@ -42,24 +42,17 @@ async function request(
           asc: "desc",
           include_metadata: true,
         };
-  const response = native
-    ? await extensionFetch(`https://api.mangaupdates.com/v1${path}`, {
-        method: operation === "series" ? "GET" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "Tatakai/6 (https://tatakai.me)",
-        },
-        ...(operation === "series" ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(15000),
-      })
-    : await fetch(
-        `${resolveBackendOrigin()}/api/proxy/mangaupdates?${new URLSearchParams(
-          { operation, id, title, page: String(page) }
-        )}`,
-        { signal: AbortSignal.timeout(15000) }
-      );
-  if (!response.ok) throw new Error(`MangaUpdates HTTP ${response.status}`);
-  return response.json();
+  const get = operation === "series";
+  return publicJson<any>(`https://api.mangaupdates.com/v1${path}`, {
+    method: get ? "GET" : "POST",
+    // The User-Agent is native-only: in a browser it would force a preflight.
+    headers: {
+      ...(get ? {} : { "Content-Type": "application/json" }),
+      ...(native ? { "User-Agent": "Tatakai/6 (https://tatakai.me)" } : {}),
+    },
+    ...(get ? {} : { body: JSON.stringify(body) }),
+    signal: AbortSignal.timeout(15000),
+  });
 }
 
 /** Safe mapping for modern numeric IDs, base-36 slugs, and old MangaDex mu links. */

@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
+import { useRoutePreload } from '@/hooks/ui/useRoutePreload';
 import TVLinkPage from '@/pages/tv/TVLinkPage';
 import { Routes, Route, Navigate, useLocation, useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,6 +13,8 @@ import { queryClient } from '@/lib/queryClient';
 
 // Base Pages
 const Index = lazy(() => import("../pages/base/Index"));
+const ConnectServerPage = lazy(() => import('../pages/base/ConnectServerPage'));
+const ExtensionServerLinkPage = lazy(() => import('../pages/base/ExtensionServerLinkPage'));
 const HomeGate = lazy(() => import("../pages/base/HomeGate"));
 const LandingPage = lazy(() => import("../pages/base/LandingPage"));
 const DownloadPage = lazy(() => import("../pages/base/DownloadPage"));
@@ -49,6 +52,7 @@ const MangaHomePage = lazy(() => import("../pages/manga/MangaHomePage"));
 const MangaGenreBrowsePage = lazy(() => import("../pages/manga/MangaGenreBrowsePage"));
 const MangaPage = lazy(() => import("../pages/manga/MangaPage"));
 const MangaReaderPage = lazy(() => import("../pages/manga/MangaReaderPage"));
+const TranslatePage = lazy(() => import("../pages/translate/TranslatePage"));
 const NovelHomePage = lazy(() => import("../pages/novel/NovelHomePage"));
 const NovelGenreBrowsePage = lazy(() => import("../pages/novel/NovelGenreBrowsePage"));
 const NovelPage = lazy(() => import("../pages/novel/NovelPage"));
@@ -56,6 +60,7 @@ const NovelReaderPage = lazy(() => import("../pages/novel/NovelReaderPage"));
 
 // Custom Sources (extension-provided, isolated read/watch verticals)
 const CustomHomePage = lazy(() => import("../pages/custom/CustomHomePage"));
+const CustomProvidersPage = lazy(() => import("../pages/custom/CustomProvidersPage"));
 const CustomInfoPage = lazy(() => import("../pages/custom/CustomInfoPage"));
 const CustomWatchPage = lazy(() => import("../pages/custom/CustomWatchPage"));
 const CustomReadPage = lazy(() => import("../pages/custom/CustomReadPage"));
@@ -108,7 +113,7 @@ const StatusPage = lazy(() => import("../pages/error/StatusPage"));
 const MobileOfflinePage = lazy(() => import("../pages/error/MobileOfflinePage"));
 
 const PageLoader = () => (
-  <div className="min-h-screen bg-background flex items-center justify-center">
+  <div role="status" aria-label="Loading page" className="min-h-screen bg-background flex items-center justify-center">
     <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
   </div>
 );
@@ -438,6 +443,7 @@ function ExternalIdRedirect({ type }: { type: 'mal' | 'anilist' }) {
 }
 
 const AppRoutes = () => {
+  useRoutePreload();
   const { isBanned } = useAuth();
   const { isMaintenanceMode } = useMaintenanceMode();
   const isMobileApp = Capacitor.isNativePlatform();
@@ -449,9 +455,10 @@ const AppRoutes = () => {
   const routeSection = location.pathname.split('/')[1] || 'root';
 
   return (
-    <Suspense fallback={<PageLoader />}>
+    <Suspense key={routeSection} fallback={<PageLoader />}>
       <div key={routeSection} className="route-enter">
       <Routes>
+        <Route path="/translate" element={<TranslatePage />} />
         <Route path="/maintenance" element={<StatusPageGuard allowedWhen={isMaintenanceMode}><MaintenancePage /></StatusPageGuard>} />
         <Route path="/banned" element={<StatusPageGuard allowedWhen={isBanned}><BannedPage /></StatusPageGuard>} />
         <Route path="/503" element={<StatusPageGuard allowedWhen={false}><ServiceUnavailablePage /></StatusPageGuard>} />
@@ -490,6 +497,7 @@ const AppRoutes = () => {
         <Route path="/novel/:novelId" element={<ProtectedRoute><NovelPage /></ProtectedRoute>} />
         <Route path="/novel/read/:novelId" element={<ProtectedRoute><WebWatchGate mode="read"><NovelReaderPage /></WebWatchGate></ProtectedRoute>} />
         {/* Custom sources — isolated extension verticals, addressed by (namespace, sourceId). */}
+        <Route path="/custom-providers" element={<ProtectedRoute><CustomProvidersPage /></ProtectedRoute>} />
         <Route path="/x/:namespace/:sourceId" element={<ProtectedRoute><CustomHomePage /></ProtectedRoute>} />
         <Route path="/x/:namespace/:sourceId/info/:id" element={<ProtectedRoute><CustomInfoPage /></ProtectedRoute>} />
         <Route path="/x/:namespace/:sourceId/watch/:id/:episodeId" element={<ProtectedRoute><WebWatchGate><CustomWatchPage /></WebWatchGate></ProtectedRoute>} />
@@ -518,7 +526,9 @@ const AppRoutes = () => {
         <Route path="/admin" element={<ProtectedRoute><AdminRoute><AdminPage /></AdminRoute></ProtectedRoute>} />
         <Route path="/admin/user/:userId" element={<ProtectedRoute><AdminRoute><AdminUserPage /></AdminRoute></ProtectedRoute>} />
         <Route path="/settings" element={<SettingsRouteOpener />} />
-        <Route path="/status" element={<ProtectedRoute><StatusPage /></ProtectedRoute>} />
+        <Route path="/connect-server" element={<ConnectServerPage />} />
+        <Route path="/extensionserver/*" element={<ExtensionServerLinkPage />} />
+        <Route path="/status" element={<StatusPage />} />
         <Route path="/suggestions" element={<ProtectedRoute><SuggestionsPage /></ProtectedRoute>} />
         <Route path="/terms" element={<ProtectedRoute><TermsPage /></ProtectedRoute>} />
         <Route path="/dmca" element={<ProtectedRoute><DMCAPage /></ProtectedRoute>} />
@@ -534,12 +544,12 @@ const AppRoutes = () => {
         <Route path="/community/c/:slug/information" element={<ProtectedRoute><CommunityInformationPage /></ProtectedRoute>} />
         <Route path="/community/c/:slug/settings" element={<ProtectedRoute><CommunitySettingsPage /></ProtectedRoute>} />
         <Route path="/community/forum/:postId" element={<ProtectedRoute><ForumPostPage /></ProtectedRoute>} />
-        <Route path="/tierlists" element={<ProtectedRoute><TierListPage /></ProtectedRoute>} />
-        <Route path="/tierlist/:shareCode" element={<ProtectedRoute><TierListViewPage /></ProtectedRoute>} />
+        <Route path="/tierlists" element={<TierListPage />} />
+        <Route path="/tierlist/:shareCode" element={<TierListViewPage />} />
         <Route path="/tierlists/edit/:id" element={<ProtectedRoute><TierListEditPage /></ProtectedRoute>} />
-        <Route path="/playlists" element={<ProtectedRoute><PlaylistsPage /></ProtectedRoute>} />
+        <Route path="/playlists" element={<PlaylistsPage />} />
         <Route path="/p/:shareSlug" element={<PublicPlaylistPage />} />
-        <Route path="/playlist/:playlistId" element={<ProtectedRoute><PlaylistViewPage /></ProtectedRoute>} />
+        <Route path="/playlist/:playlistId" element={<PlaylistViewPage />} />
         <Route path="/stats" element={<ProtectedRoute><WrappedPage /></ProtectedRoute>} />
         <Route path="/wrapped" element={<ProtectedRoute><WrappedPage /></ProtectedRoute>} />
         <Route path="/isshoni/room/:roomId" element={<ProtectedRoute><WatchRoomPage /></ProtectedRoute>} />

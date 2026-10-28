@@ -19,8 +19,6 @@ import { toast } from 'sonner';
 import { GlassPanel } from '@/components/ui/GlassPanel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { TATAKAI_API_URL, unwrapApiData } from '@/lib/api/api-client';
-import { withAdminSecretHeader } from '@/lib/api/adminSecret';
 
 type ScraperNode = {
   id: string;
@@ -88,39 +86,10 @@ type SourceValidationPayload = {
   results: SourceValidationResult[];
 };
 
-const fetchJson = async <T,>(path: string, init?: RequestInit, timeoutMs = 12000): Promise<T> => {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const providedHeaders = (init?.headers || {}) as Record<string, string>;
-
-    const response = await fetch(`${TATAKAI_API_URL}${path}`, {
-      ...init,
-      headers: withAdminSecretHeader({
-        Accept: 'application/json',
-        ...providedHeaders,
-      }),
-      signal: controller.signal,
-    });
-
-    let json: any = null;
-    try {
-      json = await response.json();
-    } catch {
-      json = null;
-    }
-
-    if (!response.ok) {
-      const message = String(json?.message || `HTTP ${response.status}`);
-      throw new Error(message);
-    }
-
-    if (!json) return {} as T;
-    return unwrapApiData<T>(json as any);
-  } finally {
-    window.clearTimeout(timeout);
-  }
+// Disabled: every route this panel used (/health/scrapers, /jobs/*, /webhooks/discord)
+// belonged to the upstream TatakaiAPI backend, which this fork does not use.
+const fetchJson = async <T,>(_path: string, _init?: RequestInit, _timeoutMs = 12000): Promise<T> => {
+  throw new Error('The API admin panel is not available in this build.');
 };
 
 const statusPillClass = (status: string) => {
@@ -151,7 +120,8 @@ export function ApiAdminPanel() {
   const scraperHealthQuery = useQuery({
     queryKey: ['admin-api', 'scraper-health'],
     queryFn: () => fetchJson<ScraperHealthPayload>('/health/scrapers'),
-    refetchInterval: 60_000,
+    refetchInterval: false,
+    retry: false,
   });
 
   const canonicalSummaryQuery = useQuery({
@@ -160,7 +130,8 @@ export function ApiAdminPanel() {
       fetchJson<CanonicalSummaryPayload>(
         `/jobs/canonical/summary?recent=${parsedRecentLimit}`
       ),
-    refetchInterval: 60_000,
+    refetchInterval: false,
+    retry: false,
   });
 
   const sourceValidationMutation = useMutation({
@@ -223,6 +194,11 @@ export function ApiAdminPanel() {
 
   return (
     <div className="space-y-6">
+      <GlassPanel className="p-4">
+        <p className="text-sm text-muted-foreground">
+          The upstream API backend is not part of this build, so the panels below are unavailable.
+        </p>
+      </GlassPanel>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
         <GlassPanel className="p-4">
           <div className="flex items-center gap-3">
@@ -291,21 +267,10 @@ export function ApiAdminPanel() {
               {uiI18n.t('app.api_health_and_scrapers_48c811df')}
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              {uiI18n.t('app.live_health_from_3ed241b9')} {TATAKAI_API_URL}/health/scrapers
+              {uiI18n.t('app.live_health_from_3ed241b9')}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <a
-              href={`${TATAKAI_API_URL}/health/scrapers`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex"
-            >
-              <Button variant="outline" size="sm" className="gap-2">
-                <ExternalLink className="w-4 h-4" />
-                {uiI18n.t('app.open_cf9b7706')}
-              </Button>
-            </a>
             <Button
               variant="outline"
               size="sm"

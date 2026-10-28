@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "id": "anime4k",
+  "version": "4.0",
+  "upstream": "https://github.com/bloc97/Anime4K",
+  "author": "bloc97",
+  "license": "MIT (AutoDownscalePre: Unlicense)",
+  "usage": "Loaded by tk-player through mpv `glsl-shaders` (see crates/tk-player/src/preset.rs). Only the S/M files used by the presets are fetched.",
+  "provenance": "SHA-256 values are those of Enigmata-Temple's vendored copies (LF-normalized). The upstream raw URLs below may differ byte-wise (line endings, DESC strings): if fetch-deps.ps1 reports a mismatch, either pass -Anime4kSource <folder with the files> or re-pin with -Pin after reviewing the upstream files.",
+  "files": [
+    {
+      "path": "Anime4K_AutoDownscalePre_x2.glsl",
+      "url": "https://raw.githubusercontent.com/bloc97/Anime4K/v4.0.1/glsl/Upscale/Anime4K_AutoDownscalePre_x2.glsl",
+      "size": 1560,
+      "sha256": "8c58291740146bd766a4d73f132775a797fe80f7d07919b5d767e27a5dc85656",
+      "license": "Unlicense (public domain)"
+    },
+    {
+      "path": "Anime4K_Clamp_Highlights.glsl",
+      "url": "https://raw.githubusercontent.com/bloc97/Anime4K/v4.0.1/glsl/Restore/Anime4K_Clamp_Highlights.glsl",
+      "size": 2795,
+      "sha256": "a2a9bf7fbc1d75d09660ca2e701e4d7fb0cf5457b94da47e1825032fa2b3671a",
+      "license": "MIT"
+    },
+    {
+      "path": "Anime4K_Restore_CNN_M.glsl",
+      "url": "https://raw.githubusercontent.com/bloc97/Anime4K/v4.0.1/glsl/Restore/Anime4K_Restore_CNN_M.glsl",
+      "size": 35916,
+      "sha256": "67ea3ed26539e8de3b7d307688535d2ff17e8d147e11dda0247da7770dbecf41",
+      "license": "MIT"
+    },
+    {
+      "path": "Anime4K_Restore_CNN_S.glsl",
+      "url": "https://raw.githubusercontent.com/bloc97/Anime4K/v4.0.1/glsl/Restore/Anime4K_Restore_CNN_S.glsl",
+      "size": 17136,
+      "sha256": "97c24dc370ab300c108bfaa09db7f175aeff343674842c299cf3940a3d330427",
+      "license": "MIT"
+    },
+    {
+      "path": "Anime4K_Restore_CNN_Soft_M.glsl",
+      "url": "https://raw.githubusercontent.com/bloc97/Anime4K/v4.0.1/glsl/Restore/Anime4K_Restore_CNN_Soft_M.glsl",
+      "size": 36016,
+      "sha256": "a78a2c76898e08e09e442a9628c64208c26e8e15789649b8755223f009794c02",
+      "license": "MIT"
+    },
+    {
+      "path": "Anime4K_Upscale_CNN_x2_M.glsl",
+      "url": "https://raw.githubusercontent.com/bloc97/Anime4K/v4.0.1/glsl/Upscale/Anime4K_Upscale_CNN_x2_M.glsl",
+      "size": 37685,
+      "sha256": "716e02098a68f0d648761f2b96b4dd139e1cb09b174bb369fca3aa34328fff7e",
+      "license": "MIT"
+    },
+    {
+      "path": "Anime4K_Upscale_CNN_x2_S.glsl",
+      "url": "https://raw.githubusercontent.com/bloc97/Anime4K/v4.0.1/glsl/Upscale/Anime4K_Upscale_CNN_x2_S.glsl",
+      "size": 18638,
+      "sha256": "4c53ec2e287908f7ee7bcb266b0170421626d663576468b7d7dafc62962649a4",
+      "license": "MIT"
+    },
+    {
+      "path": "Anime4K_Upscale_Denoise_CNN_x2_M.glsl",
+      "url": "https://raw.githubusercontent.com/bloc97/Anime4K/v4.0.1/glsl/Upscale+Denoise/Anime4K_Upscale_Denoise_CNN_x2_M.glsl",
+      "size": 37714,
+      "sha256": "8c72b042e2301fe66a45c3089720459148e2504cd72af16f9c0d5017ff14181e",
+      "license": "MIT"
+    }
+  ]
+}

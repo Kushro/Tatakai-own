@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="link_title">Tatakai Link</string>
+    <string name="link_status_unpaired">No PC paired</string>
+    <string name="link_unpaired_hint">Pair with Tatakai on your PC to enhance video with Anime4K.</string>
+    <string name="link_status_pairing">Pairing…</string>
+    <string name="link_status_failed">Link problem</string>
+    <string name="link_reachable">Connected</string>
+    <string name="link_unreachable">Unreachable</string>
+    <string name="link_forget">Forget this PC</string>
+    <string name="link_pair_title">Pair a PC</string>
+    <string name="link_pair_hint">On the PC open Settings, Link, Pair, then scan the QR code or paste the code.</string>
+    <string name="link_scan">Scan QR</string>
+    <string name="link_scan_cancel">Cancel scan</string>
+    <string name="link_camera_denied">Camera permission denied. Paste the code below instead.</string>
+    <string name="link_paste_label">Pairing code</string>
+    <string name="link_pair">Pair</string>
+    <string name="link_pairing">Pairing…</string>
+    <string name="link_profiles_title">Enhancement session</string>
+    <string name="link_sustain_ok">Sustained in real time</string>
+    <string name="link_sustain_no">May stutter</string>
+    <string name="link_sustain_unknown">Not measured yet</string>
+    <string name="link_session_url">Stream URL</string>
+    <string name="link_session_hint">The PC fetches and enhances this stream.</string>
+    <string name="link_start">Start session</string>
+    <string name="link_starting">Starting…</string>
+</resources>

@@ -116,7 +116,7 @@ const { getMangaChapters, getMangaReadByKey, clearMangaChaptersCache } =
 const original = globalThis.fetch;
 globalThis.fetch = fixture as typeof fetch;
 
-test("website chapter catalog uses MangaDex API through the allowlisted JSON proxy, and keeps working extension sources", async () => {
+test("website chapter catalog calls the MangaDex API directly (no backend JSON proxy), and keeps working extension sources", async () => {
   const result = await getMangaChapters("100");
   expect(result.mappedChapters.map((c) => c.chapterNumber)).toEqual([
     0, 1, 1.5, 2,
@@ -128,19 +128,20 @@ test("website chapter catalog uses MangaDex API through the allowlisted JSON pro
     ["es", "Group B"],
   ]);
   expect(result.mappedChapters[2].published).toBe("2026-10-03T00:00:00Z");
-  expect(calls.filter((c) => c.includes("/api/proxy/json"))).toHaveLength(2);
+  expect(calls.filter((c) => c.includes("/api/proxy/"))).toHaveLength(0);
+  expect(calls.filter((c) => c.startsWith("https://api.mangadex.org")).length).toBeGreaterThan(0);
   expect(cached).toEqual(result.mappedChapters);
 });
 test("native catalog calls MangaDex directly and repeat visits reuse the built-in metadata cache", async () => {
   native = true;
   calls = [];
-  const result = await getMangaChapters("101");
+  const result = await getMangaChapters("101", undefined, undefined, null);
   expect(result.mappedChapters).toHaveLength(4);
   expect(
     calls.filter((c) => c.startsWith("https://api.mangadex.org"))
   ).toHaveLength(2);
   const count = calls.length;
-  await getMangaChapters("101");
+  await getMangaChapters("101", undefined, undefined, null);
   expect(calls.length).toBe(count);
   expect(extensionCalls).toBeGreaterThan(1);
 });
@@ -148,7 +149,7 @@ test("Refresh clears the MangaDex catalog cache and fetches chapters again", asy
   native = true;
   const before = calls.length;
   await clearMangaChaptersCache("101");
-  const result = await getMangaChapters("101");
+  const result = await getMangaChapters("101", undefined, undefined, null);
   expect(result.mappedChapters).toHaveLength(4);
   expect(calls.length - before).toBe(1);
 });

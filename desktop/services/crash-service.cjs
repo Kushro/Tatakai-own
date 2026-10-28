@@ -187,11 +187,9 @@ function createCrashService(deps) {
    * Checks whether a crash report from the previous session exists.
    * Must be called inside `app.on('ready')` after the main window is available.
    *
-   * When a crash report is found it is auto-forwarded (metadata only — no dumps,
-   * no PII) to the tatakaiapi crash-ingest endpoint, which fans it out to the
-   * Supabase crash_reports table and the Discord webhook server-side. It is also
-   * logged via LogService and pushed to the renderer over the `crash:previous`
-   * IPC for the admin panel. There is no native consent dialog (silent auto-send).
+   * When a crash report is found it is logged via LogService and pushed to the
+   * renderer over the `crash:previous` IPC. Nothing is uploaded (no remote
+   * crash-ingest in this fork); local crash files are left untouched.
    *
    * @param {Electron.BrowserWindow} mainWindow  - The main BrowserWindow instance.
    * @param {import('./_types.cjs').LogService}  logger - LogService instance for structured logging.
@@ -226,11 +224,8 @@ function createCrashService(deps) {
       })
     }
 
-    // Auto-forward (metadata only — no dumps, no PII) on next launch. There is
-    // no native consent dialog: the previous dialog's wording already promised
-    // "no personal data or media files", so we send the same metadata silently.
-    // Fire-and-forget so the ready handler is never blocked, and failures never
-    // reach the main process.
+    // Upload is disabled by default (see _uploadCrashReport). Fire-and-forget so
+    // the ready handler is never blocked.
     const meta = {
       id: report.id,
       date: reportDate,
@@ -242,10 +237,7 @@ function createCrashService(deps) {
       electron_version: process.versions.electron,
     }
     setImmediate(async () => {
-      // The endpoint (tatakaiapi) fans out to Supabase + Discord server-side, so
-      // the desktop only has to make this one upload — no client-side webhook.
       await _uploadCrashReport(meta, opts, logger)
-      if (logger) logger.info('[CrashService] Crash metadata auto-forwarded', { id: report.id })
     })
 
     // Always notify the renderer via IPC (for the admin CrashReportPanel)
@@ -265,28 +257,19 @@ function createCrashService(deps) {
   // ── _uploadCrashReport() (private) ────────────────────────────────────────
 
   /**
-   * Uploads crash report metadata to the tatakaiapi crash-ingest route, which
-   * inserts it into the Supabase `crash_reports` table via the service-role
-   * client (see tatakaiapi/src/routes/crash.ts). The desktop app never holds a
-   * Supabase key — the write is brokered server-side.
-   *
-   * Endpoint resolution (first non-empty wins):
-   *   1. opts.uploadEndpoint (tests)
-   *   2. process.env.CRASH_REPORT_ENDPOINT (explicit override)
-   *   3. `${VITE_BACKEND_ORIGIN}/api/v3/crash` — same convention the runtime IPC
-   *      uses (desktop/ipc/ipc-runtime.cjs), defaulting to the local dev API.
-   * Fails silently — a failed upload must never crash the main process.
+   * No-op unless the caller injects `opts.uploadEndpoint` (tests). There is no
+   * default endpoint. Fails silently — an upload must never crash the main process.
    *
    * @param {{ id: string, date: string, path: string }} report
    * @param {{ uploadEndpoint?: string }} [opts]
    * @param {object} [logger]
    */
   async function _uploadCrashReport(report, opts, logger) {
-    const apiBase = (process.env.VITE_BACKEND_ORIGIN || 'http://localhost:4001').replace(/\/+$/, '')
-    const endpoint =
-      (opts && opts.uploadEndpoint) ||
-      process.env.CRASH_REPORT_ENDPOINT ||
-      `${apiBase}/api/v3/crash`
+    // Crash reports are never uploaded anywhere by default: this fork has no
+    // crash-ingest backend. Only an explicit endpoint injected by the caller
+    // (tests) triggers a request; local crash files are kept as-is.
+    const endpoint = opts && opts.uploadEndpoint
+    if (!endpoint) return
 
     try {
       // WHATWG URL (url.parse() is deprecated — DEP0169).

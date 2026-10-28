@@ -4,6 +4,140 @@ All notable changes to Tatakai are documented here.
 
 ---
 
+## [6.4.2] - 2026-10-27
+
+- Remove duplicate mobile status-bar and header safe-area spacing.
+- Recover failed video manifests by reloading the transport, bound loading timeouts, and keep retry and server switching usable after playback errors.
+- Offer the Hoko cloud video proxy after eight seconds of stalled loading, with explicit consent before routing a video through the cloud.
+- Add a Use cloud proxy by default option in Mobile App Settings. It is off until enabled and can be turned off at any time.
+- Keep local files, torrents, debrid streams and watch-party shares on their existing playback paths.
+
+## [6.4.1] - 2026-10-27
+
+- Improve mobile video controls with accessible seeking, clearer buffering feedback, rewind/forward controls and keyboard focus handling.
+- Add optional JW Player playback and its settings while retaining the built-in player.
+- Improve manga source selection, reader navigation and reader controls.
+- Refresh extension browsing, compatibility listings and connected-server status.
+- Reduce repeated mobile viewport and motion-preference updates, and improve mobile overlays, back navigation and pull-to-refresh behavior.
+- Load interface translations before rendering and improve shared request identifiers across supported runtimes.
+- Improve image handling, home shelves, search suggestions and update notifications.
+- Retain the 6.4 native packaging fixes, release upload retries and Windows installer improvements.
+
+## [6.4.0] - 2026-10-26
+
+### Profiles and community
+
+- Add customizable profile themes and widget layouts, including SekaiPop, Uchiha, Gothic Empress, Midnight Lofi and Komorebi styles, responsive presentations and server-enforced cosmetic access.
+- Add the profile collection registry, public cosmetics and configured theme launch claims.
+- Add comment activity to supported community feeds with stable pagination, and improve rich-link embeds.
+- Refresh Android TV playback controls, navigation, loading screens, themes and appearance settings.
+- Add peer watch-room media sharing, synchronized playback, connection controls and bounded media/upload handling.
+
+### Reading and playback
+
+- Add touch pinch-to-zoom, improve continuous manga reading, preserve selected chapter providers and unify manga/novel reading history.
+- Display manga and novel sources progressively, keep later results, coalesce duplicate discovery and cache large hosted chapter lists within a memory budget.
+- Load novel home shelves through one cached API response and keep stored catalog fallbacks available during upstream outages. Refresh real trending separately.
+- Fix community-server Connect actions on the website, preserve signed streaming URLs and keep mobile-web settings menus within fullscreen playback.
+- Improve native extension networking on iOS, Turnstile verification and compatibility-provider request handling.
+
+### Performance and presentation
+
+- Defer settings and optional diagnostics until needed; package the standard profile videos instead of the website-only 4K variant.
+- Reduce repeated media requests, improve profile-image caching and packaged-asset handling, and refine responsive media/background behavior.
+- Refresh landing-page media, including the novel-reader showcase, and improve navigation and profile settings presentation.
+
+### Security and maintenance
+
+- Merge Tatakai PRs #23–#26 and integrate the compatible API PRs #14–#15, preserving Supabase catalog administration, filtering and ingestion.
+- Harden desktop IPC, extension workers, local-service Host/Origin validation, external media/file handling, Android backup exclusions and AniList OAuth state checks.
+- Add reviewed database migrations for peer rooms, profile themes/widgets and internal-table RLS hardening. Applying SQL remains a separate deployment step.
+- Bound API upstream admission and share request limits through durable control state.
+- Update Rust translation dependencies and frontend dependencies; align the Vite plugin and pin offline speech runtimes to their supported versions.
+- Add automated changelog generation for configured release integrations.
+
+## [6.3.0] - 2026-10-23
+
+Extension compatibility, translation tools, community features, and playback improvements. Native runtime additions require updated app packages; extension compatibility depends on the platform and source.
+
+### Extensions and community servers
+
+- Correct native stack downloads to retrieve the .kai archive rather than its JSON manifest, and use the app-themed stack confirmation dialog.
+
+- Add compatibility runtimes and repository management for CloudStream, Mihon, Aniyomi, Sora, and Mangayomi sources on supported installed apps. Show runtime preparation, package updates, language tags, source preferences, and authentication where supported. Mangayomi support currently targets JavaScript anime/manga sources; Dart and advanced host APIs remain pending.
+- Add provider browsing, search, title details, episodes, chapters, playback, and reading for compatibility sources. Preserve the selected source and its original identifiers when switching between catalog and provider views.
+- Add a local extension library with saved titles, per-profile watch/read progress, and continue-watching/reading controls. Support eligible compatibility manga downloads and their offline-library entries.
+- Publish moderated community-server listings in the extension portal, with public HTTPS addresses, owner artwork, and a Connect in Tatakai action. Server credentials and pairing codes stay outside published listings.
+- Connect community-hosted extension servers through URL/password or pairing links, including remote anime, manga, and novel sources. Show each connected server's name, logo, current health, and running time when supplied by the host.
+- Integrate the desktop home server with extension hosting and its setup dashboard while retaining household library sharing.
+- Add community extension stacks and language-based catalog filtering. The separate extension portal's stack picker includes supported and limited-compatible entries across ecosystems, paginates the eligible catalog, and preserves selections across searches, with a maximum of 20 extensions per stack.
+- Apply the global adult-content preference to extension descriptors, browsing, and stack installation without treating unclassified content as verified safe.
+- Repair native Install from File using the desktop file picker and bounded package reads. Improve extension artwork handling, install feedback, failure deadlines, and diagnostics.
+- Add a Tatakai Server option on the download page linking directly to its GitHub repository and setup instructions.
+
+### Translation
+
+- Add a shared translation settings panel for community posts, comments, subtitles, and novel chapters, with a target language, per-surface controls, optional automatic translation, and an original-text toggle.
+- Support free translation endpoints, configured cloud providers, compatible custom endpoints, and the existing on-device engine. Bound retries and automatic attempts so failed providers do not leave content translating indefinitely.
+- Add subtitle translation and optional track pretranslation to desktop and mobile playback, and paragraph translation in the novel reader.
+- Add an experimental desktop manga translation workspace with project/page management, image/folder/archive/PDF import, text detection and OCR, editable text and image layers, cleanup tools, font controls, translator credits, backups, and PNG/layered PSD export.
+- Add provider selection and optional local-model setup for the translation workspace, including an offline-only mode. Expose downloaded manga chapters to the workspace through reader actions.
+
+### Community
+
+- Add community and discussion-thread following, with database-generated notifications for supported activity.
+- Add post previews and locally saved drafts to feed and forum composers, including restoring draft images before publishing.
+- Add translated comment rendering and richer supported-link previews. Decode legacy escaped comment text while retaining timestamp links.
+- Add notification sound preferences, deduplicate realtime notification presentation, and apply the sound preference to activity and Watch Party messages.
+- Hide deleted posts from normal feed results, add general-community language guidance, and refresh community banners and notification layouts.
+
+### Playback and readers
+
+- Add MPEG-DASH playback through the shared player and on-device header proxy, preserving original manifest URLs for relative media requests.
+- Add preferred audio-language selection and carry extension, provider, and community-server identity through playback controls and diagnostics.
+- Return playable extension results progressively, bound concurrent provider lookups, and add controls to stop lookups or search remaining sources. Avoid letting an unresolved source hide results already returned by other sources.
+- Rework custom-source detail, watch, and read pages with provider switching, catalog context, library actions, progress, and clearer failure states.
+- Share manga reader controls between catalog and custom sources. Improve fullscreen exit controls, page-size handling, and reading-position restoration when changing reading modes.
+- Improve desktop fullscreen transitions when entering from a maximized window. Coalesce concurrent local-proxy startup requests and defer noncritical startup work.
+
+### Discovery, profiles, and TV
+
+- Introduce Tatakai Translate on the landing page, with its desktop editing workflow and model requirements.
+- Update the landing page and extension FAQ for the expanded extension ecosystems, platform limits, community stacks, and server connections, with matching English, Spanish, and Japanese copy.
+- Use a Read icon on manga and novel continue-reading cards while keeping Play for video.
+- Cycle the mobile catalog header from Novel back to Anime, including its long-press shortcut, without opening the landing page.
+
+- Resolve trending entries through current catalog identifiers and omit unresolved legacy entries instead of showing numeric titles and broken placeholder posters. Use the correct monthly view counter.
+- Add manga and novel view counters to supported cards and detail pages, with delayed view recording, duplicate suppression, and bounded per-session counting.
+- Allow guests to browse public playlists and tier lists while retaining protected editing and private-content checks. Separate query caches by viewer identity.
+- Add compatibility-source results to app and TV search, keeping anime and manga provider results in their appropriate categories.
+- Improve mobile anime, manga, and novel detail layouts, chapter/episode shortcuts, and hero title artwork.
+- Improve TV focus movement, visible-card observation, delayed previews, and memoized rails to reduce unnecessary rendering. Add compatibility extension management to the TV extension page.
+- Replace native selects and checkboxes with app-themed controls across settings, admin, extension, discovery, and TV screens.
+
+### Administration and service status
+
+- Add an admin content-catalog manager with poster previews, search, format filters, pagination, entry creation/editing, and reversible archiving that preserves user references.
+- Replace browser-only status probes with Better Stack categories, service states, all-time and 30-day uptime, downtime, response times, and recent incidents. Make the public status page responsive and accessible without signing in.
+- Use bounded monitoring requests with a second public origin as fallback. Display missing or stale health as unknown and preserve recorded historical downtime.
+- Correct database, AniList GraphQL, and operations readiness monitoring. Keep operations controls protected and publish only allowlisted monitoring fields.
+
+### Build and documentation
+
+- Keep compatibility runtime downloads checksum-pinned when upstream rolling releases replace assets, and support unauthenticated local translation providers on systems without an unlocked OS keychain.
+
+- Add desktop compatibility-runtime preparation and packaging, Android compatibility-host integration, native translation-engine builds, and dedicated translation verification workflows. Build the embedded server before Electron packaging and make Rust/process checks blocking in desktop CI.
+- Share validated public build configuration across website, desktop, and mobile builds so MAL, AniList, MangaBaka, extension services, and other integrations retain their settings. Exclude provider/admin secrets and reject missing essential OAuth IDs or local callback URLs.
+- Update Windows portable packaging and record startup timing for future performance comparisons.
+- Reorganize architecture, development, extension, playback, download, and feature documentation. Keep local operator handoffs, credentials, generated runtime caches, and separate service repositories outside release notes and app source packaging.
+
+### Database and release notes
+
+- Include migrations for community/thread subscriptions and notifications, automatic watch-milestone badges, reversible catalog archiving, and manga/novel view counting. Migration deployment remains separate from an application release and requires its own approval.
+- These notes describe the 6.3.0 update; publishing the release is a separate step. Community-server metadata requires an updated host; older or serverless hosts may not report continuous running time. Third-party source availability and device-specific behavior still require source/device validation.
+
+---
+
 ## [6.2.3] - 2026-10-19
 
 ### Fixed
@@ -25,7 +159,7 @@ All notable changes to Tatakai are documented here.
 
 ### Added
 - Connect the desktop and mobile extension store to the standalone extension catalog API and publisher portal.
-- Publish Toko, HentaiDB, and the Latino/SpanishPack extension through the new catalog service.
+- Publish independently maintained extensions through the new catalog service.
 
 ---
 

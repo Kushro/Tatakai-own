@@ -1,8 +1,9 @@
 /**
  * Novel client — text-chapter twin of `manga-client.ts`.
  *
- * - Search/detail/home metadata: AniList MANGA/NOVEL via `/api/v3/manga/*`
- *   (novels live in the same AniList type; `format: NOVEL` distinguishes them).
+ * - Search/detail/home metadata: the metadata router (`@/lib/metadata`) with
+ *   kind MANGA and `novelsOnly` (novels live in the same AniList type;
+ *   `format: NOVEL` distinguishes them).
  * - Chapters/content: Toko novel providers via `novel-extension-runtime`
  *   (desktop/mobile extension host), with the same reliability-ordered
  *   cross-source fallback the manga reader uses.
@@ -14,7 +15,9 @@ import type {
   NovelSearchResult,
   MappedNovelChapter,
 } from '@/types/novel';
-import { ANILIST_GRAPHQL_ENDPOINT, resolveBackendOrigin } from '@/lib/api/backendOrigin';
+import { metadata } from '@/lib/metadata';
+import { parseMediaId } from './content-graph';
+import { toMetadataSearchFilters } from './manga-client';
 import { getMangaTagOptions, searchMangaTags } from './manga-tag-search';
 
 export type { NovelSearchItem, NovelSearchResult, MappedNovelChapter, NovelChapterResponse, NovelContentResponse };
@@ -33,23 +36,6 @@ export type NovelSearchOptions = {
   adult?: boolean;
 };
 
-function resolveApiOrigin(): string {
-  return resolveBackendOrigin() || 'https://api.tatakai.me';
-}
-
-async function apiGet<T>(path: string, params?: Record<string, string | number | boolean | undefined>): Promise<T> {
-  const url = new URL(path, resolveApiOrigin());
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, String(v));
-    }
-  }
-  const res = await fetch(url.toString(), { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const json = await res.json();
-  return (json?.data ?? json) as T;
-}
-
 const isNovelFormat = (media: any) => {
   const fmt = String(media?.format || media?.type || '').toUpperCase();
   return fmt === 'NOVEL' || fmt === 'LIGHT_NOVEL';
@@ -64,9 +50,7 @@ function rowToNovelItem(media: any): NovelSearchItem | null {
     ? String(m.anilistId)
     : m?.malId
       ? `mal:${m.malId}`
-      : m?.tatakaiId
-        ? String(m.tatakaiId)
-        : '';
+      : '';
   const title = m?.titleEnglish || m?.titleRomaji || m?.titleNative;
   if (!id || !title) return null;
   return {
@@ -114,76 +98,37 @@ export async function searchNovels(
     if (!tag) throw new Error(`“${name}” is not an AniList tag. Choose a tag from the novel filters.`);
     return tag.name;
   });
-  const statuses: Record<string, string> = {
-    ongoing: 'RELEASING', completed: 'FINISHED', hiatus: 'HIATUS',
-    cancelled: 'CANCELLED', unreleased: 'NOT_YET_RELEASED',
-  };
-  const response = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(30_000),
-    body: JSON.stringify({
-      // Novel/tag browsing needs the complete catalog rather than the local mirror.
-      forceUpstream: true,
-      query: `query NovelSearch($page: Int, $perPage: Int, $search: String, $genre: String, $tags: [String], $statuses: [MediaStatus], $sort: [MediaSort], $origin: CountryCode, $adult: Boolean, $minDate: FuzzyDateInt, $maxDate: FuzzyDateInt, $minScore: Int, $maxScore: Int) {
-        Page(page: $page, perPage: $perPage) {
-          pageInfo { currentPage lastPage hasNextPage total }
-          media(type: MANGA, format: NOVEL, search: $search, genre: $genre, tag_in: $tags, status_in: $statuses, sort: $sort, countryOfOrigin: $origin, isAdult: $adult, startDate_greater: $minDate, startDate_lesser: $maxDate, averageScore_greater: $minScore, averageScore_lesser: $maxScore) {
-            id idMal title { romaji english native } coverImage { large } bannerImage description
-            format status startDate { year } averageScore popularity isAdult chapters volumes countryOfOrigin
-          }
-        }
-      }`,
-      variables: {
-        page, perPage: limit, search: query.trim() || undefined,
-        genre: options.genre, tags: tags?.length ? tags : undefined,
-        statuses: options.statuses?.length ? options.statuses.map(status => statuses[status] || status) : undefined,
-        sort: [options.sort || (query.trim() ? 'SEARCH_MATCH' : 'POPULARITY_DESC')],
-        origin: options.origin, adult: options.adult ? undefined : false,
-        minDate: options.minYear ? options.minYear * 10000 : undefined,
-        maxDate: options.maxYear ? (options.maxYear + 1) * 10000 : undefined,
-        minScore: options.minScore ? Math.round(options.minScore * 10) - 1 : undefined,
-        maxScore: options.maxScore ? Math.round(options.maxScore * 10) + 1 : undefined,
-      },
-    }),
+  const { value, provider } = await metadata.search('MANGA', {
+    ...toMetadataSearchFilters(query, page, limit, { ...options, novelsOnly: true }),
+    tags: tags?.length ? tags : undefined,
   });
-  if (!response.ok) throw new Error(`Novel catalog could not be reached (${response.status}). Please retry.`);
-  const payload = await response.json();
-  if (payload.errors?.length || !payload.data?.Page) {
-    throw new Error(payload.errors?.[0]?.message || 'Novel catalog returned no data. Please retry.');
-  }
-  const { media, pageInfo } = payload.data.Page;
-  const results = (media as any[])
-    .map(m => ({ ...m, anilistId: m.id, malId: m.idMal,
-      titleEnglish: m.title?.english, titleRomaji: m.title?.romaji, titleNative: m.title?.native,
-      coverImageLarge: m.coverImage?.large }))
+  const { pageInfo } = value;
+  const results = value.media
     .map(rowToNovelItem)
     .filter((r): r is NovelSearchItem => Boolean(r));
   return {
     query,
     page,
     limit,
-    partial: payload.extensions?.partial === true,
-    failedProviders: payload.extensions?.partial === true ? ['anilist-upstream'] : [],
+    partial: false,
+    failedProviders: [],
     results,
     currentPage: pageInfo.currentPage,
     totalPages: pageInfo.lastPage,
     total: pageInfo.total,
     hasNextPage: pageInfo.hasNextPage,
-    source: 'anilist',
+    source: provider,
   };
 }
 
 export async function getNovelDetail(id: string) {
   const normalizedId = String(id || '');
-  let row: any;
-  if (normalizedId.startsWith('anilist:')) {
-    row = await apiGet<any>(`/api/v3/manga/by-anilist/${normalizedId.replace('anilist:', '')}`);
-  } else {
-    const raw = Number(normalizedId);
-    row = Number.isFinite(raw)
-      ? await apiGet<any>(`/api/v3/manga/by-anilist/${raw}`)
-      : await apiGet<any>(`/api/v3/manga/${encodeURIComponent(normalizedId)}`);
-  }
+  const parsed = parseMediaId(normalizedId);
+  if (!parsed) throw new Error(`Invalid novel ID: ${id}`);
+  let found = (await metadata.media('MANGA', parsed.ref)).value;
+  if (!found && parsed.alt) found = (await metadata.media('MANGA', parsed.alt)).value;
+  if (!found) throw new Error(`Novel not found: ${id}`);
+  const row: any = found;
   const media = row?.media ?? row;
   return {
     id,

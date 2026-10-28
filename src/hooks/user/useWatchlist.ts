@@ -125,11 +125,11 @@ export function useAddToWatchlist() {
       console.log('[Watchlist Sync] Provided AniList ID:', variables.anilistId);
       console.log('[Watchlist Sync] DB Response mal_id:', data?.mal_id);
       console.log('[Watchlist Sync] DB Response anilist_id:', data?.anilist_id);
-      console.log('[Watchlist Sync] MAL Token exists:', !!profile?.mal_access_token);
-      console.log('[Watchlist Sync] AniList Token exists:', !!profile?.anilist_access_token);
+      console.log('[Watchlist Sync] MAL Token exists:', !!profile?.mal_user_id);
+      console.log('[Watchlist Sync] AniList Token exists:', !!profile?.anilist_user_id);
 
       // Auto-sync to MAL if linked
-      if (profile?.mal_access_token) {
+      if (profile?.mal_user_id) {
         // Use malId from variables first, then from DB response
         const targetMalId = variables.malId || data?.mal_id;
         
@@ -156,7 +156,7 @@ export function useAddToWatchlist() {
       }
 
       // Auto-sync to AniList if linked
-      if (profile?.anilist_access_token) {
+      if (profile?.anilist_user_id) {
         // Use anilistId from variables first, then from DB response
         const targetAnilistId = variables.anilistId || data?.anilist_id;
 
@@ -165,7 +165,7 @@ export function useAddToWatchlist() {
           const aniStatus = mapTatakaiStatusToAniList(variables.status || 'plan_to_watch');
           console.log('[Watchlist Sync] AniList status mapped to:', aniStatus);
 
-          updateAniListAnimeStatus(profile.anilist_access_token, Number(targetAnilistId), aniStatus)
+          updateAniListAnimeStatus(null, Number(targetAnilistId), aniStatus)
             .then(() => {
               console.log('[Watchlist Sync] ✓ AniList sync SUCCESSFUL for AniList ID:', targetAnilistId);
               toast.success(uiI18n.t('app.synced_to_anilist_9d547dac'));
@@ -212,7 +212,7 @@ export function useRemoveFromWatchlist() {
       queryClient.invalidateQueries({ queryKey: ['external-ids', animeId] }); // Refresh external IDs cache
 
       // Sync removal to MAL if linked AND auto-delete is enabled (Dangerous feature)
-      if (profile?.mal_access_token && profile?.mal_auto_delete) {
+      if (profile?.mal_user_id && profile?.mal_auto_delete) {
         import('@/lib/mal').then(({ deleteMalAnimeStatus }) => {
           deleteMalAnimeStatus(animeId).catch(err => console.error('[Watchlist] MAL removal failed:', err));
         });
@@ -245,7 +245,7 @@ export function useBulkRemoveFromWatchlist() {
       queryClient.invalidateQueries({ queryKey: ['watchlist'] });
 
       // Sync removal to MAL if linked AND auto-delete is enabled
-      if (profile?.mal_access_token && profile?.mal_auto_delete) {
+      if (profile?.mal_user_id && profile?.mal_auto_delete) {
         import('@/lib/mal').then(({ deleteMalAnimeStatus }) => {
           animeIds.forEach(id => {
             deleteMalAnimeStatus(id).catch(err => console.error(`[Watchlist] Bulk MAL removal failed for ${id}:`, err));

@@ -1,0 +1,176 @@
+{
+ "data": {
+  "mal_id": 2,
+  "url": "https://myanimelist.net/manga/2/Berserk",
+  "images": {
+   "jpg": {
+    "image_url": "https://cdn.myanimelist.net/images/manga/1/157897.jpg",
+    "small_image_url": "https://cdn.myanimelist.net/images/manga/1/157897t.jpg",
+    "large_image_url": "https://cdn.myanimelist.net/images/manga/1/157897l.jpg"
+   },
+   "webp": {
+    "image_url": "https://cdn.myanimelist.net/images/manga/1/157897.webp",
+    "small_image_url": "https://cdn.myanimelist.net/images/manga/1/157897t.webp",
+    "large_image_url": "https://cdn.myanimelist.net/images/manga/1/157897l.webp"
+   }
+  },
+  "approved": true,
+  "titles": [
+   {
+    "type": "Default",
+    "title": "Berserk"
+   },
+   {
+    "type": "Japanese",
+    "title": "ベルセルク"
+   },
+   {
+    "type": "English",
+    "title": "Berserk"
+   },
+   {
+    "type": "Synonym",
+    "title": "Berserk: The Prototype"
+   }
+  ],
+  "title": "Berserk",
+  "title_english": "Berserk",
+  "title_japanese": "ベルセルク",
+  "title_synonyms": [
+   "Berserk: The Prototype"
+  ],
+  "type": "Manga",
+  "chapters": null,
+  "volumes": null,
+  "status": "Publishing",
+  "publishing": true,
+  "published": {
+   "from": "1989-08-25T00:00:00+00:00",
+   "to": null,
+   "prop": {
+    "from": {
+     "day": 25,
+     "month": 8,
+     "year": 1989
+    },
+    "to": {
+     "day": null,
+     "month": null,
+     "year": null
+    }
+   },
+   "string": "Aug 25, 1989 to ?"
+  },
+  "score": 9.46,
+  "scored_by": 406521,
+  "rank": 1,
+  "popularity": 1,
+  "members": 812618,
+  "favorites": 139796,
+  "synopsis": "Guts, a former mercenary now known as the Black Swordsman, is out for revenge.\n\n[Written by MAL Rewrite]",
+  "authors": [],
+  "serializations": [
+   {
+    "mal_id": 2,
+    "type": "manga",
+    "name": "Young Animal",
+    "url": "https://myanimelist.net/manga/magazine/2/Young_Animal"
+   }
+  ],
+  "genres": [
+   {
+    "mal_id": 1,
+    "type": "manga",
+    "name": "Action",
+    "url": "https://myanimelist.net/manga/genre/1/Action"
+   },
+   {
+    "mal_id": 2,
+    "type": "manga",
+    "name": "Adventure",
+    "url": "https://myanimelist.net/manga/genre/2/Adventure"
+   },
+   {
+    "mal_id": 46,
+    "type": "manga",
+    "name": "Award Winning",
+    "url": "https://myanimelist.net/manga/genre/46/Award_Winning"
+   },
+   {
+    "mal_id": 8,
+    "type": "manga",
+    "name": "Drama",
+    "url": "https://myanimelist.net/manga/genre/8/Drama"
+   },
+   {
+    "mal_id": 10,
+    "type": "manga",
+    "name": "Fantasy",
+    "url": "https://myanimelist.net/manga/genre/10/Fantasy"
+   },
+   {
+    "mal_id": 14,
+    "type": "manga",
+    "name": "Horror",
+    "url": "https://myanimelist.net/manga/genre/14/Horror"
+   }
+  ],
+  "explicit_genres": [],
+  "themes": [
+   {
+    "mal_id": 58,
+    "type": "manga",
+    "name": "Gore",
+    "url": "https://myanimelist.net/manga/genre/58/Gore"
+   },
+   {
+    "mal_id": 38,
+    "type": "manga",
+    "name": "Military",
+    "url": "https://myanimelist.net/manga/genre/38/Military"
+   },
+   {
+    "mal_id": 40,
+    "type": "manga",
+    "name": "Psychological",
+    "url": "https://myanimelist.net/manga/genre/40/Psychological"
+   }
+  ],
+  "demographics": [
+   {
+    "mal_id": 41,
+    "type": "manga",
+    "name": "Seinen",
+    "url": "https://myanimelist.net/manga/genre/41/Seinen"
+   }
+  ],
+  "relations": [
+   {
+    "relation": "Adaptation",
+    "entry": [
+     {
+      "mal_id": 33,
+      "type": "anime",
+      "name": "Kenpuu Denki Berserk",
+      "url": "https://myanimelist.net/anime/33/Kenpuu_Denki_Berserk",
+      "media_type": "TV",
+      "images": {
+       "jpg": {
+        "image_url": "https://cdn.myanimelist.net/images/anime/1384/119988.jpg",
+        "small_image_url": "https://cdn.myanimelist.net/images/anime/1384/119988t.jpg",
+        "large_image_url": "https://cdn.myanimelist.net/images/anime/1384/119988l.jpg"
+       },
+       "webp": {
+        "image_url": "https://cdn.myanimelist.net/images/anime/1384/119988.webp",
+        "small_image_url": "https://cdn.myanimelist.net/images/anime/1384/119988t.webp",
+        "large_image_url": "https://cdn.myanimelist.net/images/anime/1384/119988l.webp"
+       }
+      }
+     }
+    ]
+   }
+  ],
+  "external": [],
+  "moreinfo": null
+ }
+}

@@ -16,6 +16,9 @@ export type Anime4KPreset =
 export type SleepTimerOption = 'off' | '15' | '30' | '45' | '60' | 'end-of-episode';
 
 export interface VideoSettings {
+  playerEngine: 'builtin' | 'jwplayer';
+  jwPlayerLibraryId: string;
+  audioLanguage: string;
   defaultQuality: 'auto' | '1080p' | '720p' | '480p' | '360p';
   autoplay: boolean;
   subtitleLanguage:
@@ -66,6 +69,9 @@ export interface VideoSettings {
 }
 
 const DEFAULT_SETTINGS: VideoSettings = {
+  playerEngine: 'builtin',
+  jwPlayerLibraryId: '',
+  audioLanguage: 'auto',
   defaultQuality: 'auto',
   autoplay: true,
   subtitleLanguage: 'english',
@@ -135,6 +141,9 @@ const normalizeSettings = (raw: Partial<VideoSettings> & { autoPlayNext?: boolea
   return {
     ...DEFAULT_SETTINGS,
     ...raw,
+    playerEngine: raw?.playerEngine === 'jwplayer' ? 'jwplayer' : 'builtin',
+    jwPlayerLibraryId: typeof raw?.jwPlayerLibraryId === 'string' ? raw.jwPlayerLibraryId.trim() : '',
+    audioLanguage: typeof raw?.audioLanguage === 'string' && /^(auto|[a-z]{2,3})$/.test(raw.audioLanguage) ? raw.audioLanguage : 'auto',
     defaultQuality: VALID_DEFAULT_QUALITIES.has(String(raw?.defaultQuality))
       ? (raw?.defaultQuality as VideoSettings['defaultQuality'])
       : DEFAULT_SETTINGS.defaultQuality,

@@ -5,16 +5,15 @@ import { useQuery } from '@tanstack/react-query';
 /**
  * Per-show next-episode lookup for the profile "Tatakai Calendar" card.
  *
- * Routed through the TatakaiAPI proxy (`/api/v3/anilist/graphql`) with
- * `forceUpstream: true` — next-airing times are volatile and must come from real
- * AniList, not the mirror's stored snapshot. `useAiringSchedule` only covers a
+ * Read straight from AniList via `anilistGql` — next-airing times are
+ * volatile and must stay fresh. `useAiringSchedule` only covers a
  * fixed 7-day window, which is not enough to show a countdown for a saved show
  * whose next episode is weeks away; AniList's `Media.nextAiringEpisode` gives the
  * single upcoming episode for any show regardless of how far out it is, so this
  * batch-queries it for a set of AniList ids in one request (`id_in`) and returns
  * a lookup keyed by id.
  */
-import { ANILIST_GRAPHQL_ENDPOINT as ANILIST_ENDPOINT } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
 
 const QUERY = `
 query ($ids: [Int]) {
@@ -47,14 +46,13 @@ async function fetchNextAiring(ids: number[]): Promise<Record<number, NextAiring
   // AniList caps `id_in` results at the page size (50); chunk to be safe.
   for (let i = 0; i < ids.length; i += 50) {
     const chunk = ids.slice(i, i + 50);
-    const res = await fetch(ANILIST_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ query: QUERY, variables: { ids: chunk }, forceUpstream: true }),
-    });
-    if (!res.ok) throw new Error(uiI18n.t('app.anilist_request_failed_i18n_value_0_9455a5b4', { value0: res.status }));
-    const json = await res.json();
-    const media: any[] = json?.data?.Page?.media ?? [];
+    let data: any;
+    try {
+      data = await anilistGql<any>(QUERY, { ids: chunk });
+    } catch (err: any) {
+      throw new Error(uiI18n.t('app.anilist_request_failed_i18n_value_0_9455a5b4', { value0: err?.status ?? 0 }));
+    }
+    const media: any[] = data?.Page?.media ?? [];
     for (const m of media) {
       const id = Number(m?.id);
       if (!Number.isFinite(id)) continue;

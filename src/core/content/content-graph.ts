@@ -1,16 +1,20 @@
 /**
  * src/core/content/content-graph.ts
  *
- * All browsing data flows through TatakaiAPI → never directly to AniList/Jikan.
- * The backend handles 3rd-party rate limits, fallback logic, and normalization.
+ * Browsing data for anime. Everything is served by the metadata provider router
+ * (`@/lib/metadata`): AniList, Tenrai (MAL), Kitsu, Shikimori, MAL and ani.zip,
+ * called directly from the client in the user's priority order. There is no
+ * TatakaiAPI backend any more.
  *
- * Public API is identical to what pages expect — zero caller changes needed.
+ * The public API (method names, signatures, return types) is unchanged, so the
+ * pages and hooks that call `contentGraph.*` keep working.
  */
 
 import { queryCache, TTL } from '../cache/query-cache';
-import { trackEvent } from '@/core/analytics/AnalyticsService';
-import { isCapacitor } from '@/lib/platform/platform';
 import { db, type CachedMedia } from '../db';
+import { metadata } from '@/lib/metadata';
+import type { FeedOptions, MediaRef, MetadataFeedKind } from '@/lib/metadata';
+import { tenraiGet } from '@/lib/tenrai/client';
 import type {
   TatakaiMedia,
   SearchFilters,
@@ -19,116 +23,51 @@ import type {
   HomePageBundle,
   MediaSeason,
   FeedType,
-  TatakaiAPIResponse,
 } from './types';
 
-type MediaEnvelope = {
-  id?: string;
-  mapping?: unknown;
-  media: TatakaiMedia;
-};
+/** Dexie `cachedMedia` rows older than this are ignored (and refetched). */
+export const CACHED_MEDIA_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
-function unwrapMedia(payload: TatakaiMedia | MediaEnvelope): TatakaiMedia {
-  if (payload && typeof payload === 'object' && 'media' in payload && (payload as MediaEnvelope).media) {
-    const envelope = payload as MediaEnvelope;
-    return {
-      ...envelope.media,
-      tatakaiId: envelope.id ?? envelope.media.tatakaiId,
-      mapping: envelope.mapping,
-    };
-  }
-  return payload as TatakaiMedia;
-}
-
-function unwrapMediaList(payloads: Array<TatakaiMedia | MediaEnvelope>): TatakaiMedia[] {
-  return payloads.map((payload) => unwrapMedia(payload));
-}
-
-// ─── API base ─────────────────────────────────────────────────────────────────
-
-const CONTENT_BASE = '/api/v3/content';
+const SPOTLIGHT_SIZE = 10;
+const TOP10_SIZE = 10;
+const HOME_LANE_SIZE = 20;
 
 /**
- * Origin to resolve `CONTENT_BASE` against. On the web the page is served from
- * the same origin as the API's reverse proxy, so `window.location.origin`
- * (https://…) is correct and keeps requests same-origin. In the packaged desktop
- * app the renderer loads from `file://`, where a relative `/api/v3/content/…`
- * path would resolve to `file:///api/v3/content/…` and fail — so fall back to an
- * explicit absolute backend origin (same one playback already uses).
+ * @deprecated The TatakaiAPI content endpoints no longer exist. Kept only so the
+ * `@/core` barrel export keeps compiling; always rejects.
  */
-function resolveApiOrigin(): string {
-  // Capacitor serves the app from a virtual host (`https://tatakai.me` /
-  // `https://localhost`) that is the WebView's LOCAL asset origin, NOT the
-  // backend — a relative `/api/v3/content/…` there resolves to the shell and
-  // returns the SPA HTML (or 404), which is the "Failed to load" home screen.
-  // Skip window.location on Capacitor and use the explicit backend origin.
-  if (
-    typeof window !== 'undefined' &&
-    /^https?:$/i.test(window.location.protocol) &&
-    !isCapacitor()
-  ) {
-    return window.location.origin;
-  }
-  const explicit = String(import.meta.env.VITE_BACKEND_ORIGIN || '').trim();
-  if (explicit && /^https?:\/\//i.test(explicit)) return explicit.replace(/\/+$/, '');
-  const apiUrl = String(import.meta.env.VITE_TATAKAI_API_URL || '').trim();
-  try {
-    if (apiUrl) return new URL(apiUrl).origin;
-  } catch {
-    /* fall through */
-  }
-  return 'https://api.tatakai.me';
-}
-
-// ─── HTTP client ─────────────────────────────────────────────────────────────
-
 export async function apiGet<T>(
   path: string,
-  params?: Record<string, string | number | boolean | undefined>,
+  _params?: Record<string, string | number | boolean | undefined>,
 ): Promise<T> {
-  const url = new URL(CONTENT_BASE + path, resolveApiOrigin());
+  throw new Error(`TatakaiAPI is no longer available (${path}). Use the metadata router instead.`);
+}
 
-  if (params) {
-    for (const [k, v] of Object.entries(params)) {
-      if (v !== undefined && v !== null && v !== '') {
-        url.searchParams.set(k, String(v));
-      }
-    }
+// ─── Id parsing ───────────────────────────────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Turn the id forms the app uses into a router ref.
+ * - `123`, `anilist:123`, `anilist-123`, `anilist_123` → AniList id
+ * - `mal:123`, `mal-123` → MAL id
+ * - UUID (legacy TatakaiAPI ids) → null (cannot be resolved without the backend)
+ */
+export function parseMediaId(rawId: string): { ref: MediaRef; alt?: MediaRef } | null {
+  const id = String(rawId ?? '').trim();
+  if (!id || UUID_RE.test(id)) return null;
+  const prefixed = id.match(/^(mal|anilist)[-_:]?(\d+)$/i);
+  if (prefixed) {
+    const n = Number(prefixed[2]);
+    if (!(n > 0)) return null;
+    return prefixed[1].toLowerCase() === 'mal' ? { ref: { malId: n } } : { ref: { anilistId: n } };
   }
-
-  let res: Response;
-  try {
-    res = await fetch(url.toString(), {
-      headers: { Accept: 'application/json' },
-      credentials: 'same-origin',
-    });
-  } catch (err) {
-    trackEvent('provider_failure', {
-      provider: 'tatakai_content_graph',
-      path,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    throw err;
+  const n = Number(id);
+  if (Number.isInteger(n) && n > 0) {
+    // Bare numbers are AniList ids; a MAL id is the last-resort interpretation.
+    return { ref: { anilistId: n }, alt: { malId: n } };
   }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => res.statusText);
-    trackEvent('provider_failure', {
-      provider: 'tatakai_content_graph',
-      path,
-      status: res.status,
-      error: text,
-    });
-    throw new Error(`TatakaiAPI ${res.status} on ${path}: ${text}`);
-  }
-
-  const envelope = (await res.json()) as TatakaiAPIResponse<T>;
-
-  if (!envelope.success) {
-    throw new Error(`TatakaiAPI error on ${path}: ${envelope.error ?? 'unknown'}`);
-  }
-
-  return envelope.data;
+  return null;
 }
 
 // ─── Content Graph ────────────────────────────────────────────────────────────
@@ -147,13 +86,13 @@ class ContentGraph {
 
     const result = await fetcher();
     queryCache.set(key, result, ttlMs);
-    
+
     // Background task: If the result contains media, save to local DB
     if (result && typeof result === 'object') {
       if ('spotlight' in result && 'trending' in result) {
         // It's a HomePageBundle
-        const bundle = result as any;
-        const allMedia = [
+        const bundle = result as unknown as HomePageBundle;
+        this.saveManyToDb([
           ...(bundle.spotlight || []),
           ...(bundle.trending || []),
           ...(bundle.topAiring || []),
@@ -163,15 +102,13 @@ class ContentGraph {
           ...(bundle.top10?.today || []),
           ...(bundle.top10?.week || []),
           ...(bundle.top10?.month || []),
-        ];
-        this.saveManyToDb(allMedia);
-      } else if ('media' in result && Array.isArray((result as any).media)) {
-        const rows = unwrapMediaList((result as any).media);
-        this.saveManyToDb(rows);
+        ]);
+      } else if ('media' in result && Array.isArray((result as { media: unknown }).media)) {
+        this.saveManyToDb((result as { media: TatakaiMedia[] }).media);
       } else if (Array.isArray(result)) {
-        this.saveManyToDb(unwrapMediaList(result as Array<TatakaiMedia | MediaEnvelope>));
-      } else if ('tatakaiId' in result || 'anilistId' in result) {
-        this.saveToDb(result as unknown as TatakaiMedia);
+        this.saveManyToDb((result as unknown[]).filter(isMedia));
+      } else if (isMedia(result)) {
+        this.saveToDb(result);
       }
     }
 
@@ -179,10 +116,10 @@ class ContentGraph {
   }
 
   private async saveToDb(media: TatakaiMedia) {
+    if (!media?.anilistId) return;
     try {
-      const id = media.tatakaiId || String(media.anilistId);
       const cached: CachedMedia = {
-        id,
+        id: String(media.anilistId),
         anilistId: media.anilistId,
         malId: media.malId,
         title: media.titleEnglish || media.titleRomaji,
@@ -208,35 +145,98 @@ class ContentGraph {
     }
   }
 
-  // ── Home page (single bundled call) ──────────────────────────────────────
+  // ── Router helpers ────────────────────────────────────────────────────────
 
+  private async feedPage(
+    feed: MetadataFeedKind,
+    page: number,
+    perPage: number,
+    extra: Partial<FeedOptions> = {},
+  ): Promise<TatakaiMedia[]> {
+    const { value } = await metadata.feed('ANIME', feed, { page, perPage, ...extra });
+    return value.media;
+  }
+
+  // ── Home page (composed from parallel feeds) ──────────────────────────────
+
+  /**
+   * Builds the home bundle from the router's feeds, fetched in parallel.
+   * - spotlight: first trending titles that have a banner (topped up with the
+   *   rest of trending when there are too few banners)
+   * - top10.today / week / month are approximations (no per-period ranking is
+   *   available from public APIs): trending / airing / popular
+   * A lane that fails comes back empty; the call only fails when every lane does.
+   */
   async getHomePage(): Promise<HomePageBundle> {
-    return this.cached('home:bundle', TTL.HOT, () =>
-      apiGet<HomePageBundle>('/home'),
-    );
+    return this.cached('home:bundle', TTL.HOT, async () => {
+      const lane = (feed: MetadataFeedKind) => this.feedPage(feed, 1, HOME_LANE_SIZE);
+      const results = await Promise.allSettled([
+        lane('trending'),
+        lane('airing'),
+        lane('popular'),
+        lane('upcoming'),
+        lane('recently_completed'),
+        metadata.genres('ANIME'),
+      ]);
+      const [trendingR, airingR, popularR, upcomingR, completedR, genresR] = results;
+      const ok = <T>(r: PromiseSettledResult<T>, fallback: T): T => (r.status === 'fulfilled' ? r.value : fallback);
+
+      const trending = ok(trendingR, []);
+      const topAiring = ok(airingR, []);
+      const popular = ok(popularR, []);
+      const topUpcoming = ok(upcomingR, []);
+      const latestCompleted = ok(completedR, []);
+      const lanes = [trending, topAiring, popular, topUpcoming, latestCompleted];
+
+      if (lanes.every((l) => l.length === 0)) {
+        const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+        throw failed?.reason instanceof Error ? failed.reason : new Error('Home feeds returned no results');
+      }
+
+      // If trending is unavailable, spotlight/top-10 fall back to the next best lane.
+      const hero = trending.length ? trending : topAiring.length ? topAiring : popular;
+      const withBanner = hero.filter((m) => m.bannerImage);
+      const spotlight = (withBanner.length >= SPOTLIGHT_SIZE
+        ? withBanner
+        : [...withBanner, ...hero.filter((m) => !m.bannerImage)]
+      ).slice(0, SPOTLIGHT_SIZE);
+
+      return {
+        spotlight,
+        trending,
+        topAiring,
+        popular,
+        topUpcoming,
+        latestCompleted,
+        top10: {
+          today: hero.slice(0, TOP10_SIZE),
+          week: (topAiring.length ? topAiring : hero).slice(0, TOP10_SIZE),
+          month: (popular.length ? popular : hero).slice(0, TOP10_SIZE),
+        },
+        genres: ok(genresR, { value: [] as string[], provider: 'anilist' as const }).value,
+        fetchedAt: Date.now(),
+      };
+    });
   }
 
   // ── Feeds ─────────────────────────────────────────────────────────────────
 
   async getTrending(page = 1, perPage = 20): Promise<ContentFeed> {
-    return this.cached(`feed:trending:${page}:${perPage}`, TTL.HOT, async () => {
-      const media = await apiGet<Array<TatakaiMedia | MediaEnvelope>>('/trending', { page, perPage });
-      return { type: 'trending' as const, media: unwrapMediaList(media), fetchedAt: Date.now() };
-    });
+    return this.cached(`feed:trending:${page}:${perPage}`, TTL.HOT, async () => ({
+      type: 'trending' as const, media: await this.feedPage('trending', page, perPage), fetchedAt: Date.now(),
+    }));
   }
 
   async getPopular(page = 1, perPage = 20): Promise<ContentFeed> {
-    return this.cached(`feed:popular:${page}:${perPage}`, TTL.WARM, async () => {
-      const media = await apiGet<Array<TatakaiMedia | MediaEnvelope>>('/popular', { page, perPage });
-      return { type: 'popular' as const, media: unwrapMediaList(media), fetchedAt: Date.now() };
-    });
+    return this.cached(`feed:popular:${page}:${perPage}`, TTL.WARM, async () => ({
+      type: 'popular' as const, media: await this.feedPage('popular', page, perPage), fetchedAt: Date.now(),
+    }));
   }
 
   async getTopRated(page = 1, perPage = 20): Promise<ContentFeed> {
-    return this.cached(`feed:top_rated:${page}:${perPage}`, TTL.WARM, async () => {
-      const media = await apiGet<Array<TatakaiMedia | MediaEnvelope>>('/top-rated', { page, perPage });
-      return { type: 'top_rated' as const, media: unwrapMediaList(media), fetchedAt: Date.now() };
-    });
+    return this.cached(`feed:top_rated:${page}:${perPage}`, TTL.WARM, async () => ({
+      type: 'top_rated' as const, media: await this.feedPage('top_rated', page, perPage), fetchedAt: Date.now(),
+    }));
   }
 
   async getSeasonal(
@@ -247,17 +247,19 @@ class ContentGraph {
   ): Promise<ContentFeed> {
     const s = season ?? getCurrentSeason().season;
     const y = year ?? getCurrentSeason().year;
-    return this.cached(`feed:seasonal:${s}:${y}:${page}:${perPage}`, TTL.HOT, async () => {
-      const media = await apiGet<Array<TatakaiMedia | MediaEnvelope>>('/seasonal', { season: s, year: y, page, perPage });
-      return { type: 'seasonal' as const, media: unwrapMediaList(media), season: s, seasonYear: y, fetchedAt: Date.now() };
-    });
+    return this.cached(`feed:seasonal:${s}:${y}:${page}:${perPage}`, TTL.HOT, async () => ({
+      type: 'seasonal' as const,
+      media: await this.feedPage('seasonal', page, perPage, { season: s, seasonYear: y }),
+      season: s,
+      seasonYear: y,
+      fetchedAt: Date.now(),
+    }));
   }
 
   async getUpcoming(page = 1, perPage = 20): Promise<ContentFeed> {
-    return this.cached(`feed:upcoming:${page}:${perPage}`, TTL.HOT, async () => {
-      const media = await apiGet<Array<TatakaiMedia | MediaEnvelope>>('/upcoming', { page, perPage });
-      return { type: 'upcoming' as const, media: unwrapMediaList(media), fetchedAt: Date.now() };
-    });
+    return this.cached(`feed:upcoming:${page}:${perPage}`, TTL.HOT, async () => ({
+      type: 'upcoming' as const, media: await this.feedPage('upcoming', page, perPage), fetchedAt: Date.now(),
+    }));
   }
 
   async getFeed(type: FeedType, page = 1, perPage = 20): Promise<ContentFeed> {
@@ -277,52 +279,8 @@ class ContentGraph {
   async search(filters: SearchFilters): Promise<ContentSearchResult> {
     const cacheKey = `search:${JSON.stringify(filters)}`;
     return this.cached(cacheKey, TTL.HOT, async () => {
-      const hasSimpleSearchInput = Boolean(filters.query?.trim() || filters.tags?.length);
-      const isSimpleTextSearch = hasSimpleSearchInput &&
-        !filters.genres?.length &&
-        !filters.format?.length &&
-        !filters.status?.length &&
-        !filters.studio?.length &&
-        !filters.season?.length &&
-        !filters.source?.length &&
-        !filters.year &&
-        !filters.rating &&
-        !filters.episodes &&
-        !filters.sortBy;
-
-      if (isSimpleTextSearch) {
-        return apiGet<ContentSearchResult>('/search/suggestions', {
-          q: filters.query,
-          type: 'anime',
-          tags: filters.tags?.join(','),
-          page: filters.page ?? 1,
-          perPage: filters.perPage ?? 20,
-        });
-      }
-
-      const params: Record<string, string | number | boolean | undefined> = {
-        q:        filters.query,
-        page:     filters.page ?? 1,
-        perPage:  filters.perPage ?? 20,
-        isAdult:  filters.isAdult,
-        sort:     filters.sortBy,
-        genres:   filters.genres?.join(','),
-        tags:     filters.tags?.join(','),
-        format:   filters.format?.join(','),
-        status:   filters.status?.join(','),
-        source:   filters.source?.join(','),
-        studio:   filters.studio?.join(','),
-        yearMin:  filters.year?.min,
-        yearMax:  filters.year?.max,
-        season:   filters.season?.join(','),
-        scoreMin: filters.rating?.min,
-        scoreMax: filters.rating?.max,
-        epMin:    filters.episodes?.min,
-        epMax:    filters.episodes?.max,
-      };
-
-      const result = await apiGet<ContentSearchResult>('/search', params);
-      return { ...result, media: unwrapMediaList(result.media as Array<TatakaiMedia | MediaEnvelope>) };
+      const { value } = await metadata.search('ANIME', filters);
+      return value;
     });
   }
 
@@ -332,10 +290,7 @@ class ContentGraph {
     const rawId = String(id ?? '').trim();
     if (!rawId) throw new Error(`Invalid media ID: ${id}`);
 
-    // Diagnostics: trace exactly which branch/endpoint resolves (or fails) a
-    // given media id. Enable verbose logging by setting
-    // `localStorage.tatakaiMediaDebug = '1'` in the browser console; errors are
-    // always logged regardless.
+    // Verbose tracing: `localStorage.tatakaiMediaDebug = '1'`.
     const debugOn = (() => {
       try { return localStorage.getItem('tatakaiMediaDebug') === '1'; } catch { return false; }
     })();
@@ -343,14 +298,24 @@ class ContentGraph {
       if (debugOn) console.debug('[getMedia]', { rawId, branch, ...extra });
     };
 
-    // 1. Check Memory Cache
+    // 1. Memory cache
     const memHit = queryCache.get<TatakaiMedia>(`media:resolve:${rawId}`);
     if (memHit) { diag('mem-cache-hit'); return memHit; }
 
-    // 2. Check Local DB (Dexie)
+    const parsed = parseMediaId(rawId);
+    if (!parsed) {
+      // Legacy TatakaiAPI UUIDs (and junk) can't be resolved without the backend.
+      diag('unresolvable');
+      throw new Error(`Invalid media ID: ${id}`);
+    }
+
+    // 2. Local DB (Dexie), ignoring rows older than CACHED_MEDIA_MAX_AGE_MS
     try {
-      const local = await db.cachedMedia.get(rawId);
-      if (local?.raw) {
+      const local = parsed.ref.anilistId
+        ? await db.cachedMedia.get(String(parsed.ref.anilistId))
+        : await db.cachedMedia.where('malId').equals(parsed.ref.malId!).first();
+      const age = local?.cachedAt ? Date.now() - Date.parse(local.cachedAt) : Infinity;
+      if (local?.raw && age < CACHED_MEDIA_MAX_AGE_MS) {
         const media = JSON.parse(local.raw) as TatakaiMedia;
         queryCache.set(`media:resolve:${rawId}`, media, TTL.WARM);
         diag('dexie-hit');
@@ -360,132 +325,52 @@ class ContentGraph {
       console.warn('[ContentGraph] DB lookup failed:', err);
     }
 
-    // 3. Fallback to API resolution
-    const prefixed = rawId.match(/^(mal|anilist)[\-_:]?(\d+)$/i);
-    if (prefixed?.[2]) {
-      const numeric = Number(prefixed[2]);
-      const provider = prefixed[1].toLowerCase();
-      if (provider === 'mal') {
-        diag('prefixed-mal', { numeric });
-        return this.cached(`media:mal:${numeric}`, TTL.COLD, () =>
-          apiGet<TatakaiMedia | MediaEnvelope>(`/mal/${numeric}`).then(unwrapMedia)
-            .catch((e) => { console.warn('[getMedia] /mal failed', { numeric, error: (e as Error).message }); throw e; }),
-        );
-      }
-      diag('prefixed-anilist', { numeric });
-      return this.cached(`media:anilist:${numeric}`, TTL.COLD, () =>
-        apiGet<TatakaiMedia | MediaEnvelope>(`/by-anilist/${numeric}`).then(unwrapMedia)
-          .catch((e) => { console.warn('[getMedia] /by-anilist failed', { numeric, error: (e as Error).message }); throw e; }),
-      );
-    }
-
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId);
-    if (isUuid) {
-      diag('uuid');
-      return this.cached(`media:tatakai:${rawId}`, TTL.COLD, () =>
-        apiGet<TatakaiMedia | MediaEnvelope>(`/${rawId}`).then(unwrapMedia)
-          .catch((e) => { console.warn('[getMedia] /:uuid failed', { rawId, error: (e as Error).message }); throw e; }),
-      );
-    }
-
-    const numericId = Number(rawId);
-    if (Number.isFinite(numericId) && numericId > 0) {
-      diag('numeric', { numericId });
-      return this.cached(`media:resolved:${numericId}`, TTL.COLD, async () => {
-        try {
-          const m = await apiGet<TatakaiMedia | MediaEnvelope>(`/${numericId}`).then(unwrapMedia);
-          diag('numeric→/:id ok', { numericId });
-          return m;
-        } catch (error) {
-          const msg = error instanceof Error ? error.message : String(error);
-          if (error instanceof Error && error.message.includes('TatakaiAPI 404')) {
-            console.warn('[getMedia] /:id 404 → trying /by-anilist', { numericId });
-            try {
-              const m = await apiGet<TatakaiMedia | MediaEnvelope>(`/by-anilist/${numericId}`).then(unwrapMedia);
-              diag('numeric→/by-anilist ok', { numericId });
-              return m;
-            } catch (anilistError) {
-              if (anilistError instanceof Error && anilistError.message.includes('TatakaiAPI 404')) {
-                console.warn('[getMedia] /by-anilist 404 → trying /mal', { numericId });
-                try {
-                  const m = await apiGet<TatakaiMedia | MediaEnvelope>(`/mal/${numericId}`).then(unwrapMedia);
-                  diag('numeric→/mal ok', { numericId });
-                  return m;
-                } catch (malError) {
-                  console.warn('[getMedia] all endpoints failed for numeric id', {
-                    numericId,
-                    error: malError instanceof Error ? malError.message : String(malError),
-                  });
-                  throw malError;
-                }
-              }
-              console.warn('[getMedia] /by-anilist failed (non-404)', { numericId, error: (anilistError as Error).message });
-              throw anilistError;
-            }
-          }
-          console.warn('[getMedia] /:id failed (non-404)', { numericId, error: msg });
-          throw error;
-        }
-      });
-    }
-
-    console.warn('[getMedia] unresolvable id — no branch matched', { rawId });
-    throw new Error(`Invalid media ID: ${id}`);
+    // 3. Router
+    return this.cached(`media:resolve:${rawId}`, TTL.COLD, async () => {
+      let found = (await metadata.media('ANIME', parsed.ref)).value;
+      if (!found && parsed.alt) found = (await metadata.media('ANIME', parsed.alt)).value;
+      if (!found) throw new Error(`Media not found: ${id}`);
+      diag('router', { anilistId: found.anilistId });
+      return found;
+    });
   }
 
-  // ── Episodes (AniList DB first; Jikan only via TatakaiAPI) ────────────────
+  // ── Episodes (via the metadata router: ani.zip / Tenrai / Kitsu / Shikimori) ──
 
   async getDbEpisodes(id: string): Promise<Array<{
     episodeNumber: number;
     title?: string | null;
     isFiller?: boolean;
   }>> {
-    const rawId = String(id ?? '').trim();
-    if (!rawId) return [];
+    const parsed = parseMediaId(id);
+    if (!parsed) return [];
     try {
-      const rows = await apiGet<Array<{
-        episode_number?: number;
-        episodeNumber?: number;
-        title?: string | null;
-        is_filler?: boolean;
-        isFiller?: boolean;
-      }>>(`/${encodeURIComponent(rawId)}/episodes`);
-      if (!Array.isArray(rows)) return [];
-      return rows.map((row) => ({
-        episodeNumber: Number(row.episodeNumber ?? row.episode_number ?? 0),
-        title: row.title ?? null,
-        isFiller: Boolean(row.isFiller ?? row.is_filler),
-      })).filter((row) => row.episodeNumber > 0);
+      const { value } = await metadata.episodes(parsed.ref);
+      return value
+        .map((e) => ({ episodeNumber: Number(e.number), title: e.title ?? null, isFiller: Boolean(e.isFiller) }))
+        .filter((row) => row.episodeNumber > 0);
     } catch {
       return [];
     }
   }
 
+  /**
+   * Episodes for a MAL id in the old paged-Jikan shape. The router returns the
+   * whole list at once, so page 1 carries everything and `hasNextPage` is false.
+   */
   async getMalEpisodesPage(malId: number, page = 1): Promise<{
     episodes: Array<{ mal_id?: number; title?: string | null; filler?: boolean }>;
     hasNextPage: boolean;
   }> {
-    const url = new URL(`${CONTENT_BASE}/mal/${malId}/episodes`, resolveApiOrigin());
-    url.searchParams.set('page', String(page));
-    const res = await fetch(url.toString(), {
-      headers: { Accept: 'application/json' },
-      credentials: 'same-origin',
-    });
-    if (!res.ok) {
-      throw new Error(`TatakaiAPI ${res.status} on /mal/${malId}/episodes`);
-    }
-    const envelope = (await res.json()) as TatakaiAPIResponse<
-      Array<{ mal_id?: number; title?: string | null; filler?: boolean }>
-    >;
-    if (!envelope.success) {
-      throw new Error(envelope.error ?? 'Failed to load MAL episodes');
-    }
+    if (page > 1) return { episodes: [], hasNextPage: false };
+    const { value } = await metadata.episodes({ malId });
     return {
-      episodes: Array.isArray(envelope.data) ? envelope.data : [],
-      hasNextPage: Boolean(envelope.meta?.hasNextPage),
+      episodes: value.map((e) => ({ mal_id: e.number, title: e.title ?? null, filler: Boolean(e.isFiller) })),
+      hasNextPage: false,
     };
   }
 
+  /** MAL broadcast schedule (Jikan-compatible `/anime/{id}/full` from Tenrai). */
   async getMalAnimeFull(malId: number): Promise<{
     broadcast?: {
       day?: string | null;
@@ -494,7 +379,10 @@ class ContentGraph {
     } | null;
   } | null> {
     try {
-      return await apiGet(`/mal/${malId}/full`);
+      const res = await tenraiGet<{ data?: { broadcast?: { day?: string | null; time?: string | null; timezone?: string | null } | null } }>(
+        `/anime/${malId}/full`,
+      );
+      return { broadcast: res?.data?.broadcast ?? null };
     } catch {
       return null;
     }
@@ -503,16 +391,15 @@ class ContentGraph {
   // ── Genres ────────────────────────────────────────────────────────────────
 
   async getGenres(): Promise<string[]> {
-    return this.cached('genres', TTL.COLD, () =>
-      apiGet<string[]>('/genres'),
-    );
+    return this.cached('genres', TTL.COLD, async () => (await metadata.genres('ANIME')).value);
   }
 
   // ── Live next-airing ──────────────────────────────────────────────────────
 
   /**
-   * Live next-episode schedule for an anime, fetched from real AniList (never
-   * the mirror/DB). Returns null for finished/unknown titles or on error.
+   * Live next-episode schedule for an anime, straight from the router (never the
+   * local cache). `nextAiringEpisode` is only present when the answering source
+   * (AniList) knows it. Returns null for unknown titles or on error.
    */
   async getNextAiring(anilistId: number): Promise<{
     status: string | null;
@@ -521,7 +408,13 @@ class ContentGraph {
   } | null> {
     if (!Number.isFinite(anilistId) || anilistId <= 0) return null;
     try {
-      return await apiGet(`/by-anilist/${anilistId}/next-airing`);
+      const { value } = await metadata.media('ANIME', { anilistId });
+      if (!value) return null;
+      return {
+        status: value.status ?? null,
+        episodes: value.episodes ?? null,
+        nextAiringEpisode: value.nextAiringEpisode ?? null,
+      };
     } catch {
       return null;
     }
@@ -538,7 +431,8 @@ class ContentGraph {
   }
 
   invalidateMedia(anilistId: number) {
-    queryCache.delete(`media:anilist:${anilistId}`);
+    queryCache.invalidatePrefix('media:');
+    void anilistId;
   }
 
   invalidateHome() {
@@ -546,11 +440,8 @@ class ContentGraph {
   }
 
   /**
-   * Drop every cached copy of a single media item after it's been edited
-   * server-side (admin content editor), so the next getMedia() refetches the
-   * fresh row instead of serving the stale memory/Dexie copy. Coarse on the
-   * memory cache (clears all `media:` resolves) but this only runs on an admin
-   * save, which is rare.
+   * Drop every cached copy of a single media item so the next getMedia()
+   * refetches it. Coarse on the memory cache (clears all `media:` resolves).
    */
   async purgeMedia(id: string) {
     queryCache.invalidatePrefix('media:');
@@ -564,6 +455,10 @@ class ContentGraph {
       console.warn('[ContentGraph] purgeMedia failed:', err);
     }
   }
+}
+
+function isMedia(v: unknown): v is TatakaiMedia {
+  return Boolean(v) && typeof v === 'object' && typeof (v as TatakaiMedia).anilistId === 'number' && 'titleRomaji' in (v as object);
 }
 
 // ─── Singleton ────────────────────────────────────────────────────────────────

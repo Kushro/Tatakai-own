@@ -10,7 +10,7 @@ import { getProxiedImageUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useSearch } from '@/hooks/api/useAnimeData';
 import { useAniListCharacterSearch } from '@/hooks/user/useProfileFeatures';
-import { ANILIST_GRAPHQL_ENDPOINT } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
 
 export type MediaType = 'anime' | 'manga' | 'manhwa' | 'manhua' | 'comics' | 'novel' | 'character';
 export interface SelectedMedia {
@@ -53,14 +53,13 @@ async function searchAniListManga(query: string): Promise<SelectedMedia[]> {
       }
     }
   `;
-  const res = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({ query: gql, variables: { q: query } }),
-  });
-  if (!res.ok) throw new Error(uiI18n.t('app.anilist_manga_search_failed_9c9ecc78'));
-  const json = await res.json();
-  const rows = Array.isArray(json?.data?.Page?.media) ? json.data.Page.media : [];
+  let data: any;
+  try {
+    data = await anilistGql<any>(gql, { q: query });
+  } catch {
+    throw new Error(uiI18n.t('app.anilist_manga_search_failed_9c9ecc78'));
+  }
+  const rows = Array.isArray(data?.Page?.media) ? data.Page.media : [];
   return rows
     .map((m: any) => ({
       id: String(m.id),

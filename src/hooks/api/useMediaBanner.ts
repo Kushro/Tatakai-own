@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ANILIST_GRAPHQL_ENDPOINT } from "@/lib/api/backendOrigin";
+import { anilistGql } from "@/lib/anilist/client";
 
 /**
  * Lazy AniList banner art for the quick-peek sheet.
@@ -18,17 +18,16 @@ export function useMediaBanner(
     queryKey: ["media-banner", kind, anilistId],
     queryFn: async (): Promise<string | null> => {
       if (!anilistId || !kind) return null;
-      const res = await fetch(ANILIST_GRAPHQL_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({
-          query: `query ($id: Int, $type: MediaType) { Media(id: $id, type: $type) { bannerImage } }`,
-          variables: { id: anilistId, type: kind === "anime" ? "ANIME" : "MANGA" },
-        }),
-      });
-      if (!res.ok) return null;
-      const json = await res.json();
-      const banner = json?.data?.Media?.bannerImage;
+      let data: any;
+      try {
+        data = await anilistGql<any>(
+          `query ($id: Int, $type: MediaType) { Media(id: $id, type: $type) { bannerImage } }`,
+          { id: anilistId, type: kind === "anime" ? "ANIME" : "MANGA" },
+        );
+      } catch {
+        return null;
+      }
+      const banner = data?.Media?.bannerImage;
       return typeof banner === "string" && banner ? banner : null;
     },
     enabled: enabled && !!kind && !!anilistId && anilistId > 0,

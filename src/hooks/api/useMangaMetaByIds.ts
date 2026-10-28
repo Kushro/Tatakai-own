@@ -14,7 +14,7 @@ import { useQuery } from '@tanstack/react-query';
  * matching how the rest of the app (`manga-client.ts`) does it. Routed through
  * the TatakaiAPI proxy (mirror-first) — see src/lib/anilist.ts.
  */
-import { ANILIST_GRAPHQL_ENDPOINT as ANILIST_ENDPOINT } from '@/lib/api/backendOrigin';
+import { anilistGql } from '@/lib/anilist/client';
 
 const QUERY = `
 query ($ids: [Int]) {
@@ -58,14 +58,13 @@ async function fetchMangaMeta(ids: number[]): Promise<Record<number, MangaMetaIn
   const out: Record<number, MangaMetaInfo> = {};
   for (let i = 0; i < ids.length; i += 50) {
     const chunk = ids.slice(i, i + 50);
-    const res = await fetch(ANILIST_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ query: QUERY, variables: { ids: chunk } }),
-    });
-    if (!res.ok) throw new Error(uiI18n.t('app.anilist_request_failed_i18n_value_0_9455a5b4', { value0: res.status }));
-    const json = await res.json();
-    const media: any[] = json?.data?.Page?.media ?? [];
+    let data: any;
+    try {
+      data = await anilistGql<any>(QUERY, { ids: chunk });
+    } catch (err: any) {
+      throw new Error(uiI18n.t('app.anilist_request_failed_i18n_value_0_9455a5b4', { value0: err?.status ?? 0 }));
+    }
+    const media: any[] = data?.Page?.media ?? [];
     for (const m of media) {
       const id = Number(m?.id);
       if (!Number.isFinite(id)) continue;

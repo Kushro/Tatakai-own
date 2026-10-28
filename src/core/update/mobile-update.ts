@@ -9,8 +9,8 @@ import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
 import { toast } from 'sonner';
 import { compareAppVersions } from './version';
 
-export const MOBILE_RELEASES_URL = 'https://github.com/Snozxyx/Tatakai/releases/latest';
-const LATEST_RELEASE_API = 'https://api.github.com/repos/Snozxyx/Tatakai/releases/latest';
+export const MOBILE_RELEASES_URL = 'https://github.com/Kushro/Tatakai-own/releases/latest';
+const LATEST_RELEASE_API = 'https://api.github.com/repos/Kushro/Tatakai-own/releases/latest';
 
 export type MobileUpdatePhase =
   | 'idle'

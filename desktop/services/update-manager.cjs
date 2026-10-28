@@ -48,8 +48,8 @@ const VERSION_HISTORY_FILE = 'version-history.json'
 const UPDATE_MISSES_FILE = 'update-misses.json'
 
 /** GitHub owner and repo (from electron-builder publish config). */
-const GH_OWNER = 'snozxyx'
-const GH_REPO  = 'Tatakai'
+const GH_OWNER = 'Kushro'
+const GH_REPO  = 'Tatakai-own'
 
 // ─── Factory ─────────────────────────────────────────────────────────────────
 

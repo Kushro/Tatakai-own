@@ -30,7 +30,10 @@ export type MediaFormat =
   | 'OVA'
   | 'ONA'
   | 'SPECIAL'
-  | 'MUSIC';
+  | 'MUSIC'
+  | 'MANGA'
+  | 'NOVEL'
+  | 'ONE_SHOT';
 
 export type MediaStatus =
   | 'FINISHED'
@@ -78,6 +81,7 @@ export interface TatakaiMedia {
   // IDs
   anilistId: number;
   malId?: number;
+  kitsuId?: number;
   tatakaiId?: string;
   mapping?: unknown;
 
@@ -146,7 +150,7 @@ export interface TatakaiMedia {
   rankings?: MediaRanking[];
 
   // Tatakai meta
-  source_api: 'anilist' | 'jikan' | 'tatakai';
+  source_api: 'anilist' | 'jikan' | 'tatakai' | 'tenrai' | 'kitsu' | 'shikimori' | 'mal';
   fetchedAt: number;
 }
 
@@ -182,7 +186,10 @@ export interface StaffMember {
 }
 
 export interface MediaRelation {
+  /** AniList id once resolved (MAL-keyed providers are re-keyed by the metadata router). */
   id: number;
+  /** Anime or manga entry. MAL ids overlap across kinds, so providers must set it when known. */
+  kind?: 'ANIME' | 'MANGA';
   relationType: string;
   titleRomaji: string;
   titleEnglish?: string;
@@ -245,7 +252,17 @@ export interface SearchFilters {
   studio?: string[];
   source?: MediaSource[];
   isAdult?: boolean;
-  sortBy?: 'TRENDING_DESC' | 'POPULARITY_DESC' | 'SCORE_DESC' | 'START_DATE_DESC' | 'TITLE_ROMAJI';
+  sortBy?:
+    | 'TRENDING_DESC'
+    | 'POPULARITY_DESC'
+    | 'SCORE_DESC'
+    | 'START_DATE_DESC'
+    | 'TITLE_ROMAJI'
+    // Added for manga/novel lanes (providers that can't sort by these ignore them).
+    | 'FAVOURITES_DESC'
+    | 'UPDATED_AT_DESC'
+    | 'CHAPTERS_DESC'
+    | 'END_DATE_DESC';
   page?: number;
   perPage?: number;
 }

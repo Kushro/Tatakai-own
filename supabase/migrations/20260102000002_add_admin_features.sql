@@ -9,12 +9,7 @@ ADD COLUMN IF NOT EXISTS banned_at TIMESTAMPTZ,
 ADD COLUMN IF NOT EXISTS banned_by UUID REFERENCES auth.users(id),
 ADD COLUMN IF NOT EXISTS ban_reason TEXT;
 
--- Make gabhastigirisinha@gmail.com an admin
-UPDATE public.profiles 
-SET is_admin = true 
-WHERE user_id IN (
-  SELECT id FROM auth.users WHERE email = 'gabhastigirisinha@gmail.com'
-);
+-- (Upstream granted is_admin to its maintainer's email here; removed in this fork.)
 
 -- Create maintenance mode table
 CREATE TABLE IF NOT EXISTS public.maintenance_mode (

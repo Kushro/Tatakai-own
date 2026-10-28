@@ -17,9 +17,7 @@ import { useIsMobileApp } from "@/hooks/ui/useIsNativeApp";
 import { cn } from "@/lib/utils";
 import { useSettingsModal } from "@/contexts/SettingsModalContext";
 import { useMobileDownload } from "@/hooks/media/useMobileDownload";
-import { useCustomSources } from "@/hooks/api/useCustomSource";
-import type { CustomSourceEntry } from "@/core/content/custom-source-runtime";
-import { useState, useCallback, useEffect, type ComponentType } from "react";
+import { memo, useState, useCallback, useEffect, type ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import { createPortal } from "react-dom";
 import {
@@ -69,7 +67,7 @@ function isHiddenRoute(pathname: string) {
   return HIDDEN_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`) || pathname.startsWith(p));
 }
 
-function MobileNavButton({
+const MobileNavButton = memo(function MobileNavButton({
   icon: Icon,
   label,
   active,
@@ -123,6 +121,17 @@ function MobileNavButton({
       </span>
     </button>
   );
+});
+
+// Keep high-frequency monitor updates inside the native Downloads tab.
+function MobileDownloadsButton({ active, onClick }: { active: boolean; onClick: () => void }) {
+  const { t } = useTranslation();
+  const { activeDownloads } = useMobileDownload();
+  const count = activeDownloads.length;
+  const progress = count > 0
+    ? Math.round(activeDownloads.reduce((sum, item) => sum + Math.max(0, Math.min(100, item.progress ?? 0)), 0) / count)
+    : undefined;
+  return <MobileNavButton icon={Download} label={t('comments.savedTab')} active={active} onClick={onClick} badge={count} progress={progress} />;
 }
 
 export function MobileNav() {
@@ -132,12 +141,6 @@ export function MobileNav() {
   const navigate = useNavigate();
   const isMobileApp = useIsMobileApp();
   const { open, openSettings } = useSettingsModal();
-  const { data: customSources } = useCustomSources();
-  const customByNamespace = (customSources ?? []).reduce<Record<string, CustomSourceEntry[]>>((acc, src) => {
-    (acc[src.namespace] ||= []).push(src);
-    return acc;
-  }, {});
-  const hasCustomSources = (customSources?.length ?? 0) > 0;
   const { impact } = useHaptics();
   const [isAnnouncementPopupActive, setIsAnnouncementPopupActive] = useState(() => {
     if (typeof document === 'undefined') return false;
@@ -219,13 +222,11 @@ export function MobileNav() {
     openSettings();
   }, [impact, openSettings]);
 
-  // Live active-download count for the Saved tab badge (anime + manga).
-  // NOTE: hooks must stay above the early return below (rules-of-hooks).
-  const { activeDownloads } = useMobileDownload();
-  const activeDownloadCount = isMobileApp ? activeDownloads.length : 0;
-  const activeDownloadProgress = activeDownloadCount > 0
-    ? activeDownloads.reduce((sum, item) => sum + Math.max(0, Math.min(100, item.progress ?? 0)), 0) / activeDownloadCount
-    : undefined;
+  const goHome = useCallback(() => hapticNavigate('/'), [hapticNavigate]);
+  const goSearch = useCallback(() => hapticNavigate('/search'), [hapticNavigate]);
+  const goCustom = useCallback(() => hapticNavigate('/custom-providers'), [hapticNavigate]);
+  const goSocial = useCallback(() => hapticNavigate('/community'), [hapticNavigate]);
+  const goDownloads = useCallback(() => hapticNavigate('/downloads'), [hapticNavigate]);
 
   // Hide where there is no need: auth/onboarding/error flows, when a takeover
   // popup is active, while the settings sheet is open (so the sheet owns
@@ -237,7 +238,7 @@ export function MobileNav() {
   }
 
   const favActive = isActive('/favorites') || isActive('/trending');
-  const customActive = location.pathname.startsWith('/x/');
+  const customActive = location.pathname.startsWith('/x/') || location.pathname === '/custom-providers';
 
   const navContent = (
     <div
@@ -248,8 +249,8 @@ export function MobileNav() {
     >
       {/* Solid, edge-to-edge chrome with safe-area padding for thumb reach. */}
       <div className="mobile-nav-dock relative flex items-center">
-        <MobileNavButton icon={LayoutGrid} label={t('nav.home')} active={isActive('/')} onClick={() => hapticNavigate('/')} />
-        <MobileNavButton icon={Search} label={t('nav.search')} active={isActive('/search')} onClick={() => hapticNavigate('/search')} />
+        <MobileNavButton icon={LayoutGrid} label={t('nav.home')} active={isActive('/')} onClick={goHome} />
+        <MobileNavButton icon={Search} label={t('nav.search')} active={isActive('/search')} onClick={goSearch} />
 
         {/* Favorites/Trending Dropdown */}
         <DropdownMenu>
@@ -284,66 +285,12 @@ export function MobileNav() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Custom sources ("+") — extension-provided verticals; hidden when none installed. */}
-        {hasCustomSources && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                className={cn(
-                  'ui-mobile-nav-button group relative flex flex-1 items-center justify-center rounded-xl py-2 outline-none transition-[transform,color] duration-150 motion-safe:active:scale-[.97] focus-visible:ring-2 focus-visible:ring-primary/60',
-                  customActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-                )}
-                aria-label={t("nav.customSources")}
-                title={t('nav.more')}
-                aria-current={customActive ? 'page' : undefined}
-              >
-                <span className={cn(
-                  'flex h-9 w-full max-w-12 min-w-0 items-center justify-center rounded-xl transition-[background-color,box-shadow] duration-150',
-                  customActive ? 'bg-foreground/10 shadow-[inset_0_0_0_1px_hsl(var(--foreground)/0.1)]' : 'group-hover:bg-foreground/[0.06]',
-                )}>
-                  <Plus className="h-[22px] w-[22px]" />
-                </span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="center" side="top" className="mb-3 w-56 rounded-2xl border-border bg-card p-1.5 shadow-2xl">
-              {Object.entries(customByNamespace).map(([namespace, sources], groupIdx) => (
-                <div key={namespace}>
-                  {groupIdx > 0 && <DropdownMenuSeparator className="bg-white/[0.06]" />}
-                  <DropdownMenuLabel className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                    {namespace}
-                  </DropdownMenuLabel>
-                  {sources.map((src) => (
-                    <DropdownMenuItem
-                      key={`${src.namespace}:${src.id}`}
-                      onClick={() => hapticNavigate(`/x/${src.namespace}/${src.id}`)}
-                      className="gap-2 rounded-xl px-3 py-2.5 font-medium"
-                    >
-                      {src.kind === "read" ? (
-                        <BookOpen className="w-4 h-4 mr-1 text-muted-foreground" />
-                      ) : (
-                        <LayoutGrid className="w-4 h-4 mr-1 text-muted-foreground" />
-                      )}
-                      <span className="min-w-0 flex-1 truncate">{src.name}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </div>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        <MobileNavButton icon={Plus} label={t('nav.customSources')} active={customActive} onClick={goCustom} />
 
-        <MobileNavButton icon={Users} label={t('migration.social')} active={isActive('/community')} onClick={() => hapticNavigate('/community')} />
+        <MobileNavButton icon={Users} label={t('migration.social')} active={isActive('/community')} onClick={goSocial} />
 
         {isMobileApp && (
-          <MobileNavButton
-            icon={Download}
-            label={t('comments.savedTab')}
-            active={isActive('/downloads')}
-            onClick={() => hapticNavigate('/downloads')}
-            badge={activeDownloadCount}
-            progress={activeDownloadProgress}
-          />
+          <MobileDownloadsButton active={isActive('/downloads')} onClick={goDownloads} />
         )}
 
         <MobileNavButton icon={Settings} label={t('nav.settings')} onClick={hapticOpenSettings} />

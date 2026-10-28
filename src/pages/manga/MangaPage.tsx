@@ -1,3 +1,10 @@
+import { TatakaiReadingViews } from '@/components/media/TatakaiReadingViews';
+import { useReadingViewTracker } from '@/hooks/user/useReadingViews';
+import { readingViewId } from '@/lib/readingViewId';
+import { MobileDetailQuickActions } from '@/components/anime/MobileDetailQuickActions';
+import '@/components/anime/mobile-detail.css';
+import type { CatalogDetailProps } from "@/components/extensions/CatalogSourceContext";
+import { ThemedSelect } from '@/components/ui/themed-select';
 import uiI18n from '@/lib/uiI18n';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { languageLabel } from '@/core/extensions/remote/metadata';
@@ -18,7 +25,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from 'sonner';
 import { motion } from "framer-motion";
-import { resolveApiV3Base } from "@/lib/api/backendOrigin";
+import { metadata } from "@/lib/metadata";
+import { tenraiGet } from "@/lib/tenrai/client";
 import { Button } from "@/components/ui/button";
 import { useMangaDetail, useMangaChapters, useMangaBakaSeries, useMangaKitsuHierarchy } from "@/hooks/api/useMangaData";
 import { useAniListRecommendations } from "@/hooks/api/useAniListRecommendations";
@@ -67,6 +75,7 @@ import {
 import type { MediaRelation } from "@/core/content/types";
 import { ContentEditSheet, type EditableColumns } from "@/components/admin/ContentEditSheet";
 import { MangaDownloadModal } from "@/components/manga/MangaDownloadModal";
+import { MangaSourceStatus } from '@/components/manga/MangaSourceStatus';
 import { sortMangaChapterSources } from "@/lib/reader/mangaSourceSelection";
 
 // --- Helper Component: Relation Tree ---
@@ -217,11 +226,12 @@ const toRecommendationCard = (item: MangaSearchItem): UnifiedMediaCardProps["ite
 type ChapterSortMode = "newest" | "oldest";
 const CHAPTERS_PER_GROUP = 20;
 
-export default function MangaPage() {
+export default function MangaPage({ catalogId, sourceContext }: CatalogDetailProps = {}) {
   useUiTranslation();
   const queryClient = useQueryClient();
   const [refreshingChapters, setRefreshingChapters] = useState(false);
-  const { mangaId } = useParams<{ mangaId: string }>();
+  const { mangaId: routeId } = useParams<{ mangaId: string }>();
+  const mangaId = catalogId || routeId;
   const navigate = useNavigate();
   const isNative = useIsNativeApp();
   const isDesktopApp = useIsDesktopApp();
@@ -234,7 +244,9 @@ export default function MangaPage() {
   const [showMangaDownload, setShowMangaDownload] = useState(false);
 
   const { data: mangaData, isLoading: loadingInfo, error } = useMangaDetail(mangaId);
-  const { data: chapterData, isLoading: loadingChapters } = useMangaChapters(mangaId);
+  useEffect(() => { if (sourceContext && !loadingInfo && (!mangaData || error)) sourceContext.onUnavailable(); }, [sourceContext, loadingInfo, mangaData, error]);
+  const { data: chapterData, isLoading: loadingChapters, isFetching: fetchingChapters } = useMangaChapters(sourceContext ? undefined : mangaId);
+  const fetchingMangaSources = fetchingChapters || !!chapterData?.sourcesPending;
   const refreshChapters = async () => {
     if (!mangaId || refreshingChapters) return;
     setRefreshingChapters(true);
@@ -256,10 +268,8 @@ export default function MangaPage() {
     queryFn: async () => {
       const id = mangaData?.detail?.anilistId;
       if (!id) return null;
-      const response = await fetch(`${resolveApiV3Base()}/manga/by-anilist/${id}`);
-      if (!response.ok) return null;
-      const payload = await response.json();
-      return payload?.data ?? null;
+      const { value } = await metadata.media('MANGA', { anilistId: Number(id) }).catch(() => ({ value: null }));
+      return value;
     },
     enabled: Boolean(mangaData?.detail?.anilistId),
     staleTime: 10 * 60 * 1000,
@@ -324,9 +334,8 @@ export default function MangaPage() {
     queryKey: ["jikan-manga", malId],
     queryFn: async () => {
       if (!malId) return null;
-      const res = await fetch(`${resolveApiV3Base()}/manga/mal/${malId}/full`);
-      if (!res.ok) return null;
-      const json = await res.json();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const json = await tenraiGet<{ data?: any }>(`/manga/${malId}/full`).catch(() => null);
       return json?.data ?? null;
     },
     enabled: !!malId,
@@ -822,6 +831,7 @@ export default function MangaPage() {
 
   const knownChapterCount = chapterData?.mangaUpdates?.latestChapter ?? chapterData?.mappedChapters.length;
   const info = mangaData?.detail ? { ...mangaData.detail, totalChapters: knownChapterCount || mangaData.detail.totalChapters } : undefined;
+  useReadingViewTracker('manga',readingViewId(mangaId,(info as any)?.anilistId),!!info&&!loadingInfo);
 
   const displayTitle =
     info?.canonicalTitle ||
@@ -1072,6 +1082,7 @@ export default function MangaPage() {
   const isInReadlist = Boolean(readlistEntry && readlistEntry.status !== "reading");
 
   const handleReadNow = () => {
+    if (sourceContext) { sourceContext.open(); return; }
     if (!mangaId) return;
 
     if (hasSavedProgress && readlistEntry?.last_chapter_key) {
@@ -1220,18 +1231,19 @@ export default function MangaPage() {
             </div>
           )}
 
-          {/* Back Button */}
+          {sourceContext?.header}
+            {/* Back Button */}
           <button
             onClick={() => navigate(-1)}
-            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors mb-6 group w-fit"
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors min-h-11 md:min-h-0 mb-4 md:mb-6 group w-fit"
           >
             <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
             <span className="font-medium text-sm">{uiI18n.t('app.back_b52b36b7')}</span>
           </button>
 
           {/* Hero Section — AnimePage-aligned GlassPanel layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-16 pt-4 md:pt-8">
-            <GlassPanel className="overflow-hidden mx-auto lg:mx-0 w-full max-w-[320px] lg:max-w-none">
+          <div className="mobile-detail-hero grid grid-cols-1 lg:grid-cols-3 gap-8 mb-16 pt-4 md:pt-8">
+            <GlassPanel className="mobile-detail-poster overflow-hidden mx-auto lg:mx-0 w-full max-w-[320px] lg:max-w-none">
               <img
                 src={coverImageSrc}
                 alt={displayTitle}
@@ -1251,7 +1263,20 @@ export default function MangaPage() {
 
             <div className="lg:col-span-2 space-y-6">
               <div>
-                <h1 className="font-display text-4xl md:text-5xl font-bold mb-4">{displayTitle}</h1>
+                <h1 className="mobile-detail-title font-display text-4xl md:text-5xl font-bold mb-4">{displayTitle}</h1>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <TatakaiReadingViews kind="manga" id={mangaId} anilistId={(info as any)?.anilistId} detail />
+                </div>
+                <MobileDetailQuickActions target="manga-chapters-section" label={uiI18n.t('app.chapters_034e2733')}>
+                  <button
+                    onClick={handleReadNow}
+                    disabled={sourceContext ? !sourceContext.canOpen : sortedChapters.length === 0}
+                    className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-bold text-primary-foreground disabled:opacity-50"
+                  >
+                    <BookOpen className="h-5 w-5 shrink-0" />
+                    {sourceContext ? (sourceContext.resume ? 'Continue reading' : 'Read now') : hasSavedProgress ? uiI18n.t('app.continue_reading_54800d4f') : uiI18n.t('app.read_from_chapter_1_8933469a')}
+                  </button>
+                </MobileDetailQuickActions>
 
                 {/* Provenance badge (all visitors) + admin edit button */}
                 <div className="flex flex-wrap items-center gap-2 mb-4">
@@ -1418,13 +1443,14 @@ export default function MangaPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
+                {sourceContext?.actions}
                 <button
                   onClick={handleReadNow}
-                  disabled={sortedChapters.length === 0}
-                  className="flex items-center justify-center gap-2 bg-primary text-primary-foreground px-8 py-3.5 rounded-xl font-bold hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-primary/25 disabled:opacity-50 disabled:cursor-not-allowed group"
+                  disabled={sourceContext ? !sourceContext.canOpen : sortedChapters.length === 0}
+                  className="hidden md:flex items-center justify-center gap-2 bg-primary text-primary-foreground px-8 py-3.5 rounded-xl font-bold hover:brightness-110 active:scale-95 transition-all shadow-lg shadow-primary/25 disabled:opacity-50 disabled:cursor-not-allowed group"
                 >
                   <BookOpen className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                  {hasSavedProgress ? uiI18n.t('app.continue_reading_54800d4f') : uiI18n.t('app.read_from_chapter_1_8933469a')}
+                  {sourceContext ? (sourceContext.resume ? 'Continue reading' : 'Read now') : hasSavedProgress ? uiI18n.t('app.continue_reading_54800d4f') : uiI18n.t('app.read_from_chapter_1_8933469a')}
                 </button>
                 <AddToPlaylistButton
                   animeId={`manga:${String(info.anilistId || info.malId || mangaId || "")}`}
@@ -1589,7 +1615,8 @@ export default function MangaPage() {
               )}
 
               {/* Chapters List */}
-              <section id="manga-chapters-section">
+              <div id="manga-chapters-section" className="detail-entry-section">
+              {sourceContext ? sourceContext.entries : (<section>
                 {chapterData?.mangaUpdates && <p className="mb-3 text-sm text-muted-foreground">
                   {uiI18n.t('app.latest_chapter_aa694e41')} {chapterData.mangaUpdates.latestChapter ?? uiI18n.t('app.unknown_bc7819b3')} {uiI18n.t('app.mangaupdates_63cdc568')}
                   {chapterData.mangaUpdates.latestReleaseDate ? uiI18n.t('app.latest_recorded_release_i18n_value_0_82e3d675', { value0: chapterData.mangaUpdates.latestReleaseDate }) : ''}
@@ -1601,6 +1628,7 @@ export default function MangaPage() {
                       {uiI18n.t('app.chapters_034e2733')}
                     </h3>
                     <div className="flex flex-wrap items-center gap-2">
+                      <MangaSourceStatus count={new Set(chapters.flatMap(chapter => (chapter.sources || []).map(source => source.provider))).size} fetching={fetchingMangaSources} />
                       <Button type="button" size="sm" variant="outline" onClick={refreshChapters}
                         disabled={refreshingChapters || loadingChapters} title={uiI18n.t('app.clear_chapter_cache_and_reload_from_mangadex_5d672a5f')}
                         className="min-h-11 gap-1.5 rounded-lg text-xs font-bold" aria-label={uiI18n.t('app.refresh_chapters_5ec9f62e')}>
@@ -1621,14 +1649,15 @@ export default function MangaPage() {
                       <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                         {uiI18n.t('app.sort_by_a2a5bdec')}
                       </label>
-                      <select
+                      <ThemedSelect
+                        aria-label={uiI18n.t('app.sort_by_a2a5bdec')}
                         value={chapterSortMode}
                         onChange={(event) => setChapterSortMode(event.target.value as ChapterSortMode)}
-                        className="rounded-lg border border-white/10 bg-background/70 px-2.5 py-1.5 text-xs font-semibold"
+                        className="min-h-11 md:min-h-0 rounded-lg border border-white/10 bg-background/70 px-2.5 py-1.5 text-sm md:text-xs font-semibold"
                       >
                         <option value="newest">{uiI18n.t('app.newest_first_f5ec7772')}</option>
                         <option value="oldest">{uiI18n.t('app.oldest_first_6a99c65c')}</option>
-                      </select>
+                      </ThemedSelect>
                       <span className="text-sm font-bold text-muted-foreground bg-muted px-3 py-1 rounded-full">
                         {isChapterListLoading
                           ? "Loading..."
@@ -1640,13 +1669,15 @@ export default function MangaPage() {
                   </div>
 
                   <div className="flex flex-col gap-2 md:flex-row md:items-center">
-                    <div className="relative flex-1 min-w-[220px]">
+                    <div className="relative flex-1 min-w-0">
                       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <input
+                        type="search"
+                        aria-label={uiI18n.t('app.search_chapter_number_title_provider_2f388886')}
                         value={chapterSearchTerm}
                         onChange={(event) => setChapterSearchTerm(event.target.value)}
                         placeholder={uiI18n.t('app.search_chapter_number_title_provider_2f388886')}
-                        className="w-full rounded-xl border border-white/10 bg-background/70 pl-9 pr-3 py-2 text-sm font-medium text-foreground focus:border-primary/50 focus:outline-none"
+                        className="w-full rounded-xl border border-white/10 bg-background/70 pl-9 pr-3 py-2 min-h-11 text-base md:text-sm font-medium text-foreground focus:border-primary/50 focus:outline-none"
                       />
                     </div>
 
@@ -1654,7 +1685,8 @@ export default function MangaPage() {
                       <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                         {uiI18n.t('app.book_volume')}
                       </label>
-                      <select
+                      <ThemedSelect
+                        aria-label={uiI18n.t('app.book_volume')}
                         value={selectedVolumeFilter == null ? "all" : String(selectedVolumeFilter)}
                         onChange={(event) => {
                           const nextValue = event.target.value;
@@ -1666,7 +1698,7 @@ export default function MangaPage() {
                           setSelectedVolumeFilter(Number(nextValue));
                           setChapterSearchTerm("");
                         }}
-                        className="rounded-lg border border-white/10 bg-background/70 px-2.5 py-1.5 text-xs font-semibold"
+                        className="min-h-11 md:min-h-0 rounded-lg border border-white/10 bg-background/70 px-2.5 py-1.5 text-sm md:text-xs font-semibold"
                       >
                         <option value="all">{uiI18n.t('app.all_volumes_d12fdd83')}</option>
                         {volumeSections.map((volumeItem) => (
@@ -1674,7 +1706,7 @@ export default function MangaPage() {
                             {uiI18n.t('app.book_volume')} {volumeItem.volume}
                           </option>
                         ))}
-                      </select>
+                      </ThemedSelect>
                     </div>
 
                     {(chapterSearchTerm.trim().length > 0 || selectedVolumeFilter != null) && (
@@ -1690,8 +1722,47 @@ export default function MangaPage() {
                     )}
                   </div>
 
+                  <div className="grid grid-cols-1 gap-3 md:hidden">
+                <div className="space-y-1">
+                  <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    {uiI18n.t('app.preferred_source_9704cae7')}
+                  </label>
+                  <ThemedSelect
+                    aria-label={uiI18n.t('app.preferred_source_9704cae7')}
+                    value={preferredProvider}
+                    onChange={(event) => setPreferredProvider(event.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-background/70 px-3 py-2 min-h-11 text-base font-medium text-foreground focus:border-primary/50 focus:outline-none"
+                  >
+                    <option value="auto">{uiI18n.t('app.auto_best_source_per_chapter_922dc680')}</option>
+                    {providerOptions.map((provider) => (
+                      <option key={provider} value={provider}>
+                        {chapters.flatMap(ch => ch.sources || []).find(s => s.provider === provider)?.providerName || provider}
+                      </option>
+                    ))}
+                  </ThemedSelect>
+                </div>
+                <div className="space-y-1">
+                  <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    {uiI18n.t('app.preferred_language_1c7b0d77')}
+                  </label>
+                  <ThemedSelect
+                    aria-label={uiI18n.t('app.preferred_language_1c7b0d77')}
+                    value={preferredLanguage}
+                    onChange={(event) => setPreferredLanguage(event.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-background/70 px-3 py-2 min-h-11 text-base font-medium text-foreground focus:border-primary/50 focus:outline-none"
+                  >
+                    <option value="auto">{uiI18n.t('app.all_languages_56488c32')}</option>
+                    {languageOptions.map((language) => (
+                      <option key={language.value} value={language.value}>
+                        {language.label}
+                      </option>
+                    ))}
+                  </ThemedSelect>
+                </div>
+                  </div>
+
                   {hasChapterGroups && (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="detail-entry-groups flex flex-wrap gap-2">
                       {chapterGroups.map((group, index) => {
                         const range = chapterGroupRanges[index] || { start: 1, end: group.length };
                         const isActiveGroup = index === activeChapterGroup;
@@ -1700,6 +1771,7 @@ export default function MangaPage() {
                           <button
                             key={`chapter-group-${range.start}-${range.end}-${index}`}
                             onClick={() => setSelectedChapterGroup(index)}
+                            aria-pressed={isActiveGroup}
                             className={cn(
                               "px-3 py-1.5 rounded-full text-xs font-bold border transition-colors",
                               isActiveGroup
@@ -1793,16 +1865,19 @@ export default function MangaPage() {
                 ) : (
                   <GlassPanel className="p-8 text-center">
                     <p className="text-muted-foreground">
-                      {sortedChapters.length === 0
+                      {sortedChapters.length === 0 && fetchingMangaSources
+                        ? uiI18n.t('app.finding_servers_6f871241')
+                        : sortedChapters.length === 0
                         ? uiI18n.t('app.no_chapters_available_yet_89eae277')
                         : hasChapterFilters
                           ? uiI18n.t('app.no_chapters_match_your_current_filters_or_search_5adc1f8d')
                           : uiI18n.t('app.no_chapters_match_the_selected_provider_language_a2fdfc68')}
                     </p>
-                    {sortedChapters.length === 0 && <ExtensionRequired kind="manga" />}
+                    {sortedChapters.length === 0 && !fetchingMangaSources && <ExtensionRequired kind="manga" />}
                   </GlassPanel>
                 )}
-              </section>
+              </section>)}
+              </div>
 
               {volumeSections.length > 0 && (
                 <section>
@@ -1927,11 +2002,11 @@ export default function MangaPage() {
             <div className="space-y-4">
               <GlassPanel className="p-5">
                 <h4 className="font-display font-bold mb-3">{uiI18n.t('app.metadata_251edc0e')}</h4>
-                <div className="mb-4">
+                <div className="mb-4 hidden md:block">
                   <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                     {uiI18n.t('app.preferred_source_9704cae7')}
                   </label>
-                  <select
+                  <ThemedSelect
                     value={preferredProvider}
                     onChange={(event) => setPreferredProvider(event.target.value)}
                     className="w-full rounded-xl border border-white/10 bg-background/70 px-3 py-2 text-sm font-medium text-foreground focus:border-primary/50 focus:outline-none"
@@ -1942,14 +2017,14 @@ export default function MangaPage() {
                         {chapters.flatMap(ch => ch.sources || []).find(s => s.provider === provider)?.providerName || provider}
                       </option>
                     ))}
-                  </select>
+                  </ThemedSelect>
                 </div>
                 <SourceDebug kind="manga" sources={chapters.flatMap(ch => ch.sources || [])} />
-                <div className="mb-4">
+                <div className="mb-4 hidden md:block">
                   <label className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                     {uiI18n.t('app.preferred_language_1c7b0d77')}
                   </label>
-                  <select
+                  <ThemedSelect
                     value={preferredLanguage}
                     onChange={(event) => setPreferredLanguage(event.target.value)}
                     className="w-full rounded-xl border border-white/10 bg-background/70 px-3 py-2 text-sm font-medium text-foreground focus:border-primary/50 focus:outline-none"
@@ -1960,7 +2035,7 @@ export default function MangaPage() {
                         {language.label}
                       </option>
                     ))}
-                  </select>
+                  </ThemedSelect>
                 </div>
                 <div className="space-y-2 text-sm text-muted-foreground">
                   <p>{uiI18n.t('app.status_11dc9e19')} <span className="text-foreground">{info.status || uiI18n.t('app.unknown_50d8b4a9')}</span></p>

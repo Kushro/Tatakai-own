@@ -1,0 +1,48 @@
+{
+ "pagination": {
+  "last_visible_page": 1,
+  "has_next_page": false
+ },
+ "data": [
+  {
+   "mal_id": 1,
+   "url": "https://myanimelist.net/anime/52991/Sousou_no_Frieren/episode/1",
+   "title": "The Journey's End",
+   "title_japanese": "冒険の終わり",
+   "title_romanji": "Bouken no Owari",
+   "duration": 1559,
+   "aired": "2023-09-29T00:00:00+00:00",
+   "score": 4.29,
+   "filler": false,
+   "recap": false,
+   "synopsis": "After defeating the Demon King, Himmel and his crew return t",
+   "replies": 789,
+   "forum_url": "https://myanimelist.net/forum/?topicid=2120196",
+   "images": {
+    "jpg": {
+     "image_url": "https://img1.ak.crunchyroll.com/i/spire1-tmb/0a540e01e5d00a998a241d1ea23181ad1695991424_large.jpg"
+    }
+   }
+  },
+  {
+   "mal_id": 2,
+   "url": "https://myanimelist.net/anime/52991/Sousou_no_Frieren/episode/2",
+   "title": "It Didn't Have to Be Magic…",
+   "title_japanese": "別に魔法じゃなくたって...",
+   "title_romanji": "Betsu ni Mahou ja Nakutatte...",
+   "duration": 1560,
+   "aired": "2023-09-29T00:00:00+00:00",
+   "score": 4.32,
+   "filler": false,
+   "recap": false,
+   "synopsis": "Frieren visits Heiter, who lives deep in the forest, and mee",
+   "replies": 413,
+   "forum_url": "https://myanimelist.net/forum/?topicid=2120201",
+   "images": {
+    "jpg": {
+     "image_url": "https://img1.ak.crunchyroll.com/i/spire1-tmb/747ed837208f39c176f3bf2b21e619cf1695997330_large.jpg"
+    }
+   }
+  }
+ ]
+}

@@ -187,7 +187,7 @@ export function useUpsertNovelReadlist() {
       const statusForSync = normalizeStatus(item?.status ?? input.status ?? 'plan_to_read');
       let singleSyncPosted = false;
 
-      if ((profile as any)?.mal_access_token) {
+      if ((profile as any)?.mal_user_id) {
         const targetMalId = toPositiveIntOrNull(item?.mal_id ?? (input as any)?.malId);
         if (targetMalId) {
           singleSyncPosted = true;
@@ -196,12 +196,12 @@ export function useUpsertNovelReadlist() {
         }
       }
 
-      if ((profile as any)?.anilist_access_token) {
+      if ((profile as any)?.anilist_user_id) {
         const targetAniListId = toPositiveIntOrNull(item?.anilist_id ?? (input as any)?.anilistId);
         if (targetAniListId) {
           singleSyncPosted = true;
           updateAniListMangaStatus(
-            (profile as any).anilist_access_token,
+            null,
             targetAniListId,
             mapTatakaiMangaStatusToAniList(statusForSync),
             chapterProgress,
@@ -302,9 +302,9 @@ export function useSaveNovelReadingProgress() {
         ? Number(input.lastChapterNumber)
         : undefined;
       try {
-        if (typeof input.anilistId === 'number' && (profile as any)?.anilist_access_token) {
+        if (typeof input.anilistId === 'number' && (profile as any)?.anilist_user_id) {
           await updateAniListMangaStatus(
-            (profile as any).anilist_access_token,
+            null,
             input.anilistId,
             mapTatakaiMangaStatusToAniList('reading'),
             chapter,
@@ -312,7 +312,7 @@ export function useSaveNovelReadingProgress() {
         }
       } catch { /* best-effort */ }
       try {
-        if (typeof input.malId === 'number' && (profile as any)?.mal_access_token) {
+        if (typeof input.malId === 'number' && (profile as any)?.mal_user_id) {
           await updateMalMangaStatus(input.malId, 'reading', undefined, chapter).catch(() => undefined);
         }
       } catch { /* best-effort */ }

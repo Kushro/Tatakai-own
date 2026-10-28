@@ -21,14 +21,17 @@ const { ExtensionWorkerPool } = require('../runtime/extension/extension-worker-p
 const { enforcePayloadLimit } = require('../runtime/security/payload-guard.cjs');
 const { withCallTimeout, CALL_TIMEOUT_MS } = require('../runtime/security/timeout-guard.cjs');
 const { LocalProxyServer } = require('../runtime/proxy/local-proxy-server.cjs');
+const { TORRENT_STREAM_ORIGIN } = require('../runtime/torrent/session/session-manager.cjs');
+const { HLS_REMUX_ORIGIN } = require('../runtime/torrent/streaming/hls-remux.cjs');
 const { WarpTunnel } = require('../runtime/warp/warp-tunnel.cjs');
 const { parseKaiFile, installKaiExtension, isValidExtensionId } = require('../runtime/extension/kai-format.cjs');
 const { createExtensionApiHost } = require('../runtime/extension-api-host/supervisor.cjs');
 const { createShareTunnel } = require('../runtime/share-tunnel/share-tunnel.cjs');
 
 // ── Tatakai API base URL ──────────────────────────────────────────────────────
-// Resolves to https://api.tatakai.me/api/v3 (VITE_BACKEND_ORIGIN); no localhost fallback.
-const TATAKAI_API_BASE = (process.env.VITE_BACKEND_ORIGIN || 'https://api.tatakai.me') + '/api/v3';
+// The hosted Tatakai extension registry is not part of this fork; extension
+// submission and review-status are disabled (see the two handlers below).
+const EXTENSION_REGISTRY_UNAVAILABLE = 'Extension submission is not available in this build.';
 
 module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger, getMainWindow) {
     const emitRuntimeEvent = (event) => {
@@ -65,7 +68,15 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
             emitRuntimeEvent({ type: 'extension-suspended', extensionId, ts: Date.now() });
         },
     });
-    const localProxy = new LocalProxyServer(logger, emitRuntimeEvent);
+    // The proxy refuses loopback/private targets; the torrent stream and HLS
+    // remux servers are app-owned loopback origins a watch party re-proxies.
+    const localProxy = new LocalProxyServer(logger, emitRuntimeEvent, {
+        trustedLocalOrigins: [TORRENT_STREAM_ORIGIN, HLS_REMUX_ORIGIN],
+    });
+    const compatibilityBroker = require('./ipc-compatibility.cjs')({ ipcMain, app, getMainWindow, proxy: async (url, headers) => {
+        await localProxy.ensureStarted();
+        return localProxy.registerSource({ url, headers });
+    } });
     const ensureExtensionFetchProxy = async () => {
         const proxyBaseUrl = await localProxy.ensureStarted();
         workerPool.setFetchProxyBaseUrl(proxyBaseUrl);
@@ -247,6 +258,11 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
 
             await localProxy.ensureStarted();
             const proxyBase = localProxy.baseUrl();
+            if (payload?.p2p === true) {
+                const { path: localPath } = localProxy.registerLocalFile({ path: filePath });
+                const localStreamUrl = `${proxyBase}${localPath}`;
+                return { localStreamUrl, shareStreamUrl: localStreamUrl, shareStreamType: 'direct', fileName: path.basename(filePath) };
+            }
             const { publicUrl } = await shareTunnel.start(proxyBase);
             const secret = localProxy.getShareSecret();
             const q = `?s=${encodeURIComponent(secret)}`;
@@ -467,8 +483,29 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
     });
 
     // ── cache:read / cache:write ──────────────────────────────────────────────
+    // SEC audit finding DESK-3: `key` used to be interpolated straight into
+    // path.join(), so `{ key: '../../../evil' }` wrote attacker-controlled JSON
+    // anywhere the app process could write (and read arbitrary *.json files back
+    // out). Keys are now restricted to a flat, separator-free charset and the
+    // resolved path is re-checked against the cache directory.
+    const CACHE_KEY_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+    const isValidCacheKey = (key) =>
+        typeof key === 'string' && CACHE_KEY_RE.test(key) && !key.includes('..');
+
+    const resolveCachePath = (key) => {
+        if (!isValidCacheKey(key)) return null;
+        const cacheDir = path.resolve(app.getPath('userData'), 'runtime_cache');
+        const cachePath = path.resolve(cacheDir, `${key}.json`);
+        if (!cachePath.startsWith(cacheDir + path.sep)) return null;
+        return cachePath;
+    };
+
     ipcMain.handle('cache:read', async (_event, key) => {
-        const cachePath = path.join(app.getPath('userData'), 'runtime_cache', `${key}.json`);
+        const cachePath = resolveCachePath(key);
+        if (!cachePath) {
+            logger.warn('[Cache] Rejected invalid cache key on read');
+            return null;
+        }
         try {
             if (fs.existsSync(cachePath)) return JSON.parse(fs.readFileSync(cachePath, 'utf8'));
         } catch (e) {
@@ -477,10 +514,15 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
         return null;
     });
 
-    ipcMain.handle('cache:write', async (_event, { key, value }) => {
-        const cacheDir = path.join(app.getPath('userData'), 'runtime_cache');
+    ipcMain.handle('cache:write', async (_event, { key, value } = {}) => {
+        const cachePath = resolveCachePath(key);
+        if (!cachePath) {
+            logger.warn('[Cache] Rejected invalid cache key on write');
+            return false;
+        }
+        const cacheDir = path.dirname(cachePath);
         if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-        fs.writeFileSync(path.join(cacheDir, `${key}.json`), JSON.stringify(value), 'utf8');
+        fs.writeFileSync(cachePath, JSON.stringify(value), 'utf8');
         return true;
     });
 
@@ -491,10 +533,9 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
     // Flow:
     //   1. Check kill-switch — blocked extensions are never loaded.
     //   2. Resolve the bundle path under <userData>/extensions/<extensionId>/bundle.js.
-    //   3. If the bundle exists on disk AND the extension is NOT sideloaded,
-    //      verify the Ed25519 signature from manifest.signature against the bundle
-    //      content.  An invalid or missing signature aborts loading without writing
-    //      any files (Property 9 / Requirement 10.1).
+    //   3. No signature check: the client does not verify extension signatures
+    //      (signing fields are stripped at install). Only the marketplace server
+    //      refuses unsigned releases; sideloads and URL installs are unverified.
     //   4. If the bundle does not yet exist, persist the manifest to disk so the
     //      directory is created; the bundle must be written separately before
     //      extension:invoke can succeed.
@@ -1106,104 +1147,14 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
     //   1. Parse the .kai buffer using parseKaiFile() (skipSignatureCheck: true for submissions).
     //   2. Validate required manifest fields: id, name, version, type.
     //   3. Reject bundles exceeding 10 MB.
-    //   4. POST the manifest JSON to ${TATAKAI_API_BASE}/extensions/submit.
+    //   4. (disabled in this fork) POST the manifest to the hosted marketplace.
     //   5. On success, append an audit log entry and return { success, submissionId, status }.
     //   6. On network failure (ECONNREFUSED / 503), return marketplace_unavailable.
     //
     // Requirements: 14.1, 14.2, 14.3, 14.4, 14.5, 14.6
-    ipcMain.handle('extension:submit', async (_event, { kaiBuffer, metadata }) => {
-        try {
-            // Electron contextBridge sends Uint8Array as Buffer on the main-process side.
-            // Handle all possible forms: Buffer, Uint8Array, or plain object {0:b,1:b,...}
-            let buf;
-            if (Buffer.isBuffer(kaiBuffer)) {
-                buf = kaiBuffer;
-            } else if (kaiBuffer instanceof Uint8Array) {
-                buf = Buffer.from(kaiBuffer);
-            } else if (kaiBuffer && typeof kaiBuffer === 'object') {
-                // Fallback: plain object from older serialisation path
-                buf = Buffer.from(Object.values(kaiBuffer));
-            } else {
-                return { success: false, error: 'invalid_kai_buffer' };
-            }
-
-            // Requirement 14.6 — reject oversized bundles before any parsing or network call
-            const MAX_KAI_BYTES = 10 * 1024 * 1024; // 10 MB
-            if (buf.length > MAX_KAI_BYTES) {
-                return { success: false, error: 'bundle_too_large' };
-            }
-
-            // Requirement 14.1 — parse and validate the .kai manifest before any network request
-            let parsed;
-            try {
-                parsed = await parseKaiFile(buf, { skipSignatureCheck: true });
-            } catch (parseErr) {
-                return { success: false, error: parseErr.message };
-            }
-
-            const manifest = parsed.manifest;
-
-            // Merge form metadata as fallback for fields missing from the .kai manifest.
-            // This lets users submit extensions where the manifest has minimal fields,
-            // with the form providing the display name, description, type, etc.
-            const effectiveManifest = {
-                id: manifest.id || metadata?.id,
-                name: manifest.name || metadata?.name,
-                version: manifest.version || metadata?.version || '1.0.0',
-                type: manifest.type || metadata?.type,
-                description: manifest.description || metadata?.description || '',
-                permissions: Array.isArray(manifest.permissions) ? manifest.permissions
-                    : (Array.isArray(metadata?.permissions) ? metadata.permissions : []),
-            };
-
-            // Requirement 14.2 — validate required fields: id, name, version, type
-            const requiredFields = ['id', 'name', 'version', 'type'];
-            const missingFields = requiredFields.filter(
-                (k) => !effectiveManifest[k] || String(effectiveManifest[k]).trim() === ''
-            );
-            if (missingFields.length > 0) {
-                return {
-                    success: false,
-                    error: `missing_required_fields: ${missingFields.join(', ')} — ensure your .kai manifest.json contains these fields`,
-                };
-            }
-
-            // Requirement 14.3 — POST manifest to TatakaiAPI public submission endpoint
-            const response = await axios.post(
-                `${TATAKAI_API_BASE}/extensions/submit`,
-                {
-                    extension_id: effectiveManifest.id,
-                    name: effectiveManifest.name,
-                    version: effectiveManifest.version,
-                    type: effectiveManifest.type,
-                    main_url: metadata?.mainUrl || '',
-                    update_url: metadata?.updateUrl || null,
-                    description: effectiveManifest.description,
-                    permissions: effectiveManifest.permissions,
-                    signature: metadata?.signature || manifest.signature || null,
-                    signed_by: metadata?.signedBy || null,
-                },
-                { timeout: 30000 }
-            );
-
-            // Requirement 14.4 — append audit log entry on success
-            appendAudit('extension-submit', {
-                extensionId: effectiveManifest.id,
-                submissionId: effectiveManifest.id,
-                version: effectiveManifest.version,
-            });
-
-            logger.info(`[Extension] Submitted to marketplace: ${effectiveManifest.id} v${effectiveManifest.version}`);
-
-            return { success: true, submissionId: effectiveManifest.id, status: 'pending' };
-        } catch (err) {
-            // Requirement 14.5 — return marketplace_unavailable on ECONNREFUSED or 503
-            if (err.code === 'ECONNREFUSED' || err.response?.status === 503) {
-                return { success: false, error: 'marketplace_unavailable' };
-            }
-            logger.error('[Extension] Submit failed:', err.message);
-            return { success: false, error: err.message };
-        }
+    ipcMain.handle('extension:submit', async () => {
+        // Disabled: the hosted marketplace (upstream TatakaiAPI) is not part of this fork.
+        return { success: false, error: 'marketplace_unavailable', message: EXTENSION_REGISTRY_UNAVAILABLE };
     });
 
     // ── extension:get-kai-meta ────────────────────────────────────────────────    // Returns manifest + readme + icon for an already-installed extension.
@@ -1302,12 +1253,12 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
 
     // ── runtime:get-renderer-bundle ───────────────────────────────────────────
     //
-    // Returns the full renderer ESM bundle for a TRUSTED extension so the renderer
-    // loader (src/core/extensions/rendererLoader.ts) can `import(blobURL)` it and
-    // call its `activate(ctx)`. Renderer code runs with app privileges, so this is
-    // hard-gated on the same trust check used to `require()` main-process bundles:
-    // the extension must be sideloaded OR carry a signature. Untrusted store
-    // extensions stay data-only.
+    // Returns the full renderer ESM bundle for an installed extension so the
+    // renderer loader (src/core/extensions/rendererLoader.ts) can
+    // `import(blobURL)` it and call its `activate(ctx)`. Renderer code runs with
+    // app privileges and there is NO trust gate here: any installed extension
+    // that declares `contributes.rendererEntry` gets it (signatures are not
+    // verified client-side; only the kill switch applies).
     //
     // The path comes from `manifest.contributes.rendererEntry` (relative to the
     // extension's bundle directory); path traversal outside that dir is rejected.
@@ -1350,7 +1301,7 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
     // Polls the TatakaiAPI for the current review status of a submitted extension.
     //
     // Flow:
-    //   GET ${TATAKAI_API_BASE}/extensions/:submissionId/status
+    //   (disabled in this fork — no hosted marketplace)
     //   Maps API response fields:
     //     - submission_status → status
     //     - main_url          → downloadUrl (only when submission_status === 'approved')
@@ -1358,28 +1309,9 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
     //     - updated_at        → approvedAt
     //
     // Requirements: 15.1, 15.2, 15.3, 15.4
-    ipcMain.handle('extension:review-status', async (_event, { submissionId }) => {
-        try {
-            const response = await axios.get(
-                `${TATAKAI_API_BASE}/extensions/${encodeURIComponent(submissionId)}/status`,
-                { timeout: 10000 }
-            );
-            const row = response.data?.data;
-            return {
-                success: true,
-                submissionId,
-                // Requirement 15.2 — include status, notes, approvedAt, downloadUrl
-                status: row?.submission_status ?? 'pending',
-                notes: row?.notes ?? null,
-                approvedAt: row?.updated_at ?? null,
-                // Requirement 15.3 — downloadUrl is non-null only when approved
-                downloadUrl: row?.submission_status === 'approved' ? (row?.main_url ?? null) : null,
-            };
-        } catch (err) {
-            // Requirement 15.4 — return { success: false, error: '...' } on failure
-            logger.error(`[Extension] review-status error (${submissionId}):`, err.message);
-            return { success: false, error: err.message };
-        }
+    ipcMain.handle('extension:review-status', async (_event, { submissionId } = {}) => {
+        // Disabled: no hosted marketplace in this fork.
+        return { success: false, submissionId, error: EXTENSION_REGISTRY_UNAVAILABLE };
     });
 
     // ── torrent IPC is registered by ipc-torrent.cjs ───────────────────────────
@@ -1562,6 +1494,7 @@ module.exports = function registerRuntimeHandlers(ipcMain, app, fs, path, logger
 
     // Expose registry/workerPool and autoLoadBundledExtensions for main.cjs
     return {
+        compatibilityBroker,
         registry,
         workerPool,
         autoLoadBundledExtensions,

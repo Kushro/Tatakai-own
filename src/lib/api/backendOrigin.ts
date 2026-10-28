@@ -1,23 +1,15 @@
 /**
- * backendOrigin.ts — canonical resolver for the TatakaiAPI backend URL.
+ * backendOrigin.ts — legacy resolver for the upstream TatakaiAPI backend.
  *
- * The renderer runs from different origins depending on the build:
- *   - web dev / https://tatakai.me — `/api/*` is proxied to the backend, so a
- *     relative path works.
- *   - desktop `app://tatakai.me` — a relative `/api/…` is intercepted by the
- *     app:// scheme handler and SPA-falls-back to `index.html`, so the fetch
- *     silently returns HTML (200) and the caller's `res.json()` throws.
- *
- * A bare relative `/api/v3/…` therefore breaks on desktop. Always resolve an
- * absolute origin (from `VITE_BACKEND_ORIGIN`, then the origin of
- * `VITE_TATAKAI_API_URL`, then the http page origin) so every build hits the
- * real backend. Mirrors the resolvers already used by marketplace-client.ts and
- * turnstile.ts.
+ * This fork no longer depends on TatakaiAPI: catalog data comes from the
+ * metadata router (`@/lib/metadata`), accounts/sync talk to AniList/MAL and
+ * Supabase directly. The resolver is kept only so old imports keep compiling,
+ * and it fails closed: unless a backend is explicitly configured at build time
+ * (`VITE_BACKEND_ORIGIN` / `VITE_TATAKAI_API_URL`), it returns "" and never
+ * falls back to api.tatakai.me or the page origin.
  */
 
-import { isCapacitor } from "@/lib/platform/platform";
-
-/** Absolute backend origin with no trailing slash, or "" when none is known. */
+/** Explicitly configured backend origin without trailing slash, or "". */
 export function resolveBackendOrigin(): string {
   const explicit = String(import.meta.env.VITE_BACKEND_ORIGIN || "").trim();
   if (/^https?:\/\//i.test(explicit)) return explicit.replace(/\/+$/, "");
@@ -28,31 +20,18 @@ export function resolveBackendOrigin(): string {
   } catch {
     /* fall through */
   }
-
-  // Capacitor runs from the WebView's own scheme (`capacitor://` /
-  // `https://localhost`), which is NOT the backend and can't proxy `/api/*`.
-  // A relative base there would hit the shell and return the SPA HTML, so an
-  // explicit origin is required. Use the production backend as the last resort.
-  if (isCapacitor()) return "https://api.tatakai.me";
-
-  // A real http(s) web origin proxies `/api/*` (Vite dev proxy or the deployed
-  // reverse proxy), so a relative base works — return "" so callers fall back
-  // to a relative `/api/v3`. Preserves the original web behavior exactly.
-  if (typeof window !== "undefined" && window.location.protocol.startsWith("http")) {
-    return window.location.origin;
-  }
   return "";
 }
 
-/**
- * The TatakaiAPI `/api/v3` base. Falls back to a relative `/api/v3` only when no
- * origin is resolvable (web dev, where Vite proxies it) — never on desktop,
- * where `VITE_BACKEND_ORIGIN` is set at build time.
- */
+/** `${origin}/api/v3` for an explicitly configured backend, or "". */
 export function resolveApiV3Base(): string {
   const origin = resolveBackendOrigin();
-  return origin ? `${origin}/api/v3` : "/api/v3";
+  return origin ? `${origin}/api/v3` : "";
 }
 
-/** Absolute URL of the AniList GraphQL proxy (`${apiV3}/anilist/graphql`). */
-export const ANILIST_GRAPHQL_ENDPOINT = `${resolveApiV3Base()}/anilist/graphql`;
+/**
+ * AniList GraphQL endpoint. This fork calls AniList directly instead of the
+ * TatakaiAPI proxy; prefer `anilistGql` from `@/lib/anilist/client`, which also
+ * paces requests and handles 429s.
+ */
+export { ANILIST_URL as ANILIST_GRAPHQL_ENDPOINT } from "@/lib/anilist/client";

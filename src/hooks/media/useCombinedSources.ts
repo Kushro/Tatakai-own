@@ -269,6 +269,11 @@ function mapRawSourcesToStreamingData(rawSources: any[], ctx: MapContext): Strea
       providerKey: key,
       providerName: name,
       displayName: name,
+      extensionServerName: src.extensionServerName,
+      sourceName: src.sourceName,
+      extensionId: src.extensionId,
+      extensionName: src.extensionName,
+      ecosystem: src.ecosystem,
       isProviderServer: true,
       language: lang,
       langCode: src.audioLanguage ? String(src.audioLanguage) : undefined,
@@ -314,6 +319,11 @@ function mapRawSourcesToStreamingData(rawSources: any[], ctx: MapContext): Strea
       isEmbed: isEmbedSource(src),
       providerName: name,
       providerKey: key,
+      extensionServerName: src.extensionServerName,
+      sourceName: src.sourceName,
+      extensionId: src.extensionId,
+      extensionName: src.extensionName,
+      ecosystem: src.ecosystem,
       server: key,
       // ── Extension-API enrichment ────────────────────────────────────────────
       sourceType: src.sourceType,
@@ -554,7 +564,7 @@ export function useCombinedSourcesWithRefetch(
     const providerStatus: Array<{ provider: string; status: string; resultCount?: number; durationMs?: number; error?: string }> = [];
     for (let i = 0; i < allSlots.length; i++) {
       if (!streamNamespaces[i]) continue;
-      for (const s of allSlots[i].sources) sources.push(s);
+      for (const s of allSlots[i].sources) sources.push({ ...s, extensionId: s.extensionId || streamNamespaces[i], extensionName: s.extensionName || streamNamespaces[i], ecosystem: s.ecosystem || 'tatakai' });
       for (const d of allSlots[i].providerStatus) providerStatus.push(d);
     }
     return { sources, providerStatus };
@@ -622,7 +632,7 @@ export function useCombinedSourcesWithRefetch(
     const extra = mapRawSourcesToStreamingData(remote.data.sources, { category, knownAnilistId, knownMalId });
     const dedup = <T,>(items: T[], key: (item: T) => string): T[] => [...new Map(items.map(item => [key(item), item])).values()];
     return { ...extra, ...baseData, hasTatakaiProviders: true,
-      sources: dedup([...(baseData?.sources || []), ...extra.sources], s => String(s.providerKey) + s.url + String(s.fileIndex ?? '')).map(source => ({ ...source, subtitles: dedup([...(source.subtitles || []), ...remote.data.subtitles], s => s.url) })),
+      sources: dedup([...(baseData?.sources || []), ...extra.sources], s => JSON.stringify([s.providerKey, s.language, s.url, s.fileIndex])).map(source => ({ ...source, subtitles: dedup([...(source.subtitles || []), ...remote.data.subtitles], s => s.url) })),
       subtitles: dedup([...(baseData?.subtitles || []), ...extra.subtitles, ...remote.data.subtitles], s => s.url),
       providerServers: [...(baseData?.providerServers || []), ...extra.providerServers],
       providerStatus: [...(baseData?.providerStatus || []), ...remote.data.statuses],
@@ -631,8 +641,8 @@ export function useCombinedSourcesWithRefetch(
 
   const anyConnectingOrStreaming = activeSlots.some((s) => s.phase === "connecting" || s.phase === "streaming");
   const mergedBaseResolved = hostReportedNothing || activeSlots.some((s) => s.baseResolved);
-  const isLoading = (useFallback ? fallback.isLoading : data === undefined) || (remote.isLoading && !data?.sources.length);
-  const isFetching = remote.isFetching || (useFallback ? fallback.isFetching : !mergedBaseResolved || anyConnectingOrStreaming);
+  const isLoading = !data?.sources.length && ((useFallback ? fallback.isLoading : data === undefined) || remote.isLoading);
+  const isFetching = remote.isFetching || remote.continuing || (useFallback ? fallback.isFetching : !mergedBaseResolved || anyConnectingOrStreaming);
   const error = useFallback
     ? fallback.error
     : mergedPhase === "error" && merged.sources.length === 0
@@ -662,5 +672,8 @@ export function useCombinedSourcesWithRefetch(
     providerStatus: merged.providerStatus,
   };
 
-  return { data, isLoading, isFetching, error, refetch, diagnostics: { ...diagnostics, remoteProviders: remote.data?.statuses, remoteFetching: remote.isFetching } };
+  return { data, isLoading, isFetching, error, refetch, searchRemainingSources: remote.searchRemaining, remainingSourceCount: remote.remainingSourceCount,
+    cancelExtensionLookup: remote.cancelLookup, extensionLookupRunning: remote.isFetching || remote.continuing,
+    continuingSources: remote.continuing, cancelRemainingSources: remote.cancelRemaining, continuationError: remote.continuationError,
+    diagnostics: { ...diagnostics, remoteProviders: remote.data?.statuses, remoteFetching: remote.isFetching || remote.continuing } };
 }

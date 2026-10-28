@@ -112,7 +112,7 @@ export function useDiscoverMedia({ genre, sort = 'for-you', year = null, page = 
         page,
         perPage: DISCOVER_PER_PAGE,
         // Hide adult server-side by default; `undefined` includes both.
-        isAdult: showAdult ? undefined : false,
+        isAdult: showAdult,
       }),
     staleTime: 5 * 60 * 1000,
     // Keeps the previous page on screen while the next one loads instead of

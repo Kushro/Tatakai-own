@@ -1,0 +1,9 @@
+# 06 — Decisiones del usuario (2026-10-27) — prevalecen sobre 00..05
+
+1. **Licencia**: las apps nuevas (`apps/android-native`, `apps/desktop-native`) se licencian **AGPL-3.0-or-later** (compatible con código GPL-3.0 de Miko/limusic-forge y AGPL-3.0 de Enigmata). Se PERMITE COPIAR código de los repos propios del usuario: miko (GPL-3), Enigmata (AGPL-3), Enigmata-Temple (privado del usuario), Miko-Kagura, limusic-forge (GPL-3), larper-forge, mpvExKEV, design_system_android. Al copiar: conservar avisos de copyright del archivo origen y anotar el origen en `apps/<app>/THIRD_PARTY_NOTICES.md`. Esto reemplaza la regla "reescribir, no copiar" de 04 §4 y R8. Cada app lleva su `LICENSE` (texto AGPL-3.0). El repo raíz sigue MPL-2.0; el arreglo de `package.json` MIT→MPL-2.0 se hace en este PR como commit aparte del integrador.
+2. **Alcance**: M0 recortado según E7 (anime solamente; Link por QR/pegar código; sin mDNS/TOFU, sin /v1/settings, biblioteca Android local). Quick wins del legacy → PR aparte posterior.
+3. **QR Android**: **CameraX + zxing (sin GMS)**, con permiso de cámara pedido en contexto y siempre con alternativa "pegar código". Quitar `play-services-code-scanner` del catálogo; agregar `androidx.camera:camera-*` + `com.google.zxing:core`.
+4. **i18n**: solo **en + es** en M0. Japonés = fallback a inglés (no crear `values-ja` ni `ja.json`). Sobrescribe E10 en lo relativo a ja.
+5. **Presupuesto de compilación E3**: aceptado (un `compileDebugKotlin` scoped por rama Kotlin al cierre).
+6. Nombres: `app.tatakai.own.next`, `%APPDATA%\Tatakai-Next\`.
+7. **VCS**: este repo NO está gestionado por GitButler. Cada rama tiene su propio **git worktree** en `E:/Gitbutler Repos/Tatakai-own-wt/<nombre>`; commitear con `git commit` en ese worktree. Sin push. Esto reemplaza la mención a `but commit` y elimina el problema de working-dir compartido de E3.

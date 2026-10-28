@@ -15,6 +15,7 @@ export const CSP_POLICY = {
     'https://www.googletagmanager.com',
     'https://www.google-analytics.com',
     'https://challenges.cloudflare.com', // Cloudflare Turnstile widget
+    'https://cdn.jwplayer.com', // Optional licensed player and its modules
   ],
   'style-src': [
     "'self'",
@@ -44,14 +45,18 @@ export const CSP_POLICY = {
     "https://*.waifu.im",
     "https://cdn.nekosia.cat",
     'https://*.supabase.co',
-    'https://*.tatakai.me',
     'https://*.datadoghq.com',
     'https://www.google-analytics.com',
-    'https://api.tatakai.me',
-    'https://api.jikan.moe',
+    'https://api.tenrai.org',
+    'https://kitsu.io',
+    'https://api.ani.zip',
+    'https://shikimori.io',
+    'https://api.myanimelist.net',
+    'https://myanimelist.net',
+    'https://api.mangadex.org',
+    'https://uploads.mangadex.org',
     'https://api.trace.moe',
     'https://graphql.anilist.co',
-    'https://api.myanimelist.net',
     'https://challenges.cloudflare.com', // Cloudflare Turnstile siteverify handshake
   ],
   'media-src': [
@@ -61,6 +66,10 @@ export const CSP_POLICY = {
   ],
   'frame-src': [
     "'self'",
+    'https://www.youtube-nocookie.com',
+    'https://www.redditmedia.com',
+    'https://player.vimeo.com',
+    'https://open.spotify.com',
     'https://*.supabase.co',
     'https://challenges.cloudflare.com', // Cloudflare Turnstile challenge iframe
   ],

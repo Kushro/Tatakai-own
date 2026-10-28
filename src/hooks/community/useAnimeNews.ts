@@ -1,6 +1,7 @@
 import uiI18n from '@/lib/uiI18n';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { useQuery } from '@tanstack/react-query';
+import { tenraiGet } from '@/lib/tenrai/client';
 
 export interface AnimeNewsItem {
   id: number;
@@ -13,8 +14,8 @@ export interface AnimeNewsItem {
 }
 
 /**
- * Anime news / "what's new this season" from the Jikan API (MyAnimeList,
- * keyless + CORS-enabled). Used to give the News tab a real external source
+ * Anime news / "what's new this season" from Tenrai (MyAnimeList data, Jikan
+ * v4 schema, keyless). Used to give the News tab a real external source
  * alongside News-flaired community posts.
  */
 export function useAnimeNews() {
@@ -24,9 +25,12 @@ export function useAnimeNews() {
     staleTime: 30 * 60 * 1000,
     retry: 1,
     queryFn: async (): Promise<AnimeNewsItem[]> => {
-      const res = await fetch('https://api.jikan.moe/v4/seasons/now?limit=16&sfw=true');
-      if (!res.ok) throw new Error(uiI18n.t('app.failed_to_load_anime_news_fe4a7d21'));
-      const json = await res.json();
+      let json: { data?: unknown };
+      try {
+        json = await tenraiGet<{ data?: unknown }>('/seasons/now', { limit: 16, sfw: true });
+      } catch {
+        throw new Error(uiI18n.t('app.failed_to_load_anime_news_fe4a7d21'));
+      }
       const data = Array.isArray(json?.data) ? json.data : [];
       return data.map((a: any) => ({
         id: a.mal_id,

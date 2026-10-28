@@ -261,6 +261,42 @@ export function useSubtitleManager({
         return;
       }
 
+      // Idempotency: when the selected track is already the only enabled one,
+      // skip the destructive "disable all -> re-enable one" pass. Several
+      // effects re-run this handler (blob loads, canplay/seeked re-asserts,
+      // signature re-checks) and each full pass flips track modes, briefly
+      // dropping cues — visible as subtitle flicker during playback.
+      const enabledTrackIndices: number[] = [];
+      for (let i = 0; i < tracks.length; i++) {
+        if (tracks[i].mode !== "disabled") enabledTrackIndices.push(i);
+      }
+      if (enabledTrackIndices.length === 1 && tracks[enabledTrackIndices[0]].mode === "hidden") {
+        const only = enabledTrackIndices[0];
+        const domTracks = video.querySelectorAll("track");
+        const domTrack = domTracks[only] as HTMLTrackElement | undefined;
+        const trackSrc = domTrack?.getAttribute("src") || "";
+        const trackResolvedSrc = domTrack?.src || "";
+        const bySrcIndex = orderedSubtitles.findIndex((s, idx) => {
+          const subUrl = String(s.url || "").trim();
+          if (!subUrl) return false;
+          const blobUrl = subtitleBlobs[subUrl];
+          return (
+            trackSrc === subUrl ||
+            trackResolvedSrc === subUrl ||
+            (!!blobUrl && (trackSrc === blobUrl || trackResolvedSrc === blobUrl))
+          );
+        });
+        const resolvedIndex = bySrcIndex >= 0 ? bySrcIndex : only;
+        const candidate = orderedSubtitles[resolvedIndex];
+        if (
+          candidate &&
+          getSubtitleSelectionKey(candidate, resolvedIndex).toLowerCase() === selectedKeyLower
+        ) {
+          subtitleApplyStateRef.current = { lang, selectedIndex: only, trackCount: tracks.length };
+          return;
+        }
+      }
+
       // A language preference ("auto", "english", "spanish", …) resolves to one
       // concrete track. Record that track's *selection key* (e.g. "sub:<url>")
       // so the quick selector and the settings panel highlight the option that
@@ -620,11 +656,24 @@ export function useSubtitleManager({
     video.addEventListener("canplay", reapply);
     video.addEventListener("play", reapply);
     video.addEventListener("seeked", reapply);
+    // Track-set churn from MSE/hls.js resets also arrives as textTracks
+    // addtrack/removetrack/change events, often without the media events
+    // above; watch those too so the active track is restored even if the
+    // element never reloads. reapply() no-ops via the anyEnabled guard, so
+    // our own mode assignments can't loop this.
+    const tracks = video.textTracks;
+    const onTrackSetChange = () => reapply();
+    tracks.addEventListener?.("change", onTrackSetChange);
+    tracks.addEventListener?.("addtrack", onTrackSetChange);
+    tracks.addEventListener?.("removetrack", onTrackSetChange);
     return () => {
       video.removeEventListener("loadeddata", reapply);
       video.removeEventListener("canplay", reapply);
       video.removeEventListener("play", reapply);
       video.removeEventListener("seeked", reapply);
+      tracks.removeEventListener?.("change", onTrackSetChange);
+      tracks.removeEventListener?.("addtrack", onTrackSetChange);
+      tracks.removeEventListener?.("removetrack", onTrackSetChange);
     };
   }, [currentSubtitle, videoRef, handleSubtitleChange]);
 

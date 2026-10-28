@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tatakai.invalid/schemas/tokens.v1.json",
+  "title": "Tatakai design tokens v1",
+  "description": "Single source of truth for the native apps. Color schemes are NOT written by hand: generate.mjs expands every palette seed with material-color-utilities.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "defaultPalette", "palettes", "allowContrastFailures", "fonts", "typography", "shape", "spacing", "motion", "density", "elevation"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "defaultPalette": { "type": "string" },
+    "palettes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "additionalProperties": { "$ref": "#/$defs/palette" }
+    },
+    "allowContrastFailures": {
+      "description": "Explicit, reviewed exceptions to the WCAG AA text contrast test (E12). '*' matches anything.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["palette", "mode", "pair", "reason"],
+        "properties": {
+          "palette": { "type": "string" },
+          "mode": { "enum": ["light", "dark", "amoled", "*"] },
+          "contrast": { "enum": ["standard", "medium", "high", "*"] },
+          "pair": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/$defs/colorRole" } },
+          "reason": { "type": "string", "minLength": 8 }
+        }
+      }
+    },
+    "fonts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["display", "text", "mono"],
+      "properties": {
+        "display": { "type": "string" },
+        "text": { "type": "string" },
+        "mono": { "type": "string" }
+      }
+    },
+    "typography": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tvScale", "roles"],
+      "properties": {
+        "tvScale": { "type": "number", "minimum": 1, "maximum": 2 },
+        "roles": {
+          "type": "object",
+          "required": ["displayLarge", "displayMedium", "displaySmall", "headlineLarge", "headlineMedium", "headlineSmall", "titleLarge", "titleMedium", "titleSmall", "bodyLarge", "bodyMedium", "bodySmall", "labelLarge", "labelMedium", "labelSmall"],
+          "additionalProperties": false,
+          "properties": {
+            "displayLarge": { "$ref": "#/$defs/textRole" },
+            "displayMedium": { "$ref": "#/$defs/textRole" },
+            "displaySmall": { "$ref": "#/$defs/textRole" },
+            "headlineLarge": { "$ref": "#/$defs/textRole" },
+            "headlineMedium": { "$ref": "#/$defs/textRole" },
+            "headlineSmall": { "$ref": "#/$defs/textRole" },
+            "titleLarge": { "$ref": "#/$defs/textRole" },
+            "titleMedium": { "$ref": "#/$defs/textRole" },
+            "titleSmall": { "$ref": "#/$defs/textRole" },
+            "bodyLarge": { "$ref": "#/$defs/textRole" },
+            "bodyMedium": { "$ref": "#/$defs/textRole" },
+            "bodySmall": { "$ref": "#/$defs/textRole" },
+            "labelLarge": { "$ref": "#/$defs/textRole" },
+            "labelMedium": { "$ref": "#/$defs/textRole" },
+            "labelSmall": { "$ref": "#/$defs/textRole" }
+          }
+        }
+      }
+    },
+    "shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["none", "extraSmall", "small", "medium", "large", "largeIncreased", "extraLarge", "extraLargeIncreased", "extraExtraLarge", "full"],
+      "properties": {
+        "none": { "type": "integer", "minimum": 0 },
+        "extraSmall": { "type": "integer", "minimum": 0 },
+        "small": { "type": "integer", "minimum": 0 },
+        "medium": { "type": "integer", "minimum": 0 },
+        "large": { "type": "integer", "minimum": 0 },
+        "largeIncreased": { "type": "integer", "minimum": 0 },
+        "extraLarge": { "type": "integer", "minimum": 0 },
+        "extraLargeIncreased": { "type": "integer", "minimum": 0 },
+        "extraExtraLarge": { "type": "integer", "minimum": 0 },
+        "full": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "spacing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit", "scale"],
+      "properties": {
+        "unit": { "type": "integer", "minimum": 1 },
+        "scale": { "type": "array", "minItems": 2, "items": { "type": "integer", "minimum": 0 } }
+      }
+    },
+    "motion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spatial", "effects"],
+      "properties": {
+        "spatial": { "$ref": "#/$defs/springSet" },
+        "effects": { "$ref": "#/$defs/springSet" }
+      }
+    },
+    "density": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phone", "tablet", "desktop", "tv"],
+      "properties": {
+        "phone": { "type": "integer" },
+        "tablet": { "type": "integer" },
+        "desktop": { "type": "integer" },
+        "tv": { "type": "integer" }
+      }
+    },
+    "elevation": { "type": "array", "minItems": 2, "items": { "type": "integer", "minimum": 0 } }
+  },
+  "$defs": {
+    "hex": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+    "colorRole": {
+      "enum": ["primary", "onPrimary", "primaryContainer", "onPrimaryContainer", "inversePrimary", "secondary", "onSecondary", "secondaryContainer", "onSecondaryContainer", "tertiary", "onTertiary", "tertiaryContainer", "onTertiaryContainer", "background", "onBackground", "surface", "onSurface", "surfaceVariant", "onSurfaceVariant", "surfaceTint", "inverseSurface", "inverseOnSurface", "error", "onError", "errorContainer", "onErrorContainer", "outline", "outlineVariant", "scrim", "surfaceBright", "surfaceDim", "surfaceContainer", "surfaceContainerHigh", "surfaceContainerHighest", "surfaceContainerLow", "surfaceContainerLowest", "primaryFixed", "primaryFixedDim", "onPrimaryFixed", "onPrimaryFixedVariant", "secondaryFixed", "secondaryFixedDim", "onSecondaryFixed", "onSecondaryFixedVariant", "tertiaryFixed", "tertiaryFixedDim", "onTertiaryFixed", "onTertiaryFixedVariant"]
+    },
+    "palette": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "seed", "style", "contrast", "amoledCapable"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "seed": { "$ref": "#/$defs/hex" },
+        "style": { "enum": ["Expressive", "TonalSpot", "Vibrant", "Fidelity", "Monochrome"] },
+        "contrast": { "type": "number", "minimum": 0, "maximum": 1 },
+        "amoledCapable": { "type": "boolean" },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "light": { "$ref": "#/$defs/roleOverrides" },
+            "dark": { "$ref": "#/$defs/roleOverrides" },
+            "amoled": { "$ref": "#/$defs/roleOverrides" }
+          }
+        }
+      }
+    },
+    "roleOverrides": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/colorRole" },
+      "additionalProperties": { "$ref": "#/$defs/hex" }
+    },
+    "textRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["font", "size", "lineHeight", "weight", "tracking", "emphasizedWeight"],
+      "properties": {
+        "font": { "enum": ["display", "text", "mono"] },
+        "size": { "type": "number", "minimum": 8 },
+        "lineHeight": { "type": "number", "minimum": 8 },
+        "weight": { "type": "integer", "minimum": 100, "maximum": 900 },
+        "tracking": { "type": "number" },
+        "emphasizedWeight": { "type": "integer", "minimum": 100, "maximum": 900 }
+      }
+    },
+    "spring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["damping", "stiffness"],
+      "properties": {
+        "damping": { "type": "number", "exclusiveMinimum": 0, "maximum": 2 },
+        "stiffness": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "springSet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fast", "default", "slow"],
+      "properties": {
+        "fast": { "$ref": "#/$defs/spring" },
+        "default": { "$ref": "#/$defs/spring" },
+        "slow": { "$ref": "#/$defs/spring" }
+      }
+    }
+  }
+}
