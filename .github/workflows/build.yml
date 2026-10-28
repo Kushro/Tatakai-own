@@ -429,8 +429,255 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # ──────────────────────────────────────────────────────
+  #  Native PREVIEW (M0) — apps/android-native + apps/desktop-native
+  #  New Kotlin/Compose and Rust/Dioxus apps; they install ALONGSIDE the
+  #  legacy app (different applicationId / data dir). Assets are named
+  #  Tatakai-Next-v<package.json version>-<platform>-preview.* so the
+  #  legacy `Tatakai-v*` globs never touch them.
+  # ──────────────────────────────────────────────────────
+  build-android-native:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: platform-tools
+
+      # compileSdk 37 (preview platform id is `android-37.0`). Try the minor-versioned
+      # id first, then the plain one; fail with the installed list if neither exists.
+      - name: Install Android platform + build tools
+        shell: bash
+        run: |
+          set -e
+          sdkmanager "build-tools;36.0.0"
+          sdkmanager "platforms;android-37.0" || sdkmanager "platforms;android-37"
+          sdkmanager --list_installed | grep -E 'platforms;android-37|build-tools;36.0.0'
+
+      # Same stock debug keystore + cache key as the legacy `build-android` job, so
+      # preview APKs of successive releases are updates of each other. (The legacy
+      # and preview apps have different applicationIds, so sharing the key is safe.)
+      - name: Cache Android debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+          restore-keys: android-debug-keystore-
+
+      - name: Create Android debug keystore
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair \
+              -v -keystore "$HOME/.android/debug.keystore" \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+      # local.properties is gitignored; values come from repo secrets and are never echoed.
+      - name: Write local.properties
+        shell: bash
+        env:
+          TATAKAI_SUPABASE_URL: ${{ secrets.TATAKAI_SUPABASE_URL }}
+          TATAKAI_SUPABASE_ANON_KEY: ${{ secrets.TATAKAI_SUPABASE_ANON_KEY }}
+        run: |
+          set -e
+          if [ -z "$TATAKAI_SUPABASE_URL" ] || [ -z "$TATAKAI_SUPABASE_ANON_KEY" ]; then
+            echo "::error::TATAKAI_SUPABASE_URL / TATAKAI_SUPABASE_ANON_KEY secrets are missing; the :app build would fail its checkTatakaiConfig task."
+            exit 1
+          fi
+          {
+            printf 'sdk.dir=%s\n' "$ANDROID_HOME"
+            printf 'TATAKAI_SUPABASE_URL=%s\n' "$TATAKAI_SUPABASE_URL"
+            printf 'TATAKAI_SUPABASE_ANON_KEY=%s\n' "$TATAKAI_SUPABASE_ANON_KEY"
+          } > apps/android-native/local.properties
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-native-${{ runner.os }}-${{ hashFiles('apps/android-native/**/*.gradle.kts', 'apps/android-native/gradle/**') }}
+          restore-keys: gradle-native-${{ runner.os }}-
+
+      - name: Unit tests
+        working-directory: apps/android-native
+        run: chmod +x gradlew && ./gradlew testDebugUnitTest --no-daemon --stacktrace
+
+      # The :app module defines no release buildType, so the default release is
+      # unminified and UNSIGNED; it is signed below with apksigner.
+      - name: Assemble release (unminified)
+        working-directory: apps/android-native
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Sign and name the preview APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          SRC=$(find apps/android-native/app/build/outputs/apk/release -name '*.apk' -print -quit)
+          test -n "$SRC"
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
+          OUT="Tatakai-Next-v${VERSION}-android-preview.apk"
+          "$APKSIGNER" sign --ks "$HOME/.android/debug.keystore" --ks-key-alias androiddebugkey \
+            --ks-pass pass:android --key-pass pass:android --out "$OUT" "$SRC"
+          "$APKSIGNER" verify --verbose "$OUT" | head -5
+          ls -la "$OUT"
+
+      - name: Stage native files in the draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/publish-native-assets.mjs native
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload preview Android artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tatakai-next-android-preview
+          path: Tatakai-Next-v*-android-preview.apk
+          if-no-files-found: error
+          retention-days: 30
+
+  build-desktop-native:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust 1.94.1
+        uses: dtolnay/rust-toolchain@ee868d7805ade43a1b47dd054727ab76c9108b4f # 1.94.1
+        with:
+          toolchain: 1.94.1
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: apps/desktop-native
+
+      # Puts cl/link/lib/dumpbin on PATH (rquickjs + rusqlite compile C; fetch-deps
+      # needs dumpbin + lib to make the libmpv import library).
+      - name: MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
+      # SHA-256-pinned downloads only. `fonts` and `fsr` are skipped: their locks are
+      # still unpinned (null hashes); JetBrains Mono ships in the repo.
+      - name: Fetch runtime deps (libmpv, ffmpeg, Anime4K)
+        run: ./apps/desktop-native/packaging/fetch-deps.ps1 -Only libmpv,ffmpeg,anime4k
+
+      # No `dx` CLI needed: tk-ui embeds its CSS/i18n with include_str! and loads
+      # fonts/shaders from next to the exe; there is no asset!() / manganis use.
+      - name: Build tatakai-next (release)
+        working-directory: apps/desktop-native
+        env:
+          TATAKAI_SUPABASE_URL: ${{ secrets.TATAKAI_SUPABASE_URL }}
+          TATAKAI_SUPABASE_ANON_KEY: ${{ secrets.TATAKAI_SUPABASE_ANON_KEY }}
+        run: |
+          . ./packaging/deps/env.ps1
+          Write-Host "RUSTFLAGS=$env:RUSTFLAGS"
+          if (-not (Test-Path ./packaging/deps/libmpv/mpv.lib)) { throw 'mpv.lib was not generated (dumpbin/lib missing?)' }
+          cargo build --release -p tk-app --locked
+
+      - name: Package portable zip
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = node -p "require('./package.json').version"
+          $app = "apps/desktop-native"
+          $deps = "$app/packaging/deps"
+          $stage = Join-Path $PWD "stage/Tatakai-Next"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "$app/target/release/tatakai-next.exe" $stage
+          Copy-Item "$deps/libmpv/libmpv-2.dll" $stage
+          Copy-Item "$deps/ffmpeg" "$stage/ffmpeg" -Recurse
+          New-Item -ItemType Directory -Force -Path "$stage/shaders" | Out-Null
+          Copy-Item "$deps/shaders/*.glsl" "$stage/shaders"
+          Copy-Item "$app/packaging/anime4k.lock.json" "$stage/shaders"
+          New-Item -ItemType Directory -Force -Path "$stage/assets/fonts" | Out-Null
+          Copy-Item "$app/crates/tk-ui/assets/fonts/*" "$stage/assets/fonts"
+          Copy-Item "$app/LICENSE" $stage
+          Copy-Item "$app/THIRD_PARTY_NOTICES.md" $stage
+          $readme = @(
+            "TATAKAI NEXT - VISTA PREVIA (M0)  v$version",
+            "==========================================",
+            "",
+            "Esta es una vista previa de la nueva app nativa de escritorio (Rust + Dioxus + libmpv),",
+            "hito M0. NO reemplaza a la app clasica de Tatakai (Electron): se instala y funciona",
+            "en paralelo y no comparte datos con ella.",
+            "",
+            "Uso",
+            "  1. Descomprime la carpeta completa donde quieras (es portable, no requiere instalador).",
+            "  2. Ejecuta tatakai-next.exe. Requiere Windows 10/11 x64 con WebView2 (incluido en Windows 11).",
+            "  3. Tus datos se guardan en %APPDATA%\Tatakai-Next\ (borra esa carpeta para empezar de cero).",
+            "",
+            "Limitaciones de la vista previa",
+            "  - Funcionalidad parcial: puede haber errores y faltan funciones de la app clasica.",
+            "  - Solo Windows x64. No esta firmada digitalmente: SmartScreen puede advertirte.",
+            "  - Los shaders de reescalado FSR y las fuentes adicionales aun no se incluyen.",
+            "",
+            "Licencia: AGPL-3.0-or-later (ver LICENSE). Avisos de terceros: THIRD_PARTY_NOTICES.md.",
+            "FFmpeg (LGPL-3.0-or-later) y libmpv (GPL-2.0-or-later) se distribuyen sin modificar."
+          )
+          Set-Content -Path "$stage/README-PREVIEW.txt" -Value $readme -Encoding utf8
+          Compress-Archive -Path $stage -DestinationPath "Tatakai-Next-v$version-windows-x64-preview.zip" -CompressionLevel Optimal
+          Get-Item "Tatakai-Next-v*-windows-x64-preview.zip" | Format-Table Name, Length
+
+      # tatakai-next is a GUI-subsystem exe: run it through Start-Process so we wait
+      # for it and capture stdout from a redirected file. --version exits before any
+      # window, data dir or single-instance lock is created.
+      - name: Smoke check
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $PWD 'stage/Tatakai-Next'
+          $exe = Join-Path $root 'tatakai-next.exe'
+          if (-not (Test-Path $exe)) { throw 'tatakai-next.exe missing from the package' }
+          foreach ($f in 'libmpv-2.dll', 'ffmpeg/bin/ffmpeg.exe', 'shaders/Anime4K_Restore_CNN_M.glsl', 'assets/fonts/JetBrainsMono.woff2', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'README-PREVIEW.txt') {
+            if (-not (Test-Path (Join-Path $root $f))) { throw "package is missing $f" }
+          }
+          $out = Join-Path $env:RUNNER_TEMP 'tk-version.txt'
+          $p = Start-Process -FilePath $exe -ArgumentList '--version' -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out
+          $text = Get-Content $out -Raw
+          Write-Host "exit=$($p.ExitCode) output=$text"
+          if ($p.ExitCode -ne 0 -or $text -notmatch '^tatakai-next \d+\.\d+\.\d+') { throw '--version smoke check failed' }
+
+      - name: Stage native files in the draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/publish-native-assets.mjs native
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload preview Windows artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tatakai-next-windows-preview
+          path: Tatakai-Next-v*-windows-x64-preview.zip
+          if-no-files-found: error
+          retention-days: 30
+
   release:
-    needs: [build-desktop, build-android, build-ios-unsigned]
+    needs: [build-desktop, build-android, build-ios-unsigned, build-android-native, build-desktop-native]
     runs-on: ubuntu-latest
     # Publish only after every platform has staged its complete assets.
     if: |
@@ -438,7 +685,9 @@ jobs:
       startsWith(github.ref, 'refs/tags/') &&
       needs.build-android.result == 'success' &&
       needs.build-desktop.result == 'success' &&
-      needs.build-ios-unsigned.result == 'success'
+      needs.build-ios-unsigned.result == 'success' &&
+      needs.build-android-native.result != 'cancelled' &&
+      needs.build-desktop-native.result != 'cancelled'
 
     steps:
       - name: Checkout code (for AltStore source generator)
@@ -456,6 +705,39 @@ jobs:
           gh release download "$GITHUB_REF_NAME" -D desktop-artifacts/linux -p '*.AppImage' -p '*.deb' -p 'latest-linux.yml'
           gh release download "$GITHUB_REF_NAME" -D mobile-artifacts/android -p '*-android*.apk'
           gh release download "$GITHUB_REF_NAME" -D mobile-artifacts/ios -p '*-ios-unsigned.ipa'
+
+      # PREVIEW assets of the new native apps. A failed preview job must not block
+      # the legacy release, so these are optional: the notes below list only what
+      # was really staged.
+      - name: Collect native preview assets
+        id: native
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -uo pipefail
+          mkdir -p native-artifacts
+          gh release download "$GITHUB_REF_NAME" -D native-artifacts -p 'Tatakai-Next-v*-preview.apk' -p 'Tatakai-Next-v*-preview.zip' || true
+          ls -la native-artifacts
+          notes=""
+          for f in native-artifacts/*-android-preview.apk native-artifacts/*-windows-x64-preview.zip; do
+            [ -f "$f" ] || continue
+            notes+="- \`$(basename "$f")\`"$'\n'
+          done
+          {
+            echo 'section<<NATIVE_NOTES_EOF'
+            if [ -n "$notes" ]; then
+              echo '### Preview nativa (M0)'
+              echo 'Preview builds of the new native Tatakai apps (milestone M0). They do **not** replace the legacy app: they install and run alongside it and do not share its data.'
+              echo
+              printf '%s' "$notes"
+              echo
+              echo '- Android preview: signed with the same developer key as the classic APK, own package `app.tatakai.own.next`.'
+              echo '- Windows preview: portable zip; extract anywhere and run `tatakai-next.exe` (see `README-PREVIEW.txt` inside). Unsigned, so SmartScreen may warn.'
+              echo '- Features are incomplete; expect rough edges.'
+            fi
+            echo 'NATIVE_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
 
       # Regenerate the AltStore/SideStore/StikStore source with the real IPA
       # byte size (the committed file ships size 0 as a placeholder). The
@@ -507,6 +789,8 @@ jobs:
             > xattr -cr /Applications/Tatakai.app
             > ```
             > macOS updates remain manual: download the latest DMG and replace the app.
+
+            ${{ steps.native.outputs.section }}
 
             ### Mobile — developer-signed manual install
             - Android: download `Tatakai-*-android.apk` and install it directly. It is
