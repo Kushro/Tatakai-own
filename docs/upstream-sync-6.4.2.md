@@ -11,7 +11,7 @@ infrastructure; everything else is taken. Package version is `6.4.2-own`
 |---|---|---|---|
 | e7bdb5a | Add TatakaiServer submodule + server docs | Discarded | Submodule and `.gitmodules` removed; `server:*` npm scripts, `tatakai-server/**` in electron-builder `files`, `verify-extension-server-package` removed. Client code kept (see below). |
 | 0863f02 | Update server submodule | Discarded | Same. |
-| 71b073e | Release 6.3.0 (extension runtimes, translation workspace) | Integrated | Aniyomi/Mihon/CloudStream/Sora/Mangayomi/Suwayomi runtimes, translate-engine, Yomi editor. Aniyomi bridge artifacts are SHA-256 pinned but hosted on `Snozxyx/TatakaiServer` GitHub releases (see Risks). |
+| 71b073e | Release 6.3.0 (extension runtimes, translation workspace) | Integrated | Aniyomi/Mihon/CloudStream/Sora/Mangayomi/Suwayomi runtimes, translate-engine, Yomi editor. Aniyomi bridge artifacts are now built from source in `Kushro/TatakaiServer-own` (see Risks). |
 | 24d903b, a12ecd5, 612206f, ba977d8 | Translation preview, landing media, release checks | Partially | Code/assets taken; platform release checks that depend on upstream CI dropped with the workflows. |
 | a41550d | Extract inference runtime links safely | Integrated | |
 | 677d18b | Preserve community-server media proxy tickets | Integrated | Only touches user-run Tatakai servers. |
