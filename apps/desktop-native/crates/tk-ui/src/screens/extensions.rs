@@ -5,16 +5,16 @@ use dioxus::prelude::*;
 use crate::app::Services;
 use crate::backend::ExtensionVm;
 use crate::components::{
-    Button, ButtonVariant, ConfirmDialog, EmptyState, ErrorState, IconButton, Pill, Switch, TextField,
+    Button, ButtonVariant, ConfirmDialog, EmptyState, ErrorState, IconButton, Pill, Tone, Switch, TextField,
 };
 use crate::i18n::{t, tf};
 use crate::model::{CompatLevel, UiError, is_kai_path};
 
-fn tone(c: CompatLevel) -> &'static str {
+fn tone(c: CompatLevel) -> Tone {
     match c {
-        CompatLevel::Full => "ok",
-        CompatLevel::Partial => "warn",
-        CompatLevel::Unsupported => "bad",
+        CompatLevel::Full => Tone::Ok,
+        CompatLevel::Partial => Tone::Warn,
+        CompatLevel::Unsupported => Tone::Err,
     }
 }
 
@@ -178,7 +178,7 @@ fn ExtensionRow(
                     span { "{ext.name}" }
                     span { class: "tk-ext__ver", {tf("ext.version", &[("v", &ext.version)])} }
                 }
-                Pill { text: compat_label, tone: tone(ext.compat).to_string() }
+                Pill { text: compat_label, tone: tone(ext.compat) }
                 Switch {
                     checked: ext.enabled && can_enable,
                     label: t("ext.enabled"),

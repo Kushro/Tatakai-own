@@ -282,7 +282,7 @@ pub fn PlayerPage(id: String, episode: u32) -> Element {
                         ui.commit_settings(&backend, s);
                     }
                 }
-                Shortcut::ToggleNav | Shortcut::FocusSearch => {}
+                Shortcut::ToggleNav | Shortcut::FocusSearch | Shortcut::NavTo(_) => {}
             }
             let _ = &id;
         }

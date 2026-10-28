@@ -1,0 +1,18 @@
+/* Details - owner: wave 1 B. Colors/type/shape/motion only from tokens.css; layout literals only. */
+
+/* details */
+.tk-details { display: flex; flex-direction: column; gap: var(--tk-space-24); }
+.tk-details[data-layout="split"] { display: grid; grid-template-columns: minmax(320px, 5fr) minmax(320px, 6fr); align-items: start; }
+.tk-details__episodes { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-dhead { display: flex; gap: var(--tk-space-24); }
+.tk-dhead__cover { width: 160px; flex: none; }
+.tk-details[data-embedded="true"] .tk-dhead__cover { width: 120px; }
+.tk-dhead__text { display: flex; flex-direction: column; gap: var(--tk-space-12); min-width: 0; }
+.tk-dhead__title { font-family: var(--md-sys-typescale-headline-medium-font); font-size: var(--md-sys-typescale-headline-medium-size); line-height: var(--md-sys-typescale-headline-medium-line-height); }
+.tk-dhead__actions { display: flex; gap: var(--tk-space-8); }
+.tk-dhead__synopsis { color: var(--md-sys-color-on-surface-variant); max-width: 70ch; overflow-wrap: anywhere; user-select: text; }
+
+@media (max-width: 839px) {
+  .tk-details[data-layout="split"] { display: flex; flex-direction: column; }
+  .tk-dhead { flex-direction: column; }
+}

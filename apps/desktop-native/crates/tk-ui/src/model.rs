@@ -225,19 +225,21 @@ pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
 pub enum NavDest {
     Home,
     Search,
+    Library,
     Extensions,
     Link,
     Settings,
 }
 
 impl NavDest {
-    pub const ALL: [NavDest; 5] = [Self::Home, Self::Search, Self::Extensions, Self::Link, Self::Settings];
+    pub const ALL: [NavDest; 6] = [Self::Home, Self::Search, Self::Library, Self::Extensions, Self::Link, Self::Settings];
 
     /// i18n key of the label (`nav.<id>`).
     pub fn label_key(self) -> &'static str {
         match self {
             Self::Home => "nav.home",
             Self::Search => "nav.search",
+            Self::Library => "nav.library",
             Self::Extensions => "nav.extensions",
             Self::Link => "nav.link",
             Self::Settings => "nav.settings",

@@ -7,18 +7,32 @@ use dioxus::prelude::*;
 use tk_player::PlayerHost;
 
 use crate::backend::BackendRef;
-use crate::components::{NavRail, TitleBar};
-use crate::i18n::{self, resolve};
+use crate::components::{NavRail, RailFootItem, Snackbar, SnackbarHost, TitleBar};
+use crate::i18n::{self, resolve, t};
 use crate::model::{NavAction, NavDest, NavState, Settings, nav_expanded, reduce_nav};
 use crate::platform;
 use crate::screens::{
-    details::DetailsPage, extensions::ExtensionsPage, home::HomePage, link::LinkPage, player::PlayerPage,
-    search::SearchPage, settings::SettingsPage,
+    details::DetailsPage, extensions::ExtensionsPage, gallery::GalleryPage, home::HomePage, library::LibraryPage,
+    link::LinkPage, player::PlayerPage, search::SearchPage, settings::SettingsPage,
 };
 use crate::shortcuts::{BRIDGE_JS, JsMsg, Shortcut, shortcut};
 
 const TOKENS_CSS: &str = include_str!("../assets/tokens.css");
-const APP_CSS: &str = include_str!("../assets/app.css");
+/// Base + shell + components (wave 0), then one stylesheet per area so parallel work never edits the
+/// same CSS file (owners in docs/redesign/07 section 5).
+const APP_CSS: &[&str] = &[
+    include_str!("../assets/app.css"),
+    include_str!("../assets/css/media.css"),
+    include_str!("../assets/css/sources.css"),
+    include_str!("../assets/css/home.css"),
+    include_str!("../assets/css/library.css"),
+    include_str!("../assets/css/search.css"),
+    include_str!("../assets/css/details.css"),
+    include_str!("../assets/css/extensions.css"),
+    include_str!("../assets/css/link.css"),
+    include_str!("../assets/css/settings.css"),
+    include_str!("../assets/css/player.css"),
+];
 
 /// What tk-app injects (`LaunchBuilder::with_context`).
 #[derive(Clone)]
@@ -71,6 +85,8 @@ pub enum Route {
     HomePage {},
     #[route("/search")]
     SearchPage {},
+    #[route("/library")]
+    LibraryPage {},
     #[route("/details/:id")]
     DetailsPage { id: String },
     #[route("/player/:id/:episode")]
@@ -81,6 +97,9 @@ pub enum Route {
     LinkPage {},
     #[route("/settings")]
     SettingsPage {},
+    /// Component gallery; renders nothing in release builds.
+    #[route("/gallery")]
+    GalleryPage {},
 }
 
 impl Route {
@@ -88,10 +107,11 @@ impl Route {
         match self {
             Self::HomePage {} | Self::DetailsPage { .. } => Some(NavDest::Home),
             Self::SearchPage {} => Some(NavDest::Search),
+            Self::LibraryPage {} => Some(NavDest::Library),
             Self::ExtensionsPage {} => Some(NavDest::Extensions),
             Self::LinkPage {} => Some(NavDest::Link),
             Self::SettingsPage {} => Some(NavDest::Settings),
-            Self::PlayerPage { .. } => None,
+            Self::PlayerPage { .. } | Self::GalleryPage {} => None,
         }
     }
 
@@ -103,6 +123,7 @@ impl Route {
         match dest {
             NavDest::Home => Self::HomePage {},
             NavDest::Search => Self::SearchPage {},
+            NavDest::Library => Self::LibraryPage {},
             NavDest::Extensions => Self::ExtensionsPage {},
             NavDest::Link => Self::LinkPage {},
             NavDest::Settings => Self::SettingsPage {},
@@ -120,6 +141,7 @@ pub fn App() -> Element {
     let mut sys_tag = use_signal(|| "en".to_owned());
     let mut sys_dark = use_signal(|| true);
     use_context_provider(|| Ui { settings, width, nav, shortcut: shortcut_sig });
+    use_context_provider(Snackbar::new);
 
     let fonts_css = use_hook({
         let dir = services.fonts_dir.clone();
@@ -155,9 +177,8 @@ pub fn App() -> Element {
                         width.set(w);
                     }
                 }
-                JsMsg::Key { key, ctrl, editable, .. } => {
-                    let in_player = true; // the bridge cannot know the route; screens filter on their own
-                    if let Some(action) = shortcut(&key, ctrl, editable, in_player) {
+                JsMsg::Key { key, ctrl, editable, player, .. } => {
+                    if let Some(action) = shortcut(&key, ctrl, editable, player) {
                         seq += 1;
                         shortcut_sig.set(Some(ShortcutEvt { seq, action }));
                     }
@@ -177,7 +198,9 @@ pub fn App() -> Element {
     rsx! {
         style { dangerous_inner_html: "{TOKENS_CSS}" }
         style { dangerous_inner_html: "{fonts_css}" }
-        style { dangerous_inner_html: "{APP_CSS}" }
+        for (i , css) in APP_CSS.iter().enumerate() {
+            style { key: "{i}", dangerous_inner_html: "{css}" }
+        }
         Router::<Route> {}
     }
 }
@@ -205,6 +228,11 @@ fn Shell() -> Element {
             Shortcut::FocusSearch => {
                 navigator.push(Route::SearchPage {});
             }
+            Shortcut::NavTo(n) => {
+                if let Some(dest) = NavDest::ALL.get(usize::from(n).saturating_sub(1)) {
+                    navigator.push(Route::for_dest(*dest));
+                }
+            }
             _ => {}
         }
     });
@@ -228,10 +256,23 @@ fn Shell() -> Element {
                             navigator.push(Route::for_dest(d));
                         },
                         on_toggle: toggle,
+                        on_search: move |_| {
+                            navigator.push(Route::SearchPage {});
+                        },
+                        if cfg!(debug_assertions) {
+                            RailFootItem {
+                                icon: "grid".to_string(),
+                                label: t("gallery.title"),
+                                onclick: move |_| {
+                                    navigator.push(Route::GalleryPage {});
+                                },
+                            }
+                        }
                     }
                 }
                 main { class: "tk-main", Outlet::<Route> {} }
             }
+            SnackbarHost {}
         }
     }
 }

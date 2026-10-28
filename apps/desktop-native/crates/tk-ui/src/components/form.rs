@@ -1,38 +1,8 @@
-//! Segmented buttons, switch and text field.
+//! Switch and outlined text field. (The segmented button lives in `segmented.rs`.)
 
 use dioxus::prelude::*;
 
-/// One segment: `(id, already-translated label)`.
-pub type SegOption = (String, String);
-
-/// Single-select segmented button group (radiogroup semantics).
-#[component]
-pub fn Segmented(
-    options: Vec<SegOption>,
-    selected: String,
-    label: String,
-    #[props(default)] on_select: EventHandler<String>,
-) -> Element {
-    rsx! {
-        div { class: "tk-seg", role: "radiogroup", "aria-label": "{label}",
-            for (id , text) in options {
-                button {
-                    key: "{id}",
-                    class: "tk-seg__item",
-                    r#type: "button",
-                    role: "radio",
-                    "aria-checked": if id == selected { "true" } else { "false" },
-                    "data-selected": "{id == selected}",
-                    onclick: {
-                        let id = id.clone();
-                        move |_| on_select.call(id.clone())
-                    },
-                    "{text}"
-                }
-            }
-        }
-    }
-}
+use crate::icons::Icon;
 
 #[component]
 pub fn Switch(
@@ -57,31 +27,49 @@ pub fn Switch(
     }
 }
 
+/// Outlined text field with optional leading icon, supporting text and error state.
 #[component]
 pub fn TextField(
     label: String,
     value: String,
     #[props(default = "text".to_string())] kind: String,
     #[props(default)] placeholder: String,
+    #[props(default)] icon: String,
+    /// Supporting text under the box; error-colored when `error` is set.
+    #[props(default)] hint: String,
+    #[props(default)] error: bool,
+    /// Monospace input (codes, paths, hashes).
+    #[props(default)] mono: bool,
+    #[props(default)] disabled: bool,
     #[props(default)] oninput: EventHandler<String>,
     #[props(default)] onsubmit: EventHandler<()>,
 ) -> Element {
     rsx! {
-        label { class: "tk-field",
+        label { class: "tk-field", "data-error": "{error}", "data-mono": "{mono}",
             span { class: "tk-field__label", "{label}" }
-            input {
-                class: "tk-field__input",
-                r#type: "{kind}",
-                value: "{value}",
-                placeholder: "{placeholder}",
-                autocomplete: "off",
-                spellcheck: "false",
-                oninput: move |e| oninput.call(e.value()),
-                onkeydown: move |e| {
-                    if e.key() == Key::Enter {
-                        onsubmit.call(());
-                    }
-                },
+            span { class: "tk-field__box",
+                if !icon.is_empty() {
+                    Icon { name: icon.clone(), size: 20 }
+                }
+                input {
+                    class: "tk-field__input",
+                    r#type: "{kind}",
+                    value: "{value}",
+                    placeholder: "{placeholder}",
+                    autocomplete: "off",
+                    spellcheck: "false",
+                    disabled,
+                    "aria-invalid": "{error}",
+                    oninput: move |e| oninput.call(e.value()),
+                    onkeydown: move |e| {
+                        if e.key() == Key::Enter {
+                            onsubmit.call(());
+                        }
+                    },
+                }
+            }
+            if !hint.is_empty() {
+                span { class: "tk-field__hint", "{hint}" }
             }
         }
     }

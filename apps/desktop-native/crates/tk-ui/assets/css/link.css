@@ -1,0 +1,14 @@
+/* Link - owner: wave 2 D. Colors/type/shape/motion only from tokens.css; layout literals only. */
+
+/* link */
+.tk-status { color: var(--md-sys-color-primary); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-pair { display: flex; flex-wrap: wrap; gap: var(--tk-space-24); align-items: flex-start; }
+.tk-qr { width: 240px; flex: none; padding: var(--tk-space-8); border-radius: var(--md-sys-shape-corner-large); background: #ffffff; }
+.tk-qr svg { width: 100%; height: auto; display: block; }
+.tk-pair__side { display: flex; flex-direction: column; gap: var(--tk-space-12); min-width: 260px; max-width: 360px; }
+.tk-code { font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-headline-medium-size); letter-spacing: 0.12em; user-select: text; color: var(--md-sys-color-primary); }
+.tk-devices { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-device { display: flex; align-items: center; gap: var(--tk-space-16); padding: var(--tk-space-12) var(--tk-space-16); border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container-high); }
+.tk-device__text { flex: 1; min-width: 0; }
+.tk-device__name { font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-device__sub { font-size: var(--md-sys-typescale-label-small-size); color: var(--md-sys-color-on-surface-variant); }

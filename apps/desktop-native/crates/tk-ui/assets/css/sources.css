@@ -1,0 +1,23 @@
+/* Sources: source rows, picker and summary - owner: wave 2 E (source_row.rs, SourcePicker, SourceSummary).
+   Colors/type/shape/motion only from tokens.css. Reliability tones: ok=primary, warn=tertiary, err=error. */
+
+.tk-slist { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-srow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--tk-space-12); align-items: start; width: 100%; text-align: left; color: inherit; padding: var(--tk-space-12); border-radius: var(--md-sys-shape-corner-large); border: 1px solid var(--md-sys-color-outline-variant); transition: background-color var(--tk-mo-fx-fast), border-color var(--tk-mo-fx-fast); }
+.tk-srow:hover { background: var(--md-sys-color-surface-container-high); }
+.tk-srow[aria-checked="true"] { border-color: var(--md-sys-color-primary); background: color-mix(in srgb, var(--md-sys-color-primary-container) 30%, transparent); }
+.tk-srow:disabled { opacity: .5; }
+.tk-srow__ico { width: 36px; height: 36px; border-radius: var(--md-sys-shape-corner-small); display: grid; place-items: center; background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
+.tk-srow[data-kind="torrent"] .tk-srow__ico { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
+.tk-srow__main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tk-srow__title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); font-size: var(--md-sys-typescale-label-large-size); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-srow__meta { display: flex; flex-wrap: wrap; gap: 4px var(--tk-space-16); }
+.tk-srow__kv { display: inline-flex; gap: 4px; font-size: 12px; }
+.tk-srow__k { color: var(--md-sys-color-on-surface-variant); }
+.tk-srow__v { font-weight: 600; }
+.tk-srow__hash { font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-small-size); color: var(--md-sys-color-on-surface-variant); user-select: text; }
+.tk-srow__rel { display: flex; align-items: center; gap: var(--tk-space-8); color: var(--md-sys-color-on-surface-variant); }
+.tk-srow__relbar { width: 96px; height: 6px; border-radius: 6px; background: var(--md-sys-color-surface-container-highest); overflow: hidden; flex: none; }
+.tk-srow__relbar i { display: block; height: 100%; border-radius: 6px; background: var(--md-sys-color-primary); }
+.tk-srow__relbar i[data-tone="warn"] { background: var(--md-sys-color-tertiary); }
+.tk-srow__relbar i[data-tone="err"] { background: var(--md-sys-color-error); }
+.tk-srow__check { color: var(--md-sys-color-primary); }
