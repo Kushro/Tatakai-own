@@ -10,8 +10,9 @@ export function publicImageUrl(value?: string | null, width: number | null = 192
   if (!value) return value ?? undefined;
   // Fork: images are never rewritten through the third-party wsrv.nl service
   // (it would leak every image URL and the viewer's IP). Set
-  // VITE_IMAGE_PROXY=wsrv to opt in explicitly.
-  if (import.meta.env.VITE_IMAGE_PROXY !== 'wsrv') return value;
+  // VITE_IMAGE_PROXY=wsrv to opt in explicitly. `import.meta.env` is undefined
+  // when vite.config.ts imports this module in Node (non-packaged CSS plugin).
+  if (import.meta.env?.VITE_IMAGE_PROXY !== 'wsrv') return value;
   const cacheKey = value.length <= 2048 && (!base || base.length <= 2048)
     ? JSON.stringify([value, String(width), base]) : undefined;
   if (cacheKey) {
@@ -54,7 +55,7 @@ function buildPublicImageUrl(value: string, width: number | null, base?: string)
 export function optimizedImageUrl(value?: string | null, width: number | null = 1920): string | undefined {
   // Relative assets stay local in development and packaged/offline builds.
   const location = (globalThis as { window?: { location: { href: string } } }).window?.location;
-  return publicImageUrl(value, width, import.meta.env.VITE_PACKAGED_BUILD !== 'true' ? location?.href : undefined);
+  return publicImageUrl(value, width, import.meta.env?.VITE_PACKAGED_BUILD !== 'true' ? location?.href : undefined);
 }
 
 /** Recover the source when a caller passes a cached thumbnail into the viewer. */
