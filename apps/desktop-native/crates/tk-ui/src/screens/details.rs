@@ -9,6 +9,7 @@ use dioxus::prelude::*;
 
 use crate::app::{Route, Services, Ui};
 use crate::backend::{DetailsVm, DeviceVm, EpisodeVm, LinkStatusVm, SourceVm};
+use crate::components::title_bar::ShellStatus;
 use crate::components::{
     Button, ButtonSize, ButtonVariant, ConfirmDialog, EmptyState, ErrorState, FloatingToolbar, IconButton,
     IconButtonVariant, InfoChip, LoadingIndicator, MediaCover, Pill, Segmented, Sheet, SkeletonLines, SourcePicker,
@@ -118,11 +119,15 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
             async move { if embedded { Ok(Vec::new()) } else { backend.extensions().await } }
         }
     });
+    // tk-app starts the Link server on `link_status()` (firewall prompt): only ask once a Link screen has
+    // started it this session (the shell then holds a status); otherwise the panel offers the Link page.
+    let shell_link = try_use_context::<ShellStatus>().map(|s| s.link);
     let mut link = use_resource({
         let backend = backend.clone();
         move || {
             let backend = backend.clone();
-            async move { if embedded { Ok(LinkStatusVm::default()) } else { backend.link_status().await } }
+            let started = shell_link.is_some_and(|l| l.peek().is_some());
+            async move { if embedded || !started { Ok(LinkStatusVm::default()) } else { backend.link_status().await } }
         }
     });
 
