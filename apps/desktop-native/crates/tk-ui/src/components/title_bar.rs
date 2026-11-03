@@ -23,7 +23,7 @@ const ONLINE_JS: &str =
 #[derive(Clone, Copy)]
 pub struct ShellStatus {
     pub online: Signal<bool>,
-    /// Last `Backend::link_status()`; `None` until the first answer or when it failed.
+    /// Last `Backend::link_status()`; `None` until a Link screen pushed the first answer, or when it failed.
     pub link: Signal<Option<LinkStatusVm>>,
 }
 
@@ -38,7 +38,7 @@ impl ShellStatus {
 }
 
 /// Call once from the shell: provides [`ShellStatus`] and keeps it fed (web view online state and a
-/// periodic `link_status()` poll).
+/// periodic `link_status()` poll once a Link screen has seeded `link`).
 pub fn use_shell_status() -> ShellStatus {
     let services = use_context::<Services>();
     let mut online = use_signal(|| true);
@@ -59,9 +59,13 @@ pub fn use_shell_status() -> ShellStatus {
         let backend = backend.clone();
         async move {
             loop {
-                let next = backend.link_status().await.ok();
-                if *link.peek() != next {
-                    link.set(next);
+                // tk-app starts the Link server on `link_status()`, so the poll only follows a server some Link
+                // screen has already asked for (no firewall prompt at launch, review E6).
+                if link.peek().is_some() {
+                    let next = backend.link_status().await.ok();
+                    if *link.peek() != next {
+                        link.set(next);
+                    }
                 }
                 tokio::time::sleep(Duration::from_secs(LINK_POLL_SECS)).await;
             }
