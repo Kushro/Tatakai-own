@@ -1,7 +1,7 @@
 //! Extension host glue over tk-ext.
 //!
 //! Real API (tk-ext): `ExtensionHost::open(root)`, sync `install_kai` / `list` / `get` / `set_enabled` / `remove`,
-//! async `resolve_streams`, `logs(id)` (console lines of the bundle, oldest first).
+//! async `resolve_streams` / `resolve_candidates`, `logs(id)` (console lines of the bundle, oldest first).
 //!
 //! The per-extension log the UI shows merges two sources: operations the app performs (install, enable, stream
 //! resolution, with a timestamp) kept here in memory, and the bundle's own console output from tk-ext.
@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use tk_core::sources::SourceCandidate;
 use tk_core::{Compat, InstalledExtension, Media, StreamSource};
 use tk_ext::ExtensionHost;
 use tk_ext::hashing::Algo;
@@ -179,6 +180,20 @@ impl Extensions {
             }
         }
         streams
+    }
+
+    /// Every source candidate of the episode (web `stream` route plus torrent `torrent` route, with server, subs,
+    /// dubs and note), unranked. Logs one `stream` line per enabled extension like [`Self::resolve`].
+    pub async fn resolve_candidates(&self, media: &Media, episode: u32) -> Vec<SourceCandidate> {
+        let started = Instant::now();
+        let list = self.host.resolve_candidates(media, episode).await;
+        let ms = started.elapsed().as_millis();
+        for e in self.host.list().into_iter().filter(|e| e.enabled && e.compat != Compat::Unsupported) {
+            let n = list.iter().filter(|c| c.ext_id == e.id).count();
+            let level = if n == 0 { ExtLogLevel::Warn } else { ExtLogLevel::Ok };
+            self.note(&e.id, level, "stream", format!("\"{}\" ep {episode} -> {n} sources in {ms} ms", media.title));
+        }
+        list
     }
 
     /// Newest first: app operations (timestamped), then the bundle's console output.
