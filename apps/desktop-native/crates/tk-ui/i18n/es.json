@@ -393,5 +393,8 @@
   "lib.empty.body": "Los episodios que veas aparecen aquí para seguir después.",
   "player.pip": "Imagen en imagen",
   "player.capture": "Captura",
-  "src.use_web": "Usar la mejor fuente web"
+  "src.use_web": "Usar la mejor fuente web",
+  "home.hero.slide": "Mostrar diapositiva {n}",
+  "home.hero.carousel": "carrusel",
+  "media.ep_badge": "EP {n}"
 }

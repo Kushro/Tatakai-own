@@ -27,6 +27,7 @@ pub use floating_toolbar::{FloatingToolbar, ToolbarSeparator};
 pub use form::{Switch, TextField};
 pub use loading::LoadingIndicator;
 pub use media::{EpisodeRow, MediaCard, MediaCover};
+pub use media::{ContinueCard, HeroCarousel, format_score, monogram, safe_css_color};
 pub use menu::{Menu, MenuAlign, MenuItem, MenuPlacement, MenuSeparator};
 pub use nav_rail::{NavRail, RailFootItem};
 pub use player_controls::PlayerControls;
