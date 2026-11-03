@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 use crate::model::{CompatLevel, Pairing, Settings, UiError};
 
@@ -120,6 +121,8 @@ pub struct DeviceVm {
     pub platform: String,
     /// Unix seconds, `None` if never seen after pairing.
     pub last_seen_unix: Option<i64>,
+    /// Has a live session with this PC right now ("Connected now" pill).
+    pub online: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -134,6 +137,127 @@ pub struct LinkStatusVm {
     pub running: bool,
     pub port: u16,
     pub devices: Vec<DeviceVm>,
+    /// Why the server is not running (`running == false`). `ErrorKind::AddrInUse` = `port` is taken
+    /// (os error 10048 / 98); `detail` carries the OS message for the collapsible block.
+    pub error: Option<UiError>,
+}
+
+// ---------------------------------------------------------------------------------------------
+// Wave 1 contract (docs/redesign/08): sources, library, extension details, Link status
+// ---------------------------------------------------------------------------------------------
+
+/// Mirrors `tk_core::sources::SourceKind`. Persisted inside `Settings` (`"web"` / `"torrent"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SourceKindVm {
+    Web,
+    Torrent,
+}
+
+impl SourceKindVm {
+    pub const ALL: [SourceKindVm; 2] = [Self::Web, Self::Torrent];
+
+    /// `web` / `torrent`: i18n suffix (`src.<id>`), `data-kind` value and middle part of `SourceVm::id`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Web => "web",
+            Self::Torrent => "torrent",
+        }
+    }
+}
+
+/// One ranked source of an episode (`Backend::sources` returns them best first).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceVm {
+    /// `tk_core::sources::source_key`: `"<ext_id>|<kind>|<label>"`. Pass it back to `playback_source`,
+    /// `report_source_result` and `set_picked_source`.
+    pub id: String,
+    pub ext_id: String,
+    pub ext_name: String,
+    pub kind: SourceKindVm,
+    /// Server ("Alpha") for web, release group ("SubsPlease") for torrent.
+    pub label: String,
+    /// `"1080p"`; empty when unknown.
+    pub quality: String,
+    /// "HLS", "MP4", "HEVC 10-bit" ...
+    pub container: Option<String>,
+    /// ISO 639-1 lowercase (`es`); the UI upper-cases them.
+    pub subs: Vec<String>,
+    pub dubs: Vec<String>,
+    /// 0.0..=1.0. Tones: >= 0.9 ok, >= 0.7 warn, else err (`src.rel.high|mid|low`).
+    pub reliability: f32,
+    pub note: Option<String>,
+    /// Web only.
+    pub latency_ms: Option<u32>,
+    /// Torrent only.
+    pub size_bytes: Option<u64>,
+    pub seeders: Option<u32>,
+    pub leechers: Option<u32>,
+    pub info_hash: Option<String>,
+    /// False when the extension is disabled or unsupported: the row is shown disabled (`src.ext_off`).
+    pub ext_enabled: bool,
+    pub score: f32,
+    /// The first entry of the ranked list (the one Auto mode plays).
+    pub recommended: bool,
+    /// The user's manual pick for this episode (`set_picked_source`); at most one per list.
+    pub picked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HistoryItemVm {
+    pub media: MediaVm,
+    pub episode: u32,
+    pub watched_unix: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LibraryVm {
+    pub continue_watching: Vec<ContinueVm>,
+    /// Newest first, one row per watched episode.
+    pub history: Vec<HistoryItemVm>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtLogLevel {
+    Ok,
+    Warn,
+    Err,
+}
+
+/// One line of an extension's log ("search", "\"dandadan\" -> 3 results in 412 ms").
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtLogVm {
+    pub level: ExtLogLevel,
+    /// Operation: `install`, `search`, `stream`, `fetch`, `compat`, `session` ...
+    pub op: String,
+    pub message: String,
+    pub at_unix: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtensionDetailVm {
+    pub id: String,
+    /// Hosts from the `network:domain:*` permissions.
+    pub domains: Vec<String>,
+    /// Package hash, display form (`9f2c…b71e`).
+    pub hash: String,
+    pub updated_unix: Option<i64>,
+    /// Manifest `type` (`anime`, `torrent` ...).
+    pub kind: String,
+}
+
+/// What this PC offers to paired phones (`GET /v1/capabilities`, measured locally).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LinkCapsVm {
+    pub gpu: Option<String>,
+    pub vulkan: Option<String>,
+    pub encoder: Option<String>,
+    pub upscale: Option<String>,
+    /// `(profile id, supported)`; `None` = not measured yet (`link.caps.unknown`).
+    pub profiles: Vec<(String, Option<bool>)>,
+    /// Certificate fingerprint, display form (`7A3F 91C2 ...`).
+    pub fingerprint: String,
+    pub lan_ip: Option<String>,
 }
 
 pub type UiResult<T> = Result<T, UiError>;
@@ -170,6 +294,53 @@ pub trait Backend: Send + Sync + 'static {
     async fn link_revoke(&self, device_id: &str) -> UiResult<()>;
     /// Windows Firewall rule for the private profile (UAC prompt). Returns when the elevated process ends.
     async fn link_allow_private_network(&self) -> UiResult<()>;
+
+    // --- wave 1 (docs/redesign/08). Defaults return `ErrorKind::NotWired` so every implementation keeps
+    // compiling; tk-app (F) overrides them. ---
+
+    /// All sources of an episode, ranked best first with the current `Settings::sources` prefs.
+    async fn sources(&self, _id: &str, _episode: u32) -> UiResult<Vec<SourceVm>> {
+        Err(UiError::not_wired("sources"))
+    }
+    /// Resolve one source (`SourceVm::id`) into a playable stream (`streams` has exactly one entry).
+    /// A torrent source fails with `ErrorKind::TorrentM2`.
+    async fn playback_source(&self, _id: &str, _episode: u32, _source_id: &str) -> UiResult<PlaybackVm> {
+        Err(UiError::not_wired("playback_source"))
+    }
+    /// Feed the reliability average of that source (`ok` = playback started).
+    async fn report_source_result(&self, _source_id: &str, _ok: bool) -> UiResult<()> {
+        Err(UiError::not_wired("report_source_result"))
+    }
+    /// Remember (`Some`) or forget (`None`) the user's pick for this episode. The pick expires when the
+    /// episode is completed.
+    async fn set_picked_source(&self, _id: &str, _episode: u32, _source_id: Option<&str>) -> UiResult<()> {
+        Err(UiError::not_wired("set_picked_source"))
+    }
+    async fn library(&self) -> UiResult<LibraryVm> {
+        Err(UiError::not_wired("library"))
+    }
+    /// Push dirty history and pull remote rows now (signed in only; otherwise `ErrorKind::Auth`).
+    async fn sync_now(&self) -> UiResult<()> {
+        Err(UiError::not_wired("sync_now"))
+    }
+    /// Newest first.
+    async fn extension_logs(&self, _id: &str) -> UiResult<Vec<ExtLogVm>> {
+        Err(UiError::not_wired("extension_logs"))
+    }
+    async fn extension_detail(&self, _id: &str) -> UiResult<ExtensionDetailVm> {
+        Err(UiError::not_wired("extension_detail"))
+    }
+    /// Stop the Link server and start it again on `port`. A taken port is not an `Err`: it returns a
+    /// status with `running: false` and `error: Some(AddrInUse)`.
+    async fn link_restart(&self, _port: u16) -> UiResult<LinkStatusVm> {
+        Err(UiError::not_wired("link_restart"))
+    }
+    async fn link_rename_device(&self, _device_id: &str, _name: &str) -> UiResult<()> {
+        Err(UiError::not_wired("link_rename_device"))
+    }
+    async fn link_capabilities(&self) -> UiResult<LinkCapsVm> {
+        Err(UiError::not_wired("link_capabilities"))
+    }
 }
 
 pub type BackendRef = Arc<dyn Backend>;

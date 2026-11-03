@@ -1,5 +1,6 @@
 //! Dioxus components (docs/redesign/01 section 6, docs/redesign/07 section 2). Plain functions of
-//! props: no backend access. The only shared state is the global [`Snackbar`] from context.
+//! props: no backend access (exception: `SourceSummary` loads its own sources, see `sources.rs`). The only
+//! shared state is the global [`Snackbar`] from context.
 
 pub mod button;
 pub mod chips;
@@ -15,6 +16,7 @@ pub mod progress;
 pub mod segmented;
 pub mod sheet;
 pub mod snackbar;
+pub mod sources;
 pub mod state;
 pub mod title_bar;
 
@@ -32,5 +34,6 @@ pub use progress::WavyProgress;
 pub use segmented::{SegOption, Segmented};
 pub use sheet::Sheet;
 pub use snackbar::{Snackbar, SnackbarHost, use_snackbar};
+pub use sources::{SourcePicker, SourceRow, SourceSummary};
 pub use state::{EmptyState, ErrorState, SkeletonGrid, SkeletonLines, SkeletonRow};
 pub use title_bar::TitleBar;

@@ -216,6 +216,36 @@ impl LocalStore {
     }
 }
 
+// ---- sources (wave 1 C; contract in docs/redesign/08) ---------------------------------------------
+// New tables go into SCHEMA as `CREATE TABLE IF NOT EXISTS` so existing databases upgrade in place.
+
+impl LocalStore {
+    /// Reliability of `(ext_id, label)`; [`crate::sources::INITIAL_RELIABILITY`] when never recorded.
+    pub fn reliability(&self, ext_id: &str, label: &str) -> Result<f32, StoreError> {
+        todo!("wave 1 C: {ext_id} {label}")
+    }
+
+    /// Fold one playback result into the moving average ([`crate::sources::update_reliability`]) and
+    /// return the new value.
+    pub fn record_source_result(&self, ext_id: &str, label: &str, ok: bool) -> Result<f32, StoreError> {
+        todo!("wave 1 C: {ext_id} {label} {ok}")
+    }
+
+    /// The user's manual pick (a `source_key`) for this episode, if any.
+    pub fn picked_source(&self, media_id: &str, episode: u32) -> Result<Option<String>, StoreError> {
+        todo!("wave 1 C: {media_id} {episode}")
+    }
+
+    pub fn set_picked_source(&self, media_id: &str, episode: u32, key: &str) -> Result<(), StoreError> {
+        todo!("wave 1 C: {media_id} {episode} {key}")
+    }
+
+    /// Called when the episode is completed (the pick expires) or the user resets it.
+    pub fn clear_picked_source(&self, media_id: &str, episode: u32) -> Result<(), StoreError> {
+        todo!("wave 1 C: {media_id} {episode}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

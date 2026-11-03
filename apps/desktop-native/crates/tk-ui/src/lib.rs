@@ -11,6 +11,7 @@ pub mod i18n;
 pub mod icons;
 pub mod model;
 pub mod platform;
+pub mod player_state;
 pub mod qr;
 pub mod screens;
 pub mod shortcuts;

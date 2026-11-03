@@ -185,6 +185,8 @@
   "error.no_source": "Ninguna fuente pudo ofrecer este video.",
   "error.auth": "No se pudo iniciar sesión. Revisa tu correo y contraseña.",
   "error.generic": "Algo salió mal.",
+  "error.addr_in_use": "Ese puerto ya está en uso por otro programa.",
+  "error.not_wired": "Esto aún no está disponible en esta versión.",
   "state.error.detail": "Detalles",
   "app.channel": "Next · Preview",
   "nav.library": "Biblioteca",
