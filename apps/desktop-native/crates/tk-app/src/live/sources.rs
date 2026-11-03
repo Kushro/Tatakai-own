@@ -1,5 +1,5 @@
-//! Source selector glue (docs/redesign/08 sections 4 and 7): raw extension streams -> tk-core
-//! `SourceCandidate` -> ranked `SourceVm`. Pure functions; the backend adds the store and the cache.
+//! Source selector glue (docs/redesign/08 sections 4 and 7): tk-ext `SourceCandidate`s -> ranked `SourceVm`.
+//! Pure functions; the backend adds the store and the cache.
 
 use tk_core::StreamSource;
 use tk_core::sources::{Quality, SourceCandidate, SourceKind, SourceMode, SourcePrefs, rank, source_key};
@@ -40,12 +40,11 @@ pub fn core_prefs(p: &SourcePrefsVm) -> SourcePrefs {
     }
 }
 
-/// Wrap every stream as a candidate. `source_key` is `<ext>|<kind>|<label>`, so two streams of the same server
-/// (one extension returning 1080p and 720p of "Alpha") would share an id: keep the best quality, first wins on ties.
-pub fn candidates_from_streams(streams: &[StreamSource], ext_name: impl Fn(&str) -> String) -> Vec<SourceCandidate> {
+/// `source_key` is `<ext>|<kind>|<label>`; tk-ext already makes labels unique inside one response, but two entries
+/// that still share an id (same extension and server) keep the best quality, first wins on ties.
+pub fn dedupe_by_key(candidates: Vec<SourceCandidate>) -> Vec<SourceCandidate> {
     let mut out: Vec<(String, SourceCandidate)> = Vec::new();
-    for s in streams {
-        let c = SourceCandidate::from_stream(s, &ext_name(&s.extension_id));
+    for c in candidates {
         let key = source_key(&c);
         match out.iter_mut().find(|(k, _)| *k == key) {
             Some((_, prev)) if c.quality > prev.quality => *prev = c,

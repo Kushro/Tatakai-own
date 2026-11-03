@@ -145,9 +145,8 @@ impl LiveBackend {
         let mut list = match cached {
             Some(v) => v,
             None => {
-                let streams = self.ext.resolve(media, episode).await;
-                let names: HashMap<String, String> = self.ext.installed().into_iter().map(|e| (e.id, e.name)).collect();
-                let v = sources::candidates_from_streams(&streams, |ext_id| names.get(ext_id).cloned().unwrap_or_else(|| ext_id.to_owned()));
+                // `resolve_candidates` keeps server/subs/dubs/note and lists torrents (resolve_streams does not).
+                let v = sources::dedupe_by_key(self.ext.resolve_candidates(media, episode).await);
                 if let Ok(mut c) = self.candidates.lock() {
                     c.retain(|_, (at, _)| at.elapsed() < SOURCES_TTL);
                     c.insert(key, (Instant::now(), v.clone()));
