@@ -96,11 +96,19 @@ impl DeviceRegistry {
         changed
     }
 
+    /// Set the display name (persisted in `devices.json`, so it survives restarts). Empty names and unknown or
+    /// revoked devices are refused.
     pub fn rename(&self, id: &str, name: &str) -> bool {
+        let name = name.trim();
+        if name.is_empty() {
+            return false;
+        }
         let mut g = self.lock();
-        let Some(d) = g.iter_mut().find(|d| d.id == id) else { return false };
+        let Some(d) = g.iter_mut().find(|d| d.id == id && d.revoked_at.is_none()) else { return false };
         d.name = name.to_owned();
-        let _ = self.persist(&g);
+        if let Err(e) = self.persist(&g) {
+            tracing::error!(error = %e, "could not persist device name");
+        }
         true
     }
 
@@ -134,5 +142,22 @@ mod tests {
         let again = DeviceRegistry::open(path).unwrap();
         assert!(!again.is_active("a", 21));
         assert_eq!(again.by_fingerprint("fp-a").unwrap().revoked_at, Some(20));
+    }
+
+    #[test]
+    fn rename_persists_and_refuses_bad_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        let reg = DeviceRegistry::open(path.clone()).unwrap();
+        reg.add(dev("a")).unwrap();
+        reg.add(dev("b")).unwrap();
+        assert!(reg.rename("a", "  Pixel de Ana "));
+        assert!(!reg.rename("a", "   "), "empty name");
+        assert!(!reg.rename("zzz", "x"), "unknown device");
+        assert!(reg.revoke("b", 5));
+        assert!(!reg.rename("b", "x"), "revoked device");
+        let again = DeviceRegistry::open(path).unwrap();
+        assert_eq!(again.get("a").unwrap().name, "Pixel de Ana");
+        assert_eq!(again.get("b").unwrap().name, "Phone");
     }
 }
