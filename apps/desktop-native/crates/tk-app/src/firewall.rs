@@ -5,6 +5,8 @@
 use std::path::Path;
 
 pub const RULE_NAME: &str = "Tatakai Link";
+/// Same value as `tk_link::DEFAULT_PORT`; the live backend asks the Link service for the port in use.
+#[cfg_attr(feature = "live", allow(dead_code))]
 pub const DEFAULT_PORT: u16 = 47321;
 
 /// `netsh advfirewall firewall add rule ...` arguments (private profile only, inbound TCP, this exe).

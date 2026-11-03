@@ -2,10 +2,10 @@
 
 use tk_ui::model::{ErrorKind, UiError};
 
-/// UAC firewall flow on a blocking thread.
-pub async fn allow_private_network() -> Result<(), UiError> {
+/// UAC firewall flow on a blocking thread, for the port the Link server uses.
+pub async fn allow_private_network(port: u16) -> Result<(), UiError> {
     let exe = std::env::current_exe().map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))?;
-    tokio::task::spawn_blocking(move || crate::firewall::allow_private_network(&exe, crate::firewall::DEFAULT_PORT))
+    tokio::task::spawn_blocking(move || crate::firewall::allow_private_network(&exe, port))
         .await
         .map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))?
         .map_err(|e| UiError::new(ErrorKind::Other, e))
