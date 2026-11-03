@@ -390,5 +390,11 @@
   "gallery.snack": "Mostrar snackbar",
   "gallery.snack_text": "Snackbar desde la galería",
   "lib.empty.title": "Todavía no hay nada",
+  "search.season.winter": "Invierno",
+  "search.season.spring": "Primavera",
+  "search.season.summer": "Verano",
+  "search.season.fall": "Otoño",
+  "provider.mal": "MyAnimeList",
+  "ext.logs_empty": "Todavía no hay entradas en el registro.",
   "lib.empty.body": "Los episodios que veas aparecen aquí para seguir después."
 }
