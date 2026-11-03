@@ -191,7 +191,7 @@ pub fn App() -> Element {
     use_effect(move || {
         let s = settings.read();
         let attrs = s.theme_attrs(sys_dark());
-        platform::apply_theme(&attrs.palette, attrs.mode, attrs.contrast);
+        platform::apply_theme(&attrs.palette, attrs.mode, attrs.contrast, s.reduce_motion);
         i18n::set_lang(resolve(s.language, &sys_tag.read()));
     });
 
@@ -212,6 +212,7 @@ fn Shell() -> Element {
     let navigator = use_navigator();
     let mut nav_state = ui.nav;
     let mut shortcut_seen = use_signal(|| 0_u64);
+    let shell_status = crate::components::title_bar::use_shell_status();
 
     // Ctrl+B / Ctrl+K are global; everything else is handled by the screen that owns it.
     use_effect(move || {
@@ -246,7 +247,7 @@ fn Shell() -> Element {
 
     rsx! {
         div { class: "tk-shell", "data-player": "{in_player}",
-            TitleBar { on_toggle_nav: toggle }
+            TitleBar { on_toggle_nav: toggle, offline: !(shell_status.online)(), link_port: shell_status.link_port() }
             div { class: "tk-shell__body",
                 if !in_player {
                     NavRail {
