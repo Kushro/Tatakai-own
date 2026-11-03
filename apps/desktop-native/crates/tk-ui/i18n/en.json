@@ -390,5 +390,11 @@
   "gallery.snack": "Show snackbar",
   "gallery.snack_text": "Snackbar from the gallery",
   "lib.empty.title": "Nothing here yet",
+  "search.season.winter": "Winter",
+  "search.season.spring": "Spring",
+  "search.season.summer": "Summer",
+  "search.season.fall": "Fall",
+  "provider.mal": "MyAnimeList",
+  "ext.logs_empty": "No log entries yet.",
   "lib.empty.body": "Episodes you watch show up here to continue later."
 }
