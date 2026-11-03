@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use tk_player::ShaderPreset;
 
+use crate::backend::SourceKindVm;
 use crate::i18n::LangChoice;
 
 // ---------------------------------------------------------------------------------------------
@@ -93,6 +94,10 @@ pub struct Settings {
     /// `ShaderPreset::id()` applied when playback starts.
     pub shader_preset: String,
     pub volume: u8,
+    /// Also forced by the OS `prefers-reduced-motion`; sets `data-reduce-motion` on `<html>`.
+    pub reduce_motion: bool,
+    /// Source selection (Settings > Player); mirrored to `tk_core::sources::SourcePrefs` by tk-app.
+    pub sources: SourcePrefsVm,
 }
 
 impl Default for Settings {
@@ -105,7 +110,105 @@ impl Default for Settings {
             provider_priority: PROVIDERS.iter().map(|s| (*s).to_owned()).collect(),
             shader_preset: ShaderPreset::Off.id().to_owned(),
             volume: 100,
+            reduce_motion: false,
+            sources: SourcePrefsVm::default(),
         }
+    }
+}
+
+/// Mirrors `tk_core::sources::SourceMode`. Manual: the player waits until the user picks a source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SourceModeVm {
+    #[default]
+    Auto,
+    Manual,
+}
+
+impl SourceModeVm {
+    pub const ALL: [SourceModeVm; 2] = [Self::Auto, Self::Manual];
+
+    /// i18n suffix: `src.mode.<id>`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Manual => "manual",
+        }
+    }
+}
+
+/// Minimum quality preference (mirrors the real qualities of `tk_core::sources::Quality`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
+pub enum QualityVm {
+    #[serde(rename = "480p")]
+    P480,
+    #[default]
+    #[serde(rename = "720p")]
+    P720,
+    #[serde(rename = "1080p")]
+    P1080,
+    #[serde(rename = "1440p")]
+    P1440,
+    #[serde(rename = "2160p")]
+    P2160,
+}
+
+impl QualityVm {
+    pub const ALL: [QualityVm; 5] = [Self::P480, Self::P720, Self::P1080, Self::P1440, Self::P2160];
+    /// The options Settings offers (prototype: 480p / 720p / 1080p).
+    pub const OFFERED: [QualityVm; 3] = [Self::P480, Self::P720, Self::P1080];
+
+    /// Display label and serde value (`720p`); same text as `SourceVm::quality`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::P480 => "480p",
+            Self::P720 => "720p",
+            Self::P1080 => "1080p",
+            Self::P1440 => "1440p",
+            Self::P2160 => "2160p",
+        }
+    }
+}
+
+/// Subtitle languages offered in Settings (ISO 639-1, first = default).
+pub const SUB_LANGS: [&str; 3] = ["es", "en", "pt"];
+/// Audio languages offered in Settings (first = default).
+pub const DUB_LANGS: [&str; 3] = ["ja", "es", "en"];
+
+/// Mirrors `tk_core::sources::SourcePrefs`. Defaults: Auto / any / 720p / `es` / `ja`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SourcePrefsVm {
+    pub mode: SourceModeVm,
+    /// `None` = any kind (`src.prefer.any`).
+    pub prefer: Option<SourceKindVm>,
+    pub min_quality: QualityVm,
+    pub sub_lang: String,
+    pub dub_lang: String,
+}
+
+impl Default for SourcePrefsVm {
+    fn default() -> Self {
+        Self {
+            mode: SourceModeVm::Auto,
+            prefer: None,
+            min_quality: QualityVm::P720,
+            sub_lang: SUB_LANGS[0].to_owned(),
+            dub_lang: DUB_LANGS[0].to_owned(),
+        }
+    }
+}
+
+impl SourcePrefsVm {
+    /// Unknown languages fall back to the defaults.
+    pub fn sanitized(mut self) -> Self {
+        if !SUB_LANGS.contains(&self.sub_lang.as_str()) {
+            self.sub_lang = SUB_LANGS[0].to_owned();
+        }
+        if !DUB_LANGS.contains(&self.dub_lang.as_str()) {
+            self.dub_lang = DUB_LANGS[0].to_owned();
+        }
+        self
     }
 }
 
@@ -160,6 +263,7 @@ impl Settings {
             self.shader_preset = ShaderPreset::Off.id().to_owned();
         }
         self.volume = self.volume.min(100);
+        self.sources = self.sources.sanitized();
         self
     }
 }
@@ -190,6 +294,15 @@ pub enum SettingsAction {
     MoveProvider { index: usize, delta: i8 },
     SetPreset(ShaderPreset),
     SetVolume(u8),
+    SetReduceMotion(bool),
+    SetSourceMode(SourceModeVm),
+    /// `None` = any kind.
+    SetSourcePrefer(Option<SourceKindVm>),
+    SetMinQuality(QualityVm),
+    /// Ignored unless it is one of [`SUB_LANGS`].
+    SetSubLang(String),
+    /// Ignored unless it is one of [`DUB_LANGS`].
+    SetDubLang(String),
 }
 
 pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
@@ -213,6 +326,20 @@ pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
         }
         SettingsAction::SetPreset(p) => n.shader_preset = p.id().to_owned(),
         SettingsAction::SetVolume(v) => n.volume = v.min(100),
+        SettingsAction::SetReduceMotion(on) => n.reduce_motion = on,
+        SettingsAction::SetSourceMode(m) => n.sources.mode = m,
+        SettingsAction::SetSourcePrefer(k) => n.sources.prefer = k,
+        SettingsAction::SetMinQuality(q) => n.sources.min_quality = q,
+        SettingsAction::SetSubLang(l) => {
+            if SUB_LANGS.contains(&l.as_str()) {
+                n.sources.sub_lang = l;
+            }
+        }
+        SettingsAction::SetDubLang(l) => {
+            if DUB_LANGS.contains(&l.as_str()) {
+                n.sources.dub_lang = l;
+            }
+        }
     }
     n
 }
@@ -311,10 +438,28 @@ pub enum ErrorKind {
     Extension,
     NoSource,
     Auth,
+    /// A local port is taken (Link server: os error 10048 on Windows, 98 on Linux).
+    AddrInUse,
+    /// The backend does not implement this call yet (default `Backend` methods, offline build).
+    NotWired,
+    /// A torrent source was chosen; the desktop torrent engine arrives in M2.
+    TorrentM2,
     Other,
 }
 
 impl ErrorKind {
+    pub const ALL: [ErrorKind; 9] = [
+        Self::Offline,
+        Self::RateLimited,
+        Self::Extension,
+        Self::NoSource,
+        Self::Auth,
+        Self::AddrInUse,
+        Self::NotWired,
+        Self::TorrentM2,
+        Self::Other,
+    ];
+
     pub fn key(self) -> &'static str {
         match self {
             Self::Offline => "error.offline",
@@ -322,6 +467,9 @@ impl ErrorKind {
             Self::Extension => "error.extension",
             Self::NoSource => "error.no_source",
             Self::Auth => "error.auth",
+            Self::AddrInUse => "error.addr_in_use",
+            Self::NotWired => "error.not_wired",
+            Self::TorrentM2 => "src.m2",
             Self::Other => "error.generic",
         }
     }
@@ -337,6 +485,11 @@ pub struct UiError {
 impl UiError {
     pub fn new(kind: ErrorKind, detail: impl Into<String>) -> Self {
         Self { kind, detail: detail.into() }
+    }
+
+    /// `ErrorKind::NotWired` with the name of the missing backend call as detail.
+    pub fn not_wired(what: &str) -> Self {
+        Self::new(ErrorKind::NotWired, format!("{what} is not wired in this build"))
     }
 }
 
@@ -765,8 +918,16 @@ mod tests {
             for d in NavDest::ALL {
                 assert_ne!(lookup(lang, d.label_key()), d.label_key());
             }
-            for k in [ErrorKind::Offline, ErrorKind::RateLimited, ErrorKind::Extension, ErrorKind::NoSource, ErrorKind::Auth, ErrorKind::Other] {
+            for k in ErrorKind::ALL {
                 assert_ne!(lookup(lang, k.key()), k.key());
+            }
+            for m in SourceModeVm::ALL {
+                let k = format!("src.mode.{}", m.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for s in SourceKindVm::ALL {
+                let k = format!("src.{}", s.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
             }
         }
     }

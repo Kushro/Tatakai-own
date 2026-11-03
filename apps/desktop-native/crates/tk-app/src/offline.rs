@@ -77,7 +77,7 @@ impl Backend for OfflineBackend {
     }
 
     async fn link_status(&self) -> UiResult<LinkStatusVm> {
-        Ok(LinkStatusVm { running: false, port: crate::firewall::DEFAULT_PORT, devices: Vec::new() })
+        Ok(LinkStatusVm { running: false, port: crate::firewall::DEFAULT_PORT, devices: Vec::new(), error: None })
     }
     async fn link_open_pairing(&self) -> UiResult<Pairing> {
         not_wired()

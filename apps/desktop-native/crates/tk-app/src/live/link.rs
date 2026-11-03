@@ -54,7 +54,7 @@ fn err(e: impl std::fmt::Display) -> UiError {
 
 fn device_vm(d: Device) -> DeviceVm {
     // tk-link tracks no platform / last-seen; the pairing date is not "last seen", so leave it empty.
-    DeviceVm { id: d.id, name: d.name, platform: String::new(), last_seen_unix: None }
+    DeviceVm { id: d.id, name: d.name, platform: String::new(), last_seen_unix: None, online: false }
 }
 
 impl LinkService {
@@ -78,7 +78,7 @@ impl LinkService {
 
     pub async fn status(&self) -> Result<LinkStatusVm, UiError> {
         let h = self.ensure().await?;
-        Ok(LinkStatusVm { running: true, port: crate::firewall::DEFAULT_PORT, devices: h.devices().into_iter().filter(|d| d.is_active(now_unix())).map(device_vm).collect() })
+        Ok(LinkStatusVm { running: true, port: crate::firewall::DEFAULT_PORT, devices: h.devices().into_iter().filter(|d| d.is_active(now_unix())).map(device_vm).collect(), error: None })
     }
 
     pub async fn open_pairing(&self) -> Result<Pairing, UiError> {
