@@ -70,6 +70,9 @@ fn glyph(name: &str) -> Option<(&'static str, bool)> {
         "bookmark" => ("M6 3h12v18l-6-4-6 4z", false),
         "grid" => ("M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z", false),
         "palette" => ("M12 3a9 9 0 0 0 0 18c1.5 0 2-1 2-2s-1-2 0-3h3a4 4 0 0 0 4-4c0-5-4-9-9-9zM7.5 11.5h.5M10 7.5h.5M15 8h.5", false),
+        "replay" => ("M11 7l-5 5 5 5M18 7l-5 5 5 5", false),
+        "forward" => ("M6 7l5 5-5 5M13 7l5 5-5 5", false),
+        "bolt" => ("M13 3L5 14h6l-1 7 8-11h-6z", false),
         _ => return None,
     })
 }
@@ -109,6 +112,7 @@ mod tests {
             "language", "download", "upload", "cc", "audio", "hd", "star", "copy", "qr", "camera", "desktop", "phone",
             "gpu", "cast", "info", "warning", "sync", "filter", "sort", "pip", "screenshot", "speed", "skip", "more",
             "edit", "folder", "keyboard", "external", "clock", "calendar", "bookmark", "grid", "palette",
+            "replay", "forward", "bolt",
         ] {
             assert!(glyph(n).is_some(), "{n}");
         }

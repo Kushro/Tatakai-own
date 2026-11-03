@@ -1,33 +1,79 @@
-/* Player and player controls - owner: wave 2 E. Colors/type/shape/motion only from tokens.css; layout literals only. */
+/* Player and player controls - owner: wave 1 E (prototype styles.css .player / .pc). Colors/type/shape/motion
+   only from tokens.css; layout literals only. The video is mpv's child window under the hole, so the
+   controls sit on scrim gradients and use inverse-surface text. */
 
 /* ---- player (review E5) --------------------------------------------------------------------- */
 .tk-player { position: absolute; inset: 0; overflow: hidden; background: transparent; }
 /* Opaque until mpv reports vo-configured; then see-through so the child window shows. */
 .tk-hole { position: absolute; inset: 0; background: var(--md-sys-color-scrim); }
 .tk-hole[data-open="true"] { background: transparent; }
-.tk-player__fail { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--md-sys-color-surface); }
-.tk-toast { position: absolute; left: 50%; bottom: 120px; translate: -50% 0; padding: var(--tk-space-12) var(--tk-space-24); border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface); z-index: 3; max-width: 80%; }
+.tk-player__fail { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--tk-space-16); padding: var(--tk-space-24); background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface); z-index: 3; }
+.tk-player__fail > .tk-state { width: min(100%, 560px); }
+.tk-toast { position: absolute; left: 50%; bottom: 120px; translate: -50% 0; padding: var(--tk-space-12) var(--tk-space-24); border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface); z-index: 4; max-width: 80%; }
+.tk-toast--flash { bottom: auto; top: 96px; padding: var(--tk-space-8) var(--tk-space-16); border-radius: var(--md-sys-shape-corner-full); font-size: var(--md-sys-typescale-label-large-size); animation: tk-pc-pop var(--tk-mo-spatial) both; }
 
-.tk-pc { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; color: var(--md-sys-color-on-surface); pointer-events: none; opacity: 0; transition: opacity var(--md-sys-motion-effects-default-duration) linear; z-index: 2; }
+/* ---- controls --------------------------------------------------------------------------------- */
+.tk-pc { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; color: var(--md-sys-color-inverse-on-surface); pointer-events: none; opacity: 0; transition: opacity var(--tk-mo-fx); z-index: 2; }
 .tk-pc[data-visible="true"] { opacity: 1; pointer-events: auto; }
 .tk-pc[data-visible="false"] { cursor: none; }
-.tk-pc__top, .tk-pc__bottom { padding: var(--tk-space-12) var(--tk-space-16); display: flex; flex-direction: column; gap: var(--tk-space-8); }
-.tk-pc__top { flex-direction: row; align-items: center; background: linear-gradient(to bottom, color-mix(in srgb, var(--md-sys-color-scrim) 70%, transparent), transparent); }
-.tk-pc__bottom { background: linear-gradient(to top, color-mix(in srgb, var(--md-sys-color-scrim) 75%, transparent), transparent); padding-top: var(--tk-space-48); }
+.tk-pc__top, .tk-pc__bottom { position: relative; padding: var(--tk-space-12) var(--tk-space-16); display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-pc__top { flex-direction: row; align-items: center; gap: var(--tk-space-12); padding-bottom: var(--tk-space-24); background: linear-gradient(to bottom, color-mix(in srgb, var(--md-sys-color-scrim) 70%, transparent), transparent); }
+.tk-pc__bottom { background: linear-gradient(to top, color-mix(in srgb, var(--md-sys-color-scrim) 80%, transparent), transparent); padding-top: var(--tk-space-48); }
 .tk-pc__top .tk-iconbtn, .tk-pc__bottom .tk-iconbtn { color: var(--md-sys-color-inverse-on-surface); }
-.tk-pc__title { flex: 1; display: flex; flex-direction: column; min-width: 0; color: var(--md-sys-color-inverse-on-surface); font-size: var(--md-sys-typescale-title-medium-size); font-weight: var(--md-sys-typescale-title-medium-weight-emphasized); }
-.tk-pc__title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tk-pc__ep { font-size: var(--md-sys-typescale-label-medium-size); font-weight: var(--md-sys-typescale-body-medium-weight); opacity: 0.85; }
+.tk-pc__top .tk-iconbtn[data-toggled="true"], .tk-pc__bottom .tk-iconbtn[data-toggled="true"] { background: color-mix(in srgb, var(--md-sys-color-inverse-on-surface) 20%, transparent); }
+.tk-pc__title { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tk-pc__name { font-family: var(--tk-font-display); font-size: var(--md-sys-typescale-title-medium-size); font-weight: var(--md-sys-typescale-title-medium-weight-emphasized); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-pc__ep { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); font-size: var(--md-sys-typescale-label-medium-size); opacity: 0.9; }
+.tk-pc__src { height: 24px; gap: 4px; padding: 0 var(--tk-space-8); font-size: var(--md-sys-typescale-label-small-size); color: var(--md-sys-color-inverse-on-surface); border-color: color-mix(in srgb, var(--md-sys-color-inverse-on-surface) 35%, transparent); background: transparent; max-width: 100%; }
+.tk-pc__src span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.tk-pc__src:hover { background: color-mix(in srgb, var(--md-sys-color-inverse-on-surface) 12%, transparent); }
+
 .tk-pc__center { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
-.tk-pc__error { padding: var(--tk-space-12) var(--tk-space-24); border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); max-width: 70%; pointer-events: auto; }
-.tk-pc__row { display: flex; align-items: center; gap: var(--tk-space-8); color: var(--md-sys-color-inverse-on-surface); }
+.tk-pc__center > * { pointer-events: auto; }
+.tk-pc__status { display: flex; align-items: center; gap: var(--tk-space-8); padding: var(--tk-space-8) var(--tk-space-16); border-radius: var(--md-sys-shape-corner-full); background: color-mix(in srgb, var(--md-sys-color-inverse-surface) 88%, transparent); color: var(--md-sys-color-inverse-on-surface); font-size: var(--md-sys-typescale-label-large-size); animation: tk-pc-pop var(--tk-mo-spatial) both; }
+.tk-pc__choose { box-shadow: var(--tk-shadow-3); }
+
+.tk-pc__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-4); }
+.tk-pc__row .tk-menu-anchor { display: inline-flex; }
 .tk-pc__spacer { flex: 1; }
-.tk-pc__time { font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-large-size); padding: 0 var(--tk-space-8); }
-.tk-pc__play { width: 56px; height: 56px; display: grid; place-items: center; border: 0; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border-radius: var(--md-sys-shape-corner-extra-large-increased); transition: border-radius var(--md-sys-motion-spatial-default-duration) var(--md-sys-motion-spatial-default-easing); }
+.tk-pc__time { font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-large-size); font-variant-numeric: tabular-nums; padding: 0 var(--tk-space-8); opacity: 0.9; }
+.tk-pc__play { width: 56px; height: 56px; display: grid; place-items: center; border: 0; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); border-radius: var(--md-sys-shape-corner-large); transition: border-radius var(--tk-mo-spatial), transform var(--tk-mo-spatial-fast); }
 .tk-pc__play[data-paused="true"] { border-radius: var(--md-sys-shape-corner-full); }
-.tk-pc__seek, .tk-pc__volume { -webkit-appearance: none; appearance: none; height: 20px; background: transparent; cursor: pointer; }
-.tk-pc__seek { width: 100%; }
-.tk-pc__volume { width: 96px; }
-.tk-pc__seek::-webkit-slider-runnable-track { height: 6px; border-radius: var(--md-sys-shape-corner-full); background: linear-gradient(to right, var(--md-sys-color-primary) var(--tk-seek, 0%), color-mix(in srgb, var(--md-sys-color-inverse-on-surface) 30%, transparent) var(--tk-seek, 0%)); }
+.tk-pc__play:hover { transform: scale(1.06); }
+.tk-pc__shortcuts { display: none; font-size: var(--md-sys-typescale-label-small-size); opacity: 0.6; }
+@media (min-width: 900px) { .tk-pc__shortcuts { display: block; } }
+
+/* Volume slider (native range, token colors). */
+.tk-pc__volume { -webkit-appearance: none; appearance: none; width: 96px; height: 20px; background: transparent; cursor: pointer; }
 .tk-pc__volume::-webkit-slider-runnable-track { height: 4px; border-radius: var(--md-sys-shape-corner-full); background: color-mix(in srgb, var(--md-sys-color-inverse-on-surface) 40%, transparent); }
-.tk-pc__seek::-webkit-slider-thumb, .tk-pc__volume::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -5px; border-radius: 50%; background: var(--md-sys-color-primary); border: 0; }
+.tk-pc__volume::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--md-sys-color-inverse-on-surface); border: 0; }
+
+/* Seek bar: drawn track + invisible range input on top + hover preview. */
+.tk-pc__seek { position: relative; height: 32px; display: flex; align-items: center; cursor: pointer; }
+.tk-pc__track { position: relative; width: 100%; height: 6px; border-radius: var(--md-sys-shape-corner-full); background: color-mix(in srgb, var(--md-sys-color-inverse-on-surface) 25%, transparent); transition: height var(--tk-mo-spatial-fast); }
+.tk-pc__seek:hover .tk-pc__track { height: 10px; }
+.tk-pc__played { position: absolute; inset: 0 auto 0 0; width: var(--p, 0%); border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-primary); }
+.tk-pc__markers { position: absolute; inset: 0; pointer-events: none; }
+.tk-pc__marker { position: absolute; top: 0; bottom: 0; border-radius: 2px; background: color-mix(in srgb, var(--md-sys-color-tertiary) 75%, transparent); }
+.tk-pc__thumb { position: absolute; top: 50%; left: var(--p, 0%); width: 4px; height: 20px; border-radius: 4px; background: var(--md-sys-color-inverse-on-surface); transform: translate(-50%, -50%); box-shadow: 0 0 0 4px color-mix(in srgb, var(--md-sys-color-scrim) 25%, transparent); }
+.tk-pc__range { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.tk-pc__preview { position: absolute; bottom: 36px; left: var(--x, 50%); transform: translateX(-50%); width: 160px; aspect-ratio: 16 / 9; border-radius: var(--md-sys-shape-corner-medium); overflow: hidden; border: 2px solid color-mix(in srgb, var(--md-sys-color-inverse-on-surface) 60%, transparent); background: var(--md-sys-color-surface-container-high); pointer-events: none; }
+.tk-pc__preview img { width: 100%; height: 100%; object-fit: cover; }
+.tk-pc__preview span { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); padding: 0 6px; border-radius: 4px; font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-medium-size); background: color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent); color: var(--md-sys-color-inverse-on-surface); }
+
+/* "Skip intro" and the next-episode card share the bottom-right slot. */
+.tk-pc__skip { position: absolute; right: var(--tk-space-24); bottom: 140px; z-index: 3; background: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface); box-shadow: var(--tk-shadow-3); }
+.tk-pc__next { position: absolute; right: var(--tk-space-24); bottom: 140px; z-index: 3; display: flex; align-items: center; gap: var(--tk-space-12); padding: var(--tk-space-12) var(--tk-space-16); max-width: calc(100% - 48px); border-radius: var(--md-sys-shape-corner-large); background: color-mix(in srgb, var(--md-sys-color-inverse-surface) 92%, transparent); color: var(--md-sys-color-inverse-on-surface); box-shadow: var(--tk-shadow-3); animation: tk-pc-pop var(--tk-mo-spatial) both; }
+.tk-pc__next .tk-iconbtn { color: inherit; }
+.tk-pc__next-art { width: 72px; aspect-ratio: 16 / 9; flex: none; display: grid; place-items: center; overflow: hidden; border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
+.tk-pc__next-art img { width: 100%; height: 100%; object-fit: cover; }
+.tk-pc__next-text { display: flex; flex-direction: column; min-width: 0; }
+.tk-pc__next-text b { font-size: var(--md-sys-typescale-label-large-size); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-pc__next-text small { font-size: var(--md-sys-typescale-label-medium-size); opacity: 0.8; }
+.tk-pc__ring { width: 44px; height: 44px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; cursor: pointer; color: inherit; font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-large-size); background: conic-gradient(var(--md-sys-color-primary) calc(var(--t, 100) * 1%), color-mix(in srgb, var(--md-sys-color-inverse-on-surface) 20%, transparent) 0); }
+.tk-pc__ring i { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; font-style: normal; background: var(--md-sys-color-inverse-surface); }
+
+@keyframes tk-pc-pop { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: none; } }
+.tk-toast--flash, .tk-pc__status, .tk-pc__next { transform-origin: center; }
+:root[data-reduce-motion="true"] .tk-toast--flash, :root[data-reduce-motion="true"] .tk-pc__status, :root[data-reduce-motion="true"] .tk-pc__next { animation: none; }
+@media (prefers-reduced-motion: reduce) { .tk-toast--flash, .tk-pc__status, .tk-pc__next { animation: none; } }

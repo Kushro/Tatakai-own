@@ -1,4 +1,4 @@
-/* Sources: source rows, picker and summary - owner: wave 2 E (source_row.rs, SourcePicker, SourceSummary).
+/* Sources: source rows, picker and summary - owner: wave 1 E (components/sources.rs: SourceRow, SourcePicker, SourceSummary).
    Colors/type/shape/motion only from tokens.css. Reliability tones: ok=primary, warn=tertiary, err=error. */
 
 .tk-slist { display: flex; flex-direction: column; gap: var(--tk-space-8); }
@@ -21,3 +21,17 @@
 .tk-srow__relbar i[data-tone="warn"] { background: var(--md-sys-color-tertiary); }
 .tk-srow__relbar i[data-tone="err"] { background: var(--md-sys-color-error); }
 .tk-srow__check { color: var(--md-sys-color-primary); }
+.tk-srow:not(:disabled) { cursor: pointer; }
+.tk-srow:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+.tk-srow__note { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); font-weight: var(--md-sys-typescale-body-small-weight); }
+.tk-srow__rel-label { font-size: var(--md-sys-typescale-label-medium-size); }
+
+/* Picker sheet body. */
+.tk-spicker { display: flex; flex-direction: column; gap: var(--tk-space-16); }
+.tk-spicker__note { font-size: var(--md-sys-typescale-body-small-size); }
+
+/* Details side panel summary. */
+.tk-srcsum__count { margin-inline-start: auto; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-medium-size); font-weight: var(--md-sys-typescale-label-medium-weight); }
+.tk-srcsum__by { display: flex; align-items: center; gap: var(--tk-space-4); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-srcsum__by .tk-icon { color: var(--md-sys-color-primary); }
+.tk-srcsum .tk-state { padding: var(--tk-space-16) 0; }
