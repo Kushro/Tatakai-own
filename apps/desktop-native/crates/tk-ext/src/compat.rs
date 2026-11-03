@@ -3,6 +3,29 @@
 
 use tk_core::Compat;
 
+use crate::manifest::Manifest;
+
+/// Manifest permissions / capabilities the native host accepts at install time but whose engine ships in a
+/// later milestone. They never lower the compat level: `torrent:session` extensions install and their torrent
+/// entries are listed with the index data (seeders, size, hash); playing them is M2 (docs/redesign/07 section 3.2).
+pub const DEFERRED_PERMISSIONS: [&str; 1] = ["torrent:session"];
+
+/// The deferred entries [`Manifest`] asks for, from `permissions` or `capabilities` (either spelling is accepted).
+pub fn deferred_permissions(m: &Manifest) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for p in m.permissions.iter().chain(m.capabilities.iter()) {
+        if DEFERRED_PERMISSIONS.contains(&p.as_str()) && !out.contains(p) {
+            out.push(p.clone());
+        }
+    }
+    out
+}
+
+/// Whether the extension asked for a torrent session (`torrent:session`).
+pub fn wants_torrent_session(m: &Manifest) -> bool {
+    m.permissions.iter().chain(m.capabilities.iter()).any(|p| p == "torrent:session")
+}
+
 pub const SUPPORTED_MODULES: [&str; 7] = ["crypto", "buffer", "events", "url", "path", "querystring", "util"];
 pub const STUB_MODULES: [&str; 13] =
     ["os", "http", "https", "stream", "zlib", "string_decoder", "assert", "timers", "readline", "perf_hooks", "async_hooks", "module", "tty"];
@@ -154,5 +177,22 @@ mod tests {
         assert_eq!(analyze_bundle("require('undici')").reason.as_deref(), Some("Uses module 'undici' which the native runtime does not provide"));
         assert_eq!(analyze_bundle("require('os')").reason.as_deref(), Some("Uses stubbed Node module 'os'"));
         assert_eq!(analyze_bundle("require(x)").reason.as_deref(), Some("Uses dynamic require/import"));
+    }
+
+    #[test]
+    fn torrent_session_is_accepted_and_reported_as_deferred() {
+        let json = r#"{"id":"io.github.nyaa-own","name":"Nyaa","version":"1.2.0","type":"torrent","description":"d",
+            "permissions":["network:domain:nyaa.example","torrent:session","storage:kv"]}"#;
+        let m = Manifest::parse(json).unwrap();
+        assert!(wants_torrent_session(&m));
+        assert_eq!(deferred_permissions(&m), ["torrent:session"]);
+        // as a capability too, listed once
+        let both = json.replace(r#""storage:kv"]"#, r#""storage:kv"],"capabilities":["torrent:session"]"#);
+        assert_eq!(deferred_permissions(&Manifest::parse(&both).unwrap()), ["torrent:session"]);
+        let plain = json.replace(r#""torrent:session","#, "");
+        let m = Manifest::parse(&plain).unwrap();
+        assert!(!wants_torrent_session(&m) && deferred_permissions(&m).is_empty());
+        // the bundle analysis is unaffected by the permission
+        assert_eq!(analyze_bundle("module.exports = class {}").level, Compat::Full);
     }
 }
