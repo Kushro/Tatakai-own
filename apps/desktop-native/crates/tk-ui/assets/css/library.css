@@ -1,2 +1,9 @@
 /* Library - owner: wave 1 A. Colors/type/shape/motion only from tokens.css; layout literals only. */
 
+.tk-page--library .tk-page__head > .tk-pill { align-self: center; }
+.tk-page--library .tk-section__empty { font-size: var(--md-sys-typescale-body-medium-size); padding: var(--tk-space-8) 0; }
+.tk-page--library .tk-list .tk-ep__name { white-space: nowrap; }
+
+/* Sync now: the icon spins while the request runs (stops under reduced motion via app.css). */
+.tk-lib__sync--busy .tk-icon { animation: tk-lib-spin 1s linear infinite; }
+@keyframes tk-lib-spin { to { transform: rotate(360deg); } }

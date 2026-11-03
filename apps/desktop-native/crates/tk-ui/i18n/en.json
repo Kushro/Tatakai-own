@@ -390,5 +390,8 @@
   "gallery.snack": "Show snackbar",
   "gallery.snack_text": "Snackbar from the gallery",
   "lib.empty.title": "Nothing here yet",
-  "lib.empty.body": "Episodes you watch show up here to continue later."
+  "lib.empty.body": "Episodes you watch show up here to continue later.",
+  "home.hero.slide": "Show slide {n}",
+  "home.hero.carousel": "carousel",
+  "media.ep_badge": "EP {n}"
 }
