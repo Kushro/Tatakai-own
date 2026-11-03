@@ -824,7 +824,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 },
                 on_source: move |_| picker_open.set(true),
                 on_skip: move |_| {
-                    if let Some(target) = markers.peek().skip_target(pstate.peek().position)
+                    // Read the position first: a guard held in the let-chain would still borrow pstate in the body.
+                    let position = pstate.peek().position;
+                    if let Some(target) = markers.peek().skip_target(position)
                         && let Some(p) = player.peek().clone()
                     {
                         let _ = p.seek(target);
