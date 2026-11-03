@@ -173,6 +173,18 @@ pub async fn start(cfg: LinkConfig, host: Arc<dyn LinkHost>) -> Result<LinkHandl
         return Err(LinkError::PublicBind(IpAddr::V4(*bad)));
     }
 
+    // listeners first: a taken port (os error 10048 / 98) fails before any task, fetcher or sink is started,
+    // so a failed start leaves nothing running and the app can retry or pick another port.
+    let mut listeners = Vec::new();
+    let mut port = cfg.port;
+    for ip in &bind_ips {
+        let l = TcpListener::bind((*ip, port)).await?;
+        if port == 0 {
+            port = l.local_addr()?.port();
+        }
+        listeners.push(l);
+    }
+
     let now = OffsetDateTime::now_utc();
     let ips: Vec<IpAddr> = bind_ips.iter().map(|i| IpAddr::V4(*i)).collect();
     let identity = Arc::new(Identity::load_or_init(&cfg.data_dir, &ips, now)?);
@@ -227,16 +239,6 @@ pub async fn start(cfg: LinkConfig, host: Arc<dyn LinkHost>) -> Result<LinkHandl
     );
     let (_, sink_task) = sink::start(manager.clone()).await?;
 
-    // listeners
-    let mut listeners = Vec::new();
-    let mut port = cfg.port;
-    for ip in &bind_ips {
-        let l = TcpListener::bind((*ip, port)).await?;
-        if port == 0 {
-            port = l.local_addr()?.port();
-        }
-        listeners.push(l);
-    }
     let addrs: Vec<SocketAddr> = listeners.iter().filter_map(|l| l.local_addr().ok()).collect();
     let pair_host = bind_ips.iter().copied().find(|i| !i.is_loopback()).unwrap_or(Ipv4Addr::LOCALHOST);
     let pairing = Arc::new(PairingWindow::new(identity.clone(), devices.clone(), pair_host, port, cfg.server_name.clone()));
@@ -351,11 +353,22 @@ impl LinkHandle {
         self.state.manager.active_count()
     }
 
-    /// Stop listening, close every session (FFmpeg dies with them) and join the tasks.
-    pub async fn shutdown(self) {
+    /// Device ids with a live transcoding session right now ("Connected now" in the app).
+    pub fn online_device_ids(&self) -> Vec<String> {
+        self.state.manager.device_ids()
+    }
+
+    /// Stop listening and close every session without consuming the handle (for a handle shared through `Arc`).
+    /// The listener tasks end on their own shortly after; [`LinkHandle::shutdown`] also waits for them.
+    pub fn stop(&self) {
         self.shutdown.cancel();
         self.state.manager.close_all();
         self.sink_task.abort();
+    }
+
+    /// Stop listening, close every session (FFmpeg dies with them) and join the tasks.
+    pub async fn shutdown(self) {
+        self.stop();
         for t in self.tasks {
             let _ = t.await;
         }

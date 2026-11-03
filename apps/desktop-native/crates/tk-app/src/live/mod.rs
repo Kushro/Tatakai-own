@@ -4,20 +4,22 @@
 
 mod ext;
 mod link;
+mod sources;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use time::OffsetDateTime;
+use tk_core::sources::{INITIAL_RELIABILITY, SourceCandidate, SourceKind, parse_source_key, source_key};
 use tk_core::{
-    FeedKind, HistoryEntry, LocalStore, Media, MediaKind, MediaRef, MetadataRouter, ProviderError, Supabase,
+    Compat, FeedKind, HistoryEntry, LocalStore, Media, MediaKind, MediaRef, MetadataRouter, ProviderError, Supabase,
     SupabaseError,
 };
 use tk_ui::backend::{
-    AccountVm, Backend, ContinueVm, DetailsVm, EpisodeVm, ExtensionVm, HomeVm, LinkStatusVm, MediaVm, PlaybackVm,
-    SectionVm, StreamVm, SubtitleVm, UiResult,
+    AccountVm, Backend, ContinueVm, DetailsVm, EpisodeVm, ExtLogVm, ExtensionDetailVm, ExtensionVm, HistoryItemVm,
+    HomeVm, LibraryVm, LinkCapsVm, LinkStatusVm, MediaVm, PlaybackVm, SectionVm, SourceVm, UiResult,
 };
 use tk_ui::model::{ErrorKind, Pairing, Settings, UiError};
 
@@ -36,7 +38,15 @@ pub struct LiveBackend {
     titles: Mutex<HashMap<String, (String, Option<String>)>>,
     ext: ext::Extensions,
     link: link::LinkService,
+    /// `(media id, episode) -> (resolved at, candidates)`: `sources()` and `playback_source()` share one resolution
+    /// (stream URLs expire, hence the TTL). Cleared when the set of enabled extensions changes.
+    candidates: Mutex<HashMap<(String, u32), (Instant, Vec<SourceCandidate>)>>,
 }
+
+/// How long a resolved source list is reused before the extensions are asked again.
+const SOURCES_TTL: Duration = Duration::from_secs(5 * 60);
+/// History rows shown in the Library.
+const LIBRARY_HISTORY: u32 = 200;
 
 impl LiveBackend {
     pub fn new(paths: &AppPaths, cfg: &AppConfig) -> anyhow::Result<Self> {
@@ -68,6 +78,7 @@ impl LiveBackend {
             titles: Mutex::new(HashMap::new()),
             ext,
             link,
+            candidates: Mutex::new(HashMap::new()),
         })
     }
 
@@ -91,6 +102,63 @@ impl LiveBackend {
 
     fn progress(&self, r: &MediaRef) -> Vec<HistoryEntry> {
         HistoryEntry::anime_key(r).and_then(|k| self.store.progress_for(&k).ok()).unwrap_or_default()
+    }
+
+    fn store_err(e: impl std::fmt::Display) -> UiError {
+        UiError::new(ErrorKind::Other, e.to_string())
+    }
+
+    fn continue_vms(&self, limit: usize) -> Vec<ContinueVm> {
+        self.store
+            .continue_watching(limit)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| {
+                self.remember_title(&e.anime_id, &e.title, e.poster.as_deref());
+                ContinueVm { media: history_media(&e), episode: e.episode, progress_secs: e.progress_sec, duration_secs: e.duration_sec }
+            })
+            .collect()
+    }
+
+    fn start_secs(&self, r: &MediaRef, episode: u32) -> u32 {
+        self.progress(r).iter().find(|e| e.episode == episode && !e.completed).map_or(0, |e| e.progress_sec)
+    }
+
+    fn invalidate_sources(&self) {
+        if let Ok(mut c) = self.candidates.lock() {
+            c.clear();
+        }
+    }
+
+    /// Candidates of an episode: from the cache unless stale or `fresh`, else resolved through the extensions.
+    /// Reliability is always re-read from the store (it changes with every `report_source_result`).
+    async fn episode_candidates(&self, id: &str, episode: u32, media: &Media, fresh: bool) -> Vec<SourceCandidate> {
+        let key = (id.to_owned(), episode);
+        let cached = if fresh {
+            None
+        } else {
+            self.candidates
+                .lock()
+                .ok()
+                .and_then(|c| c.get(&key).filter(|(at, _)| at.elapsed() < SOURCES_TTL).map(|(_, v)| v.clone()))
+        };
+        let mut list = match cached {
+            Some(v) => v,
+            None => {
+                let streams = self.ext.resolve(media, episode).await;
+                let names: HashMap<String, String> = self.ext.installed().into_iter().map(|e| (e.id, e.name)).collect();
+                let v = sources::candidates_from_streams(&streams, |ext_id| names.get(ext_id).cloned().unwrap_or_else(|| ext_id.to_owned()));
+                if let Ok(mut c) = self.candidates.lock() {
+                    c.retain(|_, (at, _)| at.elapsed() < SOURCES_TTL);
+                    c.insert(key, (Instant::now(), v.clone()));
+                }
+                v
+            }
+        };
+        for c in &mut list {
+            c.reliability = self.store.reliability(&c.ext_id, &c.label).unwrap_or(INITIAL_RELIABILITY);
+        }
+        list
     }
 
     /// Push dirty rows to Supabase (best effort, only when signed in).
@@ -145,6 +213,11 @@ fn to_vm(m: &Media) -> MediaVm {
     }
 }
 
+/// Poster card of a history row (the store keeps title + poster; the id is the UI id).
+fn history_media(e: &HistoryEntry) -> MediaVm {
+    MediaVm { id: e.anime_id.clone(), title: e.title.clone(), cover: e.poster.clone(), color: None, subtitle: String::new(), score: None }
+}
+
 fn provider_err(e: ProviderError) -> UiError {
     let kind = match &e {
         ProviderError::RateLimited { .. } => ErrorKind::RateLimited,
@@ -178,24 +251,7 @@ impl Backend for LiveBackend {
             title_key: key.to_owned(),
             items: r.map(|p| p.items.iter().map(to_vm).collect()).map_err(provider_err),
         };
-        let continue_watching = self
-            .store
-            .continue_watching(20)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|e| {
-                let media = MediaVm {
-                    id: e.anime_id.clone(),
-                    title: e.title.clone(),
-                    cover: e.poster.clone(),
-                    color: None,
-                    subtitle: String::new(),
-                    score: None,
-                };
-                self.remember_title(&e.anime_id, &e.title, e.poster.as_deref());
-                ContinueVm { media, episode: e.episode, progress_secs: e.progress_sec, duration_secs: e.duration_sec }
-            })
-            .collect();
+        let continue_watching = self.continue_vms(20);
         Ok(HomeVm {
             continue_watching,
             sections: vec![
@@ -268,30 +324,12 @@ impl Backend for LiveBackend {
         if streams.is_empty() {
             return Err(UiError::new(ErrorKind::NoSource, ""));
         }
-        let start_secs = self
-            .progress(&r)
-            .iter()
-            .find(|e| e.episode == episode && !e.completed)
-            .map_or(0, |e| e.progress_sec);
         Ok(PlaybackVm {
             title: media.title.clone(),
             poster: media.cover.clone(),
             episodes_total: media.episodes,
-            start_secs,
-            streams: streams
-                .into_iter()
-                .map(|s| StreamVm {
-                    url: s.url,
-                    headers: s.headers.into_iter().collect(),
-                    provider: s.provider,
-                    quality: s.quality,
-                    subtitles: s
-                        .subtitles
-                        .into_iter()
-                        .map(|t| SubtitleVm { url: t.url, lang: t.lang, label: t.label })
-                        .collect(),
-                })
-                .collect(),
+            start_secs: self.start_secs(&r, episode),
+            streams: streams.into_iter().map(sources::stream_vm).collect(),
         })
     }
 
@@ -311,6 +349,12 @@ impl Backend for LiveBackend {
             return Ok(());
         };
         self.store.record_history(&entry).map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))?;
+        if entry.completed {
+            // The manual pick expires with the episode (docs/redesign/08 section 4).
+            if let Err(e) = self.store.clear_picked_source(id, episode) {
+                tracing::warn!(error = %e, "could not clear the picked source");
+            }
+        }
         self.sync_history().await;
         Ok(())
     }
@@ -319,13 +363,19 @@ impl Backend for LiveBackend {
         self.ext.list().await
     }
     async fn install_extension(&self, path: &str) -> UiResult<ExtensionVm> {
-        self.ext.install(path).await
+        let r = self.ext.install(path).await;
+        self.invalidate_sources();
+        r
     }
     async fn set_extension_enabled(&self, id: &str, enabled: bool) -> UiResult<()> {
-        self.ext.set_enabled(id, enabled).await
+        let r = self.ext.set_enabled(id, enabled).await;
+        self.invalidate_sources();
+        r
     }
     async fn remove_extension(&self, id: &str) -> UiResult<()> {
-        self.ext.remove(id).await
+        let r = self.ext.remove(id).await;
+        self.invalidate_sources();
+        r
     }
 
     async fn load_settings(&self) -> UiResult<Settings> {
@@ -380,6 +430,102 @@ impl Backend for LiveBackend {
         self.link.revoke(device_id).await
     }
     async fn link_allow_private_network(&self) -> UiResult<()> {
-        crate::backend_common::allow_private_network().await
+        crate::backend_common::allow_private_network(self.link.port().await).await
+    }
+
+    // --- wave 1 (docs/redesign/08) ---
+
+    async fn sources(&self, id: &str, episode: u32) -> UiResult<Vec<SourceVm>> {
+        let (_, media) = self.media(id).await?;
+        let candidates = self.episode_candidates(id, episode, &media, false).await;
+        let prefs = sources::core_prefs(&settings_store::load(&self.settings_file).sources);
+        let enabled: HashMap<String, bool> =
+            self.ext.installed().into_iter().map(|e| (e.id, e.enabled && e.compat != Compat::Unsupported)).collect();
+        let picked = self.store.picked_source(id, episode).ok().flatten();
+        Ok(sources::ranked_vms(candidates, &prefs, |ext_id| enabled.get(ext_id).copied().unwrap_or(false), picked.as_deref()))
+    }
+
+    async fn playback_source(&self, id: &str, episode: u32, source_id: &str) -> UiResult<PlaybackVm> {
+        let (_, kind, _) =
+            parse_source_key(source_id).ok_or_else(|| UiError::new(ErrorKind::Other, format!("invalid source id {source_id}")))?;
+        if kind == SourceKind::Torrent {
+            return Err(UiError::new(ErrorKind::TorrentM2, source_id));
+        }
+        let (r, media) = self.media(id).await?;
+        let find = |list: Vec<SourceCandidate>| list.into_iter().find(|c| source_key(c) == source_id);
+        // A cached list may be stale (URL expired, extension re-enabled): resolve again once before giving up.
+        let candidate = match find(self.episode_candidates(id, episode, &media, false).await) {
+            Some(c) => Some(c),
+            None => find(self.episode_candidates(id, episode, &media, true).await),
+        };
+        let candidate = candidate.ok_or_else(|| UiError::new(ErrorKind::NoSource, source_id))?;
+        let stream = match candidate.kind {
+            SourceKind::Torrent => return Err(UiError::new(ErrorKind::TorrentM2, source_id)),
+            SourceKind::Web => candidate.to_stream().ok_or_else(|| UiError::new(ErrorKind::NoSource, source_id))?,
+        };
+        Ok(PlaybackVm {
+            title: media.title.clone(),
+            poster: media.cover.clone(),
+            episodes_total: media.episodes,
+            start_secs: self.start_secs(&r, episode),
+            streams: vec![sources::stream_vm(stream)],
+        })
+    }
+
+    async fn report_source_result(&self, source_id: &str, ok: bool) -> UiResult<()> {
+        let (ext_id, _, label) =
+            parse_source_key(source_id).ok_or_else(|| UiError::new(ErrorKind::Other, format!("invalid source id {source_id}")))?;
+        self.store.record_source_result(&ext_id, &label, ok).map(|_| ()).map_err(Self::store_err)
+    }
+
+    async fn set_picked_source(&self, id: &str, episode: u32, source_id: Option<&str>) -> UiResult<()> {
+        let r = match source_id {
+            Some(key) => self.store.set_picked_source(id, episode, key),
+            None => self.store.clear_picked_source(id, episode),
+        };
+        r.map_err(Self::store_err)
+    }
+
+    async fn library(&self) -> UiResult<LibraryVm> {
+        let history = self
+            .store
+            .history(LIBRARY_HISTORY)
+            .map_err(Self::store_err)?
+            .into_iter()
+            .map(|e| HistoryItemVm { media: history_media(&e), episode: e.episode, watched_unix: e.watched_at.unix_timestamp() })
+            .collect();
+        Ok(LibraryVm { continue_watching: self.continue_vms(40), history })
+    }
+
+    async fn sync_now(&self) -> UiResult<()> {
+        let sb = self
+            .supabase
+            .as_ref()
+            .filter(|s| s.session().is_some())
+            .ok_or_else(|| UiError::new(ErrorKind::Auth, "not signed in"))?;
+        let dirty = self.store.dirty_history().map_err(Self::store_err)?;
+        if !dirty.is_empty() {
+            sb.upsert_history(&dirty).await.map_err(supabase_err)?;
+            self.store.mark_synced(&dirty).map_err(Self::store_err)?;
+        }
+        let rows = sb.select_history(LIBRARY_HISTORY).await.map_err(supabase_err)?;
+        self.store.merge_remote(&rows).map_err(Self::store_err)
+    }
+
+    async fn extension_logs(&self, id: &str) -> UiResult<Vec<ExtLogVm>> {
+        self.ext.logs(id).await
+    }
+    async fn extension_detail(&self, id: &str) -> UiResult<ExtensionDetailVm> {
+        self.ext.detail(id).await
+    }
+
+    async fn link_restart(&self, port: u16) -> UiResult<LinkStatusVm> {
+        self.link.restart(port).await
+    }
+    async fn link_rename_device(&self, device_id: &str, name: &str) -> UiResult<()> {
+        self.link.rename(device_id, name).await
+    }
+    async fn link_capabilities(&self) -> UiResult<LinkCapsVm> {
+        self.link.capabilities().await
     }
 }
