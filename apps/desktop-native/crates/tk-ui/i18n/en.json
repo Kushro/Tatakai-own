@@ -396,5 +396,11 @@
   "src.use_web": "Use the best web source",
   "home.hero.slide": "Show slide {n}",
   "home.hero.carousel": "carousel",
-  "media.ep_badge": "EP {n}"
+  "media.ep_badge": "EP {n}",
+  "search.season.winter": "Winter",
+  "search.season.spring": "Spring",
+  "search.season.summer": "Summer",
+  "search.season.fall": "Fall",
+  "provider.mal": "MyAnimeList",
+  "ext.logs_empty": "No log entries yet."
 }
