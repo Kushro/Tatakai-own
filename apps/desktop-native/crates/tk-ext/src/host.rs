@@ -10,9 +10,11 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tk_core::net::{Policy, SafeHttp, host_matches_permissions};
+use tk_core::sources::SourceCandidate;
 use tk_core::{Compat, InstalledExtension, Media, StreamSource, SubtitleTrack};
 
-use crate::compat::{CompatReport, analyze_bundle};
+use crate::candidates::map_candidates;
+use crate::compat::{CompatReport, analyze_bundle, deferred_permissions};
 use crate::error::{ExtError, InstallError};
 use crate::manifest::{Manifest, valid_id};
 use crate::package::{Package, read_kai};
@@ -103,10 +105,8 @@ impl ExtensionHost {
                 .ok()
                 .and_then(|s| serde_json::from_str::<StateFile>(&s).ok())
                 .map_or(report.level != Compat::Unsupported, |s| s.enabled && report.level != Compat::Unsupported);
-            map.insert(
-                manifest.id.clone(),
-                Entry { manifest, manifest_json: mj, bundle: Arc::new(bundle), report, enabled, logs: LogBuf::default(), worker: None },
-            );
+            let logs = deferred_log(&manifest);
+            map.insert(manifest.id.clone(), Entry { manifest, manifest_json: mj, bundle: Arc::new(bundle), report, enabled, logs, worker: None });
         }
         *self.entries.lock().map_err(|_| InstallError::invalid("extension registry poisoned"))? = map;
         Ok(())
@@ -141,11 +141,11 @@ impl ExtensionHost {
         std::fs::write(dir.join("bundle.js"), &bundle)?;
         let entry = Entry {
             enabled: report.level != Compat::Unsupported,
+            logs: deferred_log(&manifest),
             manifest,
             manifest_json,
             bundle: Arc::new(bundle),
             report,
-            logs: LogBuf::default(),
             worker: None,
         };
         self.persist(&entry)?;
@@ -273,18 +273,7 @@ impl ExtensionHost {
             v.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
             v
         };
-        let mut titles: Vec<String> = vec![media.title.clone()];
-        for t in media.titles.values() {
-            if !titles.contains(t) {
-                titles.push(t.clone());
-            }
-        }
-        let params = json!({
-            "anilistId": media.media_ref.anilist_id.unwrap_or(0),
-            "titles": titles,
-            "episode": episode,
-            "stream": "0",
-        });
+        let params = stream_params(media, episode);
         let futs = candidates.iter().map(|(id, _)| {
             let params = params.clone();
             async move {
@@ -299,6 +288,54 @@ impl ExtensionHost {
         });
         futures_util::future::join_all(futs).await.into_iter().flatten().collect()
     }
+
+    /// Every source the selector can show for `media` episode `episode`, unranked (docs/redesign/08 section 3):
+    /// web entries of the `stream` route of `onlinestream`/`custom` extensions plus torrent entries of the `torrent`
+    /// route of `torrent` extensions (listed with their index data; playing them is M2). Only enabled, runnable
+    /// extensions are asked; reliability is [`tk_core::sources::INITIAL_RELIABILITY`] until the caller applies
+    /// `LocalStore::reliability`. Failures of one extension never fail the others.
+    pub async fn resolve_candidates(&self, media: &Media, episode: u32) -> Vec<SourceCandidate> {
+        let exts: Vec<(String, String, &'static str, f64)> = {
+            let map = self.lock();
+            let mut v: Vec<_> = map
+                .values()
+                .filter(|e| e.enabled && e.report.level != Compat::Unsupported)
+                .filter_map(|e| {
+                    let route = if e.manifest.kind == "torrent" { "torrent" } else { "stream" };
+                    e.manifest
+                        .gated_routes()
+                        .iter()
+                        .any(|r| r == route)
+                        .then(|| (e.manifest.id.clone(), e.manifest.name.clone(), route, e.manifest.priority()))
+                })
+                .collect();
+            v.sort_by(|a, b| a.3.total_cmp(&b.3).then_with(|| a.0.cmp(&b.0)));
+            v
+        };
+        let params = stream_params(media, episode);
+        let futs = exts.iter().map(|(id, name, route, _)| {
+            let params = params.clone();
+            async move {
+                match self.call(id, route, params).await {
+                    Ok(v) => map_candidates(id, name, &v),
+                    Err(e) => {
+                        tracing::warn!(extension = %id, route = %route, error = %e, "source listing failed");
+                        Vec::new()
+                    }
+                }
+            }
+        });
+        futures_util::future::join_all(futs).await.into_iter().flatten().collect()
+    }
+}
+
+/// Fresh log buffer that starts with one `warn` line per accepted-but-deferred permission (`torrent:session`).
+fn deferred_log(m: &Manifest) -> LogBuf {
+    let logs = LogBuf::default();
+    for p in deferred_permissions(m) {
+        logs.push("warn", &format!("compat: {p} accepted; torrent playback arrives in M2, torrents are listed only"));
+    }
+    logs
 }
 
 fn is_known_route(route: &str) -> bool {
@@ -322,47 +359,73 @@ fn subtitle_format(url: &str) -> &'static str {
 
 /// `nativeMapping.StreamSource` of routes.v1.json: only hls / mp4 / dash(.mpd) are playable.
 pub fn map_sources(ext_id: &str, body: &Value) -> Vec<StreamSource> {
-    use tk_core::Container;
     let Some(list) = body["sources"].as_array() else { return Vec::new() };
     list.iter()
         .filter_map(|s| {
             let url = s["url"].as_str().filter(|u| !u.is_empty())?;
-            let ty = s["type"].as_str().or_else(|| s["sourceType"].as_str()).unwrap_or("");
-            let container = match ty {
-                "hls" => Container::Hls,
-                "mp4" => Container::Mp4,
-                "dash" if url.split(['?', '#']).next().is_some_and(|p| p.ends_with(".mpd")) => Container::Dash,
-                _ => return None,
-            };
-            let headers = s["headers"]
-                .as_object()
-                .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned()))).collect())
-                .unwrap_or_default();
-            let subtitles = s["subtitles"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|t| {
-                            let u = t["url"].as_str().filter(|u| !u.is_empty())?;
-                            Some(SubtitleTrack {
-                                url: u.to_owned(),
-                                lang: t["language"].as_str().or_else(|| t["lang"].as_str()).unwrap_or("und").to_owned(),
-                                label: t["label"].as_str().unwrap_or("").to_owned(),
-                                format: subtitle_format(u).to_owned(),
-                            })
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
+            let container = web_container(s, url)?;
             Some(StreamSource {
                 url: url.to_owned(),
-                headers,
+                headers: headers_of(s),
                 container,
                 quality: s["quality"].as_str().filter(|q| !q.is_empty()).map(str::to_owned),
                 provider: s["providerName"].as_str().unwrap_or(ext_id).to_owned(),
                 extension_id: ext_id.to_owned(),
-                subtitles,
+                subtitles: subtitles_of(s),
             })
         })
         .collect()
+}
+
+/// Playable container of a normalized source (`type` / `sourceType`); `None` for embed / custom / torrent.
+pub(crate) fn web_container(s: &Value, url: &str) -> Option<tk_core::Container> {
+    use tk_core::Container;
+    match s["type"].as_str().or_else(|| s["sourceType"].as_str()).unwrap_or("") {
+        "hls" => Some(Container::Hls),
+        "mp4" => Some(Container::Mp4),
+        "dash" if url.split(['?', '#']).next().is_some_and(|p| p.ends_with(".mpd")) => Some(Container::Dash),
+        _ => None,
+    }
+}
+
+pub(crate) fn headers_of(s: &Value) -> std::collections::BTreeMap<String, String> {
+    s["headers"]
+        .as_object()
+        .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned()))).collect())
+        .unwrap_or_default()
+}
+
+pub(crate) fn subtitles_of(s: &Value) -> Vec<SubtitleTrack> {
+    s["subtitles"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| {
+                    let u = t["url"].as_str().filter(|u| !u.is_empty())?;
+                    Some(SubtitleTrack {
+                        url: u.to_owned(),
+                        lang: t["language"].as_str().or_else(|| t["lang"].as_str()).unwrap_or("und").to_owned(),
+                        label: t["label"].as_str().unwrap_or("").to_owned(),
+                        format: subtitle_format(u).to_owned(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Query params of the `stream` / `torrent` routes for one episode (legacy query-string keys, SSE off).
+fn stream_params(media: &Media, episode: u32) -> Value {
+    let mut titles: Vec<String> = vec![media.title.clone()];
+    for t in media.titles.values() {
+        if !titles.contains(t) {
+            titles.push(t.clone());
+        }
+    }
+    json!({
+        "anilistId": media.media_ref.anilist_id.unwrap_or(0),
+        "titles": titles,
+        "episode": episode,
+        "stream": "0",
+    })
 }

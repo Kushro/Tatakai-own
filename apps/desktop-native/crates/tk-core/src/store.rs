@@ -32,6 +32,20 @@ CREATE TABLE IF NOT EXISTS history (
 CREATE INDEX IF NOT EXISTS idx_history_watched ON history (watched_at DESC);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL, expires_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS source_reliability (
+  ext_id     TEXT NOT NULL,
+  label      TEXT NOT NULL,
+  value      REAL NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (ext_id, label)
+);
+CREATE TABLE IF NOT EXISTS picked_source (
+  media_id   TEXT NOT NULL,
+  episode    INTEGER NOT NULL,
+  source_key TEXT NOT NULL,
+  picked_at  INTEGER NOT NULL,
+  PRIMARY KEY (media_id, episode)
+);
 ";
 
 pub struct LocalStore {
@@ -222,28 +236,59 @@ impl LocalStore {
 impl LocalStore {
     /// Reliability of `(ext_id, label)`; [`crate::sources::INITIAL_RELIABILITY`] when never recorded.
     pub fn reliability(&self, ext_id: &str, label: &str) -> Result<f32, StoreError> {
-        todo!("wave 1 C: {ext_id} {label}")
+        self.with(|c| read_reliability(c, ext_id, label))
     }
 
     /// Fold one playback result into the moving average ([`crate::sources::update_reliability`]) and
     /// return the new value.
     pub fn record_source_result(&self, ext_id: &str, label: &str, ok: bool) -> Result<f32, StoreError> {
-        todo!("wave 1 C: {ext_id} {label} {ok}")
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        // read + write under the same connection lock so two concurrent results never lose one
+        self.with(|c| {
+            let next = crate::sources::update_reliability(read_reliability(c, ext_id, label)?, ok);
+            c.execute(
+                "INSERT INTO source_reliability (ext_id, label, value, updated_at) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(ext_id, label) DO UPDATE SET value = ?3, updated_at = ?4",
+                params![ext_id, label, f64::from(next), now],
+            )?;
+            Ok(next)
+        })
     }
 
     /// The user's manual pick (a `source_key`) for this episode, if any.
     pub fn picked_source(&self, media_id: &str, episode: u32) -> Result<Option<String>, StoreError> {
-        todo!("wave 1 C: {media_id} {episode}")
+        self.with(|c| {
+            c.query_row("SELECT source_key FROM picked_source WHERE media_id = ?1 AND episode = ?2", params![media_id, episode], |r| r.get(0))
+                .optional()
+        })
     }
 
     pub fn set_picked_source(&self, media_id: &str, episode: u32, key: &str) -> Result<(), StoreError> {
-        todo!("wave 1 C: {media_id} {episode} {key}")
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        self.with(|c| {
+            c.execute(
+                "INSERT INTO picked_source (media_id, episode, source_key, picked_at) VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(media_id, episode) DO UPDATE SET source_key = ?3, picked_at = ?4",
+                params![media_id, episode, key, now],
+            )?;
+            Ok(())
+        })
     }
 
     /// Called when the episode is completed (the pick expires) or the user resets it.
     pub fn clear_picked_source(&self, media_id: &str, episode: u32) -> Result<(), StoreError> {
-        todo!("wave 1 C: {media_id} {episode}")
+        self.with(|c| {
+            c.execute("DELETE FROM picked_source WHERE media_id = ?1 AND episode = ?2", params![media_id, episode])?;
+            Ok(())
+        })
     }
+}
+
+fn read_reliability(c: &Connection, ext_id: &str, label: &str) -> rusqlite::Result<f32> {
+    let v: Option<f64> =
+        c.query_row("SELECT value FROM source_reliability WHERE ext_id = ?1 AND label = ?2", params![ext_id, label], |r| r.get(0)).optional()?;
+    // a corrupt / out-of-range row behaves like a fresh one instead of poisoning the ranking
+    Ok(v.map(|v| v as f32).filter(|v| v.is_finite() && (0.0..=1.0).contains(v)).unwrap_or(crate::sources::INITIAL_RELIABILITY))
 }
 
 #[cfg(test)]
@@ -312,5 +357,64 @@ mod tests {
         assert_eq!(s.cache_get_at::<u32>("k", 1059).unwrap(), Some(42));
         assert_eq!(s.cache_get_at::<u32>("k", 1060).unwrap(), None);
         assert_eq!(s.cache_purge(1060).unwrap(), 1);
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-5
+    }
+
+    #[test]
+    fn reliability_starts_at_initial_and_follows_the_ema() {
+        use crate::sources::INITIAL_RELIABILITY;
+        let dir = tempfile::tempdir().unwrap();
+        let s = LocalStore::open(&dir.path().join("data.db")).unwrap();
+        assert!(close(s.reliability("io.github.toko", "Alpha").unwrap(), INITIAL_RELIABILITY));
+        // 0.8 -> 0.84 -> 0.872 -> 0.6976
+        assert!(close(s.record_source_result("io.github.toko", "Alpha", true).unwrap(), 0.84));
+        assert!(close(s.record_source_result("io.github.toko", "Alpha", true).unwrap(), 0.872));
+        assert!(close(s.record_source_result("io.github.toko", "Alpha", false).unwrap(), 0.6976));
+        assert!(close(s.reliability("io.github.toko", "Alpha").unwrap(), 0.6976));
+        // keyed per (ext, label)
+        assert!(close(s.reliability("io.github.toko", "Beta").unwrap(), INITIAL_RELIABILITY));
+        assert!(close(s.reliability("es.spanishpack", "Alpha").unwrap(), INITIAL_RELIABILITY));
+    }
+
+    #[test]
+    fn reliability_survives_reopen_and_schema_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.db");
+        {
+            let s = LocalStore::open(&path).unwrap();
+            for _ in 0..30 {
+                s.record_source_result("nyaa", "Anon", false).unwrap();
+            }
+            s.set_picked_source("21", 3, "nyaa|torrent|Anon").unwrap();
+        }
+        // second open re-runs SCHEMA on an existing database (upgrade in place)
+        let s = LocalStore::open(&path).unwrap();
+        let v = s.reliability("nyaa", "Anon").unwrap();
+        assert!((0.0..0.01).contains(&v), "{v}");
+        assert_eq!(s.picked_source("21", 3).unwrap().as_deref(), Some("nyaa|torrent|Anon"));
+        // a long success streak converges to 1 and never exceeds it
+        for _ in 0..200 {
+            s.record_source_result("nyaa", "Anon", true).unwrap();
+        }
+        let v = s.reliability("nyaa", "Anon").unwrap();
+        assert!(v > 0.999 && v <= 1.0, "{v}");
+    }
+
+    #[test]
+    fn picked_source_set_replace_clear() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = LocalStore::open(&dir.path().join("data.db")).unwrap();
+        assert_eq!(s.picked_source("154587", 7).unwrap(), None);
+        s.set_picked_source("154587", 7, "io.github.toko|web|Alpha").unwrap();
+        s.set_picked_source("154587", 7, "io.github.toko|web|Beta").unwrap();
+        s.set_picked_source("154587", 8, "io.github.nyaa-own|torrent|SubsPlease").unwrap();
+        assert_eq!(s.picked_source("154587", 7).unwrap().as_deref(), Some("io.github.toko|web|Beta"));
+        s.clear_picked_source("154587", 7).unwrap();
+        s.clear_picked_source("154587", 7).unwrap(); // clearing twice is fine
+        assert_eq!(s.picked_source("154587", 7).unwrap(), None);
+        assert_eq!(s.picked_source("154587", 8).unwrap().as_deref(), Some("io.github.nyaa-own|torrent|SubsPlease"));
     }
 }

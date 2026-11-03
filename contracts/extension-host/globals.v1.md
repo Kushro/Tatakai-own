@@ -71,6 +71,10 @@ Additional install-time validation (error, not a compat level): `manifest.json` 
 `^[a-z0-9][a-z0-9._-]{0,63}$`, `bundle.js` missing or > 10 MiB, a ZIP entry whose path escapes the archive (`..`, absolute path, drive letter), more than
 64 entries, or uncompressed size over 32 MiB. Error messages name the failing field.
 
+Permissions accepted but deferred (never an error, never lower the compat level): `torrent:session` (in `permissions` or
+`capabilities`). The extension installs and its `torrent` route entries are listed in the source selector with their index
+data (seeders, leechers, size, hash); playing a torrent is **M2**. The native host logs one `warn` line per deferred permission.
+
 Renderer extensions (`manifest.contributes.rendererEntry`, ESM `activate(ctx)` with React) are **ignored** by the native hosts:
 the entry file is not extracted and never executed. `contributes.themes` are ignored in M0 (importable as tokens in M3).
 
