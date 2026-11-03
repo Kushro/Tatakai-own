@@ -393,5 +393,8 @@
   "lib.empty.body": "Episodes you watch show up here to continue later.",
   "player.pip": "Picture in picture",
   "player.capture": "Screenshot",
-  "src.use_web": "Use the best web source"
+  "src.use_web": "Use the best web source",
+  "home.hero.slide": "Show slide {n}",
+  "home.hero.carousel": "carousel",
+  "media.ep_badge": "EP {n}"
 }
