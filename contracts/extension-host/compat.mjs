@@ -4,6 +4,9 @@
 
 export const SUPPORTED_MODULES = ['crypto', 'buffer', 'events', 'url', 'path', 'querystring', 'util'];
 export const STUB_MODULES = ['os', 'http', 'https', 'stream', 'zlib', 'string_decoder', 'assert', 'timers', 'readline', 'perf_hooks', 'async_hooks', 'module', 'tty'];
+// Manifest permissions/capabilities accepted at install time whose engine ships later (torrent playback is M2).
+// They never change the compat level computed below.
+export const DEFERRED_PERMISSIONS = ['torrent:session'];
 export const UNSUPPORTED_BUILTINS = ['fs', 'child_process', 'net', 'tls', 'dgram', 'cluster', 'worker_threads', 'vm', 'dns', 'http2', 'inspector', 'v8', 'repl'];
 
 const REQUIRE_LITERAL = /\brequire\s*\(\s*(['"`])([^'"`\r\n]+)\1\s*\)/g;
