@@ -76,6 +76,11 @@ fn glyph(name: &str) -> Option<(&'static str, bool)> {
         // wave 1 B (extensions: log toggle, storage permission chip)
         "terminal" => ("M4 5h16v14H4zM8 10l3 2-3 2M13 15h4", false),
         "storage" => ("M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3", false),
+        // wave 1 D (Link, Settings, title bar chips; terminal/storage shared with B above)
+        "offline" => ("M8.5 7A6 6 0 0 1 18 10.1 4 4 0 0 1 19.5 17.6M16 18H6a4.5 4.5 0 0 1-.5-9M3 3l18 18", false),
+        "update" => ("M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5M12 8v4l3 2", false),
+        "logout" => ("M10 4H4v16h6M14 8l4 4-4 4M18 12H9", false),
+        "tablet" => ("M5 3h14v18H5zM11 18h2", false),
         _ => return None,
     })
 }
@@ -118,6 +123,9 @@ mod tests {
             "replay", "forward", "bolt",
             "terminal", "storage",
         ] {
+            assert!(glyph(n).is_some(), "{n}");
+        }
+        for n in ["offline", "storage", "terminal", "update", "logout", "tablet"] {
             assert!(glyph(n).is_some(), "{n}");
         }
         assert!(glyph("nope").is_none());
