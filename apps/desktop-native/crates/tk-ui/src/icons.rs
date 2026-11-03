@@ -70,6 +70,13 @@ fn glyph(name: &str) -> Option<(&'static str, bool)> {
         "bookmark" => ("M6 3h12v18l-6-4-6 4z", false),
         "grid" => ("M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z", false),
         "palette" => ("M12 3a9 9 0 0 0 0 18c1.5 0 2-1 2-2s-1-2 0-3h3a4 4 0 0 0 4-4c0-5-4-9-9-9zM7.5 11.5h.5M10 7.5h.5M15 8h.5", false),
+        // wave 1 D (Link, Settings, title bar chips)
+        "offline" => ("M8.5 7A6 6 0 0 1 18 10.1 4 4 0 0 1 19.5 17.6M16 18H6a4.5 4.5 0 0 1-.5-9M3 3l18 18", false),
+        "storage" => ("M4 4h16v5H4zM4 10h16v5H4zM4 16h16v4H4zM7 6.5h.5M7 12.5h.5M7 18h.5", false),
+        "terminal" => ("M3 5h18v14H3zM7 9l3 3-3 3M12 15h5", false),
+        "update" => ("M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5M12 8v4l3 2", false),
+        "logout" => ("M10 4H4v16h6M14 8l4 4-4 4M18 12H9", false),
+        "tablet" => ("M5 3h14v18H5zM11 18h2", false),
         _ => return None,
     })
 }
@@ -110,6 +117,9 @@ mod tests {
             "gpu", "cast", "info", "warning", "sync", "filter", "sort", "pip", "screenshot", "speed", "skip", "more",
             "edit", "folder", "keyboard", "external", "clock", "calendar", "bookmark", "grid", "palette",
         ] {
+            assert!(glyph(n).is_some(), "{n}");
+        }
+        for n in ["offline", "storage", "terminal", "update", "logout", "tablet"] {
             assert!(glyph(n).is_some(), "{n}");
         }
         assert!(glyph("nope").is_none());

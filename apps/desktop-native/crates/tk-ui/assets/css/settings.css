@@ -11,3 +11,48 @@
 .tk-priority__row { display: flex; align-items: center; gap: var(--tk-space-8); padding: var(--tk-space-4) var(--tk-space-8) var(--tk-space-4) var(--tk-space-16); border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container-high); }
 .tk-priority__rank { font-family: var(--tk-font-mono); color: var(--md-sys-color-primary); }
 .tk-priority__name { flex: 1; }
+
+/* ---- wave 1 D: own scroll container, sticky side index, section extras ------------------------- */
+.tk-settings-scroll { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; }
+.tk-settings { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--tk-space-32); align-items: start; }
+.tk-settings__nav { position: sticky; top: var(--tk-space-16); display: flex; flex-direction: column; gap: 2px; }
+.tk-settings__link {
+  display: flex; align-items: center; gap: var(--tk-space-12); height: 44px; padding: 0 var(--tk-space-16); flex: none;
+  border-radius: var(--md-sys-shape-corner-full); color: var(--md-sys-color-on-surface-variant); text-align: start;
+  font-family: var(--md-sys-typescale-label-large-font); font-size: var(--md-sys-typescale-label-large-size); font-weight: var(--md-sys-typescale-label-large-weight);
+  transition: background-color var(--tk-mo-fx-fast), color var(--tk-mo-fx-fast);
+}
+.tk-settings__link:hover { background: var(--tk-hover); }
+.tk-settings__link[aria-current="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.tk-settings__body { display: flex; flex-direction: column; gap: var(--tk-space-24); min-width: 0; }
+.tk-settings__panel { scroll-margin-top: var(--tk-space-16); }
+@media (max-width: 899px) {
+  .tk-settings { grid-template-columns: 1fr; }
+  .tk-settings__nav { position: static; flex-direction: row; overflow-x: auto; padding-bottom: var(--tk-space-4); }
+}
+
+.tk-priority__ico {
+  width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: var(--md-sys-shape-corner-small);
+  font-family: var(--tk-font-display); font-size: var(--md-sys-typescale-label-small-size); font-weight: var(--md-sys-typescale-label-small-weight-emphasized);
+  background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant);
+}
+.tk-priority__name { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--tk-space-8); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-priority__name small { font-weight: var(--md-sys-typescale-body-small-weight); font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); }
+
+.tk-account { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-16); }
+.tk-account__avatar {
+  width: 56px; height: 56px; flex: none; display: grid; place-items: center;
+  border-radius: 40% 60% 60% 40% / 50% 40% 60% 50%;
+  background: linear-gradient(135deg, var(--md-sys-color-primary), var(--md-sys-color-tertiary)); color: var(--md-sys-color-on-primary);
+  font-family: var(--tk-font-display); font-size: var(--md-sys-typescale-title-large-size); font-weight: var(--md-sys-typescale-title-large-weight-emphasized);
+}
+.tk-account__text { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 2px; }
+
+.tk-settings__port { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--tk-space-12); }
+.tk-settings__port .tk-field { width: 220px; }
+.tk-settings__port .tk-btn { margin-top: var(--tk-space-24); }
+
+.tk-about { display: grid; gap: var(--tk-space-8); color: var(--md-sys-color-on-surface-variant); max-width: 70ch; }
+.tk-about dl { display: grid; grid-template-columns: auto 1fr; gap: var(--tk-space-4) var(--tk-space-16); margin: 0; font-size: var(--md-sys-typescale-body-medium-size); }
+.tk-about dt { color: var(--md-sys-color-on-surface); font-weight: var(--md-sys-typescale-label-large-weight); }
+.tk-about dd { margin: 0; font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-body-small-size); user-select: text; }

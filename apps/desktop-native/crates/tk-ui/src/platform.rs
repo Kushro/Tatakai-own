@@ -31,23 +31,26 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Set `data-palette` / `data-mode` / `data-contrast` on `<html>` (tokens.css selectors).
-pub fn apply_theme_js(palette: &str, mode: &str, contrast: Option<&str>) -> String {
+/// Set `data-palette` / `data-mode` / `data-contrast` on `<html>` (tokens.css selectors) and
+/// `data-reduce-motion="true"` when Settings > Appearance > Reduce motion is on (app.css; absent when off).
+pub fn apply_theme_js(palette: &str, mode: &str, contrast: Option<&str>, reduce_motion: bool) -> String {
     // Values come from fixed enums / validated palette ids, but still go through JSON escaping.
     let q = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into());
     let contrast_js = match contrast {
         Some(c) => format!("r.setAttribute('data-contrast',{});", q(c)),
         None => "r.removeAttribute('data-contrast');".to_owned(),
     };
+    let motion_js =
+        if reduce_motion { "r.setAttribute('data-reduce-motion','true');" } else { "r.removeAttribute('data-reduce-motion');" };
     format!(
-        "const r=document.documentElement;r.setAttribute('data-palette',{});r.setAttribute('data-mode',{});{contrast_js}",
+        "const r=document.documentElement;r.setAttribute('data-palette',{});r.setAttribute('data-mode',{});{contrast_js}{motion_js}",
         q(palette),
         q(mode)
     )
 }
 
-pub fn apply_theme(palette: &str, mode: &str, contrast: Option<&str>) {
-    let _ = document::eval(&apply_theme_js(palette, mode, contrast));
+pub fn apply_theme(palette: &str, mode: &str, contrast: Option<&str>, reduce_motion: bool) {
+    let _ = document::eval(&apply_theme_js(palette, mode, contrast, reduce_motion));
 }
 
 #[cfg(test)]
@@ -56,15 +59,21 @@ mod tests {
 
     #[test]
     fn theme_script_sets_and_clears_contrast() {
-        let js = apply_theme_js("sakura", "amoled", Some("high"));
+        let js = apply_theme_js("sakura", "amoled", Some("high"), false);
         assert!(js.contains("'data-palette',\"sakura\""));
         assert!(js.contains("'data-mode',\"amoled\""));
         assert!(js.contains("'data-contrast',\"high\""));
-        assert!(apply_theme_js("sakura", "dark", None).contains("removeAttribute('data-contrast')"));
+        assert!(apply_theme_js("sakura", "dark", None, false).contains("removeAttribute('data-contrast')"));
+    }
+
+    #[test]
+    fn theme_script_sets_and_clears_reduce_motion() {
+        assert!(apply_theme_js("sakura", "dark", None, true).contains("setAttribute('data-reduce-motion','true')"));
+        assert!(apply_theme_js("sakura", "dark", None, false).contains("removeAttribute('data-reduce-motion')"));
     }
 
     #[test]
     fn theme_script_escapes_quotes() {
-        assert!(apply_theme_js("a\"b", "dark", None).contains("\\\""));
+        assert!(apply_theme_js("a\"b", "dark", None, false).contains("\\\""));
     }
 }
