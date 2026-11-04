@@ -3,6 +3,26 @@
     <string name="library_in_progress">Continuar viendo</string>
     <string name="library_history">Historial</string>
     <string name="library_empty_title">Todavía no viste nada</string>
-    <string name="library_empty_message">Los episodios que veas aparecen acá. Tu biblioteca funciona sin cuenta.</string>
+    <string name="library_empty_message">Los episodios que veas aparecen aquí. Tu biblioteca funciona sin cuenta.</string>
     <string name="library_explore">Explorar anime</string>
+    <!-- android wave (docs/redesign/12 §4 c): prototype screens.js S.library + torrents tab (11 §3.1) -->
+    <string name="library_title">Biblioteca</string>
+    <string name="library_local">Local en este dispositivo</string>
+    <string name="library_m1">Las listas de AniList y MAL (Viendo, Planeado, Completado…) llegan en M1.</string>
+    <string name="library_tab_continue">Continuar</string>
+    <string name="library_tab_history">Historial</string>
+    <string name="library_tab_torrents">Torrents</string>
+    <string name="library_torrents_badge">%1$d descargas activas</string>
+    <string name="library_sync_now">Sincronizar ahora</string>
+    <string name="library_syncing">Sincronizando…</string>
+    <string name="library_synced">Historial sincronizado</string>
+    <string name="library_synced_at">Sincronizado %1$s</string>
+    <string name="library_never_synced">Aún sin sincronizar</string>
+    <string name="library_sync_failed">No se pudo sincronizar el historial. Inténtalo más tarde.</string>
+    <string name="library_episode">Episodio %1$d</string>
+    <string name="library_episode_at">Episodio %1$d · %2$s</string>
+    <string name="library_watched">Visto</string>
+    <string name="library_watched_on">Episodio %1$d · visto %2$s</string>
+    <string name="library_history_empty_title">Aún no hay historial</string>
+    <string name="library_history_empty_message">Cada episodio que reproduces aparece aquí, del más reciente al más antiguo.</string>
 </resources>
