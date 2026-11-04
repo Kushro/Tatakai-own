@@ -1183,10 +1183,14 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     fullscreen.set(on);
                     win.set_fullscreen(on);
                 }
+                // Esc leaves full screen first, then the player (like the back arrow).
                 Shortcut::Escape => {
                     if *fullscreen.peek() {
                         fullscreen.set(false);
                         win.set_fullscreen(false);
+                    } else {
+                        report(&backend, &id, episode, &pstate.peek());
+                        navigator.go_back();
                     }
                 }
                 Shortcut::Preset(n) => {
