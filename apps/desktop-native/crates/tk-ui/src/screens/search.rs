@@ -10,7 +10,7 @@ use crate::app::{Route, Services, Ui};
 use crate::backend::MediaVm;
 use crate::components::{
     Banner, Button, ButtonVariant, Chip, EmptyState, ErrorState, IconButton, IconButtonSize, Kbd, MediaCard,
-    MediaCover, Pill, Sheet, SkeletonGrid, Tone,
+    MediaCover, Pill, Sheet, SkeletonGrid, Tone, use_uncontrolled_input,
 };
 use crate::i18n::{t, tf};
 use crate::icons::Icon;
@@ -262,6 +262,7 @@ pub fn SearchPage() -> Element {
 
     let dual = pane_layout((ui.width)()) == PaneLayout::Dual;
     let query = state.read().query.clone();
+    let (input_generation, record_input) = use_uncontrolled_input(&query);
     let placeholder = t("search.placeholder");
     let hint = t("search.hint");
     let clear_label = t("search.clear");
@@ -444,24 +445,42 @@ pub fn SearchPage() -> Element {
                 }
                 div { class: "tk-searchbar", role: "search",
                     Icon { name: "search".to_string(), size: 22 }
-                    input {
-                        id: "tk-search-input",
-                        class: "tk-searchbar__input",
-                        r#type: "search",
-                        placeholder: "{placeholder}",
-                        "aria-label": "{placeholder}",
-                        title: "{hint}",
-                        autofocus: true,
-                        autocomplete: "off",
-                        spellcheck: "false",
-                        value: "{query}",
-                        oninput: move |e| run_search.call(e.value()),
-                        onkeydown: move |e| {
-                            if e.key() == Key::Enter {
-                                remember(&state.peek().query);
+                    // A one-item keyed list so clearing remounts the uncontrolled input (see use_uncontrolled_input).
+                    {std::iter::once(input_generation).map(|input_generation| {
+                        let record_input = record_input.clone();
+                        rsx! {
+                            input {
+                                key: "{input_generation}",
+                                id: "tk-search-input",
+                                class: "tk-searchbar__input",
+                                r#type: "search",
+                                placeholder: "{placeholder}",
+                                "aria-label": "{placeholder}",
+                                title: "{hint}",
+                                autofocus: true,
+                                autocomplete: "off",
+                                spellcheck: "false",
+                                initial_value: "{query}",
+                                // autofocus only applies on page load; a remount after clearing keeps the focus here.
+                                onmounted: move |e| {
+                                    if input_generation > 0 {
+                                        spawn(async move {
+                                            let _ = e.set_focus(true).await;
+                                        });
+                                    }
+                                },
+                                oninput: move |e| {
+                                    record_input(&e.value());
+                                    run_search.call(e.value())
+                                },
+                                onkeydown: move |e| {
+                                    if e.key() == Key::Enter {
+                                        remember(&state.peek().query);
+                                    }
+                                },
                             }
-                        },
-                    }
+                        }
+                    })}
                     Kbd { keys: "Ctrl K".to_string() }
                     if !query.is_empty() {
                         IconButton {

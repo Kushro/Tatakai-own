@@ -1,8 +1,26 @@
 //! Switch and outlined text field. (The segmented button lives in `segmented.rs`.)
 
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 
 use crate::icons::Icon;
+
+/// Keeps a text input uncontrolled while the user types. Writing `value` back on every keystroke races the
+/// webview round trip and drops characters typed in between, so the input only gets `initial_value`. The
+/// returned key changes when the caller sets a value the input did not report itself (clear, reset), which
+/// remounts the input with it; call the returned recorder from `oninput` with what the input reported.
+pub fn use_uncontrolled_input(value: &str) -> (u32, Rc<dyn Fn(&str)>) {
+    let typed = use_hook(|| Rc::new(RefCell::new(value.to_owned())));
+    let generation = use_hook(|| Rc::new(Cell::new(0u32)));
+    if *typed.borrow() != value {
+        *typed.borrow_mut() = value.to_owned();
+        generation.set(generation.get().wrapping_add(1));
+    }
+    let record: Rc<dyn Fn(&str)> = Rc::new(move |v: &str| *typed.borrow_mut() = v.to_owned());
+    (generation.get(), record)
+}
 
 #[component]
 pub fn Switch(
@@ -44,6 +62,7 @@ pub fn TextField(
     #[props(default)] oninput: EventHandler<String>,
     #[props(default)] onsubmit: EventHandler<()>,
 ) -> Element {
+    let (generation, record) = use_uncontrolled_input(&value);
     rsx! {
         label { class: "tk-field", "data-error": "{error}", "data-mono": "{mono}",
             span { class: "tk-field__label", "{label}" }
@@ -51,22 +70,32 @@ pub fn TextField(
                 if !icon.is_empty() {
                     Icon { name: icon.clone(), size: 20 }
                 }
-                input {
-                    class: "tk-field__input",
-                    r#type: "{kind}",
-                    value: "{value}",
-                    placeholder: "{placeholder}",
-                    autocomplete: "off",
-                    spellcheck: "false",
-                    disabled,
-                    "aria-invalid": "{error}",
-                    oninput: move |e| oninput.call(e.value()),
-                    onkeydown: move |e| {
-                        if e.key() == Key::Enter {
-                            onsubmit.call(());
+                // A one-item keyed list: Dioxus only remounts on a key change inside a list.
+                {std::iter::once(generation).map(|generation| {
+                    let record = record.clone();
+                    rsx! {
+                        input {
+                            key: "{generation}",
+                            class: "tk-field__input",
+                            r#type: "{kind}",
+                            initial_value: "{value}",
+                            placeholder: "{placeholder}",
+                            autocomplete: "off",
+                            spellcheck: "false",
+                            disabled,
+                            "aria-invalid": "{error}",
+                            oninput: move |e| {
+                                record(&e.value());
+                                oninput.call(e.value())
+                            },
+                            onkeydown: move |e| {
+                                if e.key() == Key::Enter {
+                                    onsubmit.call(());
+                                }
+                            },
                         }
-                    },
-                }
+                    }
+                })}
             }
             if !hint.is_empty() {
                 span { class: "tk-field__hint", "{hint}" }
