@@ -15,7 +15,7 @@ use crate::components::{
     IconButtonVariant, InfoChip, LoadingIndicator, MediaCover, Pill, Segmented, Sheet, SkeletonLines, SourcePicker,
     SourceSummary, SplitButton, ToolbarSeparator, Tone, use_snackbar,
 };
-use crate::i18n::{t, tf};
+use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
 use crate::model::{EPISODE_RANGE, UiError, episode_ranges, format_time, range_index_for};
 use crate::screens::extensions::rel_time;
@@ -517,7 +517,7 @@ fn DetailsHeader(
     let size = if embedded { ButtonSize::Md } else { ButtonSize::Lg };
     let synopsis = vm.synopsis.clone().unwrap_or_else(|| t("details.no_synopsis"));
     let long = synopsis.chars().count() > CLAMP_CHARS;
-    let count = vm.episodes_total.map(|n| tf("details.episodes_count", &[("n", &n.to_string())]));
+    let count = vm.episodes_total.map(|n| tn("details.episodes_count", n as usize));
     let resume_at = (vm.resume_episode > 0 && vm.resume_secs > 0)
         .then(|| tf("details.resume_at", &[("t", &format_time(f64::from(vm.resume_secs)))]));
     let more_label = if clamp() { t("common.more") } else { t("common.less") };

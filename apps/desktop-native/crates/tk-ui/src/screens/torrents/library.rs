@@ -17,7 +17,7 @@ use crate::components::{
     Button, ButtonSize, ButtonVariant, ConfirmDialog, EmptyState, ErrorState, IconButton, IconButtonSize, Pill,
     SkeletonLines, Switch, Tone, WavyProgress, use_snackbar,
 };
-use crate::i18n::{t, tf};
+use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
 use crate::model::{UiError, format_unix_utc};
 
@@ -253,8 +253,8 @@ pub fn TorrentLibraryPage() -> Element {
             let all_ids: BTreeSet<String> = list.iter().map(|i| i.id.clone()).collect();
             let all_selected = !all_ids.is_empty() && all_ids.iter().all(|id| sel.contains(id));
             let count = sel.len();
-            let count_text = tf("torrent.library.selected", &[("n", &count.to_string())]);
-            let total_text = tf("torrent.library.count", &[("n", &list.len().to_string())]);
+            let count_text = tn("torrent.library.selected", count);
+            let total_text = tn("torrent.library.count", list.len());
             rsx! {
                 div { class: "tk-tlib__bar", role: "toolbar", "aria-label": t("torrent.library.actions"),
                     if count > 0 {
