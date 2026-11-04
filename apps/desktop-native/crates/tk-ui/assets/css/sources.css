@@ -35,3 +35,23 @@
 .tk-srcsum__by { display: flex; align-items: center; gap: var(--tk-space-4); font-size: var(--md-sys-typescale-body-small-size); }
 .tk-srcsum__by .tk-icon { color: var(--md-sys-color-primary); }
 .tk-srcsum .tk-state { padding: var(--tk-space-16) 0; }
+
+/* Release tags on a row (wave 3 E, docs/redesign/10 section 5.6). Tones: best = primary container (SeaDex best),
+   batch = secondary container, group = outlined, plain = surface. */
+.tk-srow__tags { display: flex; flex-wrap: wrap; gap: var(--tk-space-4); }
+.tk-stag { display: inline-flex; align-items: center; gap: var(--tk-space-4); height: 22px; padding: 0 var(--tk-space-8); border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-small-size); font-weight: var(--md-sys-typescale-label-small-weight-emphasized); letter-spacing: var(--md-sys-typescale-label-small-tracking); white-space: nowrap; }
+.tk-stag[data-tone="group"] { background: transparent; border: 1px solid var(--md-sys-color-outline-variant); }
+.tk-stag[data-tone="batch"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.tk-stag[data-tone="best"] { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+.tk-stag .tk-icon { flex: none; }
+
+/* Picker filter bar: toggle chips grouped by facet; the list below keeps the ranked order. */
+.tk-sfilters { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-sfilters__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); }
+.tk-sfilters__count { margin-inline-start: auto; color: var(--md-sys-color-on-surface-variant); font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-medium-size); }
+.tk-sfilters__groups { display: flex; flex-direction: column; gap: var(--tk-space-12); padding: var(--tk-space-12); border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-low); }
+.tk-sfilters__group { display: grid; grid-template-columns: minmax(96px, max-content) minmax(0, 1fr); gap: var(--tk-space-8) var(--tk-space-12); align-items: center; }
+.tk-sfilters__label { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-medium-size); font-weight: var(--md-sys-typescale-label-medium-weight); }
+@media (max-width: 599px) {
+  .tk-sfilters__group { grid-template-columns: minmax(0, 1fr); }
+}

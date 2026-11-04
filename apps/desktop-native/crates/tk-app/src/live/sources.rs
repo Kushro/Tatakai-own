@@ -2,8 +2,9 @@
 //! Pure functions; the backend adds the store and the cache.
 
 use tk_core::StreamSource;
+use tk_core::release::{ReleaseSource, ReleaseTags, VideoCodec};
 use tk_core::sources::{Quality, SourceCandidate, SourceKind, SourceMode, SourcePrefs, rank, source_key};
-use tk_ui::backend::{ReleaseTagsVm, SourceKindVm, SourceVm, StreamVm, SubtitleVm};
+use tk_ui::backend::{ReleaseSourceVm, ReleaseTagsVm, SourceKindVm, SourceVm, StreamVm, SubtitleVm, VideoCodecVm};
 use tk_ui::model::{QualityVm, SourceModeVm, SourcePrefsVm};
 
 pub fn core_kind(k: SourceKindVm) -> SourceKind {
@@ -55,6 +56,33 @@ pub fn dedupe_by_key(candidates: Vec<SourceCandidate>) -> Vec<SourceCandidate> {
     out.into_iter().map(|(_, c)| c).collect()
 }
 
+/// `tk_core::release::ReleaseTags` -> the picker's chips / filters (resolution travels as `SourceVm::quality`; the
+/// parsed title / season are not shown).
+pub fn tags_vm(t: &ReleaseTags) -> ReleaseTagsVm {
+    ReleaseTagsVm {
+        group: t.group.clone(),
+        source: t.source.map(|s| match s {
+            ReleaseSource::Bd => ReleaseSourceVm::Bd,
+            ReleaseSource::Remux => ReleaseSourceVm::Remux,
+            ReleaseSource::Web => ReleaseSourceVm::Web,
+            ReleaseSource::Tv => ReleaseSourceVm::Tv,
+            ReleaseSource::Dvd => ReleaseSourceVm::Dvd,
+        }),
+        codec: t.codec.map(|c| match c {
+            VideoCodec::H264 => VideoCodecVm::H264,
+            VideoCodec::Hevc => VideoCodecVm::Hevc,
+            VideoCodec::Av1 => VideoCodecVm::Av1,
+            VideoCodec::Vp9 => VideoCodecVm::Vp9,
+        }),
+        bit_depth: t.bit_depth,
+        dual_audio: t.dual_audio,
+        multi_sub: t.multi_sub,
+        batch: t.batch,
+        seadex_best: t.seadex_best,
+        episodes: t.episodes,
+    }
+}
+
 fn source_vm(c: SourceCandidate, score: f32, ext_enabled: bool, picked: Option<&str>, recommended: bool) -> SourceVm {
     let id = source_key(&c);
     let picked = picked == Some(id.as_str());
@@ -65,6 +93,7 @@ fn source_vm(c: SourceCandidate, score: f32, ext_enabled: bool, picked: Option<&
         c.torrent.as_ref().map(|t| t.leechers),
         c.torrent.as_ref().map(|t| t.info_hash.clone()),
     );
+    let tags = tags_vm(&c.tags);
     SourceVm {
         id,
         ext_id: c.ext_id,
@@ -86,8 +115,7 @@ fn source_vm(c: SourceCandidate, score: f32, ext_enabled: bool, picked: Option<&
         score,
         recommended,
         picked,
-        // wave 3 E: map `c.tags` (tk_core::release::ReleaseTags -> ReleaseTagsVm)
-        tags: ReleaseTagsVm::default(),
+        tags,
     }
 }
 
@@ -139,6 +167,23 @@ mod tests {
             torrent: None,
             tags: Default::default(),
         }
+    }
+
+    #[test]
+    fn release_tags_reach_the_view_model() {
+        let mut torrent = web("nyaa", "Judas", Quality::P1080);
+        torrent.kind = SourceKind::Torrent;
+        torrent.web = None;
+        torrent.torrent = Some(TorrentInfo { info_hash: "cd".repeat(20), size_bytes: None, seeders: 50, leechers: 2, magnet: None });
+        torrent.tags = tk_core::release::parse_release("[Judas] Show S01 (BD 1080p HEVC x265 10bit Dual-Audio Multi-Subs) [Batch]");
+        torrent.tags.seadex_best = true;
+        let vms = ranked_vms(vec![torrent, web("a", "Alpha", Quality::P720)], &SourcePrefs::default(), |_| true, None);
+        let t = vms.iter().find(|v| v.kind == SourceKindVm::Torrent).unwrap();
+        assert_eq!(t.tags.group.as_deref(), Some("Judas"));
+        assert_eq!((t.tags.source, t.tags.codec, t.tags.bit_depth), (Some(ReleaseSourceVm::Bd), Some(VideoCodecVm::Hevc), Some(10)));
+        assert!(t.tags.batch && t.tags.dual_audio && t.tags.multi_sub && t.tags.seadex_best);
+        let w = vms.iter().find(|v| v.kind == SourceKindVm::Web).unwrap();
+        assert_eq!(w.tags, ReleaseTagsVm::default());
     }
 
     #[test]
