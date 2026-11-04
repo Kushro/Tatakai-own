@@ -12,7 +12,7 @@ use crate::components::{
     Banner, Button, ButtonVariant, Chip, EmptyState, ErrorState, IconButton, IconButtonSize, Kbd, MediaCard,
     MediaCover, Pill, Sheet, SkeletonGrid, Tone, use_uncontrolled_input,
 };
-use crate::i18n::{t, tf};
+use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
 use crate::model::{
     LoadState, PaneLayout, SEARCH_DEBOUNCE_MS, SearchAction, SearchState, UiError, format_unix_utc, normalize_query,
@@ -31,6 +31,17 @@ const HISTORY_KEY: &str = "tk.search.history";
 /// Session copy; filled once from localStorage on the first visit.
 static HISTORY: GlobalSignal<Vec<String>> = Signal::global(Vec::new);
 static HISTORY_LOADED: AtomicBool = AtomicBool::new(false);
+/// The page as it was left (query, results, open item, origin, filters): Search is rebuilt on every visit, so
+/// coming back from details or the player would otherwise start empty.
+static KEPT: GlobalSignal<Option<Kept>> = Signal::global(|| None);
+
+#[derive(Clone)]
+struct Kept {
+    state: SearchState<MediaVm>,
+    selected: Option<String>,
+    origin: Option<String>,
+    filters: SearchFilters,
+}
 
 /// `q` first (normalized), without case-insensitive duplicates, at most [`HISTORY_MAX`]. Queries too
 /// short to search are ignored.
@@ -195,11 +206,22 @@ pub fn SearchPage() -> Element {
     let navigator = use_navigator();
     let backend = services.backend.clone();
 
-    let mut state = use_signal(SearchState::<MediaVm>::default);
-    let mut selected = use_signal(|| None::<String>);
+    let kept = KEPT.peek().clone();
+    // A search still loading when the page was left has no task to finish it: it runs again below.
+    let rerun = kept.as_ref().filter(|k| matches!(k.state.results, Some(LoadState::Loading))).map(|k| k.state.query.clone());
+    let mut state = use_signal(|| kept.as_ref().map(|k| k.state.clone()).unwrap_or_default());
+    let mut selected = use_signal(|| kept.as_ref().and_then(|k| k.selected.clone()));
     // `None` = metadata providers; `Some(ext id)` = search through that extension.
-    let mut origin = use_signal(|| None::<String>);
-    let mut filters = use_signal(SearchFilters::default);
+    let mut origin = use_signal(|| kept.as_ref().and_then(|k| k.origin.clone()));
+    let mut filters = use_signal(|| kept.as_ref().map(|k| k.filters.clone()).unwrap_or_default());
+    use_drop(move || {
+        *KEPT.write() = Some(Kept {
+            state: state.peek().clone(),
+            selected: selected.peek().clone(),
+            origin: origin.peek().clone(),
+            filters: filters.peek().clone(),
+        });
+    });
     let mut filters_open = use_signal(|| false);
 
     let exts = use_resource({
@@ -252,6 +274,12 @@ pub fn SearchPage() -> Element {
                 let result = backend.search(&normalize_query(&q), 1).await;
                 apply(&mut state, SearchAction::Finished { generation, result });
             });
+        }
+    });
+
+    use_hook(move || {
+        if let Some(q) = rerun {
+            run_search.call(q);
         }
     });
 
@@ -394,7 +422,7 @@ pub fn SearchPage() -> Element {
                         }
                     }
                 } else {
-                    let count = tf("search.results", &[("n", &items.len().to_string())]);
+                    let count = tn("search.results", items.len());
                     let sel = detail_id.clone();
                     rsx! {
                         p { class: "tk-search__count tk-muted", role: "status", "{count}" }
