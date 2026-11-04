@@ -24,7 +24,8 @@
   // ---- console ------------------------------------------------------------------------------------------------------
   const show = (a) => {
     if (typeof a === 'string') return a;
-    if (a instanceof Error) return a.stack || String(a);
+    // QuickJS stacks hold only the frames, without V8's leading "Name: message" line.
+    if (a instanceof Error) return String(a) + (a.stack ? '\n' + a.stack : '');
     try {
       return typeof a === 'object' && a !== null ? JSON.stringify(a) : String(a);
     } catch (e) {
@@ -655,12 +656,58 @@
     clone() { return new Response(this._bytes.slice(0), { status: this.status, statusText: this.statusText, headers: this.headers, url: this.url }); }
   }
   G.Response = Response;
+  // AbortController / AbortSignal: bundles wrap every fetch in one for their timeouts. Aborting rejects the fetch with
+  // an AbortError; the host request still finishes and its result is dropped.
+  const abortError = (reason) => {
+    if (reason !== undefined) return reason;
+    const e = new Error('This operation was aborted');
+    e.name = 'AbortError';
+    return e;
+  };
+  class AbortSignal {
+    constructor() { this.aborted = false; this.reason = undefined; this.onabort = null; this._l = []; }
+    addEventListener(type, fn, opts) { if (type === 'abort' && typeof fn === 'function') this._l.push({ fn, once: !!(opts && opts.once) }); }
+    removeEventListener(type, fn) { if (type === 'abort') this._l = this._l.filter((l) => l.fn !== fn); }
+    throwIfAborted() { if (this.aborted) throw this.reason; }
+    _abort(reason) {
+      if (this.aborted) return;
+      this.aborted = true;
+      this.reason = abortError(reason);
+      const ev = { type: 'abort', target: this };
+      const ls = this._l;
+      this._l = ls.filter((l) => !l.once);
+      if (typeof this.onabort === 'function') { try { this.onabort(ev); } catch (e) { G.console.error('abort listener threw: ' + (e && e.message)); } }
+      for (const l of ls) { try { l.fn.call(this, ev); } catch (e) { G.console.error('abort listener threw: ' + (e && e.message)); } }
+    }
+    static abort(reason) { const s = new AbortSignal(); s._abort(reason); return s; }
+    static timeout(ms) {
+      const s = new AbortSignal();
+      G.setTimeout(() => { const e = new Error('The operation timed out'); e.name = 'TimeoutError'; s._abort(e); }, ms);
+      return s;
+    }
+    static any(signals) {
+      const s = new AbortSignal();
+      for (const o of signals) {
+        if (o.aborted) { s._abort(o.reason); break; }
+        o.addEventListener('abort', () => s._abort(o.reason), { once: true });
+      }
+      return s;
+    }
+  }
+  class AbortController {
+    constructor() { this.signal = new AbortSignal(); }
+    abort(reason) { this.signal._abort(reason); }
+  }
+  G.AbortSignal = AbortSignal;
+  G.AbortController = AbortController;
   const pending = new Map();
   let fetchSeq = 0;
   G.fetch = function fetch(input, init) {
     return new Promise((resolve, reject) => {
       try {
         init = init || {};
+        const signal = init.signal || (input && typeof input === 'object' && input.signal) || null;
+        if (signal && signal.aborted) { reject(signal.reason); return; }
         const req = input && typeof input === 'object' && !(input instanceof URL) ? input : null;
         const url = req ? req.url : String(input);
         const headers = {};
@@ -675,6 +722,9 @@
         const id = ++fetchSeq;
         const meta = { url: String(url), method: String(init.method || (req && req.method) || 'GET').toUpperCase(), headers };
         pending.set(id, { resolve, reject });
+        if (signal && typeof signal.addEventListener === 'function') {
+          signal.addEventListener('abort', () => { if (pending.delete(id)) reject(signal.reason); }, { once: true });
+        }
         try { __host_fetch_start(id, JSON.stringify(meta), bytes ? toAB(bytes) : undefined); } catch (e) { pending.delete(id); throw e; }
       } catch (e) { reject(e); }
     });

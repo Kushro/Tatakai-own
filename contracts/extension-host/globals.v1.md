@@ -32,6 +32,7 @@ Contract for the native `.kai` hosts: Kotlin (`apps/android-native/core/extensio
 | `setTimeout / clearTimeout / setInterval / clearInterval / setImmediate / clearImmediate` | Host event loop. |
 | `console` | `log/info/warn/error/debug` forwarded to the per-extension log buffer (Extensions screen shows it). Never to logcat/stdout with payloads over 4 KiB. |
 | `URL`, `URLSearchParams` | Standard semantics (WHATWG). |
+| `AbortController`, `AbortSignal` | `abort(reason)`, `signal.aborted/reason/onabort`, `add/removeEventListener('abort')`, `throwIfAborted()`, static `abort/timeout/any`. `fetch` honours `init.signal`: aborting rejects with an `AbortError` (the host request still completes and is dropped). |
 | `TextEncoder`, `TextDecoder` | `utf-8` (and `utf-16le` decode). |
 | `atob`, `btoa` | Standard. |
 | `crypto` (global) | `randomUUID()`, `getRandomValues(typedArray)`. |
