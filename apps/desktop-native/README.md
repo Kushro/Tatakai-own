@@ -65,9 +65,10 @@ look next to the executable (`/usr/lib/tatakai-next/`, see Packaging).
 
 | Variable | Effect |
 |---|---|
-| `WEBKIT_DISABLE_DMABUF_RENDERER=1` | Disables WebKitGTK's DMA-BUF renderer. Use it if the window is blank, black or flickers (NVIDIA, some Wayland compositors). The AppImage sets it by default (`=0` to opt out). |
+| `WEBKIT_DISABLE_DMABUF_RENDERER=1` | Disables WebKitGTK's DMA-BUF renderer. Use it only if the window is blank, black or flickers (some NVIDIA setups). The embedded player needs that renderer: with this set, mpv plays in its own window. Not set by default (the app also stops Dioxus from setting it). |
 | `GDK_BACKEND=x11` / `wayland` | Forces the GTK backend. Default: Wayland when available, X11 otherwise; both must work. |
-| `WEBKIT_DISABLE_COMPOSITING_MODE=1` | Last resort for rendering glitches on old GPUs (slower). |
+| `WEBKIT_DISABLE_COMPOSITING_MODE=1` | Last resort for rendering glitches on old GPUs (slower). Like the variable above, it moves mpv to its own window. |
+| `TK_MPV_LOG=<file>` | Diagnostics: libmpv writes its own verbose log to `<file>`. |
 | `TATAKAI_NEXT_DATA_DIR=<dir>` | Uses another data directory (development, tests). |
 | `RUST_LOG=<filter>` | Log filter (default `info,tk_ui=debug,tk_player=debug,tk_app=debug`). |
 
@@ -77,7 +78,7 @@ look next to the executable (`/usr/lib/tatakai-next/`, see Packaging).
 |---|---|
 | `PKGBUILD` | Arch / CachyOS package built from this checkout: `cd packaging/linux && makepkg -si` (`--nocheck` skips tests). Depends on the system `mpv`, `webkit2gtk-4.1`, `gtk3`. |
 | `build-appimage.sh` | `Tatakai_Next-<version>-x86_64.AppImage` with linuxdeploy + the GTK plugin; bundles libmpv and its dependencies, the WebKitGTK helper processes and the TLS module. Build on the oldest distribution you want to support. |
-| `AppRun` | AppImage entry: GTK hook, `WEBKIT_DISABLE_DMABUF_RENDERER=1` by default, keeps the user's `GDK_BACKEND`. |
+| `AppRun` | AppImage entry: GTK hook, keeps the user's `GDK_BACKEND` and WebKitGTK's DMA-BUF renderer (needed by the embedded player). |
 | `install-tree.sh` | Shared install step (PKGBUILD and AppImage). |
 | `fetch-deps.sh` | Linux counterpart of `fetch-deps.ps1` (shaders, fonts; libmpv/ffmpeg come from the system). |
 | `app.tatakai.own.next.desktop`, `.metainfo.xml` | Desktop entry and AppStream metadata. |

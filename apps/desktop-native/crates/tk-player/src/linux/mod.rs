@@ -193,6 +193,27 @@ fn native_display(display: &gtk::gdk::Display, wayland: bool) -> *mut c_void {
     }
 }
 
+// --- Can the web view show the video at all?
+
+/// WebKitGTK switches that turn a variable on with any value except "0".
+fn env_flag(value: Option<&str>) -> bool {
+    value.is_some_and(|v| v != "0")
+}
+
+/// Why the web view cannot composite its transparent pixels over the GL area, if it cannot. Without the DMA-BUF
+/// renderer (or without accelerated compositing) WebKitGTK paints the page in a mode that never clears what is
+/// under transparent regions: the video stays black and moving elements leave trails. Arguments: the values of
+/// `WEBKIT_DISABLE_DMABUF_RENDERER` and `WEBKIT_DISABLE_COMPOSITING_MODE`.
+fn compositing_blocker(dmabuf_off: Option<&str>, compositing_off: Option<&str>) -> Option<&'static str> {
+    if env_flag(dmabuf_off) {
+        Some("WEBKIT_DISABLE_DMABUF_RENDERER is set")
+    } else if env_flag(compositing_off) {
+        Some("WEBKIT_DISABLE_COMPOSITING_MODE is set")
+    } else {
+        None
+    }
+}
+
 // --- UI-thread state
 
 struct Surface {
@@ -320,6 +341,12 @@ fn build(mpv: &Mpv, vbox: &gtk::Box) -> Result<u64, String> {
         "GdkX11Display" => false,
         other => return Err(format!("unsupported GDK backend {other}")),
     };
+    let var = |name: &str| std::env::var(name).ok();
+    if let Some(why) =
+        compositing_blocker(var("WEBKIT_DISABLE_DMABUF_RENDERER").as_deref(), var("WEBKIT_DISABLE_COMPOSITING_MODE").as_deref())
+    {
+        return Err(format!("the web view cannot show video under the page ({why})"));
+    }
     let procs = gl_procs(wayland);
     if procs.get_proc.is_none() && procs.fallback.is_empty() {
         return Err("no OpenGL loader (libEGL / libGL) found".into());
@@ -453,6 +480,11 @@ impl GlSurface {
         }
     }
 
+    /// Whether mpv draws inside the window (false: it opened its own window).
+    pub(crate) fn is_active(&self) -> bool {
+        self.id != 0
+    }
+
     /// Hold a reference to the core so `mpv_terminate_destroy` runs after the render context is freed, wherever
     /// the last `Player` reference is dropped. Call once, right after the `Arc<Mpv>` exists.
     pub(crate) fn keep_core(&self, mpv: Arc<Mpv>) {
@@ -517,5 +549,19 @@ impl Drop for GlSurface {
                 drop(core);
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compositing_blocker;
+
+    #[test]
+    fn webkit_switches_block_the_embedded_picture_unless_zero() {
+        assert_eq!(compositing_blocker(None, None), None);
+        assert_eq!(compositing_blocker(Some("0"), Some("0")), None);
+        assert!(compositing_blocker(Some("1"), None).is_some_and(|w| w.contains("DMABUF")));
+        assert!(compositing_blocker(Some(""), None).is_some());
+        assert!(compositing_blocker(None, Some("1")).is_some_and(|w| w.contains("COMPOSITING")));
     }
 }

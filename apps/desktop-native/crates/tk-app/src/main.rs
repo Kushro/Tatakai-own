@@ -58,6 +58,11 @@ fn window_config(paths: &paths::AppPaths) -> Config {
         .with_menu(None)
         .with_disable_context_menu(true)
         .with_data_directory(paths.webview_dir())
+        // Dioxus defaults to exporting WEBKIT_DISABLE_DMABUF_RENDERER=1 and GDK_BACKEND=x11 on Wayland. Without the
+        // DMA-BUF renderer WebKitGTK stops compositing the page with alpha over the embedded video (GL area under
+        // the web view): the picture stays black and moving page elements leave trails. The variables also leak
+        // into every child process (external mpv). Users who need the workaround still set it themselves.
+        .with_disable_dma_buf_on_wayland(false)
 }
 
 fn main() -> anyhow::Result<()> {

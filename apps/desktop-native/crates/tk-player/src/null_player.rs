@@ -64,6 +64,10 @@ impl Player {
         self.preset.lock().map(|p| *p).unwrap_or_default()
     }
 
+    pub fn is_embedded(&self) -> bool {
+        false
+    }
+
     pub fn set_rect(&self, _rect: Option<Rect>, _dpr: f64) -> bool {
         false
     }

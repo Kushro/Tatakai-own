@@ -431,6 +431,7 @@
   "player.external.searched": "Searched PATH and the usual install locations.",
   "player.external.open_settings": "Open Settings",
   "player.enhanced.preparing": "Preparing mpv-anime-build…",
+  "player.embed.own_window": "The video can't be shown inside the window here, so mpv plays it in its own window.",
   "player.enhanced.fallback": "mpv-anime-build is not available. Playing with the embedded engine.",
   "settings.player.engine_hint": "How video plays. A change applies the next time you start an episode.",
   "settings.player.mode.embedded_hint": "mpv inside this window with Tatakai's controls. Works on Linux and Windows.",
