@@ -13,7 +13,8 @@ copyright = "Copyright (c) Tatakai contributors. AGPL-3.0-or-later."
 category = "public.app-category.entertainment"
 icon = []
 # Runtime payload next to the exe (see packaging/fetch-deps.ps1). Layout expected by tk-app/src/paths.rs:
-#   libmpv-2.dll, shaders/*.glsl, ffmpeg/bin/*.exe, assets/fonts/*.woff2 (+ OFL texts).
+#   libmpv-2.dll, shaders/*.glsl, ffmpeg/bin/*.exe, assets/fonts/*.woff2 (+ OFL texts),
+#   mpv-anime-build/{mpv-anime-build-v5.6.zip, SHA256SUMS, LICENSE, README.md} (anime_build.rs; zip byte-identical).
 # TODO(first dx bundle): confirm that dx keeps these directory prefixes; if not, stage the folders into
 # the NSIS payload from packaging/windows.nsi (File /r).
 resources = [
@@ -22,6 +23,7 @@ resources = [
     "packaging/deps/ffmpeg/**/*",
     "packaging/deps/fonts/*",
     "crates/tk-ui/assets/fonts/*",
+    "vendor/mpv-anime-build/*",
 ]
 
 [bundle.windows]
