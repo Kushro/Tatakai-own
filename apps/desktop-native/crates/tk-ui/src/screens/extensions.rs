@@ -14,7 +14,7 @@ use crate::components::{
 };
 use crate::i18n::{t, tf};
 use crate::icons::Icon;
-use crate::model::{CompatLevel, ErrorKind, UiError, is_kai_path};
+use crate::model::{CompatLevel, ErrorKind, PlatformVm, UiError, is_kai_path};
 
 /// Permission chips shown before collapsing the rest into `+n`.
 const PERMS_SHOWN: usize = 6;
@@ -61,9 +61,18 @@ fn now_unix() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 
-/// Strip spaces and the quotes Windows adds with "Copy as path".
+/// Strip spaces and the quotes Windows adds with "Copy as path" (or a shell adds when pasting a path).
 fn clean_path(p: &str) -> String {
-    p.trim().trim_matches('"').to_owned()
+    p.trim().trim_matches(['"', '\'']).to_owned()
+}
+
+/// Example path for the install field, in the OS's own form.
+fn path_placeholder() -> &'static str {
+    match PlatformVm::current() {
+        PlatformVm::Windows => "C:\\...\\extension.kai",
+        PlatformVm::Linux => "/home/…/extension.kai",
+        PlatformVm::Mac => "/Users/…/extension.kai",
+    }
 }
 
 #[component]
@@ -241,7 +250,7 @@ pub fn ExtensionsPage() -> Element {
                         mono: true,
                         error: invalid(),
                         hint: if invalid() { t("ext.install.invalid") } else { String::new() },
-                        placeholder: "C:\\...\\extension.kai".to_string(),
+                        placeholder: path_placeholder().to_string(),
                         oninput: move |v: String| {
                             invalid.set(false);
                             path.set(v);
