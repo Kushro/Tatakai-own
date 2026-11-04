@@ -8,6 +8,7 @@ import app.tatakai.next.model.LinkCapabilities
 import app.tatakai.next.model.LinkProfile
 import app.tatakai.next.model.LinkRepository
 import app.tatakai.next.model.LinkSource
+import app.tatakai.next.model.LinkedDevice
 import app.tatakai.next.model.LinkState
 import app.tatakai.next.model.PairedPc
 import app.tatakai.next.model.RemoteSession
@@ -24,6 +25,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
 /** What the player needs from the Link without knowing about certificates: the mTLS client and the heartbeat. */
@@ -53,11 +55,20 @@ class LinkRepositoryImpl(
         )
     },
     private val clock: () -> Long = { System.currentTimeMillis() / 1000 },
+    /** android wave: epoch ms for pairedAtMs / lastSeenMs. */
+    private val nowMs: () -> Long = System::currentTimeMillis,
 ) : LinkRepository, RemotePlaybackAccess {
     private val _state = MutableStateFlow<LinkState>(
         vault.pairing()?.let { LinkState.Paired(it.toPc(), reachable = true) } ?: LinkState.Unpaired,
     )
     override val state: StateFlow<LinkState> = _state.asStateFlow()
+
+    // --- android wave (12 §3.5 / §3.6) ---
+    private val _linkedDevice = MutableStateFlow(readLinkedDevice())
+    override val linkedDevice: StateFlow<LinkedDevice?> = _linkedDevice.asStateFlow()
+
+    /** Last time lastSeenMs reached disk: a playback heartbeat every 4 s must not rewrite the file each time. */
+    @Volatile private var lastSeenPersistedMs: Long = 0
 
     private class Connection(val identity: LinkIdentity, val http: OkHttpClient, val client: LinkClient)
 
@@ -83,6 +94,12 @@ class LinkRepositoryImpl(
                 val grant = result.value
                 val stored = StoredPairing(grant.deviceId, parsed.pcName.ifBlank { parsed.host }, parsed.host, parsed.port, parsed.caSha256)
                 vault.save(stored, LinkCrypto.privateKeyPem(keyPair.private), LinkCrypto.certificatePem(grant.certificate), LinkCrypto.certificatePem(grant.ca))
+                val now = nowMs()
+                runCatching {
+                    vault.saveMeta(StoredDeviceMeta(pairedAtMs = now, lastSeenMs = now, localDeviceName = LinkCsr.sanitizeDeviceName(deviceName)))
+                }
+                lastSeenPersistedMs = now
+                _linkedDevice.value = readLinkedDevice()
                 sessions.clear()
                 connection = null
                 _state.value = LinkState.Paired(stored.toPc(), reachable = true)
@@ -122,7 +139,8 @@ class LinkRepositoryImpl(
             is LinkSource.Library -> SessionSource.Library(source.itemId)
             is LinkSource.Url -> SessionSource.Url(source.url, source.headers)
         }
-        c.createSession(wire, profileId).map { dto ->
+        // android wave: the profile chosen on the Linked screen applies when the caller has no explicit one
+        c.createSession(wire, profileId ?: _linkedDevice.value?.preferredProfile).map { dto ->
             RemoteSession(
                 sessionId = dto.sessionId,
                 generation = dto.generation,
@@ -151,7 +169,17 @@ class LinkRepositoryImpl(
             connection?.http?.connectionPool?.evictAll()
             connection = null
             vault.clear()
+            _linkedDevice.value = null
             _state.value = LinkState.Unpaired
+        }
+    }
+
+    override suspend fun setPreferredProfile(profileId: String?) {
+        withContext(io) {
+            if (!vault.hasPairing()) return@withContext
+            val meta = vault.meta() ?: StoredDeviceMeta()
+            runCatching { vault.saveMeta(meta.copy(preferredProfile = profileId?.takeIf { it.isNotBlank() })) }
+            _linkedDevice.value = readLinkedDevice()
         }
     }
 
@@ -189,6 +217,7 @@ class LinkRepositoryImpl(
     }
 
     private fun markReachable(conn: Connection, reachable: Boolean) {
+        if (reachable) noteSeen()
         val cur = _state.value
         if (cur is LinkState.Paired && cur.reachable != reachable) _state.value = cur.copy(reachable = reachable)
         else if (cur is LinkState.Failed && reachable) _state.value = LinkState.Paired(conn.identity.pairing.toPc(), true)
@@ -206,4 +235,40 @@ class LinkRepositoryImpl(
     }
 
     private fun StoredPairing.toPc() = PairedPc(deviceId, serverName, host, port)
+
+    /** The PC answered: lastSeenMs now (memory always, disk at most once a minute). Runs on [io] (inside [call]). */
+    private fun noteSeen() {
+        val now = nowMs()
+        val cur = _linkedDevice.value ?: return
+        _linkedDevice.value = cur.copy(lastSeenMs = now)
+        if (now - lastSeenPersistedMs < LAST_SEEN_PERSIST_MS) return
+        lastSeenPersistedMs = now
+        runCatching { vault.saveMeta((vault.meta() ?: StoredDeviceMeta()).copy(lastSeenMs = now)) }
+    }
+
+    private fun readLinkedDevice(): LinkedDevice? {
+        val p = vault.pairing() ?: return null
+        val meta = vault.meta()
+        return LinkedDevice(
+            deviceId = p.deviceId,
+            serverName = p.serverName,
+            host = p.host,
+            port = p.port,
+            fingerprint = displayFingerprint(p.caSha256),
+            pairedAtMs = meta?.pairedAtMs,
+            lastSeenMs = meta?.lastSeenMs,
+            preferredProfile = meta?.preferredProfile,
+            localDeviceName = meta?.localDeviceName,
+        )
+    }
+
+    internal companion object {
+        const val LAST_SEEN_PERSIST_MS = 60_000L
+
+        /** `7a3f91c2...` -> `7A3F 91C2 ...`; null for an empty pin. */
+        fun displayFingerprint(hex: String): String? {
+            val clean = hex.filter { it.isLetterOrDigit() }.uppercase(Locale.ROOT)
+            return clean.takeIf { it.isNotEmpty() }?.chunked(4)?.joinToString(" ")
+        }
+    }
 }

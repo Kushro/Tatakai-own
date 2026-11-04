@@ -43,7 +43,7 @@ enum class Quality {
 
     companion object {
         /** Lenient parse of what extensions send (`"1080p"`, `"1080"`, `"FHD"`, `"4K"` ...); anything else is [UNKNOWN]. Port of `Quality::parse`. */
-        fun parse(s: String?): Quality = TODO("worker a: port tk-core Quality::parse")
+        fun parse(s: String?): Quality = parseQuality(s)
     }
 }
 
@@ -90,11 +90,39 @@ data class SourceCandidate(
     val tags: ReleaseTags = ReleaseTags(),
 ) {
     /** The playable stream of a web candidate; null for torrents. Port of `SourceCandidate::to_stream`. */
-    fun toStream(): StreamSource? = TODO("worker a: port tk-core SourceCandidate::to_stream")
+    fun toStream(): StreamSource? {
+        if (kind != SourceKind.WEB) return null
+        val w = web ?: return null
+        val c = container?.let(::parseContainer) ?: containerFromUrl(w.url) ?: return null
+        return StreamSource(
+            url = w.url,
+            headers = w.headers,
+            container = c,
+            quality = quality.label().takeIf { it.isNotEmpty() },
+            provider = label,
+            extensionId = extId,
+            subtitles = w.subtitles,
+        )
+    }
 
     companion object {
         /** Wrap one raw extension stream as a web candidate. Port of `SourceCandidate::from_stream`. */
-        fun fromStream(s: StreamSource, extName: String): SourceCandidate = TODO("worker a: port tk-core SourceCandidate::from_stream")
+        fun fromStream(s: StreamSource, extName: String): SourceCandidate = SourceCandidate(
+            extId = s.extensionId,
+            extName = extName,
+            kind = SourceKind.WEB,
+            label = s.provider,
+            quality = s.quality?.let { Quality.parse(it) } ?: Quality.UNKNOWN,
+            container = containerLabel(s.container),
+            // external subtitle tracks are the only language data a plain StreamSource carries
+            subs = normalizeLangCodes(s.subtitles.map { it.lang }),
+            dubs = emptyList(),
+            reliability = INITIAL_RELIABILITY,
+            note = null,
+            web = WebInfo(url = s.url, headers = s.headers, latencyMs = null, subtitles = s.subtitles),
+            torrent = null,
+            tags = ReleaseTags(),
+        )
     }
 }
 
