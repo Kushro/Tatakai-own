@@ -104,6 +104,7 @@ impl ExternalPlayer {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
+        user_env(&mut cmd);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -200,6 +201,53 @@ fn new_endpoint() -> String {
             .filter(|d| d.is_dir())
             .unwrap_or_else(std::env::temp_dir);
         dir.join(format!("{name}.sock")).to_string_lossy().into_owned()
+    }
+}
+
+/// Variables our AppImage (AppRun + linuxdeploy-plugin-gtk's hook) points at bundled GTK / GIO / WebKit files.
+#[cfg(unix)]
+const APPIMAGE_VARS: [&str; 11] = [
+    "GTK_DATA_PREFIX",
+    "GTK_EXE_PREFIX",
+    "GTK_PATH",
+    "GTK_THEME",
+    "GTK_IM_MODULE_FILE",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GSETTINGS_SCHEMA_DIR",
+    "GI_TYPELIB_PATH",
+    "GIO_MODULE_DIR",
+    "GIO_EXTRA_MODULES",
+    "WEBKIT_DISABLE_DMABUF_RENDERER",
+];
+
+/// Run the user's mpv in the user's environment. Inside our AppImage the app runs from `$APPDIR/usr` with GTK and
+/// GIO pointed at the bundled modules (packaging/linux/AppRun); the machine's mpv must not inherit any of that.
+fn user_env(cmd: &mut Command) {
+    #[cfg(unix)]
+    {
+        let Some(appdir) = std::env::var_os("APPIMAGE").and(std::env::var_os("APPDIR")) else { return };
+        for var in APPIMAGE_VARS {
+            cmd.env_remove(var);
+        }
+        if let Some(dirs) = std::env::var_os("XDG_DATA_DIRS") {
+            let appdir = PathBuf::from(appdir);
+            let kept: Vec<PathBuf> = std::env::split_paths(&dirs).filter(|d| !d.starts_with(&appdir)).collect();
+            match std::env::join_paths(kept) {
+                Ok(v) if !v.is_empty() => {
+                    cmd.env("XDG_DATA_DIRS", v);
+                }
+                _ => {
+                    cmd.env_remove("XDG_DATA_DIRS");
+                }
+            }
+        }
+        if let Some(owd) = std::env::var_os("OWD").map(PathBuf::from).filter(|d| d.is_dir()) {
+            cmd.current_dir(owd);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = cmd;
     }
 }
 
@@ -420,6 +468,7 @@ pub fn find_mpv(override_path: Option<&Path>) -> Option<PathBuf> {
 pub fn mpv_version(mpv_path: &Path) -> Option<String> {
     let mut cmd = std::process::Command::new(mpv_path);
     cmd.arg("--no-config").arg("--version").stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+    user_env(&mut cmd);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
