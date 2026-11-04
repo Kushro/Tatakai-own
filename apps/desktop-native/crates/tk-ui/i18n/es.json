@@ -496,5 +496,14 @@
   "torrent.settings.after_watch.delete": "Borrar después de ver",
   "player.skip.intro": "Intro",
   "player.skip.outro": "Ending",
-  "player.skip.recap": "Resumen"
+  "player.skip.recap": "Resumen",
+  "player.torrent.metadata": "Esperando los metadatos del torrent…",
+  "player.torrent.status": "{speed} · {peers} peers · {pct} % del archivo",
+  "player.torrent.open_client": "Abrir en el cliente de torrents",
+  "player.torrent.pick_file": "Elegir el archivo",
+  "player.torrent.no_file_cause": "Ningún archivo de este torrent coincide con este episodio. Elígelo en Archivos del torrent.",
+  "player.torrent.skip_recap": "Saltar resumen",
+  "player.torrent.skip_outro": "Saltar ending",
+  "player.torrent.batch_next": "Siguiente episodio del mismo torrent",
+  "player.torrent.file": "Archivo: {name}"
 }

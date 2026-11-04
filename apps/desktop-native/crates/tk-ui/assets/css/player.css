@@ -114,3 +114,23 @@ button.tk-pc__src:hover { background: color-mix(in srgb, var(--tk-video-on) 12%,
 .tk-uosc[data-visible="true"] .tk-uosc__top { opacity: 1; pointer-events: auto; }
 .tk-uosc__top .tk-iconbtn { color: inherit; background: color-mix(in srgb, var(--md-sys-color-scrim) 45%, transparent); }
 .tk-hole[data-relay="true"] { outline: none; }
+
+/* ---- torrents (docs/redesign/10 section 5.5) ------------------------------------------------------- */
+/* Seek bar: downloaded ranges (under the played part), the ready-to-play run ahead of the playhead, and
+   intro / outro / recap marks coloured per kind. */
+.tk-pc__have { position: absolute; inset: 0; pointer-events: none; }
+.tk-pc__have span { position: absolute; top: 0; bottom: 0; border-radius: var(--md-sys-shape-corner-full); background: color-mix(in srgb, var(--tk-video-on) 30%, transparent); }
+.tk-pc__ready { position: absolute; top: 0; bottom: 0; border-radius: var(--md-sys-shape-corner-full); pointer-events: none; background: color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent); }
+.tk-pc__marker[data-kind="intro"] { background: color-mix(in srgb, var(--md-sys-color-tertiary) 75%, transparent); }
+.tk-pc__marker[data-kind="outro"] { background: color-mix(in srgb, var(--md-sys-color-secondary) 75%, transparent); }
+.tk-pc__marker[data-kind="recap"] { background: color-mix(in srgb, var(--md-sys-color-tertiary-fixed-dim) 60%, transparent); }
+
+/* Waiting for metadata / data: the status (or spinner) with the torrent line under it. */
+.tk-pc__wait { display: flex; flex-direction: column; align-items: center; gap: var(--tk-space-8); }
+.tk-pc__tline { padding: var(--tk-space-4) var(--tk-space-12); border-radius: var(--md-sys-shape-corner-full); background: color-mix(in srgb, var(--tk-video-surface) 80%, transparent); color: var(--tk-video-on); font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-medium-size); font-variant-numeric: tabular-nums; }
+.tk-uosc .tk-pc__tline { pointer-events: none; }
+
+/* External mpv card: the same speed / peers line. */
+.tk-xmpv__torrent { margin: 0; display: flex; align-items: center; gap: var(--tk-space-8); color: var(--md-sys-color-on-surface-variant); font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-medium-size); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tk-xmpv__file { margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 600px) { .tk-xmpv__torrent { justify-content: center; } }
