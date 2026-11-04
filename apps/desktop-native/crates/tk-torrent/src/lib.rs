@@ -12,7 +12,10 @@
 
 mod engine;
 mod error;
+mod labels;
 mod stream;
+#[cfg(test)]
+mod tests;
 mod types;
 
 pub use engine::{EVENTS_CAPACITY, METADATA_TIMEOUT_SECS, TorrentEngine};
