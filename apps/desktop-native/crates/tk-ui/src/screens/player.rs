@@ -390,7 +390,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     picker_open.set(true);
                 }
 
-                let p = match host.get_or_init(platform::main_hwnd()) {
+                let p = match host.get_or_init(&platform::embed_target()) {
                     Ok(p) => p,
                     Err(e) => {
                         tracing::error!(error = %e, "player start failed");

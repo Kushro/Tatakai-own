@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use tk_core::sources::SourceCandidate;
 use tk_core::{Compat, InstalledExtension, Media, StreamSource};
-use tk_ext::ExtensionHost;
+use tk_ext::{BrowserRuntime, ExtensionHost};
 use tk_ext::hashing::Algo;
 use tk_ui::backend::{ExtLogLevel, ExtLogVm, ExtensionDetailVm, ExtensionVm};
 use tk_ui::model::{CompatLevel, ErrorKind, UiError};
@@ -101,9 +101,11 @@ fn detail(root: &Path, info: &InstalledExtension) -> ExtensionDetailVm {
 }
 
 impl Extensions {
-    pub fn new(dir: PathBuf) -> anyhow::Result<Self> {
+    /// `browser`: the hidden-web-view runtime for `configureBrowserRuntime` bundles (`live/browser.rs`).
+    pub fn new(dir: PathBuf, browser: Arc<dyn BrowserRuntime>) -> anyhow::Result<Self> {
+        let host = ExtensionHost::open(dir).map_err(|e| anyhow::anyhow!("{e}"))?.with_browser_runtime(browser);
         Ok(Self {
-            host: Arc::new(ExtensionHost::open(dir).map_err(|e| anyhow::anyhow!("{e}"))?),
+            host: Arc::new(host),
             log: Mutex::new(HashMap::new()),
         })
     }

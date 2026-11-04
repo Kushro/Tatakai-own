@@ -410,5 +410,13 @@
   "search.season.summer": "Verano",
   "search.season.fall": "Otoño",
   "provider.mal": "MyAnimeList",
-  "ext.logs_empty": "Todavía no hay entradas en el registro."
+  "ext.logs_empty": "Todavía no hay entradas en el registro.",
+  "settings.player.mode.embedded": "Integrado",
+  "settings.player.mode.embedded_enhanced": "Integrado mejorado",
+  "settings.player.mode.external": "mpv externo",
+  "settings.player.enhanced_ui.ours": "Controles de Tatakai",
+  "settings.player.enhanced_ui.uosc": "uosc (mpv-anime-build)",
+  "player.error.no_player_at": "No se pudo iniciar el reproductor de video. Revisa el registro en {dir}.",
+  "account.not_configured_at": "Esta compilación no tiene un servicio de cuentas configurado. Agrega la URL de Supabase y la clave anon en config.json dentro de {dir} para activar la sincronización.",
+  "settings.data.hint_at": "Todo vive en {dir}. Sin telemetría."
 }

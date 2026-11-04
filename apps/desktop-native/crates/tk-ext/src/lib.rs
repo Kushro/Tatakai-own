@@ -6,6 +6,7 @@
 //! * API: [`ExtensionHost::call`] (logical routes), [`ExtensionHost::resolve_streams`] (playback),
 //!   [`ExtensionHost::resolve_candidates`] (source selector: web + torrent entries, unranked)
 
+pub mod browser;
 pub mod candidates;
 pub mod compat;
 pub mod error;
@@ -15,6 +16,7 @@ pub mod manifest;
 pub mod package;
 mod runtime;
 
+pub use browser::{BrowserError, BrowserId, BrowserRuntime, browser_domains, browser_url_allowed};
 pub use candidates::map_candidates;
 pub use compat::{CompatReport, DEFERRED_PERMISSIONS, analyze_bundle, deferred_permissions, wants_torrent_session};
 pub use error::{ExtError, InstallError};

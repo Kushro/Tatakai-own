@@ -2,6 +2,7 @@
 //! tk-ext (extension host) and tk-link (Link server).
 //!
 
+mod browser;
 mod ext;
 mod link;
 mod sources;
@@ -18,10 +19,11 @@ use tk_core::{
     SupabaseError,
 };
 use tk_ui::backend::{
-    AccountVm, Backend, ContinueVm, DetailsVm, EpisodeVm, ExtLogVm, ExtensionDetailVm, ExtensionVm, HistoryItemVm,
+    AccountVm, AnimeBuildVm, Backend, ContinueVm, DetailsVm, EpisodeVm, ExtLogVm, ExtensionDetailVm, ExtensionVm, HistoryItemVm,
     HomeVm, LibraryVm, LinkCapsVm, LinkStatusVm, MediaVm, PlaybackVm, SectionVm, SourceVm, UiResult,
 };
 use tk_ui::model::{ErrorKind, Pairing, Settings, UiError};
+use tk_ui::ui_thread::UiThread;
 
 use crate::backend_common::{IdKind, parse_media_id};
 use crate::config::AppConfig;
@@ -29,6 +31,8 @@ use crate::paths::AppPaths;
 use crate::settings_store;
 
 pub struct LiveBackend {
+    /// Data directory root (`AppPaths::root`): Settings texts, mpv-anime-build extraction.
+    data_root: std::path::PathBuf,
     settings_file: std::path::PathBuf,
     store: Arc<LocalStore>,
     router: Arc<MetadataRouter>,
@@ -49,7 +53,8 @@ const SOURCES_TTL: Duration = Duration::from_secs(5 * 60);
 const LIBRARY_HISTORY: u32 = 200;
 
 impl LiveBackend {
-    pub fn new(paths: &AppPaths, cfg: &AppConfig) -> anyhow::Result<Self> {
+    /// `ui`: jobs for the UI thread (hidden web views of the extension browser runtime).
+    pub fn new(paths: &AppPaths, cfg: &AppConfig, ui: UiThread) -> anyhow::Result<Self> {
         let settings_file = paths.ui_settings_file();
         let settings = settings_store::load(&settings_file);
         let store = Arc::new(LocalStore::open(&paths.db_file())?);
@@ -62,7 +67,7 @@ impl LiveBackend {
                 None
             }
         });
-        let ext = ext::Extensions::new(paths.extensions_dir())?;
+        let ext = ext::Extensions::new(paths.extensions_dir(), Arc::new(browser::WebviewBrowsers::new(ui)))?;
         let link = link::LinkService::new(
             paths.link_dir(),
             ext.host(),
@@ -70,6 +75,7 @@ impl LiveBackend {
             crate::paths::anime4k_lock(None),
         );
         Ok(Self {
+            data_root: paths.root.clone(),
             settings_file,
             store,
             router,
@@ -526,5 +532,20 @@ impl Backend for LiveBackend {
     }
     async fn link_capabilities(&self) -> UiResult<LinkCapsVm> {
         self.link.capabilities().await
+    }
+
+    // --- wave 2 (docs/redesign/09): bodies live in `crate::anime_build` (B). ---
+
+    async fn anime_build_status(&self) -> UiResult<AnimeBuildVm> {
+        Ok(crate::anime_build::status(&AppPaths::from_root(self.data_root.clone())))
+    }
+    async fn prepare_anime_build(&self) -> UiResult<std::path::PathBuf> {
+        let paths = AppPaths::from_root(self.data_root.clone());
+        tokio::task::spawn_blocking(move || crate::anime_build::prepare(&paths))
+            .await
+            .map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))?
+    }
+    fn data_dir_display(&self) -> String {
+        self.data_root.display().to_string()
     }
 }

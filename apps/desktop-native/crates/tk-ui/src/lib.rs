@@ -15,6 +15,7 @@ pub mod player_state;
 pub mod qr;
 pub mod screens;
 pub mod shortcuts;
+pub mod ui_thread;
 
 pub use app::{App, Services};
 pub use backend::{Backend, BackendRef};

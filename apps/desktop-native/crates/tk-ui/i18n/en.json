@@ -410,5 +410,13 @@
   "search.season.summer": "Summer",
   "search.season.fall": "Fall",
   "provider.mal": "MyAnimeList",
-  "ext.logs_empty": "No log entries yet."
+  "ext.logs_empty": "No log entries yet.",
+  "settings.player.mode.embedded": "Embedded",
+  "settings.player.mode.embedded_enhanced": "Embedded enhanced",
+  "settings.player.mode.external": "External mpv",
+  "settings.player.enhanced_ui.ours": "Tatakai controls",
+  "settings.player.enhanced_ui.uosc": "uosc (mpv-anime-build)",
+  "player.error.no_player_at": "The video player could not start. Check the log in {dir}.",
+  "account.not_configured_at": "This build has no account service configured. Add the Supabase URL and anon key to config.json in {dir} to enable sync.",
+  "settings.data.hint_at": "Everything lives in {dir}. No telemetry."
 }

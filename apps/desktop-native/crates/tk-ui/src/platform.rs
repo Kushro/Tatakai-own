@@ -15,6 +15,29 @@ pub fn main_hwnd() -> isize {
     }
 }
 
+/// Where the embedded player draws (docs/redesign/09 section 3.2). Must be called from the UI thread.
+/// Windows: the main HWND. Linux: tao's default `gtk::Box`, which holds the WebKitGTK web view (tk-ui does not
+/// link gtk itself: the `&gtk::Box` from `WindowExtUnix` goes straight to tk-player, same gtk-rs 0.18).
+pub fn embed_target() -> tk_player::EmbedTarget {
+    #[cfg(windows)]
+    {
+        tk_player::EmbedTarget::from_hwnd(main_hwnd())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        use dioxus::desktop::tao::platform::unix::WindowExtUnix;
+        let desktop = dioxus::desktop::window();
+        match desktop.window.default_vbox() {
+            Some(vbox) => tk_player::EmbedTarget::from_gtk_box(vbox),
+            None => tk_player::EmbedTarget::none(),
+        }
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        tk_player::EmbedTarget::none()
+    }
+}
+
 /// Seconds since the Unix epoch.
 pub fn now_unix() -> i64 {
     std::time::SystemTime::now()
