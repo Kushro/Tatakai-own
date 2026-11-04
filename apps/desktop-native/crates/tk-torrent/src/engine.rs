@@ -579,6 +579,11 @@ impl Inner {
         if let Some(&bad) = files.iter().find(|&&f| f >= count) {
             return Err(TorrentError::NoSuchFile { id, index: bad });
         }
+        // Merging `only_files: Some(vec![])` into a torrent already in the session adds nothing; it must not consume
+        // the narrowing of a stream (that would deselect every file).
+        if files.is_empty() {
+            return Ok(());
+        }
         let narrow = lock(&self.narrow_on_select).remove(&id);
         let wanted: HashSet<usize> = if narrow {
             files.iter().copied().collect()
