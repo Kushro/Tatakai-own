@@ -309,6 +309,66 @@ pub fn format_speed(speed: f64) -> String {
     format!("{}×", s.trim_end_matches('0').trim_end_matches('.'))
 }
 
+/// Embedded enhanced with uosc (docs/redesign/09 section 4.4): the web `KeyboardEvent.key` -> mpv key name for
+/// `Player::forward_key` (`SPACE`, `LEFT`, `Ctrl+s`, `Shift+RIGHT`, `F5`). Modifier-only and unknown keys give
+/// `None`. Shift is implied by printable characters (`S`, `?`) and only prefixed on named keys, like mpv does.
+pub fn mpv_key_name(key: &str, ctrl: bool, alt: bool, shift: bool, meta: bool) -> Option<String> {
+    let named = match key {
+        " " => Some("SPACE"),
+        "ArrowLeft" => Some("LEFT"),
+        "ArrowRight" => Some("RIGHT"),
+        "ArrowUp" => Some("UP"),
+        "ArrowDown" => Some("DOWN"),
+        "Enter" => Some("ENTER"),
+        "Escape" => Some("ESC"),
+        "Backspace" => Some("BS"),
+        "Tab" => Some("TAB"),
+        "Delete" => Some("DEL"),
+        "Insert" => Some("INS"),
+        "Home" => Some("HOME"),
+        "End" => Some("END"),
+        "PageUp" => Some("PGUP"),
+        "PageDown" => Some("PGDWN"),
+        "#" => Some("SHARP"),
+        _ => None,
+    };
+    let (base, printable) = match named {
+        Some(n) => (n.to_owned(), key == "#"),
+        None if key.chars().count() == 1 => (key.to_owned(), true),
+        None if key.len() <= 3 && key.starts_with('F') && key[1..].parse::<u8>().is_ok_and(|n| (1..=24).contains(&n)) => {
+            (key.to_owned(), false)
+        }
+        None => return None,
+    };
+    let mut out = String::new();
+    if ctrl {
+        out.push_str("Ctrl+");
+    }
+    if alt {
+        out.push_str("Alt+");
+    }
+    if meta {
+        out.push_str("Meta+");
+    }
+    if shift && !printable {
+        out.push_str("Shift+");
+    }
+    out.push_str(&base);
+    Some(out)
+}
+
+/// Mouse button index (`MouseEvent.button`: 0 primary, 1 middle, 2 secondary) -> mpv key name.
+pub fn mpv_mouse_button(button: u8) -> Option<&'static str> {
+    match button {
+        0 => Some("MBTN_LEFT"),
+        1 => Some("MBTN_MID"),
+        2 => Some("MBTN_RIGHT"),
+        3 => Some("MBTN_BACK"),
+        4 => Some("MBTN_FORWARD"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,5 +588,19 @@ mod tests {
         assert_eq!(format_speed(1.25), "1.25×");
         assert_eq!(format_speed(1.5), "1.5×");
         assert_eq!(format_speed(2.0), "2×");
+    }
+
+    #[test]
+    fn web_keys_map_to_mpv_names() {
+        assert_eq!(mpv_key_name(" ", false, false, false, false).as_deref(), Some("SPACE"));
+        assert_eq!(mpv_key_name("ArrowLeft", false, false, true, false).as_deref(), Some("Shift+LEFT"));
+        assert_eq!(mpv_key_name("S", false, false, true, false).as_deref(), Some("S"));
+        assert_eq!(mpv_key_name("s", true, false, false, false).as_deref(), Some("Ctrl+s"));
+        assert_eq!(mpv_key_name("#", false, false, true, false).as_deref(), Some("SHARP"));
+        assert_eq!(mpv_key_name("F5", false, false, false, false).as_deref(), Some("F5"));
+        assert_eq!(mpv_key_name("Shift", false, false, true, false), None);
+        assert_eq!(mpv_key_name("Unidentified", false, false, false, false), None);
+        assert_eq!(mpv_mouse_button(2), Some("MBTN_RIGHT"));
+        assert_eq!(mpv_mouse_button(9), None);
     }
 }
