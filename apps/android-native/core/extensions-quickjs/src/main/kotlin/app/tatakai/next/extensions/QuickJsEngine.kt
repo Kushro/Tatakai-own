@@ -37,7 +37,7 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * `quickjs-kt` 1.0.15 implementation of [JsEngine]: ONE runtime per extension, 64 MiB memory limit, 15 s per host call, the globals of
+ * `quickjs-kt` 1.0.15 implementation of [JsEngine]: ONE runtime per extension, [JsEngine.MEMORY_LIMIT_BYTES] memory limit, 15 s per host call, the globals of
  * contracts/extension-host/globals.v1.md provided by `tatakai/host-prelude.js` on top of a handful of `__host_*` bridge functions.
  * Everything crossing the bridge is a JSON string, so no QuickJS object marshalling is relied upon.
  */
