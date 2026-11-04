@@ -20,6 +20,13 @@ Every branch that copies a file MUST add a row here (origin repo + path, license
 | FFmpeg (BtbN win64 **LGPL** build with libplacebo) | LGPL-2.1+ | External process (not linked); notice in About; keep the build pinned by SHA-256 in `packaging/ffmpeg.lock.json` |
 | Anime4K GLSL shaders | MIT | Ship the shaders' `LICENSE` next to them (`packaging/anime4k.lock.json`) |
 
+### 2b. Vendored in the repo: mpv-anime-build (wave 2, "Embedded enhanced" player mode)
+
+| Component | License | Obligation |
+|---|---|---|
+| [mpv-anime-build](https://github.com/Chinna95P/mpv-anime-build) release v5.6 (`vendor/mpv-anime-build/mpv-anime-build-v5.6.zip`, pinned by `SHA256SUMS`) | MIT (Chinna95P; `vendor/mpv-anime-build/LICENSE`) | Ship the zip unmodified with its `LICENSE` next to it (`<app>/mpv-anime-build/`); notice in About. The app extracts it into the data directory and comments out embedding-hostile lines of `mpv.conf` (original kept as `mpv.conf.upstream`). |
+| Components bundled inside that release (uosc and its `ziggy` helpers, thumbfast and other mpv user scripts, ravu / nnedi3 / FSRCNNX / SSim / KrigBilateral / adaptive-sharpen / hdr-toys shaders, fonts) | Their own licenses (LGPL / MPL / MIT / GPL and font licenses), as distributed by the release | Redistributed as part of the unmodified release zip; never executed by the app (mpv loads the scripts and shaders). Review the per-component licenses before a public release, in particular the bundled fonts. |
+
 ## 3. Rust crates (versions pinned by `Cargo.lock`)
 
 Dioxus (MIT/Apache-2.0), tokio (MIT), reqwest (MIT/Apache-2.0), rustls with the `ring` provider (Apache-2.0/ISC/MIT), axum/hyper (MIT), rcgen (MIT/Apache-2.0), x509-parser (MIT/Apache-2.0),

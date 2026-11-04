@@ -11,6 +11,7 @@
 
 pub mod embed;
 pub mod engine;
+pub mod enhanced_conf;
 pub mod external;
 pub mod headers;
 pub mod host;
@@ -36,6 +37,7 @@ pub use null_player::Player;
 
 pub use embed::EmbedTarget;
 pub use engine::{EngineConfig, EngineMode};
+pub use enhanced_conf::shader_presets_apply;
 pub use external::{ExternalEvent, ExternalPlayer, find_mpv, mpv_version};
 pub use host::PlayerHost;
 pub use preset::{ShaderPreset, glsl_shaders_value, list_separator, shader_paths};

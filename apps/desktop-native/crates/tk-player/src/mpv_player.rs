@@ -54,6 +54,8 @@ pub struct Player {
     preset: Mutex<ShaderPreset>,
     shaders_dir: Mutex<Option<PathBuf>>,
     pending_subs: Arc<Mutex<Vec<SubtitleSource>>>,
+    /// False in the mpv-anime-build engine: its own shader profiles own `glsl-shaders` (enhanced_conf.rs).
+    presets_apply: bool,
     stop: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
@@ -115,6 +117,7 @@ impl Player {
             preset: Mutex::new(ShaderPreset::Off),
             shaders_dir: Mutex::new(None),
             pending_subs,
+            presets_apply: crate::enhanced_conf::shader_presets_apply(&cfg.mode),
             stop,
             thread: Mutex::new(Some(handle)),
         })
@@ -174,6 +177,10 @@ impl Player {
 
     /// Switch the upscaling preset live. The shader files must exist; on error the current preset stays.
     pub fn set_shader_preset(&self, preset: ShaderPreset) -> Result<(), PlayerError> {
+        if !self.presets_apply {
+            // Enhanced engine: the build switches shaders itself; ours would stack on top of its profiles.
+            return Ok(());
+        }
         let value = if preset == ShaderPreset::Off {
             String::new()
         } else {
