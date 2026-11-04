@@ -36,3 +36,23 @@ data class FeedCacheRow(
     val json: String,
     val fetchedAtMs: Long,
 )
+
+/** android wave (12 §3.1): reliability moving average of one `(extId, label)` source (desktop LocalStore `source_stats`). */
+@Entity(tableName = "source_stats", primaryKeys = ["extId", "label"])
+data class SourceStatRow(
+    val extId: String,
+    val label: String,
+    val reliability: Float,
+    val okCount: Int = 0,
+    val failCount: Int = 0,
+    val updatedAtMs: Long,
+)
+
+/** android wave (12 §3.1): the source the user picked manually for one episode ([key] = `sourceKey`). */
+@Entity(tableName = "picked_source", primaryKeys = ["mediaId", "episode"])
+data class PickedSourceRow(
+    val mediaId: String,
+    val episode: Int,
+    val key: String,
+    val updatedAtMs: Long,
+)

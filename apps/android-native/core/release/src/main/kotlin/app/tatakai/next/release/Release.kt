@@ -11,7 +11,7 @@ import java.util.Locale
 data class CandidateFile(val index: Int, val path: String, val sizeBytes: Long)
 
 /** Parse a torrent or file name (anitomy-like, dependency-free). Never throws; unknown parts stay null / false. */
-fun parseRelease(name: String): ReleaseTags = TODO("worker a: port tk-core release::parse_release")
+fun parseRelease(name: String): ReleaseTags = parseReleaseImpl(name)
 
 /** Video extensions a batch file can have: mkv mp4 avi webm m2ts ts mov wmv flv (same list as Rust). Implemented here (contract). */
 fun isVideoPath(path: String): Boolean {
@@ -28,4 +28,4 @@ private val VIDEO_EXTENSIONS = setOf("mkv", "mp4", "avi", "webm", "m2ts", "ts", 
  * or null (the UI then opens the Files tab of the torrent).
  */
 fun pickEpisodeFile(files: List<CandidateFile>, episode: Int, titles: List<String>): Int? =
-    TODO("worker a: port tk-core release::pick_episode_file")
+    pickEpisodeFileImpl(files, episode, titles)
