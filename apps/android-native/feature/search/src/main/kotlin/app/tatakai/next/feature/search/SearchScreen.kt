@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.tatakai.next.designsystem.components.EmptyState
 import app.tatakai.next.designsystem.components.ErrorState
 import app.tatakai.next.designsystem.components.LoadingState
+import app.tatakai.next.model.FeedKind
 import app.tatakai.next.model.Media
 import app.tatakai.next.ui.R as UiR
 import app.tatakai.next.ui.media.MediaCard
@@ -52,6 +53,11 @@ fun SearchScreen(
     onMediaClick: (Media) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SearchViewModel = koinViewModel(),
+    // --- android wave contract (docs/redesign/12 §3.14): new callbacks appended, wired by :app (worker b) ---
+    /** Pre-filled query / feed / genre from Route.SearchFor (null = plain Search). */
+    initialQuery: String? = null,
+    initialFeed: FeedKind? = null,
+    initialGenre: String? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     SearchContent(

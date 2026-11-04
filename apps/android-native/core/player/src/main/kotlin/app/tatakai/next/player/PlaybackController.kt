@@ -204,6 +204,8 @@ class PlaybackController(
                     Container.HLS -> MimeTypes.APPLICATION_M3U8
                     Container.DASH -> MimeTypes.APPLICATION_MPD
                     Container.MP4 -> MimeTypes.VIDEO_MP4
+                    // android wave contract: torrent loopback file (MKV/MP4/WebM); Media3 sniffs the extractor. Worker d owns the real handling.
+                    Container.PROGRESSIVE -> null
                 },
             )
             .setSubtitleConfigurations(subs)

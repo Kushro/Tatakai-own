@@ -71,6 +71,12 @@ dependencies {
     implementation(projects.feature.extensions)
     implementation(projects.feature.link)
     implementation(projects.feature.player)
+    // android wave (12-android-wave-contract.md)
+    implementation(projects.core.release)
+    implementation(projects.core.torrent)
+    implementation(projects.core.playerMpv)
+    implementation(projects.feature.torrents)
+    implementation(projects.feature.you)
 
     implementation(libs.bundles.compose.core)
     implementation(libs.androidx.core.ktx)

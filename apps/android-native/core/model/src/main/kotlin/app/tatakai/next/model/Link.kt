@@ -49,3 +49,20 @@ sealed interface LinkState {
     data class Paired(val pc: PairedPc, val reachable: Boolean) : LinkState
     data class Failed(val message: String) : LinkState
 }
+
+/** android wave (12 §3.5): the paired PC as the "Dispositivo enlazado" screen shows it. */
+data class LinkedDevice(
+    val deviceId: String,
+    val serverName: String,
+    val host: String,
+    val port: Int,
+    /** CA certificate fingerprint, display form (`7A3F 91C2 ...`). */
+    val fingerprint: String?,
+    val pairedAtMs: Long?,
+    /** Last successful request to the PC; null = never after pairing. */
+    val lastSeenMs: Long?,
+    /** Enhance profile chosen on the phone (`LinkProfile.id`); null = the PC's default. */
+    val preferredProfile: String?,
+    /** Name this phone registered with at pairing. */
+    val localDeviceName: String?,
+)

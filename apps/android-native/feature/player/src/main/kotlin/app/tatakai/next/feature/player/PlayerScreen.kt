@@ -2,6 +2,7 @@
 package app.tatakai.next.feature.player
 
 import android.app.Activity
+import app.tatakai.next.model.SettingsSection
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
@@ -117,7 +118,19 @@ private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
  */
 @OptIn(UnstableApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun PlayerScreen(args: PlayerArgs, onBack: () -> Unit) {
+fun PlayerScreen(
+    args: PlayerArgs,
+    onBack: () -> Unit,
+    // --- android wave contract (docs/redesign/12 §3.11): new callbacks, wired by :app (worker b), used by worker d ---
+    /** Replace this player entry with another episode / source (next episode, batch next, source change that needs a new route). */
+    onReplace: (PlayerArgs) -> Unit = {},
+    /** Chip "Abrir en el cliente" -> Route.Torrents(OVERVIEW, torrentId). */
+    onOpenTorrent: (torrentId: String) -> Unit = {},
+    /** Source picker banner "Ajustes" / metered dialog -> Route.SettingsSection(section). */
+    onOpenSettings: (SettingsSection) -> Unit = {},
+    onOpenExtensions: () -> Unit = {},
+    onOpenLinked: () -> Unit = {},
+) {
     val koin = getKoin()
     val vm: PlayerViewModel = viewModel(
         key = "player-${args.media.anilistId}-${args.media.malId}-${args.episode}-${args.remoteSessionId}",
