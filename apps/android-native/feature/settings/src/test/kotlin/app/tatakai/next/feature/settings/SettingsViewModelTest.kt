@@ -6,6 +6,25 @@ import app.tatakai.next.model.AuthRepository
 import app.tatakai.next.model.ContrastPref
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.UserSession
+import app.tatakai.next.model.AppError
+import app.tatakai.next.model.AppException
+import app.tatakai.next.model.Episode
+import app.tatakai.next.model.FeedKind
+import app.tatakai.next.model.FeedPage
+import app.tatakai.next.model.LoadState
+import app.tatakai.next.model.Media
+import app.tatakai.next.model.MediaKind
+import app.tatakai.next.model.MediaRef
+import app.tatakai.next.model.MetadataCacheStats
+import app.tatakai.next.model.MetadataRepository
+import app.tatakai.next.model.PlayerEngine
+import app.tatakai.next.model.Quality
+import app.tatakai.next.model.SourceKind
+import app.tatakai.next.model.SourceMode
+import app.tatakai.next.model.SubtitleStyle
+import app.tatakai.next.model.ThemeMode
+import app.tatakai.next.model.AppLanguage
+import app.cash.turbine.test
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -99,5 +118,114 @@ class SettingsViewModelTest {
         auth.signInResult = Result.failure(AccountSuspendedException())
         vm.signIn("a@b.c", "x")
         assertEquals(SignInError.SUSPENDED, vm.state.first { it.signInError == SignInError.SUSPENDED }.signInError)
+    }
+
+    private class FakeMetadata(var stats: MetadataCacheStats = MetadataCacheStats(entries = 12, bytes = 98_000_000)) : MetadataRepository {
+        var cleared = false
+        var failClear = false
+        override suspend fun feed(kind: MediaKind, feed: FeedKind, page: Int): FeedPage = error("unused")
+        override suspend fun search(kind: MediaKind, query: String, page: Int): FeedPage = error("unused")
+        override suspend fun media(kind: MediaKind, ref: MediaRef): Media? = null
+        override suspend fun episodes(ref: MediaRef): List<Episode> = emptyList()
+        override suspend fun cacheStats(): MetadataCacheStats = stats
+        override suspend fun clearCache() {
+            if (failClear) throw AppException(AppError.Unknown("disk"))
+            cleared = true
+            stats = MetadataCacheStats(0, 0)
+        }
+    }
+
+    @Test
+    fun `wave settings are written through the repository`() = runTest {
+        val repo = FakeSettings()
+        val vm = SettingsViewModel(repo, FakeAuth())
+
+        vm.setThemeMode(ThemeMode.DARK)
+        vm.setLanguage(AppLanguage.ES)
+        vm.setReduceMotion(true)
+        vm.setPlayerEngine(PlayerEngine.EXTERNAL)
+        vm.setExternalPlayerPackage("is.xyz.mpv")
+        vm.setPlayerPreset("anime4k-b")
+        vm.setSourceMode(SourceMode.MANUAL)
+        vm.setPreferredKind(SourceKind.TORRENT)
+        vm.setMinQuality(Quality.P1080)
+        vm.setSubLang("en")
+        vm.setDubLang("es")
+        vm.setAutoNext(false)
+        vm.setSkipIntro(false)
+
+        val s = repo.settings.value
+        assertEquals(ThemeMode.DARK, s.themeMode)
+        assertEquals(AppLanguage.ES, s.language)
+        assertEquals(true, s.reduceMotion)
+        assertEquals(PlayerEngine.EXTERNAL, s.playerEngine)
+        assertEquals("is.xyz.mpv", s.externalPlayerPackage)
+        assertEquals("anime4k-b", s.playerPreset)
+        assertEquals(SourceMode.MANUAL, s.sourcePrefs.mode)
+        assertEquals(SourceKind.TORRENT, s.sourcePrefs.prefer)
+        assertEquals(Quality.P1080, s.sourcePrefs.minQuality)
+        assertEquals("en", s.sourcePrefs.subLang)
+        assertEquals("es", s.sourcePrefs.dubLang)
+        assertEquals(false, s.autoNext)
+        assertEquals(false, s.skipIntro)
+
+        vm.setExternalPlayerPackage(" ")
+        assertNull(repo.settings.value.externalPlayerPackage)
+    }
+
+    @Test
+    fun `ttl and subtitle style are clamped`() = runTest {
+        val repo = FakeSettings()
+        val vm = SettingsViewModel(repo, FakeAuth())
+
+        vm.setMetadataTtl(1000)
+        assertEquals(168, repo.settings.value.metadataCacheTtlHours)
+        vm.setMetadataTtl(0)
+        assertEquals(1, repo.settings.value.metadataCacheTtlHours)
+
+        vm.setSubtitleStyle(SubtitleStyle(scale = 5f, backgroundOpacity = -1f, font = "space_grotesk"))
+        val style = repo.settings.value.subtitleStyle
+        assertEquals(2f, style.scale)
+        assertEquals(0f, style.backgroundOpacity)
+        assertEquals("space_grotesk", style.font)
+    }
+
+    @Test
+    fun `switch changes announce settings saved`() = runTest {
+        val vm = SettingsViewModel(FakeSettings(), FakeAuth())
+        vm.events.test {
+            vm.setAutoNext(false)
+            assertEquals(SettingsEvent.Saved, awaitItem())
+            vm.setPalette("sakura")
+            vm.setMinQuality(Quality.P480)
+            assertEquals(SettingsEvent.Saved, awaitItem())
+        }
+    }
+
+    @Test
+    fun `storage loads the cache figures and clearing the cache reports the freed bytes`() = runTest {
+        val metadata = FakeMetadata()
+        val vm = SettingsViewModel(FakeSettings(), FakeAuth(), metadata = metadata)
+
+        vm.refreshStorage()
+        val ok = vm.state.first { it.storage is LoadState.Ok }.storage as LoadState.Ok
+        assertEquals(98_000_000L, ok.value.cache?.bytes)
+        assertNull(ok.value.torrents)
+
+        vm.events.test {
+            vm.clearCache()
+            assertEquals(SettingsEvent.CacheCleared(98_000_000), awaitItem())
+        }
+        assertEquals(true, metadata.cleared)
+    }
+
+    @Test
+    fun `cache clear failure is reported`() = runTest {
+        val metadata = FakeMetadata().apply { failClear = true }
+        val vm = SettingsViewModel(FakeSettings(), FakeAuth(), metadata = metadata)
+        vm.events.test {
+            vm.clearCache()
+            assertEquals(SettingsEvent.Failed(AppError.Unknown("disk")), awaitItem())
+        }
     }
 }

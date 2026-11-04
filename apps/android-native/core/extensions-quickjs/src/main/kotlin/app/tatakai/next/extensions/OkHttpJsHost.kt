@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.extensions
 
+import app.tatakai.next.model.ExtLogLevel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Dns
@@ -24,6 +25,8 @@ class OkHttpJsHost(
     override val networkPolicy: NetworkPolicy,
     base: OkHttpClient,
     private val onLog: (level: String, message: String) -> Unit = { _, _ -> },
+    /** android wave (12 §4 e): per-extension log lines (fetch refusals/failures, browser events). */
+    private val onEvent: (level: ExtLogLevel, op: String, message: String) -> Unit = { _, _, _ -> },
 ) : JsHost {
     private val client: OkHttpClient = base.newBuilder()
         .followRedirects(false)
@@ -34,7 +37,22 @@ class OkHttpJsHost(
         .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    override suspend fun fetch(request: HostFetchRequest): HostFetchResponse = withContext(Dispatchers.IO) {
+    override suspend fun fetch(request: HostFetchRequest): HostFetchResponse =
+        try {
+            doFetch(request)
+        } catch (e: ExtError.PermissionDenied) {
+            onEvent(ExtLogLevel.WARN, "fetch", "request to ${hostOf(request.url)} refused: outside the manifest permissions or a local address")
+            throw e
+        } catch (e: ExtError) {
+            onEvent(ExtLogLevel.ERR, "fetch", "request to ${hostOf(request.url)} failed: ${e.message}")
+            throw e
+        }
+
+    override fun event(level: ExtLogLevel, op: String, message: String) = onEvent(level, op, message)
+
+    private fun hostOf(url: String): String = url.toHttpUrlOrNull()?.host ?: "an invalid URL"
+
+    private suspend fun doFetch(request: HostFetchRequest): HostFetchResponse = withContext(Dispatchers.IO) {
         networkPolicy.requireAllowed(request.url)
         var url = request.url
         var method = request.method.uppercase()

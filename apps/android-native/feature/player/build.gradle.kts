@@ -8,4 +8,6 @@ dependencies {
     implementation(libs.media3.ui.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.compose.material.icons.extended)
+    // android wave (12-android-wave-contract.md): libmpv engine + surface (worker d)
+    implementation(projects.core.playerMpv)
 }

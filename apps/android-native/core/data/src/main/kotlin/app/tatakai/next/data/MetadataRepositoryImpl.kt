@@ -11,6 +11,7 @@ import app.tatakai.next.model.FeedPage
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
+import app.tatakai.next.model.MetadataCacheStats
 import app.tatakai.next.model.MetadataRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
@@ -24,6 +25,8 @@ import kotlinx.serialization.json.Json
 class MetadataRepositoryImpl(
     private val router: MetadataRouter,
     private val cache: FeedCache,
+    /** android wave: `AppSettings.metadataCacheTtlHours` (1..168) for details and episode lists; feeds keep [FEED_TTL_MS]. */
+    private val ttlHours: () -> Int = { DEFAULT_TTL_HOURS },
 ) : MetadataRepository {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -55,7 +58,7 @@ class MetadataRepositoryImpl(
 
     override suspend fun media(kind: MediaKind, ref: MediaRef): Media? {
         val key = "media:$kind:${ref.anilistId}:${ref.malId}:${ref.kitsuId}"
-        cache.getFresh(key, MEDIA_TTL_MS)?.let { raw -> decodeMedia(raw)?.let { return it } }
+        cache.getFresh(key, detailTtlMs())?.let { raw -> decodeMedia(raw)?.let { return it } }
         return try {
             router.media(kind, ref).value?.also { cache.put(key, json.encodeToString(Media.serializer(), it)) }
         } catch (e: CancellationException) {
@@ -68,7 +71,7 @@ class MetadataRepositoryImpl(
     override suspend fun episodes(ref: MediaRef): List<Episode> {
         val key = "eps:${ref.anilistId}:${ref.malId}:${ref.kitsuId}"
         val ser = ListSerializer(Episode.serializer())
-        cache.getFresh(key, EPISODES_TTL_MS)?.let { raw ->
+        cache.getFresh(key, detailTtlMs())?.let { raw ->
             runCatching { json.decodeFromString(ser, raw) }.getOrNull()?.let { return it }
         }
         return try {
@@ -80,6 +83,17 @@ class MetadataRepositoryImpl(
                 ?: throw e.toAppException()
         }
     }
+
+    // --- android wave (12 §3.6) ---
+
+    override suspend fun cacheStats(): MetadataCacheStats {
+        val (entries, bytes) = cache.stats()
+        return MetadataCacheStats(entries = entries, bytes = bytes)
+    }
+
+    override suspend fun clearCache() = cache.clear()
+
+    private fun detailTtlMs(): Long = ttlHours().coerceIn(1, 168).toLong() * 60 * 60_000
 
     private fun encodePage(p: FeedPage): String =
         json.encodeToString(CachedPage.serializer(), CachedPage(p.items, p.page, p.hasNext))
@@ -103,7 +117,6 @@ class MetadataRepositoryImpl(
 
     private companion object {
         const val FEED_TTL_MS = 15L * 60_000
-        const val MEDIA_TTL_MS = 6L * 60 * 60_000
-        const val EPISODES_TTL_MS = 6L * 60 * 60_000
+        const val DEFAULT_TTL_HOURS = 24
     }
 }

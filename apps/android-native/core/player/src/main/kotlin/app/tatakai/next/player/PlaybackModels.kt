@@ -18,6 +18,8 @@ class PlayableSource(
     val subtitles: List<SubtitleTrack> = emptyList(),
     /** Overrides the shared client: used for the PC's HLS, which needs mTLS with the pinned CA. */
     val httpClient: OkHttpClient? = null,
+    /** android wave: a torrent loopback stream (bigger buffer, long read timeouts; 11 §5.3). */
+    val torrent: Boolean = false,
 ) {
     companion object {
         fun from(s: StreamSource): PlayableSource =
@@ -32,7 +34,14 @@ class PlayableSource(
     }
 }
 
-data class SubtitleOption(val groupIndex: Int, val label: String, val language: String?, val selected: Boolean)
+/**
+ * One subtitle track. [groupIndex] is the engine's id (Media3 track group index, mpv `sid`). [ass] = SSA/ASS styling
+ * (Media3 renders it simplified: the player shows the "simplified subtitles" notice).
+ */
+data class SubtitleOption(val groupIndex: Int, val label: String, val language: String?, val selected: Boolean, val ass: Boolean = false)
+
+/** One audio track ([id] = Media3 track group index, mpv `aid`). */
+data class AudioOption(val id: Int, val label: String, val language: String?, val selected: Boolean)
 
 data class PlaybackError(val code: Int, val name: String, val exhausted: Boolean)
 
@@ -55,6 +64,16 @@ data class PlaybackState(
     val subtitles: List<SubtitleOption> = emptyList(),
     val subtitlesEnabled: Boolean = false,
     val error: PlaybackError? = null,
+    // --- android wave (worker d) ---
+    /** Bumped by every [PlayerSession.load]; lets callers ignore errors / starts of an older load. */
+    val loadId: Int = 0,
+    /** The current load produced its first frame / became ready at least once. */
+    val started: Boolean = false,
+    val audioTracks: List<AudioOption> = emptyList(),
+    /** The selected subtitle track is SSA/ASS. */
+    val subtitleIsAss: Boolean = false,
+    /** The engine renders ASS with full styling (mpv); false for Media3 (simplified). */
+    val fullAss: Boolean = false,
 )
 
 /**

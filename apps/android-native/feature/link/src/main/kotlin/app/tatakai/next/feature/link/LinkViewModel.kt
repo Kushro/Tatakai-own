@@ -7,6 +7,7 @@ import app.tatakai.next.model.LinkCapabilities
 import app.tatakai.next.model.LinkRepository
 import app.tatakai.next.model.LinkSource
 import app.tatakai.next.model.LinkState
+import app.tatakai.next.model.LinkedDevice
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.PlayerArgs
@@ -32,6 +33,9 @@ data class LinkUiState(
     val pairError: AppError? = null,
     val startingSession: Boolean = false,
     val sessionError: AppError? = null,
+    // --- android wave (12 §3.13): "Dispositivo enlazado" ---
+    /** The paired PC as persisted by the Link client (fingerprint, last seen, preferred profile); null = unpaired. */
+    val device: LinkedDevice? = null,
 )
 
 sealed interface LinkEvent {
@@ -43,7 +47,9 @@ class LinkViewModel(
     private val deviceName: String,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(LinkUiState(link = link.state.value))
+    private val _state = MutableStateFlow(
+        LinkUiState(link = link.state.value, device = link.linkedDevice.value, selectedProfile = link.linkedDevice.value?.preferredProfile),
+    )
     val state: StateFlow<LinkUiState> = _state.asStateFlow()
 
     private val _events = Channel<LinkEvent>(Channel.BUFFERED)
@@ -52,11 +58,25 @@ class LinkViewModel(
     init {
         viewModelScope.launch {
             link.state.collectLatest { s ->
-                _state.update { it.copy(link = s, capabilities = if (s is LinkState.Paired) it.capabilities else null) }
+                _state.update {
+                    it.copy(
+                        link = s,
+                        capabilities = if (s is LinkState.Paired) it.capabilities else null,
+                        selectedProfile = if (s is LinkState.Unpaired) null else it.selectedProfile,
+                    )
+                }
                 if (s is LinkState.Paired) loadCapabilities()
             }
         }
+        viewModelScope.launch {
+            link.linkedDevice.collect { device ->
+                _state.update { it.copy(device = device, selectedProfile = it.selectedProfile ?: device?.preferredProfile) }
+            }
+        }
     }
+
+    /** Validates a pasted pairing text before sending it (prototype: `tatakai-link:v1?…` or a 10-character code). */
+    fun isValidPairingText(text: String): Boolean = PAIRING_TEXT.matches(text.trim())
 
     /** [payload] is the `tatakai-link:v1` URI read from the QR code or pasted by the user. */
     fun pair(payload: String) {
@@ -83,12 +103,17 @@ class LinkViewModel(
                 onSuccess = { LoadState.Ok(it) },
                 onFailure = { LoadState.Err(it.toAppError()) },
             )
-            val keep = s.selectedProfile?.takeIf { id -> (caps as? LoadState.Ok)?.value?.profiles?.any { it.id == id } == true }
+            val wanted = s.selectedProfile ?: s.device?.preferredProfile
+            val keep = wanted?.takeIf { id -> (caps as? LoadState.Ok)?.value?.profiles?.any { it.id == id } == true }
             s.copy(capabilities = caps, selectedProfile = keep)
         }
     }
 
-    fun selectProfile(id: String?) = _state.update { it.copy(selectedProfile = id) }
+    /** Enhance profile segmented: kept in the UI state and persisted as the PC's preferred profile for this phone. */
+    fun selectProfile(id: String?) {
+        _state.update { it.copy(selectedProfile = id) }
+        viewModelScope.launch { runCatchingApp { link.setPreferredProfile(id) } }
+    }
 
     /** Starts a remote (PC-transcoded) session for [url] and opens the player on it. */
     fun startSession(url: String) {
@@ -113,5 +138,9 @@ class LinkViewModel(
 
     fun forget() {
         viewModelScope.launch { link.forget() }
+    }
+
+    private companion object {
+        val PAIRING_TEXT = Regex("^(tatakai-link:v1\\?.+|[0-9A-Z]{10})$", RegexOption.IGNORE_CASE)
     }
 }

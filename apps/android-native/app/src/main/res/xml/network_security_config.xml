@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext HTTP only for the on-device torrent streaming server (core/torrent LoopbackStreamServer,
+  http://127.0.0.1:<port>/<token>/...). Without this, OkHttp / Media3 refuse the loopback URL on API 28+.
+  Everything else keeps the platform default (cleartext blocked, system CAs).
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

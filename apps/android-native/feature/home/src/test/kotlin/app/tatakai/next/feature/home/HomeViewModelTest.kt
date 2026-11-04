@@ -3,21 +3,27 @@ package app.tatakai.next.feature.home
 import app.cash.turbine.test
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.Episode
+import app.tatakai.next.model.ExtensionHomeItem
+import app.tatakai.next.model.ExtensionHomeRow
+import app.tatakai.next.model.ExtensionRepository
 import app.tatakai.next.model.FeedKind
 import app.tatakai.next.model.FeedPage
 import app.tatakai.next.model.HistoryEntry
 import app.tatakai.next.model.HistoryRepository
+import app.tatakai.next.model.InstalledExtension
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.MetadataRepository
+import app.tatakai.next.model.StreamSource
 import java.io.IOException
 import java.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -28,6 +34,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -37,9 +44,9 @@ class HomeViewModelTest {
 
     @AfterTest fun tearDown() = Dispatchers.resetMain()
 
-    private fun media(id: Int) = Media(
+    private fun media(id: Int, genres: List<String> = emptyList()) = Media(
         ref = MediaRef(anilistId = id), kind = MediaKind.ANIME, title = "Anime $id", titles = emptyMap(),
-        cover = null, banner = null, color = null, synopsis = null, genres = emptyList(), episodes = 12,
+        cover = null, banner = null, color = null, synopsis = null, genres = genres, episodes = 12,
         status = null, season = null, year = 2024, score = 80, sourceProvider = "fake",
     )
 
@@ -62,6 +69,21 @@ class HomeViewModelTest {
         override suspend fun record(entry: HistoryEntry) {}
         override fun progressFor(anilistId: Int): Flow<Map<Int, HistoryEntry>> = MutableStateFlow(emptyMap())
     }
+
+    private class FakeExtensions(val rows: () -> List<ExtensionHomeRow>) : ExtensionRepository {
+        var calls = 0
+        override val installed: StateFlow<List<InstalledExtension>> = MutableStateFlow(emptyList())
+        override suspend fun installFromUri(uri: String) = Result.failure<InstalledExtension>(UnsupportedOperationException())
+        override suspend fun setEnabled(id: String, enabled: Boolean) {}
+        override suspend fun remove(id: String) {}
+        override suspend fun resolveStreams(media: Media, episode: Int): List<StreamSource> = emptyList()
+        override suspend fun customHomeRows(): List<ExtensionHomeRow> {
+            calls++
+            return rows()
+        }
+    }
+
+    private fun emptyFeeds() = FakeMetadata(HOME_FEEDS.associateWith { { FeedPage(emptyList(), 1, false) } }.toMutableMap())
 
     private fun entry(ep: Int) = HistoryEntry(
         animeId = "1", title = "Anime 1", poster = null, episodeId = "1?ep=$ep", episode = ep, progressSec = 60,
@@ -124,6 +146,63 @@ class HomeViewModelTest {
             assertTrue(awaitUntil { it.continueWatching.map { e -> e.episode } == listOf(3) })
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun `extension rows are requested lazily, once, and drop rows without items`() = runTest {
+        val ext = FakeExtensions {
+            listOf(
+                ExtensionHomeRow("toko", "latest", "Latest", listOf(ExtensionHomeItem("1", "Frieren", null))),
+                ExtensionHomeRow("toko", "empty", "Empty", emptyList()),
+            )
+        }
+        val vm = HomeViewModel(emptyFeeds(), FakeHistory(), extensions = ext)
+
+        assertNull(vm.state.first { s -> s.feeds.none { it.state is LoadState.Loading } }.extensionRows)
+        assertEquals(0, ext.calls)
+
+        vm.loadExtensionRows()
+        vm.loadExtensionRows()
+
+        val rows = assertIs<LoadState.Ok<List<ExtensionHomeRow>>>(vm.state.first { it.extensionRows is LoadState.Ok }.extensionRows)
+        assertEquals(listOf("latest"), rows.value.map { it.sourceId })
+        assertEquals(1, ext.calls)
+    }
+
+    @Test
+    fun `a failed extension request can be retried`() = runTest {
+        var fail = true
+        val ext = FakeExtensions { if (fail) throw IOException("offline") else emptyList() }
+        val vm = HomeViewModel(emptyFeeds(), FakeHistory(), extensions = ext)
+
+        vm.loadExtensionRows()
+        assertEquals(AppError.Offline, assertIs<LoadState.Err>(vm.state.first { it.extensionRows is LoadState.Err }.extensionRows).cause)
+
+        fail = false
+        vm.loadExtensionRows()
+        assertIs<LoadState.Ok<List<ExtensionHomeRow>>>(vm.state.first { it.extensionRows is LoadState.Ok }.extensionRows)
+        assertEquals(2, ext.calls)
+    }
+
+    @Test
+    fun `genre chips rank the most frequent genres and empty feeds make the empty state`() = runTest {
+        val metadata = FakeMetadata(
+            HOME_FEEDS.associateWith { kind ->
+                {
+                    if (kind == FeedKind.TRENDING) {
+                        FeedPage(listOf(media(1, listOf("Action", "Drama")), media(2, listOf("Action"))), 1, false)
+                    } else {
+                        FeedPage(emptyList(), 1, false)
+                    }
+                }
+            }.toMutableMap(),
+        )
+        val loaded = HomeViewModel(metadata, FakeHistory()).state.first { s -> s.feeds.none { it.state is LoadState.Loading } }
+        assertEquals(listOf("Action", "Drama"), loaded.genres)
+        assertEquals(false, loaded.isEmpty)
+
+        val empty = HomeViewModel(emptyFeeds(), FakeHistory()).state.first { s -> s.feeds.none { it.state is LoadState.Loading } }
+        assertTrue(empty.isEmpty)
     }
 
     private suspend fun app.cash.turbine.ReceiveTurbine<HomeUiState>.awaitUntil(predicate: (HomeUiState) -> Boolean): Boolean {

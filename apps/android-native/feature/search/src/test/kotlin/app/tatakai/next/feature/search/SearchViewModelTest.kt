@@ -28,15 +28,22 @@ class SearchViewModelTest {
 
     @AfterTest fun tearDown() = Dispatchers.resetMain()
 
-    private fun media(id: Int) = Media(
+    private fun media(id: Int, genres: List<String> = emptyList()) = Media(
         ref = MediaRef(anilistId = id), kind = MediaKind.ANIME, title = "Anime $id", titles = emptyMap(),
-        cover = null, banner = null, color = null, synopsis = null, genres = emptyList(), episodes = null,
+        cover = null, banner = null, color = null, synopsis = null, genres = genres, episodes = null,
         status = null, season = null, year = null, score = null, sourceProvider = "fake",
     )
 
-    private class FakeMetadata(val onSearch: (String, Int) -> FeedPage) : MetadataRepository {
+    private class FakeMetadata(
+        val onFeed: (FeedKind, Int) -> FeedPage = { _, p -> FeedPage(emptyList(), p, false) },
+        val onSearch: (String, Int) -> FeedPage,
+    ) : MetadataRepository {
         val queries = mutableListOf<String>()
-        override suspend fun feed(kind: MediaKind, feed: FeedKind, page: Int) = FeedPage(emptyList(), page, false)
+        val feeds = mutableListOf<String>()
+        override suspend fun feed(kind: MediaKind, feed: FeedKind, page: Int): FeedPage {
+            feeds += "$feed#$page"
+            return onFeed(feed, page)
+        }
         override suspend fun search(kind: MediaKind, query: String, page: Int): FeedPage {
             queries += "$query#$page"
             return onSearch(query, page)
@@ -106,5 +113,82 @@ class SearchViewModelTest {
         val ok = assertIs<SearchResults.Ok>(vm.state.value.results)
         assertEquals(listOf(1, 2, 3), ok.items.map { it.ref.anilistId })
         assertEquals(false, ok.hasNext)
+    }
+
+    @Test
+    fun `submit records recent searches newest first, deduped and capped`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = InMemorySearchHistoryStore(listOf("b", "frieren"))
+        val vm = SearchViewModel(FakeMetadata { _, p -> FeedPage(emptyList(), p, false) }, debounceMillis = 10, historyStore = store)
+
+        assertEquals(listOf("b", "frieren"), vm.state.value.history)
+        vm.onQueryChange(" frieren ")
+        vm.submit()
+        vm.onQueryChange("x") // too short: not recorded
+        vm.submit()
+        listOf("one", "two", "three", "four", "five").forEach {
+            vm.onQueryChange(it)
+            vm.submit()
+        }
+        advanceUntilIdle()
+
+        val expected = listOf("five", "four", "three", "two", "one", "frieren")
+        assertEquals(expected, vm.state.value.history)
+        assertEquals(expected, store.load())
+
+        vm.removeHistory("two")
+        assertEquals(listOf("five", "four", "three", "one", "frieren"), store.load())
+    }
+
+    @Test
+    fun `an initial feed browses that feed and pages it`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val repo = FakeMetadata(
+            onFeed = { _, p -> FeedPage(listOf(media(p * 10)), p, p == 1) },
+            onSearch = { _, p -> FeedPage(emptyList(), p, false) },
+        )
+        val vm = SearchViewModel(repo, debounceMillis = 10)
+
+        vm.applyInitial(query = null, feed = FeedKind.AIRING, genre = null)
+        advanceUntilIdle()
+        vm.loadMore()
+        advanceUntilIdle()
+
+        assertEquals(listOf("AIRING#1", "AIRING#2"), repo.feeds)
+        assertEquals(emptyList(), repo.queries)
+        assertEquals(listOf(10, 20), assertIs<SearchResults.Ok>(vm.state.value.results).items.map { it.ref.anilistId })
+
+        // Applying the same initial values again (coming back to the screen) does not reload.
+        vm.applyInitial(query = null, feed = FeedKind.AIRING, genre = null)
+        advanceUntilIdle()
+        assertEquals(2, repo.feeds.size)
+    }
+
+    @Test
+    fun `an initial genre browses popular and filters on the client`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val repo = FakeMetadata(
+            onFeed = { _, p -> FeedPage(listOf(media(1, listOf("Action")), media(2, listOf("Romance"))), p, false) },
+            onSearch = { _, p -> FeedPage(emptyList(), p, false) },
+        )
+        val vm = SearchViewModel(repo, debounceMillis = 10)
+
+        vm.applyInitial(query = null, feed = null, genre = "action")
+        advanceUntilIdle()
+
+        assertEquals(listOf("POPULAR#1"), repo.feeds)
+        assertEquals(listOf(1), vm.state.value.shown.map { it.ref.anilistId })
+
+        vm.resetFilters()
+        advanceUntilIdle()
+        assertEquals(SearchResults.Idle, vm.state.value.results)
+    }
+
+    @Test
+    fun `filters match genre, year, season and status`() {
+        val m = media(1, listOf("Drama")).copy(year = 2024, season = "FALL", status = "RELEASING")
+        assertEquals(true, SearchFilters(genre = "drama", year = 2024, season = "fall", status = "releasing").matches(m))
+        assertEquals(false, SearchFilters(year = 2023).matches(m))
+        assertEquals(2, SearchFilters(genre = "Drama", status = "FINISHED").activeCount)
     }
 }
