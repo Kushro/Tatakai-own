@@ -15,6 +15,10 @@ val detailsModule = module {
             history = get(),
             extensions = get(),
             link = get(),
+            settings = get(),
+            // Bound by other workers of the android wave (torrentModule: f, dataModule: a); getOrNull keeps Details usable without them.
+            torrents = getOrNull(),
+            stats = getOrNull(),
         )
     }
 }
