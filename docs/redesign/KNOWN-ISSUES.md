@@ -80,6 +80,7 @@ Lo que quedará sin probar al cerrar la ola aunque compile (los workers escriben
 - **Room**: la tabla nueva de estadísticas de fuentes sube la versión con migración destructiva: se pierde el historial local no sincronizado al actualizar.
 - **Idioma por app** en Android < 13 (contexto con locale en `attachBaseContext`) y `reduce motion` del sistema (ANIMATOR_DURATION_SCALE) sin probar en dispositivo.
 - Plataforma `android-37` se descarga en el primer build del equipo Linux (solo había `android-36`).
+- El SDK instala la API 37 como `platforms;android-37.0` (hash `android-37.0`): las convenciones fijan `compileSdkMinor = 0` además de `compileSdk = 37`; sin él AGP 8.13.2 busca `android-37` y falla.
 
 Integración de la ola (rama `android/revamp`, merges a → e → f → d → c → b sin conflictos; aún sin compilar):
 
