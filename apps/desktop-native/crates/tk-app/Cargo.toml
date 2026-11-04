@@ -43,5 +43,10 @@ time = { workspace = true, optional = true }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true }
 
+# Linux: hidden web views of the extension browser runtime (live/browser.rs).
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = { workspace = true }
+webkit2gtk = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -10,11 +10,14 @@
 //! `instance.configureBrowserRuntime({ newBrowser })`, where `newBrowser(options)` resolves to
 //! `{ navigate(url), evaluate(expression), executeCDP(method, params), sleep(ms), close() }`:
 //! * `navigate` / `evaluate` / `close` -> [`BrowserRuntime`] calls through a native `__host_browser_start(seq, op,
-//!   json)` whose completion comes back through the worker's event loop like `fetch` (`__tk_browser_done(seq, json)`);
-//!   pending browser operations count as pending work in `__tk_status` so a call waiting on them never "settles".
-//! * `executeCDP` supports ONLY `Network.getCookies` with `{ urls: [1..=10 urls] }` and resolves to
-//!   `{ cookies: [...] }` ([`BrowserRuntime::cookies`]); any other method rejects
-//!   (`Unsupported ChromeDP CDP command: <m>`).
+//!   id, arg)` (`op`: `new` | `navigate` | `evaluate` | `cookies` | `close`; `arg`: options JSON, URL, expression or
+//!   JSON URL array) whose completion comes back through the worker's event loop like `fetch`
+//!   (`__tk_browser_done(seq, json)`); pending browser operations count as pending work in `__tk_status` so a call
+//!   waiting on them never "settles". The worker only accepts ids it opened, closes what is left when its runtime is
+//!   discarded or it stops, and lets a call that opened a browser run up to 90 s (a Cloudflare solve takes 15-45 s).
+//! * `executeCDP` supports ONLY `Network.getCookies` with `{ urls: [1..=10 urls] }` (and `Network.getAllCookies`, read
+//!   for the permitted domains) and resolves to `{ cookies: [...] }` ([`BrowserRuntime::cookies`]); any other method
+//!   rejects (`Unsupported ChromeDP CDP command: <m>`).
 //! * `sleep(ms)` is a plain timer in JS (0..=10000 ms, else rejects).
 //!
 //! **Limits** (same as legacy, enforced by the implementation): at most 2 live browsers per extension; every URL

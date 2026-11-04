@@ -3,10 +3,11 @@
 //! Limits (globals.v1.md section 1): 64 MiB heap, 15 s wall-clock per host call (interrupt handler + event-loop
 //! deadline). A call that times out or runs out of memory discards the runtime; the next call rebuilds it.
 //! Network `fetch` is started on the shared tokio runtime and its completion is delivered back to this thread's
-//! event loop, so several fetches of one extension run in parallel.
+//! event loop, so several fetches of one extension run in parallel. Browser runtime operations
+//! (`configureBrowserRuntime`, docs/redesign/09 section 7) use the same pattern.
 
 use std::cell::RefCell;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -19,6 +20,7 @@ use serde_json::json;
 use tk_core::net::{SafeHttp, SafeRequest, read_capped, sanitize_headers};
 use tokio::sync::oneshot;
 
+use crate::browser::{BrowserError, BrowserRuntime, browser_url_allowed};
 use crate::error::ExtError;
 use crate::hashing::{Algo, hmac};
 
@@ -30,6 +32,12 @@ const STACK_LIMIT: usize = 1024 * 1024;
 pub const FETCH_CAP: usize = 25 * 1024 * 1024;
 const LOG_LINES: usize = 500;
 const LOG_LINE_BYTES: usize = 4096;
+/// A call that opens a browser may run this long (from its start): a Cloudflare solve alone takes 15-45 s.
+pub const BROWSER_CALL_TIMEOUT: Duration = Duration::from_secs(90);
+/// Legacy limits of the browser runtime (`seanime-browser-host.cjs`).
+const BROWSER_LIMIT: usize = 2;
+const BROWSER_EXPR_BYTES: usize = 32 * 1024;
+const BROWSER_RESULT_BYTES: usize = 2_000_000;
 
 const PRELUDE: &str = include_str!("js/prelude.js");
 const HOST_JS: &str = include_str!("js/host.js");
@@ -70,7 +78,19 @@ pub(crate) struct WorkerConfig {
     pub http: SafeHttp,
     pub logs: LogBuf,
     pub call_timeout: Duration,
+    /// Present only when the bundle may use a browser (permitted `browserDomains` and an injected runtime).
+    pub browser: Option<BrowserCfg>,
 }
+
+pub(crate) struct BrowserCfg {
+    pub runtime: Arc<dyn BrowserRuntime>,
+    /// `browser_domains(manifest)`; never empty.
+    pub domains: Vec<String>,
+}
+
+/// Browsers this worker opened, with their per-operation timeout. Shared by the natives and the cleanup so a
+/// browser whose id never reached JS (stale completion, discarded runtime) is still closed.
+type OwnedBrowsers = Arc<Mutex<HashMap<String, Duration>>>;
 
 pub(crate) enum CallKind {
     Route,
@@ -109,6 +129,8 @@ impl Worker {
 
 enum Event {
     Fetch { id: u64, result: Result<FetchOut, String> },
+    /// `created`: the id a `new` operation opened (closed when the completion turns out to be stale).
+    Browser { seq: u64, result: Result<serde_json::Value, String>, created: Option<String> },
 }
 
 struct FetchOut {
@@ -130,23 +152,49 @@ fn worker_main(cfg: WorkerConfig, handle: tokio::runtime::Handle, rx: mpsc::Rece
     let (ev_tx, ev_rx) = mpsc::channel::<Event>();
     let start = Instant::now();
     let deadline = Arc::new(AtomicU64::new(u64::MAX));
+    let owned: OwnedBrowsers = Arc::default();
     let mut js: Option<Js> = None;
 
     while let Ok(Cmd::Call { kind, name, payload, reply }) = rx.recv() {
-        while ev_rx.try_recv().is_ok() {} // stale completions from a previous call
+        // stale completions from a previous call; a browser opened for it that JS never saw is closed
+        while let Ok(ev) = ev_rx.try_recv() {
+            if let Event::Browser { created: Some(id), .. } = ev {
+                close_owned(&cfg, &handle, &owned, Some(id));
+            }
+        }
         deadline.store(start.elapsed().as_millis() as u64 + cfg.call_timeout.as_millis() as u64, Ordering::SeqCst);
         let result = (|| {
             if js.is_none() {
-                js = Some(build(&cfg, &handle, &ev_tx, &deadline, start)?);
+                js = Some(build(&cfg, &handle, &ev_tx, &deadline, &owned, start)?);
             }
             let state = js.as_ref().ok_or_else(|| ExtError::Runtime("no runtime".into()))?;
             run_call(state, &ev_rx, &deadline, start, kind, &name, &payload)
         })();
         if matches!(result, Err(ExtError::Timeout | ExtError::OutOfMemory | ExtError::Runtime(_))) {
             js = None; // discard; rebuilt on the next call
+            close_owned(&cfg, &handle, &owned, None); // its browser handles died with it
         }
         deadline.store(u64::MAX, Ordering::SeqCst);
         let _ = reply.send(result);
+    }
+    close_owned(&cfg, &handle, &owned, None); // extension stopped (disabled, removed, replaced, host dropped)
+}
+
+/// Close one owned browser (`Some(id)`) or all of them, without waiting.
+fn close_owned(cfg: &WorkerConfig, handle: &tokio::runtime::Handle, owned: &OwnedBrowsers, only: Option<String>) {
+    let Some(b) = &cfg.browser else { return };
+    let ids: Vec<String> = {
+        let mut map = owned.lock().unwrap_or_else(|p| p.into_inner());
+        match only {
+            Some(id) => map.remove(&id).map(|_| id).into_iter().collect(),
+            None => map.drain().map(|(id, _)| id).collect(),
+        }
+    };
+    for id in ids {
+        let rt = b.runtime.clone();
+        handle.spawn(async move {
+            let _ = rt.close(&id).await;
+        });
     }
 }
 
@@ -176,7 +224,14 @@ fn classify(msg: String) -> ExtError {
     }
 }
 
-fn build(cfg: &WorkerConfig, handle: &tokio::runtime::Handle, ev_tx: &mpsc::Sender<Event>, deadline: &Arc<AtomicU64>, start: Instant) -> Result<Js, ExtError> {
+fn build(
+    cfg: &WorkerConfig,
+    handle: &tokio::runtime::Handle,
+    ev_tx: &mpsc::Sender<Event>,
+    deadline: &Arc<AtomicU64>,
+    owned: &OwnedBrowsers,
+    start: Instant,
+) -> Result<Js, ExtError> {
     let rt = Runtime::new().map_err(|e| ExtError::Runtime(e.to_string()))?;
     rt.set_memory_limit(MEMORY_LIMIT);
     rt.set_max_stack_size(STACK_LIMIT);
@@ -185,6 +240,7 @@ fn build(cfg: &WorkerConfig, handle: &tokio::runtime::Handle, ev_tx: &mpsc::Send
     let ctx = Context::full(&rt).map_err(|e| ExtError::Runtime(e.to_string()))?;
     ctx.with(|ctx| -> Result<(), ExtError> {
         install_natives(&ctx, cfg, handle, ev_tx, start).map_err(|e| describe(&ctx, e))?;
+        install_browser_natives(&ctx, cfg, handle, ev_tx, deadline, owned).map_err(|e| describe(&ctx, e))?;
         ctx.eval::<(), _>(PRELUDE).map_err(|e| describe(&ctx, e))?;
         ctx.eval::<(), _>(HOST_JS).map_err(|e| describe(&ctx, e))?;
         let load: Function = ctx.globals().get("__tk_load").map_err(|e| describe(&ctx, e))?;
@@ -228,6 +284,8 @@ struct Status {
     timer: f64,
     #[serde(default)]
     fetches: u32,
+    #[serde(default)]
+    browsers: u32,
 }
 
 #[derive(Deserialize)]
@@ -292,7 +350,7 @@ fn run_call(
             })?;
             continue;
         }
-        if status.timer < 0.0 && status.fetches == 0 {
+        if status.timer < 0.0 && status.fetches == 0 && status.browsers == 0 {
             return Err(ExtError::Js("extension call never settled (no pending timers or requests)".into()));
         }
         let mut wait = Duration::from_millis(dl - now_ms);
@@ -301,6 +359,7 @@ fn run_call(
         }
         match ev_rx.recv_timeout(wait) {
             Ok(Event::Fetch { id, result }) => deliver_fetch(js, id, result)?,
+            Ok(Event::Browser { seq, result, .. }) => deliver_browser(js, seq, result)?,
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return Err(ExtError::Runtime("event channel closed".into())),
         }
@@ -324,6 +383,17 @@ fn deliver_fetch(js: &Js, id: u64, result: Result<FetchOut, String>) -> Result<(
                 .call::<_, ()>((id as f64, json!({ "error": msg }).to_string(), Option::<ArrayBuffer>::None))
                 .map_err(|e| describe(&ctx, e)),
         }
+    })
+}
+
+fn deliver_browser(js: &Js, seq: u64, result: Result<serde_json::Value, String>) -> Result<(), ExtError> {
+    let msg = match result {
+        Ok(value) => json!({ "ok": true, "value": value }),
+        Err(error) => json!({ "ok": false, "error": error }),
+    };
+    js.ctx.with(|ctx| -> Result<(), ExtError> {
+        let f: Function = ctx.globals().get("__tk_browser_done").map_err(|e| describe(&ctx, e))?;
+        f.call::<_, ()>((seq as f64, msg.to_string())).map_err(|e| describe(&ctx, e))
     })
 }
 
@@ -495,6 +565,152 @@ fn install_natives<'js>(
         with_el(&ctx, doc, node, |_, el| el.inner_html())
     })?)?;
     Ok(())
+}
+
+/// Browser runtime natives (`__host_browser_domains`, `__host_browser_start`); the JS objects are built by
+/// `__tk_browser_runtime` in prelude.js. Without a [`BrowserCfg`] only an empty domain list is exposed, so the
+/// bundle's `configureBrowserRuntime` is never called.
+fn install_browser_natives<'js>(
+    ctx: &Ctx<'js>,
+    cfg: &WorkerConfig,
+    handle: &tokio::runtime::Handle,
+    ev_tx: &mpsc::Sender<Event>,
+    deadline: &Arc<AtomicU64>,
+    owned: &OwnedBrowsers,
+) -> rquickjs::Result<()> {
+    let g = ctx.globals();
+    let Some(b) = &cfg.browser else {
+        g.set("__host_browser_domains", "[]")?;
+        return Ok(());
+    };
+    g.set("__host_browser_domains", serde_json::to_string(&b.domains).unwrap_or_else(|_| "[]".into()))?;
+    let runtime = b.runtime.clone();
+    let domains = Arc::new(b.domains.clone());
+    let ext_id = cfg.id.clone();
+    let owned = owned.clone();
+    let tx = ev_tx.clone();
+    let rt_handle = handle.clone();
+    let dl = deadline.clone();
+    let call_ms = cfg.call_timeout.as_millis() as u64;
+    // op: new (arg = options JSON) | navigate (url) | evaluate (expression) | cookies (JSON url array) | close
+    g.set("__host_browser_start", Function::new(ctx.clone(), move |seq: f64, op: String, id: String, arg: String| {
+        if op == "new" {
+            // A call that opens a browser may run up to BROWSER_CALL_TIMEOUT from its start (Cloudflare solve).
+            let now = dl.load(Ordering::SeqCst);
+            if now != u64::MAX {
+                let extended = now.saturating_sub(call_ms) + BROWSER_CALL_TIMEOUT.as_millis() as u64;
+                if extended > now {
+                    dl.store(extended, Ordering::SeqCst);
+                }
+            }
+        }
+        let runtime = runtime.clone();
+        let domains = domains.clone();
+        let ext_id = ext_id.clone();
+        let owned = owned.clone();
+        let tx = tx.clone();
+        let seq = seq as u64;
+        rt_handle.spawn(async move {
+            let (result, created) = browser_op(&*runtime, &ext_id, &domains, &owned, &op, &id, &arg).await;
+            let _ = tx.send(Event::Browser { seq, result: result.map_err(|e| e.to_string()), created });
+        });
+    })?)?;
+    Ok(())
+}
+
+fn lock_owned(owned: &OwnedBrowsers) -> std::sync::MutexGuard<'_, HashMap<String, Duration>> {
+    owned.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Legacy: `Math.min(30, Math.max(1, Number(options.timeout) || 20))` seconds.
+fn browser_op_timeout(opts: &serde_json::Value) -> Duration {
+    let t = match opts.get("timeout") {
+        Some(serde_json::Value::Number(n)) => n.as_f64(),
+        Some(serde_json::Value::String(s)) => s.trim().parse::<f64>().ok(),
+        _ => None,
+    };
+    let secs = t.filter(|t| t.is_finite() && *t != 0.0).unwrap_or(20.0).clamp(1.0, 30.0);
+    Duration::from_secs_f64(secs)
+}
+
+/// Safety net over the runtime's own per-operation timeout.
+async fn bounded<T>(timeout: Duration, fut: impl std::future::Future<Output = Result<T, BrowserError>>) -> Result<T, BrowserError> {
+    tokio::time::timeout(timeout + Duration::from_secs(2), fut).await.unwrap_or(Err(BrowserError::Timeout))
+}
+
+fn capped(v: serde_json::Value) -> Result<serde_json::Value, BrowserError> {
+    if serde_json::to_string(&v).map_or(0, |s| s.len()) > BROWSER_RESULT_BYTES { Err(BrowserError::TooLarge) } else { Ok(v) }
+}
+
+/// One browser operation with the legacy checks enforced here too (the runtime repeats the URL checks): a browser
+/// id is only usable by the worker that opened it, at most [`BROWSER_LIMIT`] are open, every URL passes
+/// [`browser_url_allowed`], expressions and results are size-capped. Returns the created id for `new`.
+async fn browser_op(
+    runtime: &dyn BrowserRuntime,
+    ext_id: &str,
+    domains: &[String],
+    owned: &OwnedBrowsers,
+    op: &str,
+    id: &str,
+    arg: &str,
+) -> (Result<serde_json::Value, BrowserError>, Option<String>) {
+    if op == "new" {
+        if domains.is_empty() {
+            return (Err(BrowserError::NoDomains), None);
+        }
+        if lock_owned(owned).len() >= BROWSER_LIMIT {
+            return (Err(BrowserError::Limit), None);
+        }
+        let opts: serde_json::Value = serde_json::from_str(arg).unwrap_or(serde_json::Value::Null);
+        let opts = if opts.is_object() { opts } else { json!({}) };
+        let timeout = browser_op_timeout(&opts);
+        return match runtime.new_browser(ext_id, domains, opts).await {
+            Ok(id) => {
+                lock_owned(owned).insert(id.clone(), timeout);
+                (Ok(serde_json::Value::String(id.clone())), Some(id))
+            }
+            Err(e) => (Err(e), None),
+        };
+    }
+    let Some(timeout) = lock_owned(owned).get(id).copied() else {
+        return (Err(BrowserError::Closed), None);
+    };
+    let id: String = id.to_owned();
+    let result = match op {
+        "close" => {
+            lock_owned(owned).remove(&id);
+            runtime.close(&id).await.map(|()| serde_json::Value::Null)
+        }
+        "navigate" => {
+            if browser_url_allowed(arg, domains) {
+                bounded(timeout, runtime.navigate(&id, arg)).await.map(|()| serde_json::Value::Null)
+            } else {
+                Err(BrowserError::UrlNotAllowed(arg.to_owned()))
+            }
+        }
+        "evaluate" => {
+            if arg.len() > BROWSER_EXPR_BYTES {
+                Err(BrowserError::Failed("Invalid ChromeDP expression".into()))
+            } else {
+                bounded(timeout, runtime.evaluate(&id, arg)).await.and_then(capped)
+            }
+        }
+        "cookies" => {
+            let urls: Vec<String> = serde_json::from_str(arg).unwrap_or_default();
+            if urls.is_empty() || urls.len() > 10 {
+                Err(BrowserError::Failed("ChromeDP cookie URLs are required".into()))
+            } else if let Some(bad) = urls.iter().find(|u| !browser_url_allowed(u, domains)) {
+                Err(BrowserError::UrlNotAllowed(bad.clone()))
+            } else {
+                bounded(timeout, runtime.cookies(&id, &urls)).await.map(|c| json!({ "cookies": c })).and_then(capped)
+            }
+        }
+        other => Err(BrowserError::Failed(format!("Unsupported ChromeDP browser method: {other}"))),
+    };
+    if matches!(result, Err(BrowserError::Closed)) {
+        lock_owned(owned).remove(&id); // auto-closed (150 s) or gone
+    }
+    (result, None)
 }
 
 async fn do_fetch(
