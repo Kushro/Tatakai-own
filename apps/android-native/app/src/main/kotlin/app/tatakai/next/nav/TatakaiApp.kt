@@ -130,7 +130,7 @@ import app.tatakai.next.ui.R as UiR
  * the app-wide CompositionLocals (LocalReduceMotion, LocalAppSnackbar) + adaptive shell + Navigation3 back stack (12 §3.15, §4 b.1).
  */
 @Composable
-fun TatakaiApp() {
+fun TatakaiApp(torrentLinks: MutableStateFlow<TorrentLink?>? = null) {
     val settingsRepo = koinInject<SettingsRepository>()
     val settings by settingsRepo.settings.collectAsStateWithLifecycle()
     val dark = when (settings.themeMode) {
@@ -154,7 +154,7 @@ fun TatakaiApp() {
             LocalReduceMotion provides reduceMotion,
             LocalAppSnackbar provides snackbar,
         ) {
-            AppShell(snackbar)
+            AppShell(snackbar, torrentLinks)
         }
     }
 }
@@ -195,9 +195,22 @@ private fun PerAppLanguage(settings: AppSettings, repo: SettingsRepository) {
 }
 
 @Composable
-private fun AppShell(snackbar: AppSnackbarController) {
+private fun AppShell(snackbar: AppSnackbarController, torrentLinks: MutableStateFlow<TorrentLink?>? = null) {
     val backStack = rememberNavBackStack(Route.Home)
     val current = backStack.lastOrNull() as? Route
+
+    // Torrent notification taps (integration of f's notification extras): open the client section, Back returns to where we were.
+    if (torrentLinks != null) {
+        LaunchedEffect(torrentLinks) {
+            torrentLinks.collect { link ->
+                if (link != null) {
+                    val target = Route.Torrents(link.section, link.torrentId)
+                    if (backStack.lastOrNull() != target) backStack.add(target)
+                    torrentLinks.value = null
+                }
+            }
+        }
+    }
 
     // ShortNavigationBar on compact windows (< 600 dp), WideNavigationRail from medium width; hidden over the player.
     val wide = LocalConfiguration.current.screenWidthDp >= WIDE_MIN_WIDTH_DP

@@ -1889,6 +1889,19 @@ Puntos de fricción esperables:
 - **Room**: a sube la versión; la migración destructiva borra el historial local no sincronizado (ya documentado en KNOWN-ISSUES).
 - **Firmas**: cualquier diferencia entre el uso de un composable y §3 se resuelve a favor de §3.
 
+### 5.1 Notas de integración (2026-11-04)
+
+- **Orden aplicado**: a → e → f → d → c → b (el de este documento), `git merge --no-ff`, sin conflictos de texto en ningún merge.
+- **Koin**: un binding por tipo, comprobado con grep: `SourceStatsStore` y `HistorySyncStamp` solo en `dataModule`, `SourceStatsDao` en `databaseModule`, `SkipMarksRepository` solo en `playerModule`, `PlayerSessionFactory` con `named("mpv-session-factory")` en `mpvPlayerModule`, `TorrentRepository` solo en `torrentModule` (más el `TorrentRepositoryImpl` concreto para el servicio), `BrowserRuntime` / `JsEngine` / `ExtensionLogStore` en `extensionsModule`. `ExtensionRepositoryImpl` recibe `SettingsRepository` y `SourceStatsStore` con `get()`. Las pantallas resuelven los colaboradores opcionales con `getOrNull()`. `TatakaiApplication.kt` ya registraba los 20 módulos; no cambió.
+- **Firmas**: las llamadas de `nav/TatakaiApp.kt` coinciden con las firmas finales de Home, Search, Library, Details, Player, You, Settings, Extensions, LinkedDevice y Torrents; `SourcePickerSheet` / `SourceRow` (Details), `rememberDownloadGate` (Details), `TorrentsLibraryTab` (Library) y `TorrentSettingsPage` (Settings, Torrents) también. No queda ningún `TODO("worker …")`. Las firmas de contrato de `core/model` no cambiaron (solo cuerpos de `Sources.kt` y el ayudante nuevo `SourcesInternal.kt`).
+- **Strings**: sin claves duplicadas entre módulos; en / es con las mismas claves en los 14 módulos con recursos; todas las referencias `R.string` / `R.plurals` (propias, `UiR` y cualificadas) existen en el módulo dueño.
+- **Catálogo**: ningún `NOTES-deps.md` de la ola pide dependencias nuevas (`lifecycle-viewmodel-navigation3` ya estaba en el catálogo y en `:app`).
+- **Manifiestos**: se fusionan `core/torrent` (servicio `mediaPlayback|dataSync` + permisos), `core/player` (`<queries>` de mpv-android / VLC / `VIEW video/*`) y `feature/link` (cámara). El integrador añadió `android:networkSecurityConfig` en `:app` con HTTP en claro solo para `127.0.0.1` / `localhost`, sin el cual OkHttp / Media3 rechazan las URLs del servidor loopback de torrents en API 28+.
+- **Notificaciones de torrents**: el integrador cableó los extras de f (`app.tatakai.next.torrent.SECTION` / `TORRENT_ID`) en el shell: `MainActivity` los lee al arrancar y por `addOnNewIntentListener`, y `TatakaiApp(torrentLinks)` empuja `Route.Torrents(section, torrentId)` (archivo nuevo `app/.../nav/TorrentLink.kt`).
+- **ProGuard**: no hay build de release con minify configurado; la regla de libtorrent4j queda anotada en KNOWN-ISSUES.
+- **Guardas**: `node --test contracts/test packages/tokens/test` 27/28; el único fallo es el previo `synthetic-fs.kai is stale` (bytes de deflate de otra versión de zlib; contenido idéntico).
+- **Pendiente para el build / fixer**: el build único de §6 y los tests JVM de todos los workers; los puntos de riesgo de compilación están listados en KNOWN-ISSUES.
+
 ## 6. Build (solo el agente de build)
 
 ```bash
