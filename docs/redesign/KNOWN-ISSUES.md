@@ -31,6 +31,17 @@ Space Grotesk y Outfit (y JetBrains Mono en Android) no están incluidas; no se 
 - No implementados en desktop: `FloatingToolbar`, `AdaptiveSheet`.
 - `LinkHost` no expone biblioteca local en M0.
 
+## Linux (ola 2, empaquetado)
+
+- `packaging/linux/` (PKGBUILD, `build-appimage.sh`, `AppRun`) y `.github/workflows/desktop-native-linux.yml` se escribieron sin ejecutar `makepkg`, linuxdeploy ni el workflow; solo se validaron con `bash -n`, `makepkg --printsrcinfo`, `desktop-file-validate` y `appstreamcli validate --no-net`, y `install-tree.sh` / `fetch-deps.sh` se probaron en un directorio temporal.
+- AppImage: WebKitGTK busca sus procesos auxiliares (`WebKitWebProcess`, `WebKitNetworkProcess`, el *injected bundle*) en una ruta absoluta compilada. `build-appimage.sh` copia ese directorio al AppDir y parchea en `libwebkit2gtk-4.1.so.0` `/usr` → `././` (misma longitud), y `AppRun` arranca la app con `cwd = $APPDIR/usr`; el directorio del usuario queda en `$OWD`. Si una versión futura de WebKitGTK cambia cómo resuelve esa ruta, el AppImage abre sin contenido.
+- AppImage construido en Ubuntu 24.04: necesita glibc >= 2.39 en el sistema destino. libGL/EGL, fontconfig y glibc vienen siempre del sistema (excludelist de linuxdeploy).
+- El hook del plugin GTK de linuxdeploy fuerza `GDK_BACKEND=x11`; `AppRun` lo anula y respeta el valor del usuario (sin valor, GTK elige Wayland). Sin probar con la GTK empaquetada sobre Plasma Wayland.
+- En el AppImage, un mpv externo lanzado por la app hereda `GIO_MODULE_DIR`, `GTK_*`, `GDK_PIXBUF_MODULE_FILE` y `XDG_DATA_DIRS` del hook; no se esperan efectos en mpv, pero el lanzador podría limpiarlos cuando `APPIMAGE` está definido.
+- Wayland: sin `app_id` explícito GTK usa el nombre del programa (`tatakai-next`), que no coincide con `app.tatakai.own.next.desktop`; el `.desktop` lleva `StartupWMClass=tatakai-next` para que Plasma asocie icono y ventana. Lo limpio es fijar el `app_id` (`EventLoopBuilderExtUnix::with_app_id("app.tatakai.own.next")`) en `tk-app/src/main.rs`.
+- FSR.glsl y las fuentes Space Grotesk / Outfit siguen sin hash en sus locks: `fetch-deps.sh` las omite (nunca instala sin verificar) hasta que se fijen con `--pin`.
+- El PKGBUILD compila desde el checkout local (no descarga fuentes) y `check()` repite los tests del workspace en perfil release (`makepkg --nocheck` para saltarlos).
+
 ## Tokens
 
 - Corregido: el esquema `Expressive` rota el matiz del primario (violeta -> verde azulado, sakura -> azul, aurora -> naranja). Las tres paletas pasaron a `Vibrant`; un test exige que el matiz del primario esté a <= 20 grados de la semilla en todas las paletas no monocromas.
