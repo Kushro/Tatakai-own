@@ -7,7 +7,7 @@ Contract for the native `.kai` hosts: Kotlin (`apps/android-native/core/extensio
 
 ## 1. Evaluation model
 
-* One QuickJS runtime per installed extension (never shared). Memory limit **64 MiB**, interrupt handler + wall-clock
+* One QuickJS runtime per installed extension (never shared). Memory limit **256 MiB**, interrupt handler + wall-clock
   timeout **15 s per host call** (a route call, not the whole session). Exceeding either fails the call with `ExtError::Timeout` /
   `ExtError::OutOfMemory`; the runtime is discarded and re-created on the next call.
 * The bundle is evaluated as a CommonJS function body with the parameters, in this order (same as the legacy `new Function`):
