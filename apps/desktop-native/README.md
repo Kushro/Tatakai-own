@@ -25,6 +25,56 @@ it never touches the legacy Electron app's data.
 | **Embedded enhanced** | The same embedded player loading the vendored [mpv-anime-build](https://github.com/Chinna95P/mpv-anime-build) v5.6 (`vendor/mpv-anime-build/`, MIT): its profiles, shaders and scripts. UI: the app's controls (default, uosc disabled) or the build's own uosc UI. The zip is verified against `SHA256SUMS` and extracted into `<data>/mpv-anime-build/5.6/` on first use. |
 | **External mpv** | Your own mpv, with your config and key bindings, in its own window. The app shows a "Playing in external mpv" screen with Stop and Back, follows position/duration over mpv's JSON IPC (unix socket on Linux, named pipe on Windows) and records progress as usual. Closing mpv returns to where you were. |
 
+## Torrents
+
+The app has a built-in BitTorrent engine (`crates/tk-torrent`, on [librqbit](https://github.com/ikatson/rqbit)
+9.1.0, Apache-2.0) and a torrent client in the rail (**Torrents**). Design and contract:
+[`docs/redesign/10-wave3-torrents-contract.md`](../../docs/redesign/10-wave3-torrents-contract.md).
+
+### Playing a torrent
+
+1. Install an extension that returns torrent sources: a `torrent` extension, or a custom one such as Toko that
+   lists the `torrent` route (its Nyaa, SubsPlease, AnimeTosho, SeaDex... providers then show up in the picker).
+2. Open an episode and pick a torrent source (chips show group, BD/WEB/REMUX, resolution, codec, 10-bit, dual
+   audio, multi-sub, batch and SeaDex best; the filter row narrows the list without changing its order), or let
+   Auto choose.
+3. The app adds the torrent, waits for its metadata (up to 90 s), picks the episode's file (inside a season pack
+   too) and streams it while it downloads. The seek bar shows the downloaded ranges and, when known, intro/outro.
+   For a batch, Next episode reuses the same torrent. If no file matches, the client's Files page opens so you
+   can choose one.
+
+Streaming works in all three player modes: the player loads a local URL
+(`http://127.0.0.1:<port>/<token>/...`, a random token per run, never reachable from other machines), so
+external mpv plays it the same way.
+
+### Where things are stored
+
+| What | Where |
+|---|---|
+| Downloaded files | Settings > Torrents > Download folder; default `<Downloads>/Tatakai` (`~/Downloads/Tatakai`, `%USERPROFILE%\Downloads\Tatakai`), else `<data>/torrents/downloads` |
+| Session, fast-resume, DHT state, labels | `<data>/torrents/` |
+| Torrent settings | `<data>/torrent-settings.json` |
+
+`<data>` is `~/.config/Tatakai-Next/` on Linux and `%APPDATA%\Tatakai-Next\` on Windows. **After watching**
+decides what happens to a torrent you only streamed: **Delete** (default) removes it and its files when you leave
+the player; **Keep** keeps it in the client's Library (you can also toggle Keep per torrent there).
+
+### Background downloads
+
+Off by default. The Downloads page explains the cost first (CPU, disk and network use, and uploading to other
+peers while the app is open) and only enables the switch after you press **I understand**. With it on, kept
+torrents keep downloading and seeding while the app runs; with it off they pause when playback ends. Nothing
+runs after the app is closed.
+
+### Ports and network
+
+| Setting | Default | Notes |
+|---|---|---|
+| Listen port (TCP/uTP, incoming peers) | `0` = random each run | Set a fixed port (1024-65535) to forward it on your router. On Windows the first incoming connection may show a firewall prompt. |
+| UPnP | on | Asks the router to forward the listen port; the Overview page shows NAT / forwarding status. |
+| Streaming server | random loopback port | Bound to `127.0.0.1` only; not configurable. |
+| DHT / PEX / LSD, max connections (50), speed limits (0 = unlimited) | Settings > Torrents | Applied live where the engine allows it. |
+
 ## Linux
 
 ### Dependencies
