@@ -7,6 +7,7 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 use tk_player::{ShaderPreset, TrackInfo, TrackKind};
 
+use crate::backend::SkipKindVm;
 use crate::components::button::{Button, ButtonSize, ButtonVariant, IconButton};
 use crate::components::chips::{Pill, Tone};
 use crate::components::loading::LoadingIndicator;
@@ -86,6 +87,16 @@ pub fn PlayerControls(
     #[props(default)] on_smoothing: EventHandler<()>,
     #[props(default)] on_pip: EventHandler<()>,
     #[props(default)] on_capture: EventHandler<()>,
+    /// Torrent playback (docs/redesign/10 section 5.5): downloaded ranges of the file as `(left %, width %)` of the
+    /// seek bar (`player_state::range_spans`).
+    #[props(default)] have: Vec<(f64, f64)>,
+    /// Ready-to-play range from the playhead, `(left %, width %)` (`player_state::ready_span`).
+    #[props(default)] ready: Option<(f64, f64)>,
+    /// "4.20 MB/s · 12 peers · 37% of the file" while the torrent loads or mpv waits for data; empty hides it.
+    #[props(default)] status_line: String,
+    /// Show "Open in the torrent client" (a torrent is playing).
+    #[props(default)] torrent_client: bool,
+    #[props(default)] on_torrent_client: EventHandler<()>,
 ) -> Element {
     let mut preset_open = use_signal(|| false);
     let mut subs_open = use_signal(|| false);
@@ -109,8 +120,14 @@ pub fn PlayerControls(
     let seek_label = t("player.seek");
     let volume_label = t("player.volume");
     let preset_text = t(&format!("preset.{}", preset.id()));
-    let spans = markers.bar_spans(state.duration);
-    let skip = phase == Phase::Playing && markers.skip_target(state.position).is_some();
+    let marks = markers.bar_marks(state.duration);
+    // "Skip intro" (and recap / ending) while the playhead is inside a known mark.
+    let skip = (phase == Phase::Playing).then(|| markers.skip_at(state.position)).flatten().map(|(kind, _)| match kind {
+        SkipKindVm::Intro => t("player.skip_intro"),
+        SkipKindVm::Recap => t("player.torrent.skip_recap"),
+        SkipKindVm::Outro => t("player.torrent.skip_outro"),
+    });
+    let client_label = t("player.torrent.open_client");
     let duration = state.duration;
     let preview = hover().map(|f| (f * 100.0, format_time(f * duration)));
     let subs: Vec<TrackInfo> = tracks.iter().filter(|tr| tr.kind == TrackKind::Sub).cloned().collect();
@@ -152,6 +169,9 @@ pub fn PlayerControls(
                             Pill { text: preset_text, tone: Tone::Primary, plain: true }
                         }
                     }
+                }
+                if torrent_client {
+                    IconButton { icon: "magnet".to_string(), label: client_label, onclick: move |_| on_torrent_client.call(()) }
                 }
                 Menu {
                     open: more_open(),
@@ -211,9 +231,14 @@ pub fn PlayerControls(
             div { class: "tk-pc__center",
                 {match phase {
                     Phase::Resolving => rsx! {
-                        div { class: "tk-pc__status", role: "status",
-                            LoadingIndicator { small: true }
-                            span { "{resolving_label}" }
+                        div { class: "tk-pc__wait",
+                            div { class: "tk-pc__status", role: "status",
+                                LoadingIndicator { small: true }
+                                span { "{resolving_label}" }
+                            }
+                            if !status_line.is_empty() {
+                                span { class: "tk-pc__tline", "{status_line}" }
+                            }
                         }
                     },
                     Phase::Manual => rsx! {
@@ -226,14 +251,19 @@ pub fn PlayerControls(
                         }
                     },
                     _ if buffering => rsx! {
-                        LoadingIndicator { contained: true }
+                        div { class: "tk-pc__wait",
+                            LoadingIndicator { contained: true }
+                            if !status_line.is_empty() {
+                                span { class: "tk-pc__tline", role: "status", "{status_line}" }
+                            }
+                        }
                     },
                     _ => rsx! {},
                 }}
             }
-            if skip {
+            if let Some(skip_label) = skip {
                 Button {
-                    label: t("player.skip_intro"),
+                    label: skip_label,
                     icon: "skip".to_string(),
                     variant: ButtonVariant::Tonal,
                     size: ButtonSize::Sm,
@@ -247,10 +277,26 @@ pub fn PlayerControls(
                 }
                 div { class: "tk-pc__seek",
                     div { class: "tk-pc__track",
+                        // Torrent: downloaded ranges under the played part, then the ready-to-play run ahead.
+                        if !have.is_empty() {
+                            div { class: "tk-pc__have",
+                                for (i , (left , width)) in have.iter().copied().enumerate() {
+                                    span { key: "{i}", style: "left:{left}%;width:{width}%" }
+                                }
+                            }
+                        }
+                        if let Some((left, width)) = ready {
+                            div { class: "tk-pc__ready", style: "left:{left}%;width:{width}%" }
+                        }
                         div { class: "tk-pc__played", style: "--p:{pct}%" }
                         div { class: "tk-pc__markers",
-                            for (i , (left , width)) in spans.into_iter().enumerate() {
-                                span { key: "{i}", class: "tk-pc__marker", style: "left:{left}%;width:{width}%" }
+                            for (i , (kind , left , width)) in marks.into_iter().map(|m| (m.kind.id(), m.left, m.width)).enumerate() {
+                                span {
+                                    key: "{i}",
+                                    class: "tk-pc__marker",
+                                    "data-kind": kind,
+                                    style: "left:{left}%;width:{width}%",
+                                }
                             }
                         }
                         div { class: "tk-pc__thumb", style: "--p:{pct}%" }
