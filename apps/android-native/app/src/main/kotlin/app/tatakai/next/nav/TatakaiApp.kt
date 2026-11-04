@@ -10,6 +10,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -82,6 +85,9 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
+import androidx.navigation3.ui.defaultPopTransitionSpec
+import androidx.navigation3.ui.defaultPredictivePopTransitionSpec
+import androidx.navigation3.ui.defaultTransitionSpec
 import app.tatakai.next.AppLocale
 import app.tatakai.next.R
 import app.tatakai.next.designsystem.components.AppSnackbarController
@@ -173,8 +179,9 @@ private fun SystemBarsFollowTheme(dark: Boolean) {
 @Composable
 private fun PerAppLanguage(settings: AppSettings, repo: SettingsRepository) {
     val activity = LocalContext.current.findActivity() ?: return
+    // Not an effect key: flipping it must not cancel the running effect (it may be inside repo.setLanguage).
     var adopted by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(settings.language, adopted) {
+    LaunchedEffect(settings.language) {
         if (!adopted) {
             adopted = true
             val system = AppLocale.systemChoice(activity)
@@ -315,10 +322,17 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
     fun openSettings(section: SettingsSection) = push(Route.SettingsSection(section))
     fun openGenre(genre: String) = push(Route.SearchFor(genre = genre))
 
+    // Reduce motion: instant screen changes (no slide / fade), predictive back included.
+    val reduceMotion = LocalReduceMotion.current
+    val instant = remember { ContentTransform(EnterTransition.None, ExitTransition.None) }
+
     NavDisplay(
         backStack = backStack,
         onBack = ::back,
         sceneStrategy = listDetail,
+        transitionSpec = if (reduceMotion) ({ instant }) else defaultTransitionSpec(),
+        popTransitionSpec = if (reduceMotion) ({ instant }) else defaultPopTransitionSpec(),
+        predictivePopTransitionSpec = if (reduceMotion) ({ _ -> instant }) else defaultPredictivePopTransitionSpec(),
         entryDecorators = listOf(
             rememberSaveableStateHolderNavEntryDecorator(),
             rememberViewModelStoreNavEntryDecorator(),
