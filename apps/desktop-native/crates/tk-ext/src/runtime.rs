@@ -22,7 +22,9 @@ use tokio::sync::oneshot;
 use crate::error::ExtError;
 use crate::hashing::{Algo, hmac};
 
-pub const CALL_TIMEOUT: Duration = Duration::from_secs(15);
+/// Whole-call budget. Aggregating bundles (Toko) run dozens of providers at once, each bounded by
+/// `providerOptions.timeoutMs` plus retries, so a source listing needs well over the 15 s a single route took.
+pub const CALL_TIMEOUT: Duration = Duration::from_secs(40);
 pub const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
 const STACK_LIMIT: usize = 1024 * 1024;
 pub const FETCH_CAP: usize = 25 * 1024 * 1024;

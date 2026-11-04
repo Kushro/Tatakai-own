@@ -427,5 +427,9 @@ fn stream_params(media: &Media, episode: u32) -> Value {
         "titles": titles,
         "episode": episode,
         "stream": "0",
+        // Same defaults the legacy host sent (desktop/runtime/extension-api-host optionsFromQuery); bundles clamp
+        // the per-provider timeout themselves.
+        "resolution": "1080p",
+        "providerOptions": { "timeoutMs": 20_000 },
     })
 }
