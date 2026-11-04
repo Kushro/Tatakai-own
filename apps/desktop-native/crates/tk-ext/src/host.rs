@@ -33,6 +33,8 @@ struct Entry {
     manifest_json: String,
     bundle: Arc<String>,
     report: CompatReport,
+    /// `compat::exposes_torrent_all(bundle)`, computed once per load / install (docs/redesign/10 section 6).
+    torrent_all: bool,
     enabled: bool,
     logs: LogBuf,
     worker: Option<Arc<Worker>>,
@@ -127,7 +129,11 @@ impl ExtensionHost {
                 .and_then(|s| serde_json::from_str::<StateFile>(&s).ok())
                 .map_or(report.level != Compat::Unsupported, |s| s.enabled && report.level != Compat::Unsupported);
             let logs = deferred_log(&manifest);
-            map.insert(manifest.id.clone(), Entry { manifest, manifest_json: mj, bundle: Arc::new(bundle), report, enabled, logs, worker: None });
+            let torrent_all = exposes_torrent_all(&bundle);
+            map.insert(
+                manifest.id.clone(),
+                Entry { manifest, manifest_json: mj, bundle: Arc::new(bundle), report, torrent_all, enabled, logs, worker: None },
+            );
         }
         *self.entries.lock().map_err(|_| InstallError::invalid("extension registry poisoned"))? = map;
         Ok(())
@@ -163,6 +169,7 @@ impl ExtensionHost {
         let entry = Entry {
             enabled: report.level != Compat::Unsupported,
             logs: deferred_log(&manifest),
+            torrent_all: exposes_torrent_all(&bundle),
             manifest,
             manifest_json,
             bundle: Arc::new(bundle),
@@ -330,7 +337,7 @@ impl ExtensionHost {
                 .values()
                 .filter(|e| e.enabled && e.report.level != Compat::Unsupported)
                 .flat_map(|e| {
-                    candidate_routes(&e.manifest, exposes_torrent_all(&e.bundle))
+                    candidate_routes(&e.manifest, e.torrent_all)
                         .into_iter()
                         .map(|route| (e.manifest.id.clone(), e.manifest.name.clone(), route, e.manifest.priority()))
                         .collect::<Vec<_>>()
@@ -360,7 +367,7 @@ impl ExtensionHost {
 fn deferred_log(m: &Manifest) -> LogBuf {
     let logs = LogBuf::default();
     for p in deferred_permissions(m) {
-        logs.push("warn", &format!("compat: {p} accepted; torrent playback arrives in M2, torrents are listed only"));
+        logs.push("warn", &format!("compat: {p} accepted; torrents are listed and played by the app's torrent engine, the bundle gets no session of its own"));
     }
     logs
 }
