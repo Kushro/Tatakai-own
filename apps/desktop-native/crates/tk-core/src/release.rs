@@ -324,6 +324,13 @@ pub fn parse_release(name: &str) -> ReleaseTags {
             title_end = title_end.min(s.start);
         }
     }
+    // a bracket holding only the number: `Show_[05]_[Group]_[1080p]` (AniLibria and similar)
+    if episodes.is_none()
+        && let Some((start, a)) = bracketed_number(&text)
+    {
+        episodes = Some((a, a));
+        title_end = title_end.min(start);
+    }
 
     // 5. title
     let title = text[..title_end.min(text.len())]
@@ -727,6 +734,26 @@ fn ep_number(w: &str) -> Option<u32> {
     digits(base)
 }
 
+/// First `[05]` / `(05v2)` whose brackets hold only an episode number (not a year): its byte offset and the number.
+fn bracketed_number(text: &str) -> Option<(usize, u32)> {
+    for (start, open) in text.char_indices().filter(|(_, c)| matches!(c, '[' | '(')) {
+        let close = if open == '[' { ']' } else { ')' };
+        let inner_start = start + 1;
+        let Some(len) = text[inner_start..].find(close) else { continue };
+        let inner = text[inner_start..inner_start + len].trim();
+        if inner.is_empty() || inner.len() > 7 || !inner.as_bytes()[0].is_ascii_digit() {
+            continue;
+        }
+        let Some(n) = ep_number(&inner.to_ascii_lowercase()) else { continue };
+        let digits_len = inner.bytes().take_while(u8::is_ascii_digit).count();
+        if digits_len == 4 && (1900..=2100).contains(&n) {
+            continue;
+        }
+        return Some((start, n));
+    }
+    None
+}
+
 /// `ep05`, `e05`, `e5v2`.
 fn ep_word(w: &str) -> Option<u32> {
     w.strip_prefix("ep").or_else(|| w.strip_prefix('e')).and_then(ep_number)
@@ -763,6 +790,21 @@ mod tests {
 
     fn titles(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn underscore_names_with_bracketed_episode() {
+        // AniLibria season pack as listed by Toko (aniliberty).
+        let files: Vec<CandidateFile> = (1..=28)
+            .map(|n| {
+                let path = format!("Sousou no Frieren - AniLibria.TV [WEBRip 1080p HEVC]/Sousou_no_Frieren_[{n:02}]_[AniLibria_TV]_[WEBRip_1080p_HEVC].mkv");
+                file(n - 1, &path, 300 << 20)
+            })
+            .collect();
+        let t = titles(&["Frieren: Beyond Journey’s End", "Sousou no Frieren", "葬送のフリーレン"]);
+        assert_eq!(pick_episode_file(&files, 1, &t), Some(0));
+        assert_eq!(pick_episode_file(&files, 12, &t), Some(11));
+        assert_eq!(pick_episode_file(&files, 28, &t), Some(27));
     }
 
     #[test]
