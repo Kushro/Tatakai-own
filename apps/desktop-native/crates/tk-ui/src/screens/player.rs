@@ -45,7 +45,7 @@ use crate::model::{
 };
 use crate::platform::{self, now_ms};
 use crate::player_state::{
-    FLASH_MS, FlowState, MAX_LEGACY_STREAMS, Markers, Phase, countdown_left, format_speed, mpv_key_name,
+    FLASH_MS, FlowState, MAX_LEGACY_STREAMS, Markers, Phase, countdown_left, format_speed, keeps_controls_up, mpv_key_name,
     mpv_mouse_button, source_name,
 };
 use crate::shortcuts::Shortcut;
@@ -912,7 +912,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let poster = vm.as_ref().and_then(|m| m.poster.clone()).or_else(|| info.as_ref().and_then(|d| d.media.cover.clone())).unwrap_or_default();
     let episodes_total = vm.as_ref().and_then(|m| m.episodes_total).or_else(|| info.as_ref().and_then(|d| d.episodes_total));
     let has_next = next_episode(episode, episodes_total).is_some();
-    let visible = st.controls_visible(now) || fs.phase == Phase::Manual || next_since().is_some();
+    let visible = st.controls_visible(now) || keeps_controls_up(fs.phase, st.video_ready) || next_since().is_some();
     let current = fs.current_source().cloned();
     let source_label = match (&current, fs.position()) {
         (Some(s), Some((n, total))) if !fs.legacy || total > 1 => {
