@@ -4,6 +4,7 @@ package app.tatakai.next.extensions
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -25,6 +26,8 @@ data class ApiServer(
     val contract: String?,
     val routes: List<String>,
     val healthPath: String?,
+    /** True when the manifest listed `apiServer.routes` itself ([routes] is then not the default list); `candidateRoutes` needs it. */
+    val routesExplicit: Boolean = false,
 )
 
 data class CustomSourceDescriptor(
@@ -111,6 +114,7 @@ object ManifestParser {
             capabilities = capabilities,
             customSources = customSources,
             priority = priority,
+            browserDomains = obj["browserDomains"]?.takeUnless { it is JsonNull }?.let { stringList(it, "browserDomains") } ?: emptyList(),
         )
     }
 
@@ -132,12 +136,13 @@ object ManifestParser {
 
     private fun parseApiServer(el: JsonElement): ApiServer {
         val obj = el as? JsonObject ?: throw ManifestException("apiServer", "Field 'apiServer' must be an object")
-        val routes = obj["routes"]?.let { stringList(it, "apiServer.routes") } ?: ExtensionManifest.DEFAULT_ROUTES
+        val routes = obj["routes"]?.takeUnless { it is JsonNull }?.let { stringList(it, "apiServer.routes") } ?: ExtensionManifest.DEFAULT_ROUTES
         return ApiServer(
             namespace = (obj["namespace"] as? JsonPrimitive)?.contentOrNull,
             contract = (obj["contract"] as? JsonPrimitive)?.contentOrNull,
             routes = routes,
             healthPath = (obj["healthPath"] as? JsonPrimitive)?.contentOrNull,
+            routesExplicit = obj["routes"] != null && obj["routes"] !is JsonNull,
         )
     }
 

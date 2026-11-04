@@ -8,6 +8,11 @@ import com.dokar.quickjs.binding.asyncFunction
 import com.dokar.quickjs.binding.function
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
@@ -38,6 +43,8 @@ import javax.crypto.spec.SecretKeySpec
  */
 class QuickJsEngine(
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    /** android wave (12 §3.7): the hidden-WebView browser handed to bundles with permitted `browserDomains`; null = none. */
+    private val browserRuntime: BrowserRuntime? = null,
 ) : JsEngine {
     private val prelude: String by lazy {
         QuickJsEngine::class.java.getResourceAsStream("/tatakai/host-prelude.js")?.use { it.readBytes().toString(Charsets.UTF_8) }
@@ -46,13 +53,27 @@ class QuickJsEngine(
 
     override suspend fun open(manifest: ExtensionManifest, bundle: String, host: JsHost): JsSession {
         val qjs = QuickJs.create(dispatcher)
-        val session = QuickJsSession(qjs, host)
+        // Browser runtime only for a bundle whose manifest has browserDomains covered by its network permissions (desktop host.rs).
+        val domains = BrowserPolicy.browserDomains(manifest)
+        val bridge = browserRuntime?.takeIf { domains.isNotEmpty() }?.let { runtime ->
+            BrowserBridge(runtime, manifest.id, domains) { level, message -> host.event(level, "browser", message) }
+        }
+        val session = QuickJsSession(qjs, host, bridge)
         try {
             qjs.memoryLimit = JsEngine.MEMORY_LIMIT_BYTES
             qjs.maxStackSize = MAX_STACK_BYTES
-            qjs.evaluationTimeoutMillis = JsEngine.CALL_TIMEOUT_MS
+            // With a browser the interrupt budget is the 90 s of a browser call; the 15 s of a plain call is then enforced by the
+            // watchdog in QuickJsSession.invoke.
+            qjs.evaluationTimeoutMillis = if (bridge != null) BrowserPolicy.CALL_BUDGET_WITH_BROWSER_MS else JsEngine.CALL_TIMEOUT_MS
             session.bind()
             withTimeout(JsEngine.CALL_TIMEOUT_MS) {
+                if (bridge != null) {
+                    // A JSON string literal is a valid JS string literal (domains are [a-z0-9.-] only).
+                    qjs.evaluate<Any?>(
+                        "globalThis.__host_browser_domains = " + JsonPrimitive(JsonArray(domains.map { JsonPrimitive(it) }).toString()) + ";",
+                        "browser-domains.js",
+                    )
+                }
                 qjs.evaluate<Any?>(prelude, "host-prelude.js")
                 // Same parameter order as the legacy `new Function` (globals.v1.md section 1). Header and bundle share line 1.
                 qjs.evaluate<Any?>(
@@ -79,8 +100,14 @@ class QuickJsEngine(
     }
 }
 
-internal class QuickJsSession(private val qjs: QuickJs, private val host: JsHost) : JsSession {
+internal class QuickJsSession(
+    private val qjs: QuickJs,
+    private val host: JsHost,
+    /** Present only when the bundle may use the browser runtime (12 §3.7). */
+    private val browser: BrowserBridge? = null,
+) : JsSession {
     private val mutex = Mutex()
+    @Volatile private var softTimedOut = false
     private val html = HtmlRegistry()
     private val random = SecureRandom()
     @Volatile private var pendingArgs: String = "[]"
@@ -103,6 +130,12 @@ internal class QuickJsSession(private val qjs: QuickJs, private val host: JsHost
             b64(ByteArray(n).also { random.nextBytes(it) })
         }
         qjs.function("__host_html") { a -> html.op(a[0].toString(), (a[1] as Number).toInt(), a[2].toString()) }
+        // op: new | navigate | evaluate | cookies | close; resolves to the JSON envelope {"ok":true,"value":..} / {"ok":false,"error":".."}
+        browser?.let { bridge ->
+            qjs.asyncFunction("__host_browser") { a ->
+                bridge.call(a.getOrNull(0)?.toString().orEmpty(), a.getOrNull(1)?.toString().orEmpty(), a.getOrNull(2)?.toString().orEmpty())
+            }
+        }
     }
 
     private suspend fun fetchJson(requestJson: String): String {
@@ -142,9 +175,32 @@ internal class QuickJsSession(private val qjs: QuickJs, private val host: JsHost
         return mutex.withLock {
             pendingArgs = JsonArray(args).toString()
             html.clear()
+            softTimedOut = false
+            browser?.openedBrowser = false
             val text: String? = try {
-                withTimeout(JsEngine.CALL_TIMEOUT_MS + 1_000) {
-                    qjs.evaluate<String?>("await __tk_call(\"$method\", __host_args(), $collectChunks)", "call.js")
+                if (browser == null) {
+                    withTimeout(JsEngine.CALL_TIMEOUT_MS + 1_000) {
+                        qjs.evaluate<String?>("await __tk_call(\"$method\", __host_args(), $collectChunks)", "call.js")
+                    }
+                } else {
+                    // A call that opened a browser may run up to CALL_BUDGET_WITH_BROWSER_MS (Cloudflare solve); any other call keeps the
+                    // 15 s budget, enforced by this watchdog because the interrupt budget of the runtime is the long one.
+                    coroutineScope {
+                        val eval = async { qjs.evaluate<String?>("await __tk_call(\"$method\", __host_args(), $collectChunks)", "call.js") }
+                        val watchdog = launch {
+                            delay(JsEngine.CALL_TIMEOUT_MS)
+                            if (!browser.openedBrowser) {
+                                softTimedOut = true
+                                runCatching { qjs.interruptEvaluation() }
+                                eval.cancel()
+                            }
+                        }
+                        try {
+                            withTimeout(BrowserPolicy.CALL_BUDGET_WITH_BROWSER_MS + 1_000) { eval.await() }
+                        } finally {
+                            watchdog.cancel()
+                        }
+                    }
                 }
             } catch (e: TimeoutCancellationException) {
                 runCatching { qjs.interruptEvaluation() }
@@ -152,8 +208,10 @@ internal class QuickJsSession(private val qjs: QuickJs, private val host: JsHost
             } catch (e: QuickJsInterruptedException) {
                 throw ExtError.Timeout()
             } catch (e: CancellationException) {
+                if (softTimedOut) throw ExtError.Timeout()
                 throw e
             } catch (e: Exception) {
+                if (softTimedOut) throw ExtError.Timeout()
                 throw mapFailure(e, "Extension call failed")
             }
             runCatching { qjs.evaluate<Any?>("__tk_reset_timers()", "reset.js") }
@@ -175,6 +233,8 @@ internal class QuickJsSession(private val qjs: QuickJs, private val host: JsHost
 
     override fun close() {
         runCatching { qjs.close() }
+        // Browsers this runtime still owns die with it (desktop runtime.rs close_owned); fire and forget.
+        browser?.takeIf { it.openCount > 0 }?.let { bridge -> CLOSER.launch { bridge.closeAll() } }
     }
 
     private fun digest(algo: String): MessageDigest = MessageDigest.getInstance(
@@ -190,6 +250,7 @@ internal class QuickJsSession(private val qjs: QuickJs, private val host: JsHost
 
     companion object {
         private val METHOD = Regex("[A-Za-z_$][A-Za-z0-9_$]*")
+        private val CLOSER = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     }
 }
 

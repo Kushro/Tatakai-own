@@ -64,11 +64,27 @@ object BrowserPolicy {
     const val CHALLENGE_HOST: String = "challenges.cloudflare.com"
 
     /** manifest.browserDomains covered by a `network:domain:<d>` permission (equal or subdomain), valid, not IP/localhost/.local, lowercase, deduped. */
-    fun browserDomains(manifest: ExtensionManifest): List<String> = TODO("worker e: port tk-ext browser::browser_domains")
+    fun browserDomains(manifest: ExtensionManifest): List<String> {
+        val network = manifest.permissions
+            .filter { it.startsWith(NetworkPolicy.PREFIX) }
+            .map { it.removePrefix(NetworkPolicy.PREFIX).trim().removePrefix("*.").asciiLower() }
+            .filter { it.isNotEmpty() }
+        val out = ArrayList<String>()
+        for (raw in manifest.browserDomains) {
+            val d = raw.trim().asciiLower()
+            if (!BrowserUrls.validDomain(d) || d in out) continue
+            if (network.any { n -> d == n || d.endsWith(".$n") }) out += d
+        }
+        return out
+    }
 
     /** `https:`, no user info, no explicit port, host equal to or a subdomain of one of [domains]. */
-    fun urlAllowed(url: String, domains: List<String>): Boolean = TODO("worker e: port tk-ext browser::browser_url_allowed")
+    fun urlAllowed(url: String, domains: List<String>): Boolean {
+        val host = BrowserUrls.httpsHost(url) ?: return false
+        return domains.any { d -> host == d || host.endsWith(".$d") }
+    }
 
     /** [urlAllowed] or a URL of [CHALLENGE_HOST]. */
-    fun subresourceAllowed(url: String, domains: List<String>): Boolean = TODO("worker e: port tk-ext browser::browser_subresource_allowed")
+    fun subresourceAllowed(url: String, domains: List<String>): Boolean =
+        urlAllowed(url, domains) || urlAllowed(url, listOf(CHALLENGE_HOST))
 }

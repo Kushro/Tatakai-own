@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.extensions
 
+import app.tatakai.next.model.ExtLogLevel
 import kotlinx.serialization.json.JsonElement
 
 /** What a [JsEngine] needs from the app. All side effects of a bundle go through this (no ambient authority). */
@@ -16,6 +17,9 @@ interface JsHost {
 
     /** `console.*` of the bundle. Payloads over 4 KiB must be truncated by the implementation. */
     fun log(level: String, message: String)
+
+    /** android wave (12 §4 e): one line of the per-extension log (op = fetch | browser | ...). Default: dropped. */
+    fun event(level: ExtLogLevel, op: String, message: String) {}
 }
 
 class HostFetchRequest(
