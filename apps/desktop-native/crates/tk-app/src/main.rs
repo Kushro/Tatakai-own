@@ -40,16 +40,19 @@ fn build_backend(paths: &paths::AppPaths, _cfg: &config::AppConfig) -> anyhow::R
 }
 
 /// The window configuration (E5): transparent window + transparent web view background.
+/// Only Windows needs the transparency (mpv's child HWND shows through the page); WebKitGTK on Wayland
+/// flickers with a transparent toplevel, so elsewhere the window is opaque.
 fn window_config(paths: &paths::AppPaths) -> Config {
+    let transparent = cfg!(windows);
     let window = WindowBuilder::new()
         .with_title(WINDOW_TITLE)
         .with_decorations(false)
-        .with_transparent(true)
+        .with_transparent(transparent)
         .with_inner_size(LogicalSize::new(1280.0, 800.0))
         .with_min_inner_size(LogicalSize::new(720.0, 480.0));
     Config::new()
         .with_window(window)
-        .with_background_color((0, 0, 0, 0))
+        .with_background_color(if transparent { (0, 0, 0, 0) } else { (0, 0, 0, 255) })
         .with_menu(None)
         .with_disable_context_menu(true)
         .with_data_directory(paths.webview_dir())
