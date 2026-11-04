@@ -9,4 +9,30 @@
     <string name="home_feed_upcoming">Próximamente</string>
     <string name="home_feed_seasonal">Esta temporada</string>
     <string name="home_feed_completed">Completados recientemente</string>
+    <!-- android wave (docs/redesign/12 §4 c): prototype screens.js S.home -->
+    <string name="home_greeting_morning">Buenos días</string>
+    <string name="home_greeting_afternoon">Buenas tardes</string>
+    <string name="home_greeting_evening">Buenas noches</string>
+    <string name="home_sources">Fuentes de metadatos</string>
+    <string name="home_provider_anilist">AniList</string>
+    <string name="home_provider_kitsu">Kitsu</string>
+    <string name="home_provider_anizip">ani.zip</string>
+    <string name="home_see_all">Ver todo</string>
+    <string name="home_continue_episode">Episodio %1$d</string>
+    <string name="home_continue_left">Quedan %1$d min</string>
+    <string name="home_continue_play">Retomar %1$s, episodio %2$d</string>
+    <string name="home_hero_kicker">#%1$d en tendencia</string>
+    <string name="home_watch">Ver</string>
+    <string name="home_details">Detalles</string>
+    <string name="home_genres">Géneros</string>
+    <string name="home_ext_rows">De tus extensiones</string>
+    <string name="home_ext_row_from">Fila de la extensión %1$s</string>
+    <string name="home_ext_rows_error">No se pudieron cargar las filas de las extensiones.</string>
+    <string name="home_empty_title">Todavía no hay nada que mostrar</string>
+    <string name="home_empty_body">Revisa tu conexión o cambia el orden de las fuentes de metadatos en Ajustes.</string>
+    <string name="home_status_releasing">En emisión</string>
+    <string name="home_status_finished">Finalizado</string>
+    <string name="home_status_upcoming">Próximamente</string>
+    <string name="home_status_cancelled">Cancelado</string>
+    <string name="home_status_hiatus">En pausa</string>
 </resources>

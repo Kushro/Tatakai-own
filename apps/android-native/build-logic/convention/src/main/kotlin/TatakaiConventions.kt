@@ -12,6 +12,8 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 /** Shared constants. Keep in sync with apps/README.md. */
 object TatakaiAndroid {
     const val COMPILE_SDK = 37
+    /** The SDK ships API 37 as `platforms;android-37.0` (hash `android-37.0`); without the minor AGP looks for `android-37`. */
+    const val COMPILE_SDK_MINOR = 0
     const val TARGET_SDK = 36
     const val MIN_SDK = 26
     val JAVA = JavaVersion.VERSION_17
@@ -42,6 +44,7 @@ fun Project.tatakaiNamespace(): String {
 fun Project.configureAndroidCommon(ext: CommonExtension<*, *, *, *, *, *>) {
     ext.apply {
         compileSdk = TatakaiAndroid.COMPILE_SDK
+        compileSdkMinor = TatakaiAndroid.COMPILE_SDK_MINOR
         defaultConfig.minSdk = TatakaiAndroid.MIN_SDK
         compileOptions {
             sourceCompatibility = TatakaiAndroid.JAVA

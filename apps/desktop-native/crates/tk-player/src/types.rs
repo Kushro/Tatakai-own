@@ -15,6 +15,20 @@ pub enum PlayerError {
     NoShadersDir,
     #[error("the player is unavailable in this build")]
     Unavailable,
+    /// External mode: no mpv executable at the configured path nor on PATH.
+    #[error("mpv was not found")]
+    MpvNotFound,
+    /// External mode: spawning mpv or talking to it over JSON IPC failed.
+    #[error("external mpv: {0}")]
+    External(String),
+}
+
+/// How a relayed key reaches mpv (`keydown` / `keyup` / `keypress`). Mouse buttons are keys too (`MBTN_LEFT`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyAction {
+    Down,
+    Up,
+    Press,
 }
 
 /// What to play. The app converts a `tk_core::StreamSource` into this.
@@ -24,6 +38,25 @@ pub struct MediaSource {
     /// Request headers from the extension (`Referer` and `User-Agent` are routed to their own mpv options).
     pub headers: Vec<(String, String)>,
     pub subtitles: Vec<SubtitleSource>,
+}
+
+/// mpv `network-timeout` (seconds) for remote streams (embedded and enhanced engines).
+pub const NETWORK_TIMEOUT_SECS: i64 = 20;
+/// mpv `network-timeout` for streams served from this machine: the torrent engine's loopback HTTP server can stall
+/// for a while when the pieces at the read position still have to arrive from peers.
+pub const LOOPBACK_NETWORK_TIMEOUT_SECS: i64 = 120;
+
+impl MediaSource {
+    /// `http://127.0.0.1…`, `http://localhost…` or `http://[::1]…` (the torrent engine's stream server).
+    pub fn is_loopback(&self) -> bool {
+        let rest = self.url.strip_prefix("http://").unwrap_or("");
+        ["127.0.0.1:", "127.0.0.1/", "localhost:", "localhost/", "[::1]:", "[::1]/"].iter().any(|p| rest.starts_with(p))
+    }
+
+    /// The `network-timeout` to use for this source.
+    pub fn network_timeout_secs(&self) -> i64 {
+        if self.is_loopback() { LOOPBACK_NETWORK_TIMEOUT_SECS } else { NETWORK_TIMEOUT_SECS }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

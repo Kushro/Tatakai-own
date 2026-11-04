@@ -10,49 +10,67 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.text.Cue
+import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import app.tatakai.next.model.Container
+import app.tatakai.next.model.SubtitleStyle
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 /** Callbacks of a playback session; all are invoked on the main thread. */
 interface PlaybackListener {
-    /** Progress tick (every [PlaybackController.PROGRESS_INTERVAL_MS] while playing) and [force]d on pause / stop. */
+    /** Progress tick (every [PLAYER_PROGRESS_INTERVAL_MS] while playing) and [force]d on pause / stop. */
     fun onProgress(positionMs: Long, durationMs: Long, force: Boolean) = Unit
 
-    /** Heartbeat for remote (Link) sessions, every [PlaybackController.HEARTBEAT_INTERVAL_MS]. */
+    /** Heartbeat for remote (Link) sessions, every [PLAYER_HEARTBEAT_INTERVAL_MS]. */
     fun onHeartbeat(positionMs: Long, paused: Boolean) = Unit
 }
 
 /**
- * Media3 ExoPlayer + `OkHttpDataSource` with per-source headers, a MediaSession, automatic fallback to the next source (x3),
- * and the state/callbacks the UI and history need. Create and use it on the main thread; call [release] exactly once.
+ * Media3 engine ([PlayerSession]): ExoPlayer + `OkHttpDataSource` with per-source headers, a MediaSession and the state / callbacks the
+ * UI and history need. Failover between sources is the caller's job (android wave: `SourceFlow` in the player view-model); a failed load
+ * only sets [PlaybackState.error]. Torrent loopback streams (`Container.PROGRESSIVE`) get long read timeouts; the load control keeps a
+ * 30-60 s buffer for everything (11 §5.3). Subtitles are NOT drawn by `ContentFrame`: [cues] carries them and the screen renders them
+ * with the user's [subtitleStyle]. Create and use it on the main thread; call [release] exactly once.
  */
 @UnstableApi
 class PlaybackController(
     context: Context,
-    private val sources: List<PlayableSource>,
     private val baseClient: OkHttpClient,
     private val scope: CoroutineScope,
     private val listener: PlaybackListener,
     private val remote: Boolean = false,
-    startMs: Long = 0,
-    startIndex: Int = 0,
-) {
+) : PlayerSession {
     private val appContext = context.applicationContext
-    private val fallback = SourceFallback(sources.size, MAX_FALLBACKS, startIndex.coerceIn(0, (sources.size - 1).coerceAtLeast(0)))
-    private val _state = MutableStateFlow(PlaybackState(sourceCount = sources.size))
-    val state: StateFlow<PlaybackState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(PlaybackState(isBuffering = false))
+    override val state: StateFlow<PlaybackState> = _state.asStateFlow()
+
+    private val _cues = MutableStateFlow<List<Cue>>(emptyList())
+
+    /** Current subtitle cues (Media3 parses SRT / VTT / SSA into plain cues; ASS styling is lost). */
+    val cues: StateFlow<List<Cue>> = _cues.asStateFlow()
+
+    private val _subtitleStyle = MutableStateFlow(SubtitleStyle())
+    val subtitleStyle: StateFlow<SubtitleStyle> = _subtitleStyle.asStateFlow()
+
+    /** Long timeouts for loopback torrent reads: the server blocks until the piece arrives (11 §5.3). */
+    private val progressiveClient: OkHttpClient by lazy {
+        baseClient.newBuilder()
+            .connectTimeout(TORRENT_CONNECT_TIMEOUT_S, TimeUnit.SECONDS)
+            .readTimeout(TORRENT_READ_TIMEOUT_S, TimeUnit.SECONDS)
+            .callTimeout(0, TimeUnit.SECONDS)
+            .build()
+    }
 
     val player: ExoPlayer = ExoPlayer.Builder(appContext)
         .setAudioAttributes(
@@ -60,23 +78,35 @@ class PlaybackController(
             /* handleAudioFocus = */ true,
         )
         .setHandleAudioBecomingNoisy(true)
+        .setLoadControl(
+            DefaultLoadControl.Builder()
+                .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, BUFFER_FOR_PLAYBACK_MS, BUFFER_AFTER_REBUFFER_MS)
+                .setPrioritizeTimeOverSizeThresholds(true)
+                .build(),
+        )
         .build()
 
     private val session: MediaSession = MediaSession.Builder(appContext, player).build()
-    private var ticker: Job? = null
     private var released = false
-    private var resumeAtMs = startMs
-    private var lastProgressAt = 0L
-    private var lastHeartbeatAt = 0L
+    private var loaded = false
+
+    private val ticker = SessionTicker(
+        scope = scope,
+        listener = listener,
+        remote = remote,
+        now = { android.os.SystemClock.elapsedRealtime() },
+        snapshot = { Triple(player.currentPosition, player.duration.orZero(), player.isPlaying) },
+        onTick = { publish() },
+    )
 
     private val playerListener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_READY) fallback.onPlaybackStarted()
+            if (playbackState == Player.STATE_READY && loaded) _state.value = _state.value.copy(started = true)
             publish()
         }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (!isPlaying && !released) listener.onProgress(player.currentPosition, player.duration.orZero(), true)
+            if (!isPlaying && !released && loaded) listener.onProgress(player.currentPosition, player.duration.orZero(), true)
             publish()
         }
 
@@ -84,75 +114,87 @@ class PlaybackController(
 
         override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) = publish()
 
+        override fun onCues(cueGroup: CueGroup) {
+            _cues.value = cueGroup.cues
+        }
+
         override fun onPlayerError(error: PlaybackException) {
-            resumeAtMs = player.currentPosition.coerceAtLeast(resumeAtMs)
-            val next = fallback.onFailure()
-            if (next != null) {
-                load(next)
-                _state.value = _state.value.copy(fallbackCount = fallback.fallbacksUsed)
-            } else {
-                _state.value = _state.value.copy(
-                    error = PlaybackError(error.errorCode, error.errorCodeName, exhausted = true),
-                    isBuffering = false,
-                    isPlaying = false,
-                )
-            }
+            _state.value = _state.value.copy(
+                error = PlaybackError(error.errorCode, error.errorCodeName, exhausted = true),
+                isBuffering = false,
+                isPlaying = false,
+            )
         }
     }
 
     init {
         player.addListener(playerListener)
-        if (sources.isEmpty()) {
-            _state.value = _state.value.copy(isBuffering = false, error = PlaybackError(-1, "NO_SOURCES", exhausted = true))
-        } else {
-            load(fallback.index)
-        }
-        ticker = scope.launch {
-            while (true) {
-                delay(TICK_MS)
-                publish()
-                if (player.isPlaying) {
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    if (now - lastProgressAt >= PROGRESS_INTERVAL_MS) {
-                        lastProgressAt = now
-                        listener.onProgress(player.currentPosition, player.duration.orZero(), false)
-                    }
-                }
-                if (remote) {
-                    val now = android.os.SystemClock.elapsedRealtime()
-                    if (now - lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
-                        lastHeartbeatAt = now
-                        listener.onHeartbeat(player.currentPosition, !player.isPlaying)
-                    }
-                }
-            }
-        }
+        ticker.start()
     }
 
     // ---- commands ---------------------------------------------------------------------------------------------------------------
 
-    fun play() = player.play()
-
-    fun pause() = player.pause()
-
-    fun togglePlay() = if (player.isPlaying) pause() else play()
-
-    fun seekTo(positionMs: Long) = player.seekTo(positionMs.coerceIn(0, player.duration.takeIf { it != C.TIME_UNSET } ?: Long.MAX_VALUE))
-
-    fun seekBy(deltaMs: Long) = seekTo(player.currentPosition + deltaMs)
-
-    fun setSpeed(speed: Float) = player.setPlaybackSpeed(speed)
-
-    /** Manual source switch: keeps the position and resets the fallback budget. */
-    fun selectSource(index: Int) {
-        if (index !in sources.indices) return
-        resumeAtMs = player.currentPosition
-        fallback.select(index)
-        load(index)
+    override fun load(source: PlayableSource, startMs: Long) {
+        if (released) return
+        val client = source.httpClient ?: if (source.torrent || source.container == Container.PROGRESSIVE) progressiveClient else baseClient
+        val factory = OkHttpDataSource.Factory(client).setDefaultRequestProperties(source.headers)
+        val subs = source.subtitles.map { t ->
+            MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(t.url))
+                .setMimeType(subtitleMime(t.format))
+                .setLanguage(t.lang)
+                .setLabel(t.label.ifBlank { t.lang })
+                .setSelectionFlags(0)
+                .build()
+        }
+        val item = MediaItem.Builder()
+            .setUri(source.url)
+            .setMimeType(
+                when (source.container) {
+                    Container.HLS -> MimeTypes.APPLICATION_M3U8
+                    Container.DASH -> MimeTypes.APPLICATION_MPD
+                    Container.MP4 -> MimeTypes.VIDEO_MP4
+                    // Torrent loopback file (MKV/MP4/WebM) or a completed download: Media3 sniffs the extractor.
+                    Container.PROGRESSIVE -> null
+                },
+            )
+            .setSubtitleConfigurations(subs)
+            .build()
+        val mediaSource = DefaultMediaSourceFactory(factory).createMediaSource(item)
+        loaded = true
+        _cues.value = emptyList()
+        _state.value = _state.value.copy(
+            loadId = _state.value.loadId + 1,
+            started = false,
+            error = null,
+            isBuffering = true,
+            ended = false,
+            videoHeights = emptyList(),
+            subtitles = emptyList(),
+            audioTracks = emptyList(),
+            subtitleIsAss = false,
+        )
+        player.setMediaSource(mediaSource, startMs.coerceAtLeast(0))
+        player.prepare()
+        player.playWhenReady = true
     }
 
+    override fun play() = player.play()
+
+    override fun pause() = player.pause()
+
+    override fun togglePlay() = if (player.isPlaying) pause() else play()
+
+    override fun seekTo(positionMs: Long) =
+        player.seekTo(positionMs.coerceIn(0, player.duration.takeIf { it != C.TIME_UNSET } ?: Long.MAX_VALUE))
+
+    override fun seekBy(deltaMs: Long) = seekTo(player.currentPosition + deltaMs)
+
+    override fun setSpeed(speed: Float) = player.setPlaybackSpeed(speed)
+
+    override fun currentPositionMs(): Long = player.currentPosition
+
     /** Caps the adaptive video height; null = automatic. */
-    fun selectVideoHeight(height: Int?) {
+    override fun selectVideoHeight(height: Int?) {
         val b = player.trackSelectionParameters.buildUpon()
         if (height == null) b.setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE) else b.setMaxVideoSize(Int.MAX_VALUE, height)
         player.trackSelectionParameters = b.build()
@@ -160,7 +202,7 @@ class PlaybackController(
     }
 
     /** [groupIndex] from [SubtitleOption]; null turns subtitles off. */
-    fun selectSubtitle(groupIndex: Int?) {
+    override fun selectSubtitle(groupIndex: Int?) {
         val b = player.trackSelectionParameters.buildUpon()
         if (groupIndex == null) {
             b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
@@ -173,47 +215,37 @@ class PlaybackController(
         publish()
     }
 
-    fun release() {
+    override fun selectAudio(id: Int) {
+        val group = player.currentTracks.groups.getOrNull(id)?.takeIf { it.type == C.TRACK_TYPE_AUDIO } ?: return
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+            .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0))
+            .build()
+        publish()
+    }
+
+    override fun setPreferredLanguages(subtitle: String?, audio: String?) {
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setPreferredTextLanguage(subtitle?.takeIf { it.isNotBlank() })
+            .setPreferredAudioLanguage(audio?.takeIf { it.isNotBlank() })
+            .build()
+    }
+
+    override fun setSubtitleStyle(style: SubtitleStyle) {
+        _subtitleStyle.value = style
+    }
+
+    override fun release() {
         if (released) return
-        listener.onProgress(player.currentPosition, player.duration.orZero(), true)
+        if (loaded) listener.onProgress(player.currentPosition, player.duration.orZero(), true)
         released = true
-        ticker?.cancel()
+        ticker.stop()
         player.removeListener(playerListener)
         session.release()
         player.release()
     }
 
     // ---- internals --------------------------------------------------------------------------------------------------------------
-
-    private fun load(index: Int) {
-        val src = sources[index]
-        val client = src.httpClient ?: baseClient
-        val factory = OkHttpDataSource.Factory(client).setDefaultRequestProperties(src.headers)
-        val subs = src.subtitles.map { t ->
-            MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(t.url))
-                .setMimeType(subtitleMime(t.format))
-                .setLanguage(t.lang)
-                .setLabel(t.label.ifBlank { t.lang })
-                .setSelectionFlags(0)
-                .build()
-        }
-        val item = MediaItem.Builder()
-            .setUri(src.url)
-            .setMimeType(
-                when (src.container) {
-                    Container.HLS -> MimeTypes.APPLICATION_M3U8
-                    Container.DASH -> MimeTypes.APPLICATION_MPD
-                    Container.MP4 -> MimeTypes.VIDEO_MP4
-                },
-            )
-            .setSubtitleConfigurations(subs)
-            .build()
-        val mediaSource = DefaultMediaSourceFactory(factory).createMediaSource(item)
-        player.setMediaSource(mediaSource, resumeAtMs)
-        player.prepare()
-        player.playWhenReady = true
-        _state.value = _state.value.copy(sourceIndex = index, error = null, isBuffering = true, ended = false, videoHeights = emptyList(), subtitles = emptyList())
-    }
 
     private fun subtitleMime(format: String): String =
         when (format.lowercase()) {
@@ -231,21 +263,30 @@ class PlaybackController(
         val textGroups = tracks.groups.withIndex().filter { it.value.type == C.TRACK_TYPE_TEXT }
         val subtitleOptions = textGroups.map { (i, g) ->
             val f = g.getTrackFormat(0)
-            SubtitleOption(i, f.label ?: f.language ?: "#${i + 1}", f.language, g.isSelected)
+            // Media3 >= 1.4 parses subtitles during extraction: the original mime survives in `codecs`.
+            val ass = f.sampleMimeType == MimeTypes.TEXT_SSA || f.codecs == MimeTypes.TEXT_SSA
+            SubtitleOption(i, f.label ?: f.language ?: "#${i + 1}", f.language, g.isSelected, ass)
+        }
+        val audioOptions = tracks.groups.withIndex().filter { it.value.type == C.TRACK_TYPE_AUDIO }.map { (i, g) ->
+            val f = g.getTrackFormat(0)
+            val channels = f.channelCount.takeIf { it > 0 }?.let { " · ${it}ch" }.orEmpty()
+            AudioOption(i, (f.label ?: f.language ?: "#${i + 1}") + channels, f.language, g.isSelected)
         }
         val cur = _state.value
         _state.value = cur.copy(
             isPlaying = player.isPlaying,
-            isBuffering = player.playbackState == Player.STATE_BUFFERING,
+            isBuffering = loaded && player.playbackState == Player.STATE_BUFFERING,
             ended = player.playbackState == Player.STATE_ENDED,
             positionMs = player.currentPosition,
             durationMs = player.duration.orZero(),
             bufferedMs = player.bufferedPosition,
             speed = player.playbackParameters.speed,
-            fallbackCount = fallback.fallbacksUsed,
             videoHeights = heights,
             subtitles = subtitleOptions,
             subtitlesEnabled = subtitleOptions.any { it.selected },
+            subtitleIsAss = subtitleOptions.any { it.selected && it.ass },
+            audioTracks = audioOptions,
+            fullAss = false,
         )
     }
 
@@ -253,8 +294,16 @@ class PlaybackController(
 
     companion object {
         const val MAX_FALLBACKS = 3
-        const val TICK_MS = 500L
-        const val PROGRESS_INTERVAL_MS = 15_000L
-        const val HEARTBEAT_INTERVAL_MS = 4_000L
+        const val TICK_MS = PLAYER_TICK_MS
+        const val PROGRESS_INTERVAL_MS = PLAYER_PROGRESS_INTERVAL_MS
+        const val HEARTBEAT_INTERVAL_MS = PLAYER_HEARTBEAT_INTERVAL_MS
+
+        // 11 §5.3: 30-60 s buffer, prioritise time over size (torrent loopback streams start slowly and stall on missing pieces).
+        const val MIN_BUFFER_MS = 30_000
+        const val MAX_BUFFER_MS = 60_000
+        const val BUFFER_FOR_PLAYBACK_MS = 2_500
+        const val BUFFER_AFTER_REBUFFER_MS = 5_000
+        const val TORRENT_CONNECT_TIMEOUT_S = 30L
+        const val TORRENT_READ_TIMEOUT_S = 90L
     }
 }

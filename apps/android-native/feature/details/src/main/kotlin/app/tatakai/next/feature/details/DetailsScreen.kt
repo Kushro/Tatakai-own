@@ -2,82 +2,68 @@
 
 package app.tatakai.next.feature.details
 
+import android.content.res.Resources
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.outlined.Computer
-import androidx.compose.material.icons.outlined.Extension
-import androidx.compose.material3.AssistChip
+import androidx.compose.material.icons.outlined.Cast
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import app.tatakai.next.designsystem.components.AdaptiveSheet
-import app.tatakai.next.designsystem.components.EmptyState
-import app.tatakai.next.designsystem.components.InfoChip
-import app.tatakai.next.designsystem.components.LoadingState
+import app.tatakai.next.designsystem.components.LocalAppSnackbar
 import app.tatakai.next.designsystem.components.TatakaiFloatingToolbar
 import app.tatakai.next.designsystem.theme.TatakaiSeedTheme
 import app.tatakai.next.designsystem.theme.parseHexColor
-import app.tatakai.next.model.Episode
-import app.tatakai.next.model.HistoryEntry
+import app.tatakai.next.feature.player.sources.SourcePickerSheet
+import app.tatakai.next.feature.torrents.rememberDownloadGate
+import app.tatakai.next.model.AppError
+import app.tatakai.next.model.LinkState
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.PlayerArgs
-import app.tatakai.next.model.StreamSource
+import app.tatakai.next.model.RankedSource
+import app.tatakai.next.model.SettingsSection
 import app.tatakai.next.ui.R as UiR
-import app.tatakai.next.ui.media.EpisodeRow
-import app.tatakai.next.ui.media.MediaCover
-import app.tatakai.next.ui.media.progressFraction
 import app.tatakai.next.ui.state.LoadStateContent
-import app.tatakai.next.ui.state.userMessage
-import coil3.compose.AsyncImage
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-
-private const val RANGE_SIZE = 100
 
 @Composable
 fun DetailsScreen(
@@ -91,274 +77,243 @@ fun DetailsScreen(
         key = "details-$kind-$anilistId",
         parameters = { parametersOf(kind, MediaRef(anilistId = anilistId)) },
     ),
+    // --- android wave contract (docs/redesign/12 §3.14): new callbacks appended, wired by :app (worker b) ---
+    /** After "Descargar" or from a torrent source -> Route.Torrents(OVERVIEW, torrentId). */
+    onOpenTorrent: (torrentId: String) -> Unit = {},
+    /** Source panel banner "Ajustes" -> Route.SettingsSection(section). */
+    onOpenSettings: (SettingsSection) -> Unit = {},
+    /** "Enviar a dispositivo" without a paired PC -> Route.Linked. */
+    onOpenLinked: () -> Unit = {},
+    /** Snackbar action after a download was queued -> Route.Torrents(DOWNLOADS). */
+    onOpenDownloads: () -> Unit = {},
+    /** Genre chip -> Route.SearchFor(genre = genre). */
+    onOpenGenre: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val resources = LocalContext.current.resources
+    val snackbar = LocalAppSnackbar.current
     val currentOnPlay by rememberUpdatedState(onPlay)
-    val currentOnExtensions by rememberUpdatedState(onOpenExtensions)
+    val currentOnOpenDownloads by rememberUpdatedState(onOpenDownloads)
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
                 is DetailsEvent.NavigateToPlayer -> currentOnPlay(event.args)
-                DetailsEvent.OpenExtensions -> currentOnExtensions()
+                is DetailsEvent.SourceChosen -> snackbar.show(
+                    resources.getString(
+                        R.string.details_src_using,
+                        resources.getString(R.string.details_src_label, event.extName, event.label),
+                    ),
+                )
+                is DetailsEvent.DownloadQueued -> snackbar.show(
+                    message = resources.getString(R.string.details_download_queued),
+                    actionLabel = resources.getString(R.string.details_download_open),
+                    onAction = { currentOnOpenDownloads() },
+                )
+                is DetailsEvent.DownloadFailed -> snackbar.show(
+                    resources.getString(R.string.details_download_failed, event.cause.describe(resources)),
+                )
+                DetailsEvent.NoTorrentSource -> snackbar.show(resources.getString(R.string.details_download_none))
+                is DetailsEvent.SendFailed -> snackbar.show(
+                    resources.getString(R.string.details_send_failed, event.cause.describe(resources)),
+                )
+                DetailsEvent.NoWebSource -> snackbar.show(resources.getString(R.string.details_send_no_web))
             }
         }
     }
+    // Every background download goes through the "Entiendo" gate of the torrent client (11 §4.3).
+    val gate = rememberDownloadGate()
+    var sendDialog by rememberSaveable { mutableStateOf(false) }
+    val actions = DetailsActions(
+        onBack = onBack,
+        onRetry = viewModel::retry,
+        onWatch = viewModel::onWatch,
+        onOpenPicker = viewModel::openPicker,
+        onEpisodeClick = viewModel::onEpisodeClick,
+        onRetrySources = viewModel::retrySources,
+        onDownloadSource = { source, episode -> gate.launch { viewModel.download(source, episode) } },
+        onDownloadEpisode = { episode -> gate.launch { viewModel.downloadEpisode(episode) } },
+        onDownloadSeason = { gate.launch { viewModel.downloadSeason() } },
+        onSendToDevice = {
+            if (state.link is LinkState.Paired) sendDialog = true else onOpenLinked()
+        },
+        onOpenLinked = onOpenLinked,
+        onOpenExtensions = onOpenExtensions,
+        onOpenSettings = onOpenSettings,
+        onOpenGenre = onOpenGenre,
+        onLoadRelated = viewModel::loadRelated,
+    )
     val seed = parseHexColor((state.media as? LoadState.Ok)?.value?.color)
     TatakaiSeedTheme(seed = seed) {
-        DetailsContent(
-            state = state,
-            onBack = onBack,
-            onRetry = viewModel::retry,
-            onEpisodeClick = viewModel::onEpisodeClick,
-            onContinue = viewModel::onContinueClick,
-            onDismissSheet = viewModel::dismissSheet,
-            onPlay = viewModel::onPlay,
-            onPlayOnPc = viewModel::onPlayOnPc,
-            onOpenExtensions = viewModel::onOpenExtensions,
-            modifier = modifier,
-        )
+        DetailsContent(state = state, actions = actions, modifier = modifier)
+        state.picker?.let { request ->
+            val panel = state.panel?.takeIf { it.episode == request.episode }
+            SourcePickerSheet(
+                sources = (panel?.sources as? LoadState.Ok)?.value.orEmpty(),
+                loading = panel == null || panel.sources is LoadState.Loading,
+                error = (panel?.sources as? LoadState.Err)?.cause,
+                mode = state.mode,
+                onPick = viewModel::onPick,
+                onDismiss = viewModel::dismissPicker,
+                onRetry = viewModel::retrySources,
+                onOpenSettings = {
+                    viewModel.dismissPicker()
+                    onOpenSettings(SettingsSection.PLAYER)
+                },
+                onDownload = { source -> actions.onDownloadSource(source, request.episode) },
+            )
+        }
+        if (sendDialog) {
+            val media = (state.media as? LoadState.Ok)?.value
+            val pc = state.pairedPc
+            if (media != null && pc != null) {
+                SendToDeviceDialog(
+                    media = media,
+                    episode = state.continueEpisode,
+                    pcName = pc.serverName,
+                    reachable = state.pcAvailable,
+                    onConfirm = {
+                        sendDialog = false
+                        viewModel.sendToDevice()
+                    },
+                    onDismiss = { sendDialog = false },
+                )
+            }
+        }
     }
 }
+
+/** Every callback of the Details content (the gate-wrapped download calls included). */
+internal data class DetailsActions(
+    val onBack: () -> Unit = {},
+    val onRetry: () -> Unit = {},
+    val onWatch: () -> Unit = {},
+    val onOpenPicker: (playOnPick: Boolean) -> Unit = {},
+    val onEpisodeClick: (Int) -> Unit = {},
+    val onRetrySources: () -> Unit = {},
+    val onDownloadSource: (RankedSource, Int?) -> Unit = { _, _ -> },
+    val onDownloadEpisode: (Int) -> Unit = {},
+    val onDownloadSeason: () -> Unit = {},
+    val onSendToDevice: () -> Unit = {},
+    val onOpenLinked: () -> Unit = {},
+    val onOpenExtensions: () -> Unit = {},
+    val onOpenSettings: (SettingsSection) -> Unit = {},
+    val onOpenGenre: (String) -> Unit = {},
+    val onLoadRelated: () -> Unit = {},
+)
 
 @Composable
 internal fun DetailsContent(
     state: DetailsUiState,
-    onBack: () -> Unit,
-    onRetry: () -> Unit,
-    onEpisodeClick: (Int) -> Unit,
-    onContinue: () -> Unit,
-    onDismissSheet: () -> Unit,
-    onPlay: () -> Unit,
-    onPlayOnPc: (StreamSource) -> Unit,
-    onOpenExtensions: () -> Unit,
+    actions: DetailsActions,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        LoadStateContent(state = state.media, onRetry = onRetry) { media ->
-            MediaBody(media, state, onEpisodeClick)
+        LoadStateContent(state = state.media, onRetry = actions.onRetry) { media ->
+            DetailsBody(media, state, actions)
         }
-        IconButton(onClick = onBack, modifier = Modifier.statusBarsPadding().padding(4.dp)) {
+        IconButton(onClick = actions.onBack, modifier = Modifier.statusBarsPadding().padding(4.dp)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back))
         }
         if (state.media is LoadState.Ok) {
+            // Floating toolbar (prototype `.ftb`): the main actions stay at hand while the episode list scrolls.
             TatakaiFloatingToolbar(
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),
             ) {
-                TextButton(onClick = onContinue) {
+                TextButton(onClick = actions.onWatch) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                    Text(
-                        if (state.progress.isEmpty()) {
-                            stringResource(R.string.details_watch)
-                        } else {
-                            stringResource(R.string.details_continue, state.continueEpisode)
-                        },
-                    )
+                    Text(watchLabel(state), modifier = Modifier.padding(start = 6.dp))
+                }
+                IconButton(onClick = actions.onSendToDevice) {
+                    Icon(Icons.Outlined.Cast, contentDescription = stringResource(R.string.details_send_device))
+                }
+                DownloadMenuButton(state, actions, icon = Icons.Outlined.Download)
+            }
+        }
+    }
+}
+
+@Composable
+internal fun watchLabel(state: DetailsUiState): String = when {
+    state.progress.isEmpty() -> stringResource(R.string.details_watch_ep, state.continueEpisode)
+    else -> stringResource(R.string.details_continue, state.continueEpisode)
+}
+
+/** Phone: one column (header, source panel, tabs). Wide (≥ 840 dp): tabs on the left, source + send panels on the right. */
+@Composable
+private fun DetailsBody(media: Media, state: DetailsUiState, actions: DetailsActions) {
+    var tab by rememberSaveable { mutableIntStateOf(DetailsTab.EPISODES.ordinal) }
+    var range by rememberSaveable(media.ref) { mutableIntStateOf((state.continueEpisode - 1).coerceAtLeast(0) / RANGE_SIZE) }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth >= WIDE_BREAKPOINT
+        val selectedTab = DetailsTab.entries[tab]
+        if (wide) {
+            Row(Modifier.fillMaxSize()) {
+                LazyColumn(Modifier.weight(1f).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+                    detailsItems(media, state, actions, selectedTab, { tab = it.ordinal }, range, { range = it }, includePanel = false)
+                }
+                Column(
+                    Modifier
+                        .width(SIDE_WIDTH)
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .statusBarsPadding()
+                        .padding(16.dp)
+                        .padding(bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    SourcePanelCard(state, actions)
+                    SendToDevicePanel(state, actions)
                 }
             }
-        }
-    }
-    state.sheet?.let { sheet ->
-        AdaptiveSheet(onDismissRequest = onDismissSheet) {
-            SourceSheetContent(sheet, state.pcAvailable, onPlay, onPlayOnPc, onOpenExtensions)
-        }
-    }
-}
-
-@Composable
-private fun MediaBody(media: Media, state: DetailsUiState, onEpisodeClick: (Int) -> Unit) {
-    var range by rememberSaveable { mutableStateOf(0) }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(bottom = 96.dp),
-    ) {
-        item(key = "header", contentType = "header") { Header(media) }
-        item(key = "episodes-title", contentType = "title") {
-            Text(
-                stringResource(R.string.details_episodes),
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            )
-        }
-        when (val eps = state.episodes) {
-            LoadState.Loading -> item(key = "episodes-loading", contentType = "loading") {
-                Box(Modifier.fillMaxWidth().height(120.dp)) { LoadingState() }
-            }
-            is LoadState.Err -> item(key = "episodes-error", contentType = "error") {
-                Text(
-                    eps.cause.userMessage(),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
-            }
-            is LoadState.Ok -> {
-                val all = eps.value
-                if (all.isEmpty()) {
-                    item(key = "episodes-empty", contentType = "empty") {
-                        Text(
-                            stringResource(R.string.details_no_episodes),
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
-                    }
-                } else {
-                    val ranges = (all.size + RANGE_SIZE - 1) / RANGE_SIZE
-                    val selected = range.coerceIn(0, ranges - 1)
-                    if (ranges > 1) {
-                        item(key = "ranges", contentType = "ranges") {
-                            Row(
-                                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                repeat(ranges) { i ->
-                                    val from = all[i * RANGE_SIZE].number
-                                    val to = all[minOf((i + 1) * RANGE_SIZE, all.size) - 1].number
-                                    FilterChip(
-                                        selected = i == selected,
-                                        onClick = { range = i },
-                                        label = { Text("$from–$to") },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    val page = all.drop(selected * RANGE_SIZE).take(RANGE_SIZE)
-                    items(page, key = { it.number }, contentType = { "episode" }) { ep ->
-                        EpisodeItem(ep, state.progress[ep.number], onEpisodeClick)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun EpisodeItem(ep: Episode, progress: HistoryEntry?, onClick: (Int) -> Unit) {
-    EpisodeRow(
-        number = ep.number,
-        title = ep.title,
-        imageUrl = ep.image,
-        onClick = { onClick(ep.number) },
-        airDate = ep.airDate,
-        progress = progress?.progressFraction(),
-        completed = progress?.completed == true,
-        isFiller = ep.isFiller,
-    )
-}
-
-@Composable
-private fun Header(media: Media) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().height(240.dp)) {
-            AsyncImage(
-                model = media.banner ?: media.cover,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest),
-            )
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(listOf(Color.Transparent, MaterialTheme.colorScheme.background)),
-                ),
-            )
-        }
-        Row(
-            Modifier.padding(horizontal = 16.dp).padding(top = 0.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            MediaCover(url = media.cover, modifier = Modifier.width(110.dp))
-            Column(Modifier.weight(1f)) {
-                Text(media.title, style = MaterialTheme.typography.headlineSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                val meta = listOfNotNull(media.year?.toString(), media.status, media.episodes?.let { "$it ep" })
-                if (meta.isNotEmpty()) {
-                    Text(
-                        meta.joinToString(" • "),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        if (media.genres.isNotEmpty()) {
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                media.genres.forEach { InfoChip(it) }
-            }
-        }
-        media.synopsis?.takeIf { it.isNotBlank() }?.let { synopsis ->
-            Text(
-                synopsis,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = if (expanded) Int.MAX_VALUE else 4,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .clickable { expanded = !expanded }
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun SourceSheetContent(
-    sheet: SourceSheet,
-    pcAvailable: Boolean,
-    onPlay: () -> Unit,
-    onPlayOnPc: (StreamSource) -> Unit,
-    onOpenExtensions: () -> Unit,
-) {
-    Text(
-        stringResource(R.string.details_sources_title, sheet.episode),
-        style = MaterialTheme.typography.titleLarge,
-        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-    )
-    when (val sources = sheet.sources) {
-        LoadState.Loading -> Box(Modifier.fillMaxWidth().height(120.dp)) { LoadingState() }
-        is LoadState.Err -> Text(
-            sources.cause.userMessage(),
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(horizontal = 24.dp),
-        )
-        is LoadState.Ok -> if (sources.value.isEmpty()) {
-            EmptyState(
-                icon = Icons.Outlined.Extension,
-                title = stringResource(R.string.details_no_sources_title),
-                message = stringResource(R.string.details_no_sources_message),
-                actionLabel = stringResource(R.string.details_open_extensions),
-                onAction = onOpenExtensions,
-            )
         } else {
-            sources.value.forEachIndexed { index, source ->
-                ListItem(
-                    headlineContent = { Text(source.provider) },
-                    supportingContent = {
-                        Text(listOfNotNull(source.quality, source.container.name).joinToString(" • "))
-                    },
-                    trailingContent = {
-                        if (pcAvailable) {
-                            AssistChip(
-                                onClick = { onPlayOnPc(source) },
-                                enabled = !sheet.startingRemote,
-                                label = { Text(stringResource(R.string.details_enhance_on_pc)) },
-                                leadingIcon = { Icon(Icons.Outlined.Computer, contentDescription = null) },
-                            )
-                        }
-                    },
-                    modifier = Modifier.clickable(onClick = onPlay),
-                )
-                if (index < sources.value.lastIndex) HorizontalDivider()
-            }
-            sheet.remoteError?.let {
-                Text(
-                    it.userMessage(),
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                )
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+                detailsItems(media, state, actions, selectedTab, { tab = it.ordinal }, range, { range = it }, includePanel = true)
             }
         }
     }
 }
+
+@Composable
+private fun SendToDeviceDialog(
+    media: Media,
+    episode: Int,
+    pcName: String,
+    reachable: Boolean,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.Cast, contentDescription = null) },
+        title = { Text(stringResource(R.string.details_send_device)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.details_send_body, media.title, episode, pcName))
+                if (!reachable) {
+                    Text(
+                        stringResource(R.string.details_send_unreachable),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.details_send_action)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.details_cancel)) } },
+    )
+}
+
+/** Non-composable twin of `AppError.userMessage()` for snackbars raised from events. */
+internal fun AppError.describe(resources: Resources): String = when (this) {
+    AppError.Offline -> resources.getString(UiR.string.ui_error_offline)
+    is AppError.RateLimited -> resources.getString(UiR.string.ui_error_rate_limited, provider)
+    is AppError.Extension -> resources.getString(UiR.string.ui_error_extension, id, msg)
+    is AppError.Http -> resources.getString(UiR.string.ui_error_http, code)
+    is AppError.Unknown -> resources.getString(UiR.string.ui_error_unknown, msg)
+}
+
+internal enum class DetailsTab { EPISODES, INFO, RELATED }
+
+internal const val RANGE_SIZE = 100
+private val WIDE_BREAKPOINT = 840.dp
+private val SIDE_WIDTH = 380.dp

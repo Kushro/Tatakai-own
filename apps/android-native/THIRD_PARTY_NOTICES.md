@@ -31,10 +31,21 @@ Every branch that copies a file MUST add a row here (origin repo + path, license
 | ZXing core | Apache-2.0 |
 | material-color-utilities (design token generation, vendored in `packages/tokens/vendor`) | Apache-2.0 |
 | JUnit 4, Turbine, kotlin-test, MockWebServer | EPL-1.0 / Apache-2.0 |
+| libtorrent4j 2.1.0-39 (`org.libtorrent4j:libtorrent4j` + `-android-arm64/-arm/-x86_64`, native libtorrent-rasterbar, Boost, OpenSSL) - android wave | MIT (libtorrent4j), BSD-3-Clause (libtorrent), BSL-1.0 (Boost), Apache-2.0 (OpenSSL 3) |
+| libmpv for Android 1.0.0 (`dev.jdtech.mpv:libmpv`, bundles mpv + FFmpeg + libass) - android wave | MIT (wrapper); mpv LGPL-2.1-or-later, FFmpeg LGPL-2.1-or-later, libass ISC (as built upstream; verify on upgrade) |
 
 ## 3. Fonts (bundled in `res/font`, never loaded from a CDN) - added by `m3e/android-shell`
 
 Space Grotesk, Outfit and JetBrains Mono are licensed under the **SIL Open Font License 1.1**. Ship each family's `OFL.txt` next to the font files and list them in Settings > About.
+
+| Font file (`core/designsystem/src/main/res/font/`) | Family / upstream | Source | License text in the APK |
+|---|---|---|---|
+| `space_grotesk.ttf` | Space Grotesk, variable `[wght]` 300-700 (Florian Karsten) | `github.com/google/fonts` `ofl/spacegrotesk/SpaceGrotesk[wght].ttf` (main, fetched 2026-11-04) | `assets/licenses/OFL-SpaceGrotesk.txt` |
+| `outfit.ttf` | Outfit, variable `[wght]` 100-900 (Outfitio) | `github.com/google/fonts` `ofl/outfit/Outfit[wght].ttf` (main, fetched 2026-11-04) | `assets/licenses/OFL-Outfit.txt` |
+| `jetbrains_mono.ttf` | JetBrains Mono, variable `[wght]` 100-800 (JetBrains) | `github.com/google/fonts` `ofl/jetbrainsmono/JetBrainsMono[wght].ttf` (main, fetched 2026-11-04) | `assets/licenses/OFL-JetBrainsMono.txt` |
+
+Files are unmodified (renamed only, Android resource names). `Fonts.kt` pins the `wght` axis per weight with `FontVariation.Settings`.
+Settings > About > Licenses shows this file (copied into the APK assets as `licenses/THIRD_PARTY_NOTICES.md` by `:app`) and the three OFL texts.
 
 ## 4. Services
 

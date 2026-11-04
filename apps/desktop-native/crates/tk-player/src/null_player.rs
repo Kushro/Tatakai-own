@@ -6,7 +6,9 @@ use std::sync::Mutex;
 use tokio::sync::broadcast;
 
 use crate::preset::ShaderPreset;
-use crate::types::{MediaSource, PlayerError, PlayerEvent, Rect};
+use crate::embed::EmbedTarget;
+use crate::engine::EngineConfig;
+use crate::types::{KeyAction, MediaSource, PlayerError, PlayerEvent, Rect};
 
 pub struct Player {
     tx: broadcast::Sender<PlayerEvent>,
@@ -15,7 +17,7 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(_parent_hwnd: isize) -> Result<Self, PlayerError> {
+    pub fn new(_target: &EmbedTarget, _cfg: &EngineConfig) -> Result<Self, PlayerError> {
         let (tx, _) = broadcast::channel(16);
         Ok(Self { tx, preset: Mutex::new(ShaderPreset::Off), shaders_dir: Mutex::new(None) })
     }
@@ -62,8 +64,24 @@ impl Player {
         self.preset.lock().map(|p| *p).unwrap_or_default()
     }
 
+    pub fn is_embedded(&self) -> bool {
+        false
+    }
+
     pub fn set_rect(&self, _rect: Option<Rect>, _dpr: f64) -> bool {
         false
+    }
+
+    pub fn forward_mouse(&self, _x: f64, _y: f64, _dpr: f64) -> Result<(), PlayerError> {
+        Ok(())
+    }
+
+    pub fn flash_uosc_controls(&self) -> Result<(), PlayerError> {
+        Ok(())
+    }
+
+    pub fn forward_key(&self, _name: &str, _action: KeyAction) -> Result<(), PlayerError> {
+        Ok(())
     }
 
     pub fn events(&self) -> broadcast::Receiver<PlayerEvent> {

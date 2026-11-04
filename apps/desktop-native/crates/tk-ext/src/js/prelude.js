@@ -24,7 +24,8 @@
   // ---- console ------------------------------------------------------------------------------------------------------
   const show = (a) => {
     if (typeof a === 'string') return a;
-    if (a instanceof Error) return a.stack || String(a);
+    // QuickJS stacks hold only the frames, without V8's leading "Name: message" line.
+    if (a instanceof Error) return String(a) + (a.stack ? '\n' + a.stack : '');
     try {
       return typeof a === 'object' && a !== null ? JSON.stringify(a) : String(a);
     } catch (e) {
@@ -655,12 +656,58 @@
     clone() { return new Response(this._bytes.slice(0), { status: this.status, statusText: this.statusText, headers: this.headers, url: this.url }); }
   }
   G.Response = Response;
+  // AbortController / AbortSignal: bundles wrap every fetch in one for their timeouts. Aborting rejects the fetch with
+  // an AbortError; the host request still finishes and its result is dropped.
+  const abortError = (reason) => {
+    if (reason !== undefined) return reason;
+    const e = new Error('This operation was aborted');
+    e.name = 'AbortError';
+    return e;
+  };
+  class AbortSignal {
+    constructor() { this.aborted = false; this.reason = undefined; this.onabort = null; this._l = []; }
+    addEventListener(type, fn, opts) { if (type === 'abort' && typeof fn === 'function') this._l.push({ fn, once: !!(opts && opts.once) }); }
+    removeEventListener(type, fn) { if (type === 'abort') this._l = this._l.filter((l) => l.fn !== fn); }
+    throwIfAborted() { if (this.aborted) throw this.reason; }
+    _abort(reason) {
+      if (this.aborted) return;
+      this.aborted = true;
+      this.reason = abortError(reason);
+      const ev = { type: 'abort', target: this };
+      const ls = this._l;
+      this._l = ls.filter((l) => !l.once);
+      if (typeof this.onabort === 'function') { try { this.onabort(ev); } catch (e) { G.console.error('abort listener threw: ' + (e && e.message)); } }
+      for (const l of ls) { try { l.fn.call(this, ev); } catch (e) { G.console.error('abort listener threw: ' + (e && e.message)); } }
+    }
+    static abort(reason) { const s = new AbortSignal(); s._abort(reason); return s; }
+    static timeout(ms) {
+      const s = new AbortSignal();
+      G.setTimeout(() => { const e = new Error('The operation timed out'); e.name = 'TimeoutError'; s._abort(e); }, ms);
+      return s;
+    }
+    static any(signals) {
+      const s = new AbortSignal();
+      for (const o of signals) {
+        if (o.aborted) { s._abort(o.reason); break; }
+        o.addEventListener('abort', () => s._abort(o.reason), { once: true });
+      }
+      return s;
+    }
+  }
+  class AbortController {
+    constructor() { this.signal = new AbortSignal(); }
+    abort(reason) { this.signal._abort(reason); }
+  }
+  G.AbortSignal = AbortSignal;
+  G.AbortController = AbortController;
   const pending = new Map();
   let fetchSeq = 0;
   G.fetch = function fetch(input, init) {
     return new Promise((resolve, reject) => {
       try {
         init = init || {};
+        const signal = init.signal || (input && typeof input === 'object' && input.signal) || null;
+        if (signal && signal.aborted) { reject(signal.reason); return; }
         const req = input && typeof input === 'object' && !(input instanceof URL) ? input : null;
         const url = req ? req.url : String(input);
         const headers = {};
@@ -675,6 +722,9 @@
         const id = ++fetchSeq;
         const meta = { url: String(url), method: String(init.method || (req && req.method) || 'GET').toUpperCase(), headers };
         pending.set(id, { resolve, reject });
+        if (signal && typeof signal.addEventListener === 'function') {
+          signal.addEventListener('abort', () => { if (pending.delete(id)) reject(signal.reason); }, { once: true });
+        }
         try { __host_fetch_start(id, JSON.stringify(meta), bytes ? toAB(bytes) : undefined); } catch (e) { pending.delete(id); throw e; }
       } catch (e) { reject(e); }
     });
@@ -691,6 +741,69 @@
   };
   G.__tk_pending_fetches = () => pending.size;
   G.__tatakai_anitomy__ = () => ({});
+
+  // ---- browser runtime for configureBrowserRuntime (legacy seanime-browser-host.cjs; checks repeated in Rust) -------
+  // __host_browser_start exists only for a bundle with permitted browserDomains; completions arrive like fetch.
+  const browserPending = new Map();
+  let browserSeq = 0;
+  const browserOp = (op, id, arg) => new Promise((resolve, reject) => {
+    const seq = ++browserSeq;
+    browserPending.set(seq, { resolve, reject });
+    try { __host_browser_start(seq, op, id, arg); } catch (e) { browserPending.delete(seq); reject(e); }
+  });
+  G.__tk_browser_done = (seq, json) => {
+    const p = browserPending.get(seq);
+    if (!p) return;
+    browserPending.delete(seq);
+    const r = JSON.parse(json);
+    if (r.ok) p.resolve(r.value === undefined ? null : r.value); else p.reject(new Error(r.error));
+  };
+  G.__tk_pending_browser = () => browserPending.size;
+  G.__tk_browser_runtime = function () {
+    if (typeof G.__host_browser_start !== 'function') return null;
+    let domains;
+    try { domains = JSON.parse(G.__host_browser_domains || '[]'); } catch (e) { domains = []; }
+    if (!Array.isArray(domains) || !domains.length) return null;
+    const closedError = () => new Error('ChromeDP browser is closed');
+    return Object.freeze({
+      newBrowser: async (options) => {
+        const o = options && typeof options === 'object' ? options : {};
+        const id = await browserOp('new', '', JSON.stringify({ headless: o.headless, timeout: o.timeout }));
+        let closed = false;
+        return Object.freeze({
+          navigate: (url) => (closed ? Promise.reject(closedError()) : browserOp('navigate', id, String(url)).then(() => undefined)),
+          evaluate: (expression) => {
+            if (closed) return Promise.reject(closedError());
+            if (typeof expression !== 'string') return Promise.reject(new Error('Invalid ChromeDP expression'));
+            return browserOp('evaluate', id, expression);
+          },
+          executeCDP: (method, params) => {
+            if (closed) return Promise.reject(closedError());
+            if (method === 'Network.getCookies') {
+              const urls = params && params.urls;
+              if (!Array.isArray(urls) || !urls.length || urls.length > 10) return Promise.reject(new Error('ChromeDP cookie URLs are required'));
+              return browserOp('cookies', id, JSON.stringify(urls.map(String)));
+            }
+            if (method === 'Network.getAllCookies') {
+              return browserOp('cookies', id, JSON.stringify(domains.slice(0, 10).map((d) => 'https://' + d + '/')));
+            }
+            return Promise.reject(new Error('Unsupported ChromeDP CDP command: ' + method));
+          },
+          sleep: (ms) => {
+            if (closed) return Promise.reject(closedError());
+            const d = Number(ms);
+            if (!Number.isFinite(d) || d < 0 || d > 10000) return Promise.reject(new Error('Invalid ChromeDP sleep duration'));
+            return new Promise((resolve) => G.setTimeout(resolve, d));
+          },
+          close: () => {
+            if (closed) return Promise.resolve();
+            closed = true;
+            return browserOp('close', id, '').then(() => undefined);
+          },
+        });
+      },
+    });
+  };
 
   // ---- cheerio-like HTML adapter over host-side `scraper` documents --------------------------------------------------
   G.__tatakai_parse_html__ = function parseHtml(html) {

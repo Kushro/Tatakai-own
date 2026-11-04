@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="you_title">You</string>
+    <string name="you_guest_name">Guest</string>
+    <string name="you_guest">No account · local history</string>
+    <string name="you_sign_in">Sign in to sync</string>
+    <string name="you_sync_now">Sync now</string>
+    <string name="you_syncing">Syncing…</string>
+    <string name="you_synced">History synced %1$s</string>
+    <string name="you_never_synced">Not synced yet</string>
+    <string name="you_synced_now">History synced</string>
+    <string name="you_sync_failed">Could not sync your history</string>
+    <string name="you_load_error">Could not load your profile</string>
+    <string name="you_history">History</string>
+    <string name="you_history_empty">Nothing watched yet</string>
+    <plurals name="you_history_count">
+        <item quantity="one">%1$d episode · local</item>
+        <item quantity="other">%1$d episodes · local</item>
+    </plurals>
+    <string name="you_downloads">Downloads</string>
+    <string name="you_downloads_none">No downloads</string>
+    <plurals name="you_downloads_active">
+        <item quantity="one">%1$d downloading</item>
+        <item quantity="other">%1$d downloading</item>
+    </plurals>
+    <plurals name="you_downloads_total">
+        <item quantity="one">%1$d torrent in the library</item>
+        <item quantity="other">%1$d torrents in the library</item>
+    </plurals>
+    <string name="you_extensions">Extensions</string>
+    <string name="you_extensions_none">None installed</string>
+    <plurals name="you_extensions_count">
+        <item quantity="one">%1$d installed</item>
+        <item quantity="other">%1$d installed</item>
+    </plurals>
+    <string name="you_linked">Linked device</string>
+    <string name="you_linked_none">No PC linked</string>
+    <string name="you_linked_problem">Link problem</string>
+    <string name="you_linked_connected">%1$s · PC connected</string>
+    <string name="you_linked_unreachable">%1$s · out of reach</string>
+    <string name="you_settings">Settings</string>
+    <string name="you_settings_summary">Appearance · Player · Torrents</string>
+</resources>

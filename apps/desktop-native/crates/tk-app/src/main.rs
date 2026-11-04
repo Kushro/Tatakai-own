@@ -5,6 +5,7 @@
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod anime_build;
 mod backend_common;
 mod config;
 mod firewall;
@@ -22,6 +23,7 @@ use std::sync::Arc;
 use dioxus::LaunchBuilder;
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 use tk_player::PlayerHost;
+use tk_ui::ui_thread::{self, UiThread};
 use tk_ui::{BackendRef, Services};
 
 const APP_ID: &str = "app.tatakai.own.next";
@@ -29,30 +31,38 @@ const APP_ID: &str = "app.tatakai.own.next";
 const WINDOW_TITLE: &str = "Tatakai";
 
 #[cfg(feature = "live")]
-fn build_backend(paths: &paths::AppPaths, cfg: &config::AppConfig) -> anyhow::Result<BackendRef> {
-    Ok(Arc::new(live::LiveBackend::new(paths, cfg)?))
+fn build_backend(paths: &paths::AppPaths, cfg: &config::AppConfig, ui: UiThread) -> anyhow::Result<BackendRef> {
+    Ok(Arc::new(live::LiveBackend::new(paths, cfg, ui)?))
 }
 
 #[cfg(not(feature = "live"))]
-fn build_backend(paths: &paths::AppPaths, _cfg: &config::AppConfig) -> anyhow::Result<BackendRef> {
+fn build_backend(paths: &paths::AppPaths, _cfg: &config::AppConfig, _ui: UiThread) -> anyhow::Result<BackendRef> {
     tracing::warn!("built without the `live` feature: catalogue, extensions and Link are not wired");
     Ok(Arc::new(offline::OfflineBackend::new(paths.ui_settings_file())))
 }
 
 /// The window configuration (E5): transparent window + transparent web view background.
+/// Only Windows needs the transparency (mpv's child HWND shows through the page); WebKitGTK on Wayland
+/// flickers with a transparent toplevel, so elsewhere the window is opaque.
 fn window_config(paths: &paths::AppPaths) -> Config {
+    let transparent = cfg!(windows);
     let window = WindowBuilder::new()
         .with_title(WINDOW_TITLE)
         .with_decorations(false)
-        .with_transparent(true)
+        .with_transparent(transparent)
         .with_inner_size(LogicalSize::new(1280.0, 800.0))
         .with_min_inner_size(LogicalSize::new(720.0, 480.0));
     Config::new()
         .with_window(window)
-        .with_background_color((0, 0, 0, 0))
+        .with_background_color(if transparent { (0, 0, 0, 0) } else { (0, 0, 0, 255) })
         .with_menu(None)
         .with_disable_context_menu(true)
         .with_data_directory(paths.webview_dir())
+        // Dioxus defaults to exporting WEBKIT_DISABLE_DMABUF_RENDERER=1 and GDK_BACKEND=x11 on Wayland. Without the
+        // DMA-BUF renderer WebKitGTK stops compositing the page with alpha over the embedded video (GL area under
+        // the web view): the picture stays black and moving page elements leave trails. The variables also leak
+        // into every child process (external mpv). Users who need the workaround still set it themselves.
+        .with_disable_dma_buf_on_wayland(false)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -75,11 +85,13 @@ fn main() -> anyhow::Result<()> {
     };
 
     let cfg = config::AppConfig::load_or_create(&paths.root, config::AppConfig::from_build_env())?;
-    let backend = build_backend(&paths, &cfg)?;
+    let (ui, ui_jobs) = ui_thread::channel();
+    let backend = build_backend(&paths, &cfg, ui)?;
     let services = Services {
         backend,
         player: Arc::new(PlayerHost::new(paths::shaders_dir(&paths, None))),
         fonts_dir: paths::fonts_dir(None),
+        ui_jobs,
     };
 
     LaunchBuilder::desktop().with_cfg(window_config(&paths)).with_context(services).launch(tk_ui::App);

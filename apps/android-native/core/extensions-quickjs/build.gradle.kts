@@ -14,4 +14,6 @@ dependencies {
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
     implementation(libs.koin.android)
+    // android wave (12-android-wave-contract.md): ranking of candidates (worker a's :core:release)
+    implementation(projects.core.release)
 }

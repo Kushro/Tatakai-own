@@ -10,13 +10,16 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tk_core::net::{Policy, SafeHttp, host_matches_permissions};
+use tk_core::sources::SourceCandidate;
 use tk_core::{Compat, InstalledExtension, Media, StreamSource, SubtitleTrack};
 
-use crate::compat::{CompatReport, analyze_bundle};
+use crate::browser::{BrowserRuntime, browser_domains};
+use crate::candidates::{candidate_routes, map_candidates};
+use crate::compat::{CompatReport, analyze_bundle, deferred_permissions, exposes_torrent_all};
 use crate::error::{ExtError, InstallError};
 use crate::manifest::{Manifest, valid_id};
 use crate::package::{Package, read_kai};
-use crate::runtime::{CALL_TIMEOUT, CallKind, LogBuf, Worker, WorkerConfig};
+use crate::runtime::{BrowserCfg, CALL_TIMEOUT, CallKind, LogBuf, Worker, WorkerConfig};
 
 #[derive(Serialize, Deserialize)]
 struct StateFile {
@@ -30,6 +33,8 @@ struct Entry {
     manifest_json: String,
     bundle: Arc<String>,
     report: CompatReport,
+    /// `compat::exposes_torrent_all(bundle)`, computed once per load / install (docs/redesign/10 section 6).
+    torrent_all: bool,
     enabled: bool,
     logs: LogBuf,
     worker: Option<Arc<Worker>>,
@@ -55,6 +60,8 @@ pub struct ExtensionHost {
     entries: Mutex<HashMap<String, Entry>>,
     call_timeout: std::time::Duration,
     loopback_for_tests: bool,
+    /// Hidden-web-view browser for bundles with permitted `browserDomains` (docs/redesign/09 section 5).
+    browser: Option<Arc<dyn BrowserRuntime>>,
 }
 
 impl ExtensionHost {
@@ -62,7 +69,13 @@ impl ExtensionHost {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, InstallError> {
         let root = root.into();
         std::fs::create_dir_all(&root)?;
-        let host = Self { root, entries: Mutex::new(HashMap::new()), call_timeout: CALL_TIMEOUT, loopback_for_tests: false };
+        let host = Self {
+            root,
+            entries: Mutex::new(HashMap::new()),
+            call_timeout: CALL_TIMEOUT,
+            loopback_for_tests: false,
+            browser: None,
+        };
         host.reload()?;
         Ok(host)
     }
@@ -71,6 +84,18 @@ impl ExtensionHost {
     pub fn with_call_timeout(mut self, t: std::time::Duration) -> Self {
         self.call_timeout = t;
         self
+    }
+
+    /// Give bundles a browser runtime (`configureBrowserRuntime`). Workers started afterwards get it; call right
+    /// after `open`, before the first extension call.
+    pub fn with_browser_runtime(mut self, runtime: Arc<dyn BrowserRuntime>) -> Self {
+        self.browser = Some(runtime);
+        self
+    }
+
+    /// The injected browser runtime, if any.
+    pub fn browser_runtime(&self) -> Option<Arc<dyn BrowserRuntime>> {
+        self.browser.clone()
     }
 
     /// TEST ONLY: let extension `fetch` reach loopback servers on any port. Never call this from application code.
@@ -103,9 +128,11 @@ impl ExtensionHost {
                 .ok()
                 .and_then(|s| serde_json::from_str::<StateFile>(&s).ok())
                 .map_or(report.level != Compat::Unsupported, |s| s.enabled && report.level != Compat::Unsupported);
+            let logs = deferred_log(&manifest);
+            let torrent_all = exposes_torrent_all(&bundle);
             map.insert(
                 manifest.id.clone(),
-                Entry { manifest, manifest_json: mj, bundle: Arc::new(bundle), report, enabled, logs: LogBuf::default(), worker: None },
+                Entry { manifest, manifest_json: mj, bundle: Arc::new(bundle), report, torrent_all, enabled, logs, worker: None },
             );
         }
         *self.entries.lock().map_err(|_| InstallError::invalid("extension registry poisoned"))? = map;
@@ -141,11 +168,12 @@ impl ExtensionHost {
         std::fs::write(dir.join("bundle.js"), &bundle)?;
         let entry = Entry {
             enabled: report.level != Compat::Unsupported,
+            logs: deferred_log(&manifest),
+            torrent_all: exposes_torrent_all(&bundle),
             manifest,
             manifest_json,
             bundle: Arc::new(bundle),
             report,
-            logs: LogBuf::default(),
             worker: None,
         };
         self.persist(&entry)?;
@@ -228,6 +256,12 @@ impl ExtensionHost {
             policy.allow_loopback = true;
         }
         let http = SafeHttp::new(policy).with_host_filter(Arc::new(move |h: &str| host_matches_permissions(h, &filter_perms)));
+        // Legacy host-server.cjs: a browser only for permitted `browserDomains` (configureBrowserRuntime is JS side).
+        let domains = browser_domains(&e.manifest);
+        let browser = match &self.browser {
+            Some(runtime) if !domains.is_empty() => Some(BrowserCfg { runtime: runtime.clone(), domains }),
+            _ => None,
+        };
         let worker = Arc::new(Worker::spawn(WorkerConfig {
             id: e.manifest.id.clone(),
             manifest_json: e.manifest_json.clone(),
@@ -236,6 +270,7 @@ impl ExtensionHost {
             http,
             logs: e.logs.clone(),
             call_timeout: self.call_timeout,
+            browser,
         })?);
         e.worker = Some(worker.clone());
         Ok(worker)
@@ -273,18 +308,7 @@ impl ExtensionHost {
             v.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
             v
         };
-        let mut titles: Vec<String> = vec![media.title.clone()];
-        for t in media.titles.values() {
-            if !titles.contains(t) {
-                titles.push(t.clone());
-            }
-        }
-        let params = json!({
-            "anilistId": media.media_ref.anilist_id.unwrap_or(0),
-            "titles": titles,
-            "episode": episode,
-            "stream": "0",
-        });
+        let params = stream_params(media, episode);
         let futs = candidates.iter().map(|(id, _)| {
             let params = params.clone();
             async move {
@@ -299,6 +323,53 @@ impl ExtensionHost {
         });
         futures_util::future::join_all(futs).await.into_iter().flatten().collect()
     }
+
+    /// Every source the selector can show for `media` episode `episode`, unranked (docs/redesign/08 section 3):
+    /// web entries of the `stream` route of `onlinestream`/`custom` extensions plus torrent entries of the `torrent`
+    /// route of `torrent` extensions and of custom extensions with torrent providers ([`candidate_routes`],
+    /// docs/redesign/10 section 6). Only enabled, runnable extensions are asked; reliability is
+    /// [`tk_core::sources::INITIAL_RELIABILITY`] until the caller applies `LocalStore::reliability`. Failures of one
+    /// extension (or one route) never fail the others.
+    pub async fn resolve_candidates(&self, media: &Media, episode: u32) -> Vec<SourceCandidate> {
+        let exts: Vec<(String, String, &'static str, f64)> = {
+            let map = self.lock();
+            let mut v: Vec<_> = map
+                .values()
+                .filter(|e| e.enabled && e.report.level != Compat::Unsupported)
+                .flat_map(|e| {
+                    candidate_routes(&e.manifest, e.torrent_all)
+                        .into_iter()
+                        .map(|route| (e.manifest.id.clone(), e.manifest.name.clone(), route, e.manifest.priority()))
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            v.sort_by(|a, b| a.3.total_cmp(&b.3).then_with(|| a.0.cmp(&b.0)));
+            v
+        };
+        let params = stream_params(media, episode);
+        let futs = exts.iter().map(|(id, name, route, _)| {
+            let params = params.clone();
+            async move {
+                match self.call(id, route, params).await {
+                    Ok(v) => map_candidates(id, name, &v),
+                    Err(e) => {
+                        tracing::warn!(extension = %id, route = %route, error = %e, "source listing failed");
+                        Vec::new()
+                    }
+                }
+            }
+        });
+        futures_util::future::join_all(futs).await.into_iter().flatten().collect()
+    }
+}
+
+/// Fresh log buffer that starts with one `warn` line per accepted-but-deferred permission (`torrent:session`).
+fn deferred_log(m: &Manifest) -> LogBuf {
+    let logs = LogBuf::default();
+    for p in deferred_permissions(m) {
+        logs.push("warn", &format!("compat: {p} accepted; torrents are listed and played by the app's torrent engine, the bundle gets no session of its own"));
+    }
+    logs
 }
 
 fn is_known_route(route: &str) -> bool {
@@ -322,47 +393,77 @@ fn subtitle_format(url: &str) -> &'static str {
 
 /// `nativeMapping.StreamSource` of routes.v1.json: only hls / mp4 / dash(.mpd) are playable.
 pub fn map_sources(ext_id: &str, body: &Value) -> Vec<StreamSource> {
-    use tk_core::Container;
     let Some(list) = body["sources"].as_array() else { return Vec::new() };
     list.iter()
         .filter_map(|s| {
             let url = s["url"].as_str().filter(|u| !u.is_empty())?;
-            let ty = s["type"].as_str().or_else(|| s["sourceType"].as_str()).unwrap_or("");
-            let container = match ty {
-                "hls" => Container::Hls,
-                "mp4" => Container::Mp4,
-                "dash" if url.split(['?', '#']).next().is_some_and(|p| p.ends_with(".mpd")) => Container::Dash,
-                _ => return None,
-            };
-            let headers = s["headers"]
-                .as_object()
-                .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned()))).collect())
-                .unwrap_or_default();
-            let subtitles = s["subtitles"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|t| {
-                            let u = t["url"].as_str().filter(|u| !u.is_empty())?;
-                            Some(SubtitleTrack {
-                                url: u.to_owned(),
-                                lang: t["language"].as_str().or_else(|| t["lang"].as_str()).unwrap_or("und").to_owned(),
-                                label: t["label"].as_str().unwrap_or("").to_owned(),
-                                format: subtitle_format(u).to_owned(),
-                            })
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
+            let container = web_container(s, url)?;
             Some(StreamSource {
                 url: url.to_owned(),
-                headers,
+                headers: headers_of(s),
                 container,
                 quality: s["quality"].as_str().filter(|q| !q.is_empty()).map(str::to_owned),
                 provider: s["providerName"].as_str().unwrap_or(ext_id).to_owned(),
                 extension_id: ext_id.to_owned(),
-                subtitles,
+                subtitles: subtitles_of(s),
             })
         })
         .collect()
+}
+
+/// Playable container of a normalized source (`type` / `sourceType`); `None` for embed / custom / torrent.
+pub(crate) fn web_container(s: &Value, url: &str) -> Option<tk_core::Container> {
+    use tk_core::Container;
+    match s["type"].as_str().or_else(|| s["sourceType"].as_str()).unwrap_or("") {
+        "hls" => Some(Container::Hls),
+        "mp4" => Some(Container::Mp4),
+        "dash" if url.split(['?', '#']).next().is_some_and(|p| p.ends_with(".mpd")) => Some(Container::Dash),
+        _ => None,
+    }
+}
+
+pub(crate) fn headers_of(s: &Value) -> std::collections::BTreeMap<String, String> {
+    s["headers"]
+        .as_object()
+        .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned()))).collect())
+        .unwrap_or_default()
+}
+
+pub(crate) fn subtitles_of(s: &Value) -> Vec<SubtitleTrack> {
+    s["subtitles"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| {
+                    let u = t["url"].as_str().filter(|u| !u.is_empty())?;
+                    Some(SubtitleTrack {
+                        url: u.to_owned(),
+                        lang: t["language"].as_str().or_else(|| t["lang"].as_str()).unwrap_or("und").to_owned(),
+                        label: t["label"].as_str().unwrap_or("").to_owned(),
+                        format: subtitle_format(u).to_owned(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Query params of the `stream` / `torrent` routes for one episode (legacy query-string keys, SSE off).
+fn stream_params(media: &Media, episode: u32) -> Value {
+    let mut titles: Vec<String> = vec![media.title.clone()];
+    for t in media.titles.values() {
+        if !titles.contains(t) {
+            titles.push(t.clone());
+        }
+    }
+    json!({
+        "anilistId": media.media_ref.anilist_id.unwrap_or(0),
+        "titles": titles,
+        "episode": episode,
+        "stream": "0",
+        // Same defaults the legacy host sent (desktop/runtime/extension-api-host optionsFromQuery); bundles clamp
+        // the per-provider timeout themselves.
+        "resolution": "1080p",
+        "providerOptions": { "timeoutMs": 20_000 },
+    })
 }

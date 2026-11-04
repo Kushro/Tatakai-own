@@ -9,6 +9,7 @@ import app.tatakai.next.model.AuthRepository
 import app.tatakai.next.model.HistoryRepository
 import app.tatakai.next.model.MetadataRepository
 import app.tatakai.next.model.SettingsRepository
+import app.tatakai.next.model.SourceStatsStore
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.Module
 import org.koin.dsl.module
@@ -24,11 +25,18 @@ val dataModule: Module = module {
     single<SettingsRepository> { SettingsRepositoryImpl(get()) }
     single { ProviderPriority { get<SettingsRepository>().settings.value.providerPriority } }
 
-    single<MetadataRepository> { MetadataRepositoryImpl(get(), get()) }
+    single<MetadataRepository> {
+        val settings = get<SettingsRepository>()
+        MetadataRepositoryImpl(get(), get(), ttlHours = { settings.settings.value.metadataCacheTtlHours })
+    }
 
     single<HistorySyncScheduler> { WorkManagerHistorySyncScheduler(androidContext()) }
-    single { HistorySyncer(get(), get(), get()) }
-    single<HistoryRepository> { HistoryRepositoryImpl(get(), get()) }
+    single { HistorySyncStamp(get<DataStore<Preferences>>()) }
+    single { HistorySyncer(get(), get(), get(), get<HistorySyncStamp>()) }
+    single<HistoryRepository> { HistoryRepositoryImpl(get(), get(), get<HistorySyncer>()) }
+
+    // android wave (12 §3.1 / §3.16): reliability + picked source, consumed by :core:extensions-quickjs (e) and the player (d)
+    single<SourceStatsStore> { SourceStatsStoreImpl(get()) }
 
     single<AuthRepository> { AuthRepositoryImpl(get(), get(), get(), get()) }
 }

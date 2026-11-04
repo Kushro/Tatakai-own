@@ -11,10 +11,12 @@ use libmpv2::events::{Event, EventContext, PropertyData};
 use libmpv2::{Format, Mpv};
 use tokio::sync::broadcast;
 
+use crate::embed::EmbedTarget;
+use crate::engine::EngineConfig;
 use crate::headers::{HeaderPlan, mpv_list, mpv_quote};
 use crate::preset::{ShaderPreset, glsl_shaders_value, list_separator};
 use crate::types::{
-    MediaSource, PlayerError, PlayerEvent, Rect, SubtitleSource, TrackInfo, TrackKind,
+    KeyAction, MediaSource, PlayerError, PlayerEvent, Rect, SubtitleSource, TrackInfo, TrackKind,
 };
 
 /// Sent when an extension gives no User-Agent (mpv's own "libmpv" is blocked by many CDNs).
@@ -25,9 +27,26 @@ fn mpv_err(e: impl std::fmt::Display) -> PlayerError {
     PlayerError::Mpv(e.to_string())
 }
 
+/// libmpv refuses to start (`mpv_create` returns NULL) unless LC_NUMERIC is "C". GTK, which WebKitGTK pulls in
+/// outside Windows, sets the user's locale at start-up (e.g. es_AR, decimal comma), so reset just that category.
+#[cfg(unix)]
+fn force_c_numeric_locale() {
+    unsafe extern "C" {
+        fn setlocale(category: std::ffi::c_int, locale: *const std::ffi::c_char) -> *mut std::ffi::c_char;
+    }
+    // glibc and musl: LC_NUMERIC = 1.
+    const LC_NUMERIC: std::ffi::c_int = 1;
+    // SAFETY: called on the UI thread before mpv starts its threads; the argument is a static C string.
+    unsafe {
+        setlocale(LC_NUMERIC, c"C".as_ptr());
+    }
+}
+
 pub struct Player {
-    // Field order matters: mpv is dropped (after the event thread is joined in `Drop`) before the
-    // surface window is destroyed.
+    // Field order matters: on Linux the GL surface (mpv render context) goes first, then mpv is dropped (after
+    // the event thread is joined in `Drop`), then the Windows surface window is destroyed.
+    #[cfg(target_os = "linux")]
+    gl: crate::linux::GlSurface,
     mpv: Arc<Mpv>,
     #[cfg(windows)]
     surface: crate::surface::VideoSurface,
@@ -35,43 +54,40 @@ pub struct Player {
     preset: Mutex<ShaderPreset>,
     shaders_dir: Mutex<Option<PathBuf>>,
     pending_subs: Arc<Mutex<Vec<SubtitleSource>>>,
+    /// False in the mpv-anime-build engine: its own shader profiles own `glsl-shaders` (enhanced_conf.rs).
+    presets_apply: bool,
     stop: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl Player {
-    /// Create the player and its child window under `parent_hwnd` (call on the window's own thread).
-    pub fn new(parent_hwnd: isize) -> Result<Self, PlayerError> {
+    /// Create the player and its video surface in `target` with the engine `cfg` (call on the window's own
+    /// thread). Windows: child window under the HWND; Linux: GL widget under the web view (`linux/`).
+    pub fn new(target: &EmbedTarget, cfg: &EngineConfig) -> Result<Self, PlayerError> {
         #[cfg(windows)]
-        let surface = crate::surface::VideoSurface::create(parent_hwnd)?;
-        #[cfg(not(windows))]
-        let _ = parent_hwnd;
+        let surface = crate::surface::VideoSurface::create(target.hwnd())?;
+        #[cfg(unix)]
+        force_c_numeric_locale();
 
-        // Create first, then set properties: some options return PROPERTY_NOT_FOUND during pre-init.
-        let mpv = Mpv::new().map_err(mpv_err)?;
+        // Create (with the engine's pre-init options), then set properties: some options return
+        // PROPERTY_NOT_FOUND during pre-init.
+        let mpv = Mpv::with_initializer(|init| {
+            // Diagnostics: TK_MPV_LOG=<file> makes mpv write its own verbose log there.
+            if let Some(path) = std::env::var_os("TK_MPV_LOG").filter(|p| !p.is_empty()) {
+                init.set_option("log-file", path.to_string_lossy().as_ref())?;
+            }
+            crate::enhanced::pre_init(&init, &cfg.mode)
+        })
+        .map_err(mpv_err)?;
         #[cfg(windows)]
         mpv.set_property("wid", surface.wid()).map_err(mpv_err)?;
-        for (key, value) in [
-            ("vo", "gpu-next,gpu"),
-            ("hwdec", "auto-safe"),
-            ("osd-level", "0"),
-            ("osd-bar", "no"),
-            ("ytdl", "no"),
-            ("input-default-bindings", "no"),
-            ("input-vo-keyboard", "no"),
-            ("cache", "yes"),
-            ("title", "Tatakai"),
-            (
-                "stream-lavf-o",
-                "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=2,reconnect_max_retries=6",
-            ),
-        ] {
+        for (key, value) in crate::enhanced::base_options(&cfg.mode) {
             // Best effort: an mpv build that refuses one cosmetic option must not kill the player.
             if let Err(e) = mpv.set_property(key, value) {
                 tracing::warn!(key, error = %e, "mpv refused an option");
             }
         }
-        let _ = mpv.set_property("network-timeout", 20_i64);
+        let _ = mpv.set_property("network-timeout", crate::types::NETWORK_TIMEOUT_SECS);
         let _ = mpv.set_property("demuxer-max-bytes", 150_i64 * 1024 * 1024);
 
         let ev = EventContext::new(mpv.ctx);
@@ -81,8 +97,16 @@ impl Player {
         ev.observe_property("pause", Format::Flag, 2).map_err(mpv_err)?;
         ev.observe_property("vo-configured", Format::Flag, 3).map_err(mpv_err)?;
         ev.observe_property("paused-for-cache", Format::Flag, 4).map_err(mpv_err)?;
+        crate::enhanced::post_init(&mpv, &cfg.mode)?;
+        #[cfg(target_os = "linux")]
+        let gl = crate::linux::GlSurface::attach(&mpv, target)?;
+        #[cfg(not(any(windows, target_os = "linux")))]
+        let _ = target;
 
         let mpv = Arc::new(mpv);
+        // The render context must be freed before the core: the surface keeps a reference until it is gone.
+        #[cfg(target_os = "linux")]
+        gl.keep_core(mpv.clone());
         let (tx, _) = broadcast::channel(256);
         let stop = Arc::new(AtomicBool::new(false));
         let pending_subs = Arc::new(Mutex::new(Vec::new()));
@@ -94,6 +118,8 @@ impl Player {
                 .map_err(mpv_err)?
         };
         Ok(Self {
+            #[cfg(target_os = "linux")]
+            gl,
             mpv,
             #[cfg(windows)]
             surface,
@@ -101,6 +127,7 @@ impl Player {
             preset: Mutex::new(ShaderPreset::Off),
             shaders_dir: Mutex::new(None),
             pending_subs,
+            presets_apply: crate::enhanced_conf::shader_presets_apply(&cfg.mode),
             stop,
             thread: Mutex::new(Some(handle)),
         })
@@ -121,6 +148,10 @@ impl Player {
         self.mpv.set_property("http-header-fields", mpv_list(&plan.fields).as_str()).map_err(mpv_err)?;
         let start = if start_secs.is_finite() && start_secs > 0.0 { start_secs } else { 0.0 };
         self.mpv.set_property("start", format!("{start:.3}").as_str()).map_err(mpv_err)?;
+        // Torrent streams (loopback HTTP) may wait for pieces longer than a remote server would answer.
+        if let Err(e) = self.mpv.set_property("network-timeout", src.network_timeout_secs()) {
+            tracing::warn!(error = %e, "mpv refused network-timeout");
+        }
         if let Ok(mut s) = self.pending_subs.lock() {
             *s = src.subtitles.clone();
         }
@@ -160,6 +191,10 @@ impl Player {
 
     /// Switch the upscaling preset live. The shader files must exist; on error the current preset stays.
     pub fn set_shader_preset(&self, preset: ShaderPreset) -> Result<(), PlayerError> {
+        if !self.presets_apply {
+            // Enhanced engine: the build switches shaders itself; ours would stack on top of its profiles.
+            return Ok(());
+        }
         let value = if preset == ShaderPreset::Off {
             String::new()
         } else {
@@ -188,11 +223,56 @@ impl Player {
         {
             self.surface.place(rect, dpr)
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        {
+            self.gl.place(rect, dpr)
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             let _ = (rect, dpr);
             false
         }
+    }
+
+    /// Whether the picture is drawn inside the app window. False when mpv had to open its own window (Linux
+    /// without a usable GL surface, e.g. WebKitGTK's DMA-BUF renderer disabled).
+    pub fn is_embedded(&self) -> bool {
+        #[cfg(windows)]
+        {
+            true
+        }
+        #[cfg(target_os = "linux")]
+        {
+            self.gl.is_active()
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
+        {
+            false
+        }
+    }
+
+    /// Relay a pointer position to mpv (Enhanced + uosc: the page captures the pointer over the hole).
+    /// `x` / `y` are CSS px relative to the hole's top-left corner, `dpr` = devicePixelRatio.
+    pub fn forward_mouse(&self, x: f64, y: f64, dpr: f64) -> Result<(), PlayerError> {
+        let s = if dpr.is_finite() && dpr > 0.0 { dpr } else { 1.0 };
+        let (px, py) = ((x * s).round().max(0.0) as i64, (y * s).round().max(0.0) as i64);
+        self.mpv.command("mouse", &[&px.to_string(), &py.to_string()]).map_err(mpv_err)
+    }
+
+    /// Enhanced + uosc: show uosc's timeline and controls for a moment. uosc reveals them only when the pointer
+    /// nears the bottom edge; this makes any pointer movement over the video bring them up, like our own bar.
+    pub fn flash_uosc_controls(&self) -> Result<(), PlayerError> {
+        self.mpv.command("script-message-to", &["uosc", "flash-elements", "timeline,controls"]).map_err(mpv_err)
+    }
+
+    /// Relay a key or mouse button by its mpv name (`SPACE`, `LEFT`, `f`, `MBTN_LEFT`, `WHEEL_UP` ...).
+    pub fn forward_key(&self, name: &str, action: KeyAction) -> Result<(), PlayerError> {
+        let cmd = match action {
+            KeyAction::Down => "keydown",
+            KeyAction::Up => "keyup",
+            KeyAction::Press => "keypress",
+        };
+        self.mpv.command(cmd, &[&mpv_quote(name)]).map_err(mpv_err)
     }
 
     pub fn events(&self) -> broadcast::Receiver<PlayerEvent> {

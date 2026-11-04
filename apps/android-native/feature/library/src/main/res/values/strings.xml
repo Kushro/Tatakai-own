@@ -5,4 +5,24 @@
     <string name="library_empty_title">Nothing watched yet</string>
     <string name="library_empty_message">Episodes you watch show up here. Your library works without an account.</string>
     <string name="library_explore">Explore anime</string>
+    <!-- android wave (docs/redesign/12 §4 c): prototype screens.js S.library + torrents tab (11 §3.1) -->
+    <string name="library_title">Library</string>
+    <string name="library_local">Local on this device</string>
+    <string name="library_m1">AniList and MAL lists (Watching, Planned, Completed…) arrive in M1.</string>
+    <string name="library_tab_continue">Continue</string>
+    <string name="library_tab_history">History</string>
+    <string name="library_tab_torrents">Torrents</string>
+    <string name="library_torrents_badge">%1$d active downloads</string>
+    <string name="library_sync_now">Sync now</string>
+    <string name="library_syncing">Syncing…</string>
+    <string name="library_synced">History synced</string>
+    <string name="library_synced_at">Synced %1$s</string>
+    <string name="library_never_synced">Not synced yet</string>
+    <string name="library_sync_failed">Could not sync the history. Try again later.</string>
+    <string name="library_episode">Episode %1$d</string>
+    <string name="library_episode_at">Episode %1$d · %2$s</string>
+    <string name="library_watched">Watched</string>
+    <string name="library_watched_on">Episode %1$d · watched %2$s</string>
+    <string name="library_history_empty_title">No history yet</string>
+    <string name="library_history_empty_message">Every episode you play is listed here, newest first.</string>
 </resources>

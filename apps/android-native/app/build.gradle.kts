@@ -75,6 +75,12 @@ dependencies {
     implementation(projects.feature.extensions)
     implementation(projects.feature.link)
     implementation(projects.feature.player)
+    // android wave (12-android-wave-contract.md)
+    implementation(projects.core.release)
+    implementation(projects.core.torrent)
+    implementation(projects.core.playerMpv)
+    implementation(projects.feature.torrents)
+    implementation(projects.feature.you)
 
     implementation(libs.bundles.compose.core)
     implementation(libs.androidx.core.ktx)
@@ -93,4 +99,33 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(platform(libs.koin.bom))
     implementation(libs.bundles.koin.android)
+}
+
+// android wave (worker b): Settings > About > Licenses reads THIRD_PARTY_NOTICES.md from the APK assets
+// (`licenses/THIRD_PARTY_NOTICES.md`); the OFL font texts come from :core:designsystem's assets. Wired through the AGP
+// variant API so every assets consumer depends on the copy task.
+abstract class CopyThirdPartyNotices : DefaultTask() {
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.NONE)
+    abstract val notices: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val target = outputDir.get().asFile.resolve("licenses")
+        target.mkdirs()
+        notices.get().asFile.copyTo(target.resolve("THIRD_PARTY_NOTICES.md"), overwrite = true)
+    }
+}
+
+val copyThirdPartyNotices = tasks.register<CopyThirdPartyNotices>("copyThirdPartyNotices") {
+    notices.set(rootProject.layout.projectDirectory.file("THIRD_PARTY_NOTICES.md"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(copyThirdPartyNotices, CopyThirdPartyNotices::outputDir)
+    }
 }
