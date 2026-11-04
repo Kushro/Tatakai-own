@@ -1,4 +1,5 @@
-//! Source model and automatic ranking (docs/redesign/07 section 3, contract in docs/redesign/08).
+//! Source model and automatic ranking (docs/redesign/07 section 3, contract in docs/redesign/08; release tags and
+//! torrent playback: docs/redesign/10).
 //!
 //! [`crate::model::StreamSource`] stays what it is: the raw, playable output of one extension
 //! (`sources/stream`). A [`SourceCandidate`] is the ranked wrapper the selector works with: it adds the
@@ -13,6 +14,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Container, StreamSource, SubtitleTrack};
+use crate::release::ReleaseTags;
 
 /// Reliability of a `(ext_id, label)` pair never seen before.
 pub const INITIAL_RELIABILITY: f32 = 0.8;
@@ -168,6 +170,10 @@ pub struct SourceCandidate {
     pub web: Option<WebInfo>,
     #[serde(default)]
     pub torrent: Option<TorrentInfo>,
+    /// Release tags (wave 3, docs/redesign/10 section 3): parsed from the torrent / release name by tk-ext
+    /// (`release::parse_release`) plus `seadex_best` from the extension entry. Default (empty) for web sources.
+    #[serde(default)]
+    pub tags: ReleaseTags,
 }
 
 fn initial_reliability() -> f32 {
@@ -192,6 +198,7 @@ impl SourceCandidate {
             note: None,
             web: Some(WebInfo { url: s.url.clone(), headers: s.headers.clone(), latency_ms: None, subtitles: s.subtitles.clone() }),
             torrent: None,
+            tags: ReleaseTags::default(),
         }
     }
 

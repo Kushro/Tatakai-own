@@ -1,0 +1,36 @@
+[package]
+name = "tk-torrent"
+description = "Torrent engine (librqbit 9.1.0): session, loopback HTTP streaming with piece priority, stats - owner wave 3 A"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Contract: docs/redesign/10-wave3-torrents-contract.md section 2. tk-torrent knows nothing about tk-core / tk-ui:
+# tk-app maps these types to the UI view models and picks the episode file with tk-core.
+[dependencies]
+librqbit = { workspace = true }
+# Feature pins only (no aws-lc): see the comment on these lines in the workspace Cargo.toml.
+librqbit-core = { workspace = true }
+librqbit-sha1-wrapper = { workspace = true }
+reqwest-rqbit = { workspace = true }
+anyhow = { workspace = true }
+axum = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

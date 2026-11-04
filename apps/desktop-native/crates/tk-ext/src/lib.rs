@@ -17,8 +17,10 @@ pub mod package;
 mod runtime;
 
 pub use browser::{BrowserError, BrowserId, BrowserRuntime, browser_domains, browser_url_allowed};
-pub use candidates::map_candidates;
-pub use compat::{CompatReport, DEFERRED_PERMISSIONS, analyze_bundle, deferred_permissions, wants_torrent_session};
+pub use candidates::{candidate_routes, map_candidates};
+pub use compat::{
+    CompatReport, DEFERRED_PERMISSIONS, analyze_bundle, deferred_permissions, exposes_torrent_all, wants_torrent_session,
+};
 pub use error::{ExtError, InstallError};
 pub use host::{ExtensionHost, map_sources};
 pub use manifest::Manifest;

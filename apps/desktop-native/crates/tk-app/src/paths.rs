@@ -45,6 +45,23 @@ impl AppPaths {
     pub fn ui_settings_file(&self) -> PathBuf {
         self.root.join("ui-settings.json")
     }
+    /// Torrent engine state: librqbit session persistence + fastresume, the engine's labels (wave 3).
+    #[cfg_attr(not(feature = "live"), allow(dead_code))]
+    pub fn torrent_dir(&self) -> PathBuf {
+        self.root.join("torrents")
+    }
+    /// `TorrentSettingsVm` (torrent client settings), kept apart from `ui-settings.json`.
+    #[cfg_attr(not(feature = "live"), allow(dead_code))]
+    pub fn torrent_settings_file(&self) -> PathBuf {
+        self.root.join("torrent-settings.json")
+    }
+    /// Default torrent download folder: `<user Downloads>/Tatakai`, else `<data>/torrents/downloads`.
+    #[cfg_attr(not(feature = "live"), allow(dead_code))]
+    pub fn default_torrent_download_dir(&self) -> PathBuf {
+        directories::UserDirs::new()
+            .and_then(|u| u.download_dir().map(|d| d.join("Tatakai")))
+            .unwrap_or_else(|| self.torrent_dir().join("downloads"))
+    }
 
     /// Create the data directories (idempotent).
     pub fn ensure(&self) -> std::io::Result<()> {

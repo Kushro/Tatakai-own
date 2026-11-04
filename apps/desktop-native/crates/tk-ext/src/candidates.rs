@@ -7,9 +7,23 @@
 //! torrent without a hash) is skipped.
 
 use serde_json::Value;
+use tk_core::release::ReleaseTags;
 use tk_core::sources::{INITIAL_RELIABILITY, Quality, SourceCandidate, SourceKind, TorrentInfo, WebInfo, container_label, lang_codes};
 
 use crate::host::{headers_of, subtitles_of, web_container};
+use crate::manifest::Manifest;
+
+/// Routes [`crate::ExtensionHost::resolve_candidates`] asks one enabled, runnable extension (docs/redesign/10
+/// section 6), in order. Contract stub = the wave 1 rule: `torrent` for `torrent` extensions, `stream` for the others,
+/// each only if `Manifest::gated_routes` allows it. Wave 3 E: `custom` / `onlinestream` extensions whose manifest
+/// lists `torrent` explicitly in `apiServer.routes` (the default route list does not count) or whose bundle exposes
+/// `torrentAll` (`exposes_torrent_all`) are asked `stream` **and** `torrent` (Toko: Nyaa, SubsPlease, AnimeTosho,
+/// SeaDex, nekoBT, AniLiberty).
+pub fn candidate_routes(m: &Manifest, exposes_torrent_all: bool) -> Vec<&'static str> {
+    let _ = exposes_torrent_all;
+    let route = if m.kind == "torrent" { "torrent" } else { "stream" };
+    if m.gated_routes().iter().any(|r| r == route) { vec![route] } else { Vec::new() }
+}
 
 /// Map one route body (`{ sources: SourceResultNormalized[] }`) of extension `ext_id` (display name `ext_name`).
 /// Order is kept; labels repeated inside one body get the quality (or `#n`) appended so every candidate has its
@@ -87,6 +101,8 @@ fn map_one(ext_id: &str, ext_name: &str, s: &Value) -> Option<SourceCandidate> {
             note,
             web: None,
             torrent: Some(torrent),
+            // wave 3 E: parse_release(name / title of the entry) + seadex_best from `seadexBest` / `isBest`
+            tags: ReleaseTags::default(),
         });
     }
     if url.is_empty() {
@@ -112,6 +128,7 @@ fn map_one(ext_id: &str, ext_name: &str, s: &Value) -> Option<SourceCandidate> {
             subtitles,
         }),
         torrent: None,
+        tags: ReleaseTags::default(),
     })
 }
 

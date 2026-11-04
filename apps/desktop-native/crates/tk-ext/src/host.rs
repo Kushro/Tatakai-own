@@ -14,8 +14,8 @@ use tk_core::sources::SourceCandidate;
 use tk_core::{Compat, InstalledExtension, Media, StreamSource, SubtitleTrack};
 
 use crate::browser::{BrowserRuntime, browser_domains};
-use crate::candidates::map_candidates;
-use crate::compat::{CompatReport, analyze_bundle, deferred_permissions};
+use crate::candidates::{candidate_routes, map_candidates};
+use crate::compat::{CompatReport, analyze_bundle, deferred_permissions, exposes_torrent_all};
 use crate::error::{ExtError, InstallError};
 use crate::manifest::{Manifest, valid_id};
 use crate::package::{Package, read_kai};
@@ -319,22 +319,21 @@ impl ExtensionHost {
 
     /// Every source the selector can show for `media` episode `episode`, unranked (docs/redesign/08 section 3):
     /// web entries of the `stream` route of `onlinestream`/`custom` extensions plus torrent entries of the `torrent`
-    /// route of `torrent` extensions (listed with their index data; playing them is M2). Only enabled, runnable
-    /// extensions are asked; reliability is [`tk_core::sources::INITIAL_RELIABILITY`] until the caller applies
-    /// `LocalStore::reliability`. Failures of one extension never fail the others.
+    /// route of `torrent` extensions and of custom extensions with torrent providers ([`candidate_routes`],
+    /// docs/redesign/10 section 6). Only enabled, runnable extensions are asked; reliability is
+    /// [`tk_core::sources::INITIAL_RELIABILITY`] until the caller applies `LocalStore::reliability`. Failures of one
+    /// extension (or one route) never fail the others.
     pub async fn resolve_candidates(&self, media: &Media, episode: u32) -> Vec<SourceCandidate> {
         let exts: Vec<(String, String, &'static str, f64)> = {
             let map = self.lock();
             let mut v: Vec<_> = map
                 .values()
                 .filter(|e| e.enabled && e.report.level != Compat::Unsupported)
-                .filter_map(|e| {
-                    let route = if e.manifest.kind == "torrent" { "torrent" } else { "stream" };
-                    e.manifest
-                        .gated_routes()
-                        .iter()
-                        .any(|r| r == route)
-                        .then(|| (e.manifest.id.clone(), e.manifest.name.clone(), route, e.manifest.priority()))
+                .flat_map(|e| {
+                    candidate_routes(&e.manifest, exposes_torrent_all(&e.bundle))
+                        .into_iter()
+                        .map(|route| (e.manifest.id.clone(), e.manifest.name.clone(), route, e.manifest.priority()))
+                        .collect::<Vec<_>>()
                 })
                 .collect();
             v.sort_by(|a, b| a.3.total_cmp(&b.3).then_with(|| a.0.cmp(&b.0)));

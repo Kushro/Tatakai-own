@@ -6,6 +6,10 @@ mod browser;
 mod ext;
 mod link;
 mod sources;
+// wave 3 (docs/redesign/10 section 4): engine wiring (A), playback path (B), settings + policies (D)
+mod torrent;
+mod torrent_play;
+mod torrent_settings;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -20,7 +24,8 @@ use tk_core::{
 };
 use tk_ui::backend::{
     AccountVm, AnimeBuildVm, Backend, ContinueVm, DetailsVm, EpisodeVm, ExtLogVm, ExtensionDetailVm, ExtensionVm, HistoryItemVm,
-    HomeVm, LibraryVm, LinkCapsVm, LinkStatusVm, MediaVm, PlaybackVm, SectionVm, SourceVm, UiResult,
+    HomeVm, LibraryVm, LinkCapsVm, LinkStatusVm, MediaVm, PlaybackVm, SectionVm, SkipMarkVm, SourceVm, TorrentFileVm,
+    TorrentLibraryItemVm, TorrentPeerVm, TorrentPlaybackVm, TorrentSettingsVm, TorrentStatsVm, TorrentTrackerVm, UiResult,
 };
 use tk_ui::model::{ErrorKind, Pairing, Settings, UiError};
 use tk_ui::ui_thread::UiThread;
@@ -45,6 +50,8 @@ pub struct LiveBackend {
     /// `(media id, episode) -> (resolved at, candidates)`: `sources()` and `playback_source()` share one resolution
     /// (stream URLs expire, hence the TTL). Cleared when the set of enabled extensions changes.
     candidates: Mutex<HashMap<(String, u32), (Instant, Vec<SourceCandidate>)>>,
+    /// Torrent engine, started on demand (wave 3 A, `live/torrent.rs`).
+    torrent: torrent::TorrentService,
 }
 
 /// How long a resolved source list is reused before the extensions are asked again.
@@ -85,7 +92,13 @@ impl LiveBackend {
             ext,
             link,
             candidates: Mutex::new(HashMap::new()),
+            torrent: torrent::TorrentService::new(paths.clone()),
         })
+    }
+
+    /// The data directory layout (`AppPaths`) of this backend.
+    fn paths(&self) -> AppPaths {
+        AppPaths::from_root(self.data_root.clone())
     }
 
     fn remember_title(&self, id: &str, title: &str, poster: Option<&str>) {
@@ -547,5 +560,66 @@ impl Backend for LiveBackend {
     }
     fn data_dir_display(&self) -> String {
         self.data_root.display().to_string()
+    }
+
+    // --- wave 3 (docs/redesign/10 section 4): bodies in live/torrent.rs (A), live/torrent_play.rs (B),
+    // live/torrent_settings.rs (D). Nobody edits these delegations. ---
+
+    async fn torrent_play(&self, source: &str, id: &str, episode: u32) -> UiResult<TorrentPlaybackVm> {
+        torrent_play::play(self, source, id, episode).await
+    }
+    async fn torrent_playback_ended(&self, torrent_id: &str, completed: bool) -> UiResult<()> {
+        torrent_settings::playback_ended(self, torrent_id, completed).await
+    }
+    async fn torrent_add_download(&self, source: &str, id: &str, episode: Option<u32>) -> UiResult<String> {
+        torrent_settings::add_download(self, source, id, episode).await
+    }
+    async fn torrent_stats(&self, torrent_id: &str) -> UiResult<TorrentStatsVm> {
+        self.torrent.stats(torrent_id).await
+    }
+    async fn torrent_files(&self, torrent_id: &str) -> UiResult<Vec<TorrentFileVm>> {
+        self.torrent.files(torrent_id).await
+    }
+    async fn torrent_peers(&self, torrent_id: &str) -> UiResult<Vec<TorrentPeerVm>> {
+        self.torrent.peers(torrent_id).await
+    }
+    async fn torrent_trackers(&self, torrent_id: &str) -> UiResult<Vec<TorrentTrackerVm>> {
+        self.torrent.trackers(torrent_id).await
+    }
+    async fn torrent_library(&self) -> UiResult<Vec<TorrentLibraryItemVm>> {
+        self.torrent.library().await
+    }
+    async fn torrent_remove(&self, torrent_id: &str, delete_files: bool) -> UiResult<()> {
+        self.torrent.remove(torrent_id, delete_files).await
+    }
+    async fn torrent_pause(&self, torrent_id: &str) -> UiResult<()> {
+        self.torrent.pause(torrent_id).await
+    }
+    async fn torrent_resume(&self, torrent_id: &str) -> UiResult<()> {
+        self.torrent.resume(torrent_id).await
+    }
+    async fn torrent_set_persist(&self, torrent_id: &str, persist: bool) -> UiResult<()> {
+        self.torrent.set_persist(torrent_id, persist).await
+    }
+    async fn torrent_open_folder(&self, torrent_id: &str) -> UiResult<()> {
+        self.torrent.open_folder(torrent_id).await
+    }
+    async fn torrent_settings(&self) -> UiResult<TorrentSettingsVm> {
+        torrent_settings::settings(self).await
+    }
+    async fn save_torrent_settings(&self, settings: &TorrentSettingsVm) -> UiResult<()> {
+        torrent_settings::save_settings(self, settings).await
+    }
+    async fn background_downloads_ack(&self) -> UiResult<()> {
+        torrent_settings::background_ack(self).await
+    }
+    async fn background_downloads_enabled(&self) -> UiResult<bool> {
+        torrent_settings::background_enabled(self).await
+    }
+    async fn seek_marks(&self, torrent_id: &str, file_index: usize) -> UiResult<Vec<(f64, f64)>> {
+        self.torrent.seek_marks(torrent_id, file_index).await
+    }
+    async fn skip_marks(&self, id: &str, episode: u32) -> UiResult<Vec<SkipMarkVm>> {
+        torrent_play::skip_marks(self, id, episode).await
     }
 }
