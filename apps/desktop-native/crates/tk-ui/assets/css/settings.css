@@ -56,3 +56,18 @@
 .tk-about dl { display: grid; grid-template-columns: auto 1fr; gap: var(--tk-space-4) var(--tk-space-16); margin: 0; font-size: var(--md-sys-typescale-body-medium-size); }
 .tk-about dt { color: var(--md-sys-color-on-surface); font-weight: var(--md-sys-typescale-label-large-weight); }
 .tk-about dd { margin: 0; font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-body-small-size); user-select: text; }
+
+/* ---- wave 2 E: Player engine (three modes, mpv-anime-build status, external mpv path) ------------- */
+.tk-engine-modes {
+  list-style: none; margin: var(--tk-space-8) 0 0; padding: 0; display: grid; gap: var(--tk-space-4); max-width: 70ch;
+  font-size: var(--md-sys-typescale-body-small-size); line-height: var(--md-sys-typescale-body-small-line-height); color: var(--md-sys-color-on-surface-variant);
+}
+.tk-engine-modes b { margin-inline-end: var(--tk-space-8); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-engine-modes li[data-selected="true"] { color: var(--md-sys-color-on-surface); }
+.tk-engine-modes li[data-selected="true"] b { color: var(--md-sys-color-primary); }
+.tk-engine-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-12); min-width: 0; }
+.tk-engine-status__note { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); max-width: 70ch; }
+.tk-engine-status__path { font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); user-select: text; overflow-wrap: anywhere; min-width: 0; }
+.tk-settings__mpv { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--tk-space-12); margin-bottom: var(--tk-space-8); }
+.tk-settings__mpv .tk-field { width: min(100%, 440px); }
+.tk-settings__mpv .tk-btn { margin-top: var(--tk-space-24); }
