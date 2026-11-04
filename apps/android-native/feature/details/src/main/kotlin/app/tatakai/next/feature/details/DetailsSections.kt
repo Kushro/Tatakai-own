@@ -514,7 +514,7 @@ private fun DetailsEpisodeRow(
             }
             episode.airDate?.let {
                 Text(
-                    stringResource(R.string.details_aired, it),
+                    stringResource(R.string.details_aired, formatAirDate(it)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -652,3 +652,10 @@ private fun formatScore(score: Int): String = String.format(Locale.ROOT, "%.1f",
 private const val SYNOPSIS_LINES = 4
 private const val SYNOPSIS_TOGGLE_CHARS = 120
 private const val RELATED_COLUMNS = 3
+
+/** `1999-10-20T14:15:00Z` / `1999-10-20` -> the localized medium date ("20 oct 1999"); anything else is shown as it came. */
+internal fun formatAirDate(raw: String, locale: Locale = Locale.getDefault()): String =
+    runCatching {
+        java.time.LocalDate.parse(raw.take(10))
+            .format(java.time.format.DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.MEDIUM).withLocale(locale))
+    }.getOrDefault(raw)

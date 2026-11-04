@@ -22,7 +22,9 @@ import app.tatakai.next.feature.torrents.ui.BackgroundWarning
 import app.tatakai.next.feature.torrents.ui.rememberNeedsNotificationPermission
 import app.tatakai.next.model.SettingsRepository
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.koin.compose.koinInject
 
 // android wave contract (docs/redesign/12 §3.12). Owner: worker f; used by worker c (Details "Descargar") and anyone else who starts a
@@ -77,6 +79,11 @@ fun rememberDownloadGate(): DownloadGate {
                                 currentRepository.acknowledgeBackgroundDownloads()
                                 val t = currentRepository.settings.value.torrent
                                 currentRepository.setTorrentSettings(t.copy(backgroundAck = true, backgroundDownloads = true))
+                                // The repository's StateFlow catches up with DataStore a moment later; addDownload reads it, so the
+                                // first download right after "Entiendo" failed with torrent:background_off (seen on device).
+                                withTimeoutOrNull(SETTINGS_WAIT_MS) {
+                                    currentRepository.settings.first { it.torrent.backgroundAck && it.torrent.backgroundDownloads }
+                                }
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (_: Exception) {
@@ -97,3 +104,5 @@ fun rememberDownloadGate(): DownloadGate {
     }
     return gate
 }
+
+private const val SETTINGS_WAIT_MS = 2_000L
