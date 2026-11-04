@@ -40,8 +40,8 @@ The app has a built-in BitTorrent engine (`crates/tk-torrent`, on [librqbit](htt
    Auto choose.
 3. The app adds the torrent, waits for its metadata (up to 90 s), picks the episode's file (inside a season pack
    too) and streams it while it downloads. The seek bar shows the downloaded ranges and, when known, intro/outro.
-   For a batch, Next episode reuses the same torrent. If no file matches, the client's Files page opens so you
-   can choose one.
+   For a batch, Next episode reuses the same torrent. If no file matches, the player offers the client's Files page to look at
+   what the torrent contains (choosing a file there is not available yet).
 
 Streaming works in all three player modes: the player loads a local URL
 (`http://127.0.0.1:<port>/<token>/...`, a random token per run, never reachable from other machines), so
@@ -51,20 +51,21 @@ external mpv plays it the same way.
 
 | What | Where |
 |---|---|
-| Downloaded files | Settings > Torrents > Download folder; default `<Downloads>/Tatakai` (`~/Downloads/Tatakai`, `%USERPROFILE%\Downloads\Tatakai`), else `<data>/torrents/downloads` |
+| Downloaded files | Torrents > Settings > Download folder; default `<Downloads>/Tatakai` (`~/Downloads/Tatakai`, `%USERPROFILE%\Downloads\Tatakai`), else `<data>/torrents/downloads` |
 | Session, fast-resume, DHT state, labels | `<data>/torrents/` |
 | Torrent settings | `<data>/torrent-settings.json` |
 
 `<data>` is `~/.config/Tatakai-Next/` on Linux and `%APPDATA%\Tatakai-Next\` on Windows. **After watching**
-decides what happens to a torrent you only streamed: **Delete** (default) removes it and its files when you leave
-the player; **Keep** keeps it in the client's Library (you can also toggle Keep per torrent there).
+decides what happens to a torrent you only streamed: **Delete** (default) removes it and its files about 20 s after you leave
+the player (a torrent left over by a crash is removed on the next start); **Keep** keeps it in the client's Library (you can also toggle Keep per torrent there).
 
 ### Background downloads
 
 Off by default. The Downloads page explains the cost first (CPU, disk and network use, and uploading to other
 peers while the app is open) and only enables the switch after you press **I understand**. With it on, kept
-torrents keep downloading and seeding while the app runs; with it off they pause when playback ends. Nothing
-runs after the app is closed.
+torrents keep downloading and seeding while the app runs; with it off they pause when playback ends. To fetch an
+episode for later, use the download button of a torrent row in the source picker of the details page; it shows up
+in Torrents > Downloads. Nothing runs after the app is closed.
 
 ### Ports and network
 
@@ -73,7 +74,7 @@ runs after the app is closed.
 | Listen port (TCP/uTP, incoming peers) | `0` = random each run | Set a fixed port (1024-65535) to forward it on your router. On Windows the first incoming connection may show a firewall prompt. |
 | UPnP | on | Asks the router to forward the listen port; the Overview page shows NAT / forwarding status. |
 | Streaming server | random loopback port | Bound to `127.0.0.1` only; not configurable. |
-| DHT / PEX / LSD, max connections (50), speed limits (0 = unlimited) | Settings > Torrents | Applied live where the engine allows it. |
+| DHT / PEX / LSD, max connections (50), speed limits (0 = unlimited) | Torrents > Settings | Applied live where the engine allows it. |
 
 ## Linux
 
