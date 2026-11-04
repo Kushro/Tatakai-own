@@ -96,7 +96,9 @@ class BatteryMonitor(context: Context) {
                 addAction(Intent.ACTION_BATTERY_CHANGED)
                 addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
             }
-            ContextCompat.registerReceiver(app, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)?.let(::read)
+            // BATTERY_CHANGED is a protected system broadcast. NOT_EXPORTED makes ContextCompat add a
+            // signature permission below API 33, so the system broadcast gets denied (seen on API 31).
+            ContextCompat.registerReceiver(app, receiver, filter, ContextCompat.RECEIVER_EXPORTED)?.let(::read)
             registered = true
             recompute()
         } catch (_: Exception) {
