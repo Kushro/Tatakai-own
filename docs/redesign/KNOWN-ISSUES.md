@@ -66,6 +66,21 @@ Contrato: `10-wave3-torrents-contract.md`. Los seis workers escribieron sin comp
 - **Marcas intro/outro**: AniSkip solo con MAL id y solo para episodios con datos enviados por la comunidad; sin datos no hay marcas ni botón "Saltar intro".
 - **Android**: solo diseño (`11-android-torrents-design.md`); nada implementado. Riesgos ya identificados ahí: subtítulos ASS simplificados en Media3, límite de 6 h/24 h de los servicios `dataSync` en Android 15, SAF sin rutas de archivo para el motor.
 
+## Android (ola `android/revamp`, contrato `12-android-wave-contract.md`)
+
+Lo que quedará sin probar al cerrar la ola aunque compile (los workers escriben sin compilar; un solo build al final):
+
+- **Nada se ejecuta en un dispositivo real** dentro de la ola: ni la WebView oculta del runtime de navegador (bypass de Cloudflare de Toko / Latino), ni libmpv (`dev.jdtech.mpv:libmpv` 1.0.0: superficie, ASS, hwdec), ni la app externa (extras de cabeceras de mpv-android / VLC), ni CameraX + zxing del escaneo de QR.
+- **Torrents (libtorrent4j 2.1.0-39)**: sin probar contra la red real (DHT, trackers, UPnP apagado por defecto), sin medir tiempo hasta el primer frame ni seek a zonas sin descargar; el servidor loopback solo tiene, como mucho, tests JVM con un proveedor de bytes falso. Los `.so` vienen dentro de jars (`lib/<abi>/libtorrent4j.so`): confirmar en el APK que AGP los empaqueta para arm64 / arm / x86_64. libtorrent4j depende de un mantenedor principal.
+- **Servicio en primer plano**: tipos `mediaPlayback` / `dataSync`, `onTimeout` de Android 15 (límite ~6 h/24 h de `dataSync`), Doze, `WifiLock`/`WakeLock` y la notificación del canal `torrents` solo se comprueban en dispositivo; las *user-initiated data transfer jobs* no se evaluaron.
+- **Red medida / batería / almacenamiento**: callbacks de `ConnectivityManager`, `ACTION_BATTERY_LOW/OKAY`, `getAllocatableBytes` y el movimiento a una carpeta SAF al completar sin probar; desinstalar la app borra las descargas del almacenamiento específico.
+- **Media3 con torrents**: lectura progresiva de MKV por loopback con timeouts largos sin medir; los subtítulos ASS/SSA se ven simplificados (aviso en el panel de pistas); HEVC/AV1 10-bit depende del decodificador del dispositivo.
+- **Presets de shaders** (Anime4K / FSR): el ajuste se guarda pero no se empaquetan shaders en esta ola; en Media3 no tienen efecto.
+- **Fixtures de release**: `contracts/fixtures/release/{names,packs}.json` se generan desde los tests de `release.rs`; `cargo test -p tk-core` todavía no las lee (solo Kotlin), así que la equivalencia Rust ↔ Kotlin se garantiza por construcción, no por un test cruzado.
+- **Room**: la tabla nueva de estadísticas de fuentes sube la versión con migración destructiva: se pierde el historial local no sincronizado al actualizar.
+- **Idioma por app** en Android < 13 (contexto con locale en `attachBaseContext`) y `reduce motion` del sistema (ANIMATOR_DURATION_SCALE) sin probar en dispositivo.
+- Plataforma `android-37` se descarga en el primer build del equipo Linux (solo había `android-36`).
+
 ## Tokens
 
 - Corregido: el esquema `Expressive` rota el matiz del primario (violeta -> verde azulado, sakura -> azul, aurora -> naranja). Las tres paletas pasaron a `Vibrant`; un test exige que el matiz del primario esté a <= 20 grados de la semilla en todas las paletas no monocromas.

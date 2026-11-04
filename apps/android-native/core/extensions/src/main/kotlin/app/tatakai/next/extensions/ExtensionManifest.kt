@@ -47,6 +47,8 @@ data class ExtensionManifest(
     val capabilities: List<String>,
     val customSources: List<CustomSourceDescriptor>,
     val priority: Int,
+    /** android wave (12 §3.7): raw manifest `browserDomains`; parsing is worker e's (ManifestParser). Filter with [BrowserPolicy.browserDomains]. */
+    val browserDomains: List<String> = emptyList(),
 ) {
     /** Namespace of the legacy mount: `apiServer.namespace`, falling back to the id. */
     val namespace: String get() = apiServer?.namespace?.takeIf { it.isNotBlank() } ?: id

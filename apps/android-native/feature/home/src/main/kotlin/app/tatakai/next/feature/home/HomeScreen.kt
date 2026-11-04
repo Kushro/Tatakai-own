@@ -64,6 +64,15 @@ fun HomeScreen(
     onPlay: (PlayerArgs) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HomeViewModel = koinViewModel(),
+    // --- android wave contract (docs/redesign/12 §3.14): new callbacks appended, wired by :app (worker b) ---
+    /** Row header "Ver todo" of a feed row -> Route.SearchFor(feed = kind). */
+    onOpenFeed: (FeedKind) -> Unit = {},
+    /** Genre chip -> Route.SearchFor(genre = genre). */
+    onOpenGenre: (String) -> Unit = {},
+    /** Item of a lazy extension row -> Route.SearchFor(query = title). */
+    onSearchQuery: (String) -> Unit = {},
+    /** "Continuar viendo › Ver todo" -> Library (Continuar tab). */
+    onOpenLibrary: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     HomeContent(

@@ -66,6 +66,7 @@ import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.PlayerArgs
+import app.tatakai.next.model.SettingsSection
 import app.tatakai.next.model.StreamSource
 import app.tatakai.next.ui.R as UiR
 import app.tatakai.next.ui.media.EpisodeRow
@@ -91,6 +92,17 @@ fun DetailsScreen(
         key = "details-$kind-$anilistId",
         parameters = { parametersOf(kind, MediaRef(anilistId = anilistId)) },
     ),
+    // --- android wave contract (docs/redesign/12 §3.14): new callbacks appended, wired by :app (worker b) ---
+    /** After "Descargar" or from a torrent source -> Route.Torrents(OVERVIEW, torrentId). */
+    onOpenTorrent: (torrentId: String) -> Unit = {},
+    /** Source panel banner "Ajustes" -> Route.SettingsSection(section). */
+    onOpenSettings: (SettingsSection) -> Unit = {},
+    /** "Enviar a dispositivo" without a paired PC -> Route.Linked. */
+    onOpenLinked: () -> Unit = {},
+    /** Snackbar action after a download was queued -> Route.Torrents(DOWNLOADS). */
+    onOpenDownloads: () -> Unit = {},
+    /** Genre chip -> Route.SearchFor(genre = genre). */
+    onOpenGenre: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val currentOnPlay by rememberUpdatedState(onPlay)

@@ -31,6 +31,8 @@ Every branch that copies a file MUST add a row here (origin repo + path, license
 | ZXing core | Apache-2.0 |
 | material-color-utilities (design token generation, vendored in `packages/tokens/vendor`) | Apache-2.0 |
 | JUnit 4, Turbine, kotlin-test, MockWebServer | EPL-1.0 / Apache-2.0 |
+| libtorrent4j 2.1.0-39 (`org.libtorrent4j:libtorrent4j` + `-android-arm64/-arm/-x86_64`, native libtorrent-rasterbar, Boost, OpenSSL) - android wave | MIT (libtorrent4j), BSD-3-Clause (libtorrent), BSL-1.0 (Boost), Apache-2.0 (OpenSSL 3) |
+| libmpv for Android 1.0.0 (`dev.jdtech.mpv:libmpv`, bundles mpv + FFmpeg + libass) - android wave | MIT (wrapper); mpv LGPL-2.1-or-later, FFmpeg LGPL-2.1-or-later, libass ISC (as built upstream; verify on upgrade) |
 
 ## 3. Fonts (bundled in `res/font`, never loaded from a CDN) - added by `m3e/android-shell`
 

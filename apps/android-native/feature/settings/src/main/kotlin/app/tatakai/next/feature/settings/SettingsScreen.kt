@@ -54,6 +54,7 @@ import app.tatakai.next.designsystem.components.SingleChoiceButtonGroup
 import app.tatakai.next.designsystem.generated.PaletteInfo
 import app.tatakai.next.designsystem.generated.TatakaiTokens
 import app.tatakai.next.model.ContrastPref
+import app.tatakai.next.model.SettingsSection
 import app.tatakai.next.ui.state.screenInsets
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -63,6 +64,12 @@ fun SettingsScreen(
     onOpenLink: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = koinViewModel(),
+    // --- android wave contract (docs/redesign/12 §3.14): new callbacks appended, wired by :app (worker b) ---
+    /** Scroll to this section on open; SettingsSection.TORRENTS opens the Torrents subpage (TorrentSettingsPage of worker f). */
+    initialSection: SettingsSection? = null,
+    /** "Dispositivo enlazado" entry of the Enlace section -> Route.Linked. */
+    onOpenLinked: () -> Unit = {},
+    onBack: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     SettingsContent(

@@ -4,4 +4,6 @@ plugins { id("tatakai.android.feature") }
 
 dependencies {
     // add feature-specific project/library dependencies here
+    // android wave (12-android-wave-contract.md): TorrentSettingsPage (worker f)
+    implementation(projects.feature.torrents)
 }

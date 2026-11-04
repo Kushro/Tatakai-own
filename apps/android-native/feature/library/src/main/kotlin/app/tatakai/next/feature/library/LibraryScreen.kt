@@ -37,6 +37,11 @@ fun LibraryScreen(
     onExplore: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: LibraryViewModel = koinViewModel(),
+    // --- android wave contract (docs/redesign/12 §3.14): new callbacks appended, wired by :app (worker b) ---
+    /** Tab shown first (You › Historial opens HISTORY; notifications / badges open TORRENTS). */
+    initialTab: LibraryTab = LibraryTab.CONTINUE,
+    /** Torrents tab card -> Route.Torrents(OVERVIEW, torrentId). */
+    onOpenTorrent: (torrentId: String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     LibraryContent(state, viewModel::retry, onOpenDetails, onPlay, onExplore, modifier)
