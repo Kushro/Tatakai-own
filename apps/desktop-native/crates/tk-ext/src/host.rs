@@ -13,6 +13,7 @@ use tk_core::net::{Policy, SafeHttp, host_matches_permissions};
 use tk_core::sources::SourceCandidate;
 use tk_core::{Compat, InstalledExtension, Media, StreamSource, SubtitleTrack};
 
+use crate::browser::BrowserRuntime;
 use crate::candidates::map_candidates;
 use crate::compat::{CompatReport, analyze_bundle, deferred_permissions};
 use crate::error::{ExtError, InstallError};
@@ -57,6 +58,8 @@ pub struct ExtensionHost {
     entries: Mutex<HashMap<String, Entry>>,
     call_timeout: std::time::Duration,
     loopback_for_tests: bool,
+    /// Hidden-web-view browser for bundles with permitted `browserDomains` (docs/redesign/09 section 5).
+    browser: Option<Arc<dyn BrowserRuntime>>,
 }
 
 impl ExtensionHost {
@@ -64,7 +67,13 @@ impl ExtensionHost {
     pub fn open(root: impl Into<PathBuf>) -> Result<Self, InstallError> {
         let root = root.into();
         std::fs::create_dir_all(&root)?;
-        let host = Self { root, entries: Mutex::new(HashMap::new()), call_timeout: CALL_TIMEOUT, loopback_for_tests: false };
+        let host = Self {
+            root,
+            entries: Mutex::new(HashMap::new()),
+            call_timeout: CALL_TIMEOUT,
+            loopback_for_tests: false,
+            browser: None,
+        };
         host.reload()?;
         Ok(host)
     }
@@ -73,6 +82,18 @@ impl ExtensionHost {
     pub fn with_call_timeout(mut self, t: std::time::Duration) -> Self {
         self.call_timeout = t;
         self
+    }
+
+    /// Give bundles a browser runtime (`configureBrowserRuntime`). Workers started afterwards get it; call right
+    /// after `open`, before the first extension call.
+    pub fn with_browser_runtime(mut self, runtime: Arc<dyn BrowserRuntime>) -> Self {
+        self.browser = Some(runtime);
+        self
+    }
+
+    /// The injected browser runtime, if any.
+    pub fn browser_runtime(&self) -> Option<Arc<dyn BrowserRuntime>> {
+        self.browser.clone()
     }
 
     /// TEST ONLY: let extension `fetch` reach loopback servers on any port. Never call this from application code.

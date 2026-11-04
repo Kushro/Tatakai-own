@@ -15,6 +15,20 @@ pub enum PlayerError {
     NoShadersDir,
     #[error("the player is unavailable in this build")]
     Unavailable,
+    /// External mode: no mpv executable at the configured path nor on PATH.
+    #[error("mpv was not found")]
+    MpvNotFound,
+    /// External mode: spawning mpv or talking to it over JSON IPC failed.
+    #[error("external mpv: {0}")]
+    External(String),
+}
+
+/// How a relayed key reaches mpv (`keydown` / `keyup` / `keypress`). Mouse buttons are keys too (`MBTN_LEFT`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyAction {
+    Down,
+    Up,
+    Press,
 }
 
 /// What to play. The app converts a `tk_core::StreamSource` into this.

@@ -11,10 +11,12 @@ use libmpv2::events::{Event, EventContext, PropertyData};
 use libmpv2::{Format, Mpv};
 use tokio::sync::broadcast;
 
+use crate::embed::EmbedTarget;
+use crate::engine::EngineConfig;
 use crate::headers::{HeaderPlan, mpv_list, mpv_quote};
 use crate::preset::{ShaderPreset, glsl_shaders_value, list_separator};
 use crate::types::{
-    MediaSource, PlayerError, PlayerEvent, Rect, SubtitleSource, TrackInfo, TrackKind,
+    KeyAction, MediaSource, PlayerError, PlayerEvent, Rect, SubtitleSource, TrackInfo, TrackKind,
 };
 
 /// Sent when an extension gives no User-Agent (mpv's own "libmpv" is blocked by many CDNs).
@@ -41,8 +43,10 @@ fn force_c_numeric_locale() {
 }
 
 pub struct Player {
-    // Field order matters: mpv is dropped (after the event thread is joined in `Drop`) before the
-    // surface window is destroyed.
+    // Field order matters: on Linux the GL surface (mpv render context) goes first, then mpv is dropped (after
+    // the event thread is joined in `Drop`), then the Windows surface window is destroyed.
+    #[cfg(target_os = "linux")]
+    gl: crate::linux::GlSurface,
     mpv: Arc<Mpv>,
     #[cfg(windows)]
     surface: crate::surface::VideoSurface,
@@ -55,34 +59,20 @@ pub struct Player {
 }
 
 impl Player {
-    /// Create the player and its child window under `parent_hwnd` (call on the window's own thread).
-    pub fn new(parent_hwnd: isize) -> Result<Self, PlayerError> {
+    /// Create the player and its video surface in `target` with the engine `cfg` (call on the window's own
+    /// thread). Windows: child window under the HWND; Linux: GL widget under the web view (`linux/`).
+    pub fn new(target: &EmbedTarget, cfg: &EngineConfig) -> Result<Self, PlayerError> {
         #[cfg(windows)]
-        let surface = crate::surface::VideoSurface::create(parent_hwnd)?;
-        #[cfg(not(windows))]
-        let _ = parent_hwnd;
+        let surface = crate::surface::VideoSurface::create(target.hwnd())?;
         #[cfg(unix)]
         force_c_numeric_locale();
 
-        // Create first, then set properties: some options return PROPERTY_NOT_FOUND during pre-init.
-        let mpv = Mpv::new().map_err(mpv_err)?;
+        // Create (with the engine's pre-init options), then set properties: some options return
+        // PROPERTY_NOT_FOUND during pre-init.
+        let mpv = Mpv::with_initializer(|init| crate::enhanced::pre_init(&init, &cfg.mode)).map_err(mpv_err)?;
         #[cfg(windows)]
         mpv.set_property("wid", surface.wid()).map_err(mpv_err)?;
-        for (key, value) in [
-            ("vo", "gpu-next,gpu"),
-            ("hwdec", "auto-safe"),
-            ("osd-level", "0"),
-            ("osd-bar", "no"),
-            ("ytdl", "no"),
-            ("input-default-bindings", "no"),
-            ("input-vo-keyboard", "no"),
-            ("cache", "yes"),
-            ("title", "Tatakai"),
-            (
-                "stream-lavf-o",
-                "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_delay_max=2,reconnect_max_retries=6",
-            ),
-        ] {
+        for (key, value) in crate::enhanced::base_options(&cfg.mode) {
             // Best effort: an mpv build that refuses one cosmetic option must not kill the player.
             if let Err(e) = mpv.set_property(key, value) {
                 tracing::warn!(key, error = %e, "mpv refused an option");
@@ -98,6 +88,11 @@ impl Player {
         ev.observe_property("pause", Format::Flag, 2).map_err(mpv_err)?;
         ev.observe_property("vo-configured", Format::Flag, 3).map_err(mpv_err)?;
         ev.observe_property("paused-for-cache", Format::Flag, 4).map_err(mpv_err)?;
+        crate::enhanced::post_init(&mpv, &cfg.mode)?;
+        #[cfg(target_os = "linux")]
+        let gl = crate::linux::GlSurface::attach(&mpv, target)?;
+        #[cfg(not(any(windows, target_os = "linux")))]
+        let _ = target;
 
         let mpv = Arc::new(mpv);
         let (tx, _) = broadcast::channel(256);
@@ -111,6 +106,8 @@ impl Player {
                 .map_err(mpv_err)?
         };
         Ok(Self {
+            #[cfg(target_os = "linux")]
+            gl,
             mpv,
             #[cfg(windows)]
             surface,
@@ -205,11 +202,33 @@ impl Player {
         {
             self.surface.place(rect, dpr)
         }
-        #[cfg(not(windows))]
+        #[cfg(target_os = "linux")]
+        {
+            self.gl.place(rect, dpr)
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
         {
             let _ = (rect, dpr);
             false
         }
+    }
+
+    /// Relay a pointer position to mpv (Enhanced + uosc: the page captures the pointer over the hole).
+    /// `x` / `y` are CSS px relative to the hole's top-left corner, `dpr` = devicePixelRatio.
+    pub fn forward_mouse(&self, x: f64, y: f64, dpr: f64) -> Result<(), PlayerError> {
+        let s = if dpr.is_finite() && dpr > 0.0 { dpr } else { 1.0 };
+        let (px, py) = ((x * s).round().max(0.0) as i64, (y * s).round().max(0.0) as i64);
+        self.mpv.command("mouse", &[&px.to_string(), &py.to_string()]).map_err(mpv_err)
+    }
+
+    /// Relay a key or mouse button by its mpv name (`SPACE`, `LEFT`, `f`, `MBTN_LEFT`, `WHEEL_UP` ...).
+    pub fn forward_key(&self, name: &str, action: KeyAction) -> Result<(), PlayerError> {
+        let cmd = match action {
+            KeyAction::Down => "keydown",
+            KeyAction::Up => "keyup",
+            KeyAction::Press => "keypress",
+        };
+        self.mpv.command(cmd, &[&mpv_quote(name)]).map_err(mpv_err)
     }
 
     pub fn events(&self) -> broadcast::Receiver<PlayerEvent> {

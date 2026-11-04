@@ -46,6 +46,10 @@ pub struct Manifest {
     pub custom_sources: Vec<CustomSource>,
     #[serde(default)]
     pub priority: Option<f64>,
+    /// Sites the bundle may open in the host browser runtime (Cloudflare bypass); only those also covered by a
+    /// `network:domain:*` permission are honoured (`browser::browser_domains`).
+    #[serde(default)]
+    pub browser_domains: Vec<String>,
 }
 
 impl Manifest {

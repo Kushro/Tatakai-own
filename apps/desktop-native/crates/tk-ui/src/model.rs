@@ -98,6 +98,12 @@ pub struct Settings {
     pub reduce_motion: bool,
     /// Source selection (Settings > Player); mirrored to `tk_core::sources::SourcePrefs` by tk-app.
     pub sources: SourcePrefsVm,
+    /// Settings > Player > Engine (docs/redesign/09): embedded / embedded enhanced / external mpv.
+    pub player_mode: PlayerModeVm,
+    /// Embedded enhanced only: whose controls show (ours, or mpv-anime-build's uosc).
+    pub enhanced_ui: EnhancedUiVm,
+    /// External mode: the mpv executable; `None` = autodetect on PATH (`tk_player::find_mpv`).
+    pub external_mpv_path: Option<String>,
 }
 
 impl Default for Settings {
@@ -112,8 +118,95 @@ impl Default for Settings {
             volume: 100,
             reduce_motion: false,
             sources: SourcePrefsVm::default(),
+            player_mode: PlayerModeVm::default(),
+            enhanced_ui: EnhancedUiVm::default(),
+            external_mpv_path: None,
         }
     }
+}
+
+/// The three player modes (Settings > Player > Engine). Persisted as `"embedded"` / `"embedded_enhanced"` /
+/// `"external"`. A missing field takes the default; keep the names stable (an unknown value fails the whole file).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayerModeVm {
+    /// libmpv inside the app window (Windows child HWND, Linux GL widget), our controls.
+    #[default]
+    Embedded,
+    /// Same embedded libmpv with the vendored mpv-anime-build config (`Backend::prepare_anime_build`).
+    EmbeddedEnhanced,
+    /// The machine's own mpv in its own window (`tk_player::ExternalPlayer`); the app shows an info screen.
+    External,
+}
+
+impl PlayerModeVm {
+    pub const ALL: [PlayerModeVm; 3] = [Self::Embedded, Self::EmbeddedEnhanced, Self::External];
+
+    /// i18n suffix: `settings.player.mode.<id>` (+ `settings.player.mode.<id>_hint`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Embedded => "embedded",
+            Self::EmbeddedEnhanced => "embedded_enhanced",
+            Self::External => "external",
+        }
+    }
+}
+
+/// Embedded enhanced: who draws the player UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnhancedUiVm {
+    /// Our controls; uosc is disabled, the build's profiles / shaders / scripts stay.
+    #[default]
+    Ours,
+    /// The build's own uosc UI; our player controls hide and the page relays input to mpv.
+    Uosc,
+}
+
+impl EnhancedUiVm {
+    pub const ALL: [EnhancedUiVm; 2] = [Self::Ours, Self::Uosc];
+
+    /// i18n suffix: `settings.player.enhanced_ui.<id>`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Ours => "ours",
+            Self::Uosc => "uosc",
+        }
+    }
+}
+
+/// The OS this UI build runs on (compile-time; tk-ui is built for the same target as the app).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlatformVm {
+    Linux,
+    Windows,
+    Mac,
+}
+
+impl PlatformVm {
+    pub const fn current() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else if cfg!(target_os = "macos") {
+            Self::Mac
+        } else {
+            Self::Linux
+        }
+    }
+
+    /// `linux` / `windows` / `mac`: i18n suffix for per-OS texts (`*.<id>` keys) and `data-os` value.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Linux => "linux",
+            Self::Windows => "windows",
+            Self::Mac => "mac",
+        }
+    }
+}
+
+/// `Some(trimmed)` unless blank.
+pub fn clean_mpv_path(path: Option<String>) -> Option<String> {
+    path.map(|p| p.trim().to_owned()).filter(|p| !p.is_empty())
 }
 
 /// Mirrors `tk_core::sources::SourceMode`. Manual: the player waits until the user picks a source.
@@ -264,6 +357,7 @@ impl Settings {
         }
         self.volume = self.volume.min(100);
         self.sources = self.sources.sanitized();
+        self.external_mpv_path = clean_mpv_path(self.external_mpv_path);
         self
     }
 }
@@ -303,6 +397,10 @@ pub enum SettingsAction {
     SetSubLang(String),
     /// Ignored unless it is one of [`DUB_LANGS`].
     SetDubLang(String),
+    SetPlayerMode(PlayerModeVm),
+    SetEnhancedUi(EnhancedUiVm),
+    /// Trimmed; blank = `None` (autodetect).
+    SetExternalMpvPath(Option<String>),
 }
 
 pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
@@ -340,6 +438,9 @@ pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
                 n.sources.dub_lang = l;
             }
         }
+        SettingsAction::SetPlayerMode(m) => n.player_mode = m,
+        SettingsAction::SetEnhancedUi(u) => n.enhanced_ui = u,
+        SettingsAction::SetExternalMpvPath(p) => n.external_mpv_path = clean_mpv_path(p),
     }
     n
 }
@@ -875,6 +976,27 @@ mod tests {
     }
 
     #[test]
+    fn player_mode_settings_reduce_persist_and_sanitize() {
+        let d = Settings::default();
+        assert_eq!((d.player_mode, d.enhanced_ui, d.external_mpv_path.clone()), (PlayerModeVm::Embedded, EnhancedUiVm::Ours, None));
+        let s = reduce_settings(&d, SettingsAction::SetPlayerMode(PlayerModeVm::External));
+        let s = reduce_settings(&s, SettingsAction::SetEnhancedUi(EnhancedUiVm::Uosc));
+        let s = reduce_settings(&s, SettingsAction::SetExternalMpvPath(Some("  /usr/bin/mpv ".into())));
+        assert_eq!(s.external_mpv_path.as_deref(), Some("/usr/bin/mpv"));
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""player_mode":"external""#) && json.contains(r#""enhanced_ui":"uosc""#), "{json}");
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, s);
+        let cleared = reduce_settings(&s, SettingsAction::SetExternalMpvPath(Some("   ".into())));
+        assert_eq!(cleared.external_mpv_path, None);
+        let old: Settings = serde_json::from_str(r#"{"palette":"mono","external_mpv_path":" "}"#).unwrap();
+        assert_eq!(old.player_mode, PlayerModeVm::Embedded);
+        assert_eq!(old.sanitized().external_mpv_path, None);
+        let enhanced: Settings = serde_json::from_str(r#"{"player_mode":"embedded_enhanced"}"#).unwrap();
+        assert_eq!(enhanced.player_mode, PlayerModeVm::EmbeddedEnhanced);
+    }
+
+    #[test]
     fn settings_json_round_trips_and_tolerates_partial_files() {
         let s = Settings { mode: ThemeMode::Dark, language: LangChoice::Es, ..Settings::default() };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
@@ -927,6 +1049,14 @@ mod tests {
             }
             for s in SourceKindVm::ALL {
                 let k = format!("src.{}", s.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for m in PlayerModeVm::ALL {
+                let k = format!("settings.player.mode.{}", m.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for u in EnhancedUiVm::ALL {
+                let k = format!("settings.player.enhanced_ui.{}", u.id());
                 assert_ne!(lookup(lang, &k), k, "{k}");
             }
         }

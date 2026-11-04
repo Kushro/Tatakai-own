@@ -16,6 +16,7 @@ use crate::screens::{
     link::LinkPage, player::PlayerPage, search::SearchPage, settings::SettingsPage,
 };
 use crate::shortcuts::{BRIDGE_JS, JsMsg, Shortcut, shortcut};
+use crate::ui_thread::UiJobs;
 
 const TOKENS_CSS: &str = include_str!("../assets/tokens.css");
 /// Base + shell + components (wave 0), then one stylesheet per area so parallel work never edits the
@@ -41,6 +42,8 @@ pub struct Services {
     pub player: Arc<PlayerHost>,
     /// Directory with the bundled `.woff2` files.
     pub fonts_dir: PathBuf,
+    /// Jobs app services post to the UI thread (`ui_thread::channel`); drained by `App`.
+    pub ui_jobs: Arc<UiJobs>,
 }
 
 impl PartialEq for Services {
@@ -156,6 +159,18 @@ pub fn App() -> Element {
             match backend.load_settings().await {
                 Ok(s) => settings.set(s.sanitized()),
                 Err(e) => tracing::warn!(detail = %e.detail, "loading settings failed; using defaults"),
+            }
+        }
+    });
+
+    // Jobs from app services that need the UI thread (docs/redesign/09 section 6).
+    let jobs = services.ui_jobs.clone();
+    use_future(move || {
+        let jobs = jobs.clone();
+        async move {
+            let Some(mut rx) = jobs.take() else { return };
+            while let Some(job) = rx.recv().await {
+                job();
             }
         }
     });

@@ -2,6 +2,7 @@
 //! trait; tk-app implements it over tk-core / tk-ext / tk-link. Strings are display-ready except
 //! where an i18n key is noted.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -260,6 +261,23 @@ pub struct LinkCapsVm {
     pub lan_ip: Option<String>,
 }
 
+// ---------------------------------------------------------------------------------------------
+// Wave 2 contract (docs/redesign/09): player modes, Linux-first texts
+// ---------------------------------------------------------------------------------------------
+
+/// The vendored mpv-anime-build release behind the "Embedded enhanced" player mode.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct AnimeBuildVm {
+    /// The pinned release zip ships with this installation (next to the executable, or the source tree in development).
+    pub available: bool,
+    /// Release version (`"5.6"`), display-ready; empty when not available.
+    pub version: String,
+    /// Already verified and extracted into the data directory (the first use does not have to wait).
+    pub extracted: bool,
+    /// The extracted config directory (display form), when `extracted`.
+    pub path: Option<String>,
+}
+
 pub type UiResult<T> = Result<T, UiError>;
 
 /// Implemented by tk-app. All methods are cancel-safe; none blocks the UI thread for long.
@@ -340,6 +358,24 @@ pub trait Backend: Send + Sync + 'static {
     }
     async fn link_capabilities(&self) -> UiResult<LinkCapsVm> {
         Err(UiError::not_wired("link_capabilities"))
+    }
+
+    // --- wave 2 (docs/redesign/09). Same rule: defaults keep every implementation compiling. ---
+
+    /// Whether the "Embedded enhanced" mode can be used and whether its files are ready.
+    async fn anime_build_status(&self) -> UiResult<AnimeBuildVm> {
+        Err(UiError::not_wired("anime_build_status"))
+    }
+    /// Verify the pinned SHA-256 of the vendored release and extract it into the data directory if needed
+    /// (idempotent; a later call returns at once). Returns the config directory for
+    /// `tk_player::EngineMode::Enhanced { config_dir, .. }`. Can take a few seconds the first time.
+    async fn prepare_anime_build(&self) -> UiResult<PathBuf> {
+        Err(UiError::not_wired("prepare_anime_build"))
+    }
+    /// The real data directory for Settings texts (replaces the hard-coded `%APPDATA%`), e.g.
+    /// `/home/ana/.config/Tatakai-Next` or `C:\Users\ana\AppData\Roaming\Tatakai-Next`. Empty when unknown.
+    fn data_dir_display(&self) -> String {
+        String::new()
     }
 }
 

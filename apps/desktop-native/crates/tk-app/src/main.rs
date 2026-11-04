@@ -5,6 +5,7 @@
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod anime_build;
 mod backend_common;
 mod config;
 mod firewall;
@@ -22,6 +23,7 @@ use std::sync::Arc;
 use dioxus::LaunchBuilder;
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 use tk_player::PlayerHost;
+use tk_ui::ui_thread::{self, UiThread};
 use tk_ui::{BackendRef, Services};
 
 const APP_ID: &str = "app.tatakai.own.next";
@@ -29,12 +31,12 @@ const APP_ID: &str = "app.tatakai.own.next";
 const WINDOW_TITLE: &str = "Tatakai";
 
 #[cfg(feature = "live")]
-fn build_backend(paths: &paths::AppPaths, cfg: &config::AppConfig) -> anyhow::Result<BackendRef> {
-    Ok(Arc::new(live::LiveBackend::new(paths, cfg)?))
+fn build_backend(paths: &paths::AppPaths, cfg: &config::AppConfig, ui: UiThread) -> anyhow::Result<BackendRef> {
+    Ok(Arc::new(live::LiveBackend::new(paths, cfg, ui)?))
 }
 
 #[cfg(not(feature = "live"))]
-fn build_backend(paths: &paths::AppPaths, _cfg: &config::AppConfig) -> anyhow::Result<BackendRef> {
+fn build_backend(paths: &paths::AppPaths, _cfg: &config::AppConfig, _ui: UiThread) -> anyhow::Result<BackendRef> {
     tracing::warn!("built without the `live` feature: catalogue, extensions and Link are not wired");
     Ok(Arc::new(offline::OfflineBackend::new(paths.ui_settings_file())))
 }
@@ -73,11 +75,13 @@ fn main() -> anyhow::Result<()> {
     };
 
     let cfg = config::AppConfig::load_or_create(&paths.root, config::AppConfig::from_build_env())?;
-    let backend = build_backend(&paths, &cfg)?;
+    let (ui, ui_jobs) = ui_thread::channel();
+    let backend = build_backend(&paths, &cfg, ui)?;
     let services = Services {
         backend,
         player: Arc::new(PlayerHost::new(paths::shaders_dir(&paths, None))),
         fonts_dir: paths::fonts_dir(None),
+        ui_jobs,
     };
 
     LaunchBuilder::desktop().with_cfg(window_config(&paths)).with_context(services).launch(tk_ui::App);

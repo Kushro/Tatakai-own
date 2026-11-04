@@ -25,3 +25,7 @@ tracing = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Linux embed target (tao default vbox) and the GL video surface; same gtk-rs 0.18 that tao 0.34 uses.
+gtk = { workspace = true }

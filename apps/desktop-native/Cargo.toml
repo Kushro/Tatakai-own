@@ -81,6 +81,8 @@ base64 = "0.22"
 # --- player (libmpv embedded in a child HWND) ---
 libmpv2 = "4"
 raw-window-handle = "0.6"
+# Linux: gtk-rs 0.18 = the version tao 0.34 / wry 0.53 use (embed target, GLArea video surface).
+gtk = "0.18"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
