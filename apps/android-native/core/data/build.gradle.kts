@@ -7,6 +7,7 @@ dependencies {
     implementation(projects.core.metadata)
     implementation(projects.core.database)
     implementation(projects.core.supabase)
+    implementation(projects.core.release)
     implementation(libs.room.runtime)
     implementation(libs.work.runtime)
     implementation(libs.androidx.datastore.preferences)
