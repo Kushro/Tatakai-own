@@ -8,4 +8,5 @@ dependencies {
     implementation(libs.material3.adaptive.layout)
     implementation(libs.androidx.activity.compose)
     implementation(libs.coil.compose)
+    implementation(libs.androidx.documentfile) // SAF tree name in Settings › Torrents › Almacenamiento
 }

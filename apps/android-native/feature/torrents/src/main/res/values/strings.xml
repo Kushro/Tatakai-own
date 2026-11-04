@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- :feature:torrents (worker f, docs/redesign/12 §2). Texts from tk-ui/i18n (torrent.*) with "." -> "_"; Android-only: torrent_android_*. -->
+<resources>
+    <!-- formatting -->
+    <string name="torrent_fmt_percent">%1$d%%</string>
+    <string name="torrent_fmt_none">—</string>
+    <string name="torrent_fmt_ratio">%1$.2f</string>
+    <string name="torrent_fmt_dur_s">%1$d s</string>
+    <string name="torrent_fmt_dur_ms">%1$d min %2$d s</string>
+    <string name="torrent_fmt_dur_hm">%1$d h %2$d min</string>
+    <string name="torrent_fmt_dur_dh">%1$d d %2$d h</string>
+
+    <!-- shell -->
+    <string name="torrent_shell_empty_title">No torrents yet</string>
+    <string name="torrent_shell_empty_body">Play a torrent source from an episode, or check the Library for saved torrents.</string>
+    <string name="torrent_shell_open_library">Open the library</string>
+    <string name="torrent_shell_pick_title">Choose a torrent</string>
+    <string name="torrent_shell_pick_body">Overview, Files, Peers and Trackers show one torrent at a time.</string>
+    <string name="torrent_shell_missing">This torrent is no longer in the session. It may have been removed after watching.</string>
+
+    <!-- overview -->
+    <string name="torrent_overview_error">Could not read this torrent</string>
+    <string name="torrent_overview_action_error">That did not work</string>
+    <string name="torrent_overview_pause">Pause</string>
+    <string name="torrent_overview_resume">Resume</string>
+    <string name="torrent_overview_remove">Remove</string>
+    <string name="torrent_overview_removed">Torrent removed</string>
+    <string name="torrent_overview_info_hash">Info-hash</string>
+    <string name="torrent_overview_copy_hash">Copy info-hash</string>
+    <string name="torrent_overview_progress">Download progress</string>
+    <string name="torrent_overview_transfer">Transfer</string>
+    <string name="torrent_overview_downloaded">Downloaded</string>
+    <string name="torrent_overview_uploaded">Uploaded</string>
+    <string name="torrent_overview_size">Size</string>
+    <string name="torrent_overview_size_of">%1$s of %2$s</string>
+    <string name="torrent_overview_pieces">Pieces</string>
+    <string name="torrent_overview_pieces_value">%1$d / %2$d × %3$s</string>
+    <string name="torrent_overview_down_speed">Download speed</string>
+    <string name="torrent_overview_up_speed">Upload speed</string>
+    <string name="torrent_overview_remaining">Remaining</string>
+    <string name="torrent_overview_remaining_value">%1$s left</string>
+    <string name="torrent_overview_elapsed">Elapsed</string>
+    <string name="torrent_overview_streaming">Streaming</string>
+    <string name="torrent_overview_complete">Complete</string>
+    <string name="torrent_overview_eta_unknown">Unknown</string>
+    <string name="torrent_overview_swarm">Swarm</string>
+    <string name="torrent_overview_seeders">Seeders</string>
+    <string name="torrent_overview_leechers">Leechers</string>
+    <string name="torrent_overview_wires">Wires</string>
+    <string name="torrent_overview_ratio">Ratio</string>
+    <string name="torrent_overview_protocol">Protocol</string>
+    <string name="torrent_overview_proto_on">Active</string>
+    <string name="torrent_overview_proto_off">Inactive</string>
+
+    <!-- files -->
+    <string name="torrent_files_error">Could not read the files</string>
+    <string name="torrent_files_empty_title">Waiting for metadata</string>
+    <string name="torrent_files_empty_body">The file list appears once peers send the torrent\'s metadata.</string>
+    <string name="torrent_files_search">Search files</string>
+    <string name="torrent_files_search_placeholder">Name or folder</string>
+    <string name="torrent_files_summary">%1$s · %2$s · %3$s</string>
+    <plurals name="torrent_files_count">
+        <item quantity="one">%1$d file</item>
+        <item quantity="other">%1$d files</item>
+    </plurals>
+    <plurals name="torrent_files_selected_n">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
+    <string name="torrent_files_no_match">No matching files</string>
+    <string name="torrent_files_no_match_body">Nothing matches \"%1$s\".</string>
+    <string name="torrent_files_clear_search">Clear search</string>
+    <string name="torrent_files_skipped">Skipped</string>
+    <string name="torrent_files_streaming">Being streamed now</string>
+    <string name="torrent_files_episode_value">Ep. %1$d</string>
+    <string name="torrent_files_size_progress">%1$s · %2$s</string>
+    <string name="torrent_files_play">Play this file</string>
+    <string name="torrent_files_download_only">Download only this one</string>
+
+    <!-- peers -->
+    <string name="torrent_peers_error">Could not read the peers</string>
+    <string name="torrent_peers_empty_title">No peers yet</string>
+    <string name="torrent_peers_empty_body">Looking for peers through DHT, PEX and the trackers.</string>
+    <string name="torrent_peers_summary">%1$d connected · down %2$s · up %3$s</string>
+    <string name="torrent_peers_unknown">Unknown client</string>
+    <string name="torrent_peers_legend">What the flags mean</string>
+    <string name="torrent_peers_col_down">Down</string>
+    <string name="torrent_peers_col_up">Up</string>
+    <string name="torrent_peers_col_progress">Progress</string>
+    <string name="torrent_peers_rates">↓ %1$s · ↑ %2$s · %3$s</string>
+    <string name="torrent_peers_flag_d">Downloading from this peer</string>
+    <string name="torrent_peers_flag_u">Uploading to this peer</string>
+    <string name="torrent_peers_flag_i">Incoming connection</string>
+    <string name="torrent_peers_flag_p">uTP connection</string>
+    <string name="torrent_peers_flag_e">Encrypted connection</string>
+    <string name="torrent_peers_flag_x">Found through PEX</string>
+    <string name="torrent_peers_flag_h">Found through DHT</string>
+    <string name="torrent_peers_flag_s">Snubbed: sends nothing</string>
+
+    <!-- trackers -->
+    <string name="torrent_trackers_error">Could not read the trackers</string>
+    <string name="torrent_trackers_empty_title">No trackers</string>
+    <string name="torrent_trackers_empty_body">This torrent finds peers through DHT and PEX only.</string>
+    <string name="torrent_trackers_summary">%1$d trackers · %2$d working</string>
+    <string name="torrent_trackers_counts">Seeders %1$s · Leechers %2$s · Downloaded %3$s</string>
+
+    <!-- library -->
+    <string name="torrent_library_error">Could not load the torrent library</string>
+    <string name="torrent_library_empty_title">No torrents yet</string>
+    <string name="torrent_library_empty_body">Pick a torrent source in an episode to start. Torrents you play or download show up here.</string>
+    <string name="torrent_library_actions">Torrent actions</string>
+    <plurals name="torrent_library_count">
+        <item quantity="one">%1$d torrent</item>
+        <item quantity="other">%1$d torrents</item>
+    </plurals>
+    <plurals name="torrent_library_selected">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
+    <string name="torrent_library_select_all">Select all</string>
+    <string name="torrent_library_select">Select %1$s</string>
+    <string name="torrent_library_clear_selection">Clear selection</string>
+    <string name="torrent_library_delete_selected">Delete selected</string>
+    <string name="torrent_library_episode">Ep. %1$d</string>
+    <plurals name="torrent_library_batch">
+        <item quantity="one">Batch · %1$d file</item>
+        <item quantity="other">Batch · %1$d files</item>
+    </plurals>
+    <string name="torrent_library_detail">%1$s · %2$s</string>
+    <string name="torrent_library_keep">Keep after watching</string>
+    <string name="torrent_library_unkeep">Don\'t keep after watching</string>
+    <string name="torrent_library_kept">Kept after watching</string>
+    <string name="torrent_library_not_kept">Will be deleted after watching</string>
+    <string name="torrent_library_progress">Downloaded %1$s</string>
+    <string name="torrent_library_open">Open in the torrent client</string>
+    <string name="torrent_library_play">Play</string>
+    <string name="torrent_library_delete">Delete</string>
+    <string name="torrent_library_delete_one">Delete this torrent?</string>
+    <plurals name="torrent_library_delete_many">
+        <item quantity="one">Delete %1$d torrent?</item>
+        <item quantity="other">Delete %1$d torrents?</item>
+    </plurals>
+    <string name="torrent_library_delete_body">It leaves the library and stops downloading and seeding.</string>
+    <string name="torrent_library_delete_files">Also delete the downloaded files</string>
+    <string name="torrent_library_delete_files_hint">Off: the video files stay in the download folder.</string>
+    <plurals name="torrent_library_removed">
+        <item quantity="one">Removed %1$d from the library</item>
+        <item quantity="other">Removed %1$d from the library</item>
+    </plurals>
+    <string name="torrent_library_action_failed">That action did not work</string>
+
+    <!-- downloads -->
+    <string name="torrent_downloads_error">Could not load the downloads</string>
+    <string name="torrent_downloads_warn_title">Background downloads use your phone</string>
+    <string name="torrent_downloads_warn_body">Saved torrents keep downloading and sharing even when nothing plays. This means:</string>
+    <string name="torrent_downloads_warn_cpu">Some CPU use to check and write pieces.</string>
+    <string name="torrent_downloads_warn_disk">Storage space and writes in the download folder.</string>
+    <string name="torrent_downloads_warn_network">Network traffic, which counts against metered or capped connections.</string>
+    <string name="torrent_downloads_warn_upload">Uploading to other peers: your IP address is visible to them.</string>
+    <string name="torrent_downloads_warn_accept">I understand</string>
+    <string name="torrent_downloads_switch">Background downloads</string>
+    <string name="torrent_downloads_off_banner">Background downloads are off: saved torrents pause when you stop watching.</string>
+    <string name="torrent_downloads_empty_title">Nothing downloading</string>
+    <string name="torrent_downloads_empty_body">Choose Download in the source picker of an episode to fetch it for later.</string>
+    <string name="torrent_downloads_empty_body_off">Turn background downloads on to fetch episodes for later.</string>
+    <string name="torrent_downloads_episode">Episode %1$d</string>
+    <string name="torrent_downloads_of">%1$s of %2$s</string>
+    <string name="torrent_downloads_down">%1$s down</string>
+    <string name="torrent_downloads_up">%1$s up</string>
+    <plurals name="torrent_downloads_peers">
+        <item quantity="one">%1$d peer</item>
+        <item quantity="other">%1$d peers</item>
+    </plurals>
+    <string name="torrent_downloads_eta">%1$s left</string>
+    <string name="torrent_downloads_pause">Pause</string>
+    <string name="torrent_downloads_resume">Resume</string>
+    <string name="torrent_downloads_remove">Remove download</string>
+    <string name="torrent_downloads_remove_title">Remove this download?</string>
+
+    <!-- settings -->
+    <string name="torrent_settings_intro">How the torrent engine downloads, connects and stores files.</string>
+    <string name="torrent_settings_speed">Speed</string>
+    <string name="torrent_settings_download_limit">Download limit</string>
+    <string name="torrent_settings_upload_limit">Upload limit</string>
+    <string name="torrent_settings_limit_hint">0 = unlimited. Applies at once.</string>
+    <string name="torrent_settings_limit_invalid">Enter a number from 0 to %1$d</string>
+    <string name="torrent_settings_kib">KiB/s</string>
+    <string name="torrent_settings_connection">Network</string>
+    <string name="torrent_settings_port">Listen port</string>
+    <string name="torrent_settings_port_hint">0 = random port. Other peers connect to you here.</string>
+    <string name="torrent_settings_port_invalid">Use 0 or a port from 1024 to 65535</string>
+    <string name="torrent_settings_upnp">UPnP port forwarding</string>
+    <string name="torrent_settings_max_peers">Max connections</string>
+    <string name="torrent_settings_max_peers_hint">Peers connected at the same time per torrent.</string>
+    <string name="torrent_settings_max_peers_invalid">Enter a number from 1 to %1$d</string>
+    <string name="torrent_settings_discovery">Peer discovery</string>
+    <string name="torrent_settings_dht">DHT</string>
+    <string name="torrent_settings_dht_hint">Find peers without trackers (needed for most magnet links).</string>
+    <string name="torrent_settings_pex">Peer exchange (PEX)</string>
+    <string name="torrent_settings_pex_hint">Learn about more peers from the connected ones. Applies to torrents added from now on.</string>
+    <string name="torrent_settings_lsd">Local peer discovery (LSD)</string>
+    <string name="torrent_settings_storage">Storage</string>
+    <string name="torrent_settings_after_watch">After watching</string>
+    <string name="torrent_settings_after_watch_hint">Delete frees the space when the player closes; Keep leaves the torrent in the library.</string>
+    <string name="torrent_settings_background">Background downloads</string>
+    <string name="torrent_settings_background_switch">Download in the background</string>
+    <string name="torrent_settings_background_locked">Accept the warning in Torrents › Downloads first.</string>
+
+    <!-- Android only -->
+    <string name="torrent_android_not_now">Not now</string>
+    <string name="torrent_android_warn_battery">Battery use while downloading, also with the screen off.</string>
+    <string name="torrent_android_warn_notification">Android shows a permanent notification while torrents transfer.</string>
+    <string name="torrent_android_warn_note">You can turn background downloads off at any time in Settings › Torrents. With Wi-Fi only on, nothing downloads in the background on mobile data.</string>
+    <string name="torrent_android_notif_rationale">Tatakai asks for permission to show notifications so you can see the progress, pause everything and know when an episode is ready.</string>
+    <string name="torrent_android_downloads_switch_hint">Keep downloading saved torrents with the app in the background, and allow downloads from the source picker.</string>
+    <string name="torrent_android_waiting_wifi">Waiting for Wi-Fi</string>
+    <string name="torrent_android_low_battery">Paused: low battery</string>
+    <string name="torrent_android_paused_by_system">Paused by the system. Tap to resume</string>
+    <string name="torrent_android_background_hint">Saved torrents keep downloading with the app in the background, following the network and battery rules.</string>
+    <string name="torrent_android_background_off">Background downloads are off. Turn them on in Torrents › Downloads.</string>
+    <string name="torrent_android_pause_low_battery">Pause with low battery</string>
+    <string name="torrent_android_pause_low_battery_hint" formatted="false">Below 20 % without a charger, or with battery saver on.</string>
+    <string name="torrent_android_wifi_only">Wi-Fi only</string>
+    <string name="torrent_android_wifi_only_hint">No background downloads on mobile data; playing a torrent on mobile data asks first.</string>
+    <string name="torrent_android_upload_mobile">Upload on mobile data</string>
+    <string name="torrent_android_upload_mobile_hint">Off: on metered networks the app uploads at most 1 KiB/s.</string>
+    <string name="torrent_android_upnp_hint">Ask the router to open the listen port. Off by default on phones.</string>
+    <string name="torrent_android_lsd_hint">Find peers on your local network (only on unmetered networks).</string>
+    <string name="torrent_android_storage_app">App storage</string>
+    <string name="torrent_android_storage_folder">Folder</string>
+    <string name="torrent_android_storage_app_hint">Downloads stay in the app\'s own storage, without permissions. Uninstalling the app deletes them.</string>
+    <string name="torrent_android_storage_folder_hint">Completed downloads move to %1$s.</string>
+    <string name="torrent_android_storage_change">Change folder</string>
+    <string name="torrent_android_storage_usage">Used %1$s · free %2$s</string>
+    <string name="torrent_android_seed">Keep sharing after completion</string>
+    <string name="torrent_android_seed_hint">Off by default on Android: the torrent pauses when the download is complete.</string>
+    <string name="torrent_android_share_magnet">Share magnet link</string>
+    <string name="torrent_android_save_downloads">Save to Downloads</string>
+    <string name="torrent_android_exported">Saved to Downloads</string>
+    <string name="torrent_android_export_unsupported">Saving to Downloads needs Android 10 or newer.</string>
+    <string name="torrent_android_hash_copied">Info-hash copied</string>
+    <string name="torrent_android_moved">This torrent was moved to your folder when it completed.</string>
+    <string name="torrent_android_no_space">Not enough free space: %1$s needed.</string>
+    <string name="torrent_android_no_file">No file in this torrent matches the episode. Pick it in Files.</string>
+    <string name="torrent_android_incomplete">The file is not completely downloaded yet.</string>
+    <string name="torrent_android_invalid_source">This is not a valid magnet link or info-hash.</string>
+</resources>
