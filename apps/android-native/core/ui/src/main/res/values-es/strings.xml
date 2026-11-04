@@ -56,4 +56,11 @@
     <string name="player_skip_intro">Intro</string>
     <string name="player_skip_outro">Ending</string>
     <string name="player_skip_recap">Resumen</string>
+    <!-- android wave, worker b: generic helpers shared by the shell, You, Linked and Settings. -->
+    <string name="ui_cancel">Cancelar</string>
+    <string name="ui_time_now">ahora</string>
+    <string name="ui_time_min_ago">hace %1$d min</string>
+    <string name="ui_time_h_ago">hace %1$d h</string>
+    <string name="ui_time_yesterday">ayer</string>
+    <string name="ui_time_d_ago">hace %1$d días</string>
 </resources>
