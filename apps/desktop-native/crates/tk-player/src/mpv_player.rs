@@ -97,6 +97,9 @@ impl Player {
         let _ = target;
 
         let mpv = Arc::new(mpv);
+        // The render context must be freed before the core: the surface keeps a reference until it is gone.
+        #[cfg(target_os = "linux")]
+        gl.keep_core(mpv.clone());
         let (tx, _) = broadcast::channel(256);
         let stop = Arc::new(AtomicBool::new(false));
         let pending_subs = Arc::new(Mutex::new(Vec::new()));

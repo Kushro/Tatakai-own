@@ -83,8 +83,11 @@ libmpv2 = "4"
 raw-window-handle = "0.6"
 # Linux: gtk-rs 0.18 = the version tao 0.34 / wry 0.53 use (embed target, GLArea video surface).
 gtk = "0.18"
-# Linux: the webkit2gtk wry 0.53.5 pins (extension browser runtime: cookie manager, permission requests).
+# Linux: the webkit2gtk wry 0.53.5 pins (extension browser runtime: cookie manager, permission
+# requests; GL video surface: web view background).
 webkit2gtk = "=2.0.1"
+# Linux GL video surface: the EGL / GLX loader.
+libloading = "0.8"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
