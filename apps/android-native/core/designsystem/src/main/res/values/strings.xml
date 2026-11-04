@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- core/designsystem (ds_*), android wave (docs/redesign/12 §3.9). Owner: worker b. -->
+    <string name="ds_carousel_page">Slide %1$d of %2$d</string>
+    <string name="ds_carousel_go_to">Go to slide %1$d</string>
+</resources>

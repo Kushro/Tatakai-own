@@ -57,11 +57,25 @@ val TopLevelRoutesWide: List<Route> =
 /** Top-level destinations for the current window class. */
 fun topLevelRoutes(wide: Boolean): List<Route> = if (wide) TopLevelRoutesWide else TopLevelRoutesCompact
 
-/** Destinations shown in the navigation bar / rail. Extensions and Link live under Settings ("You"). */
+/** Pre-wave destinations (kept for source compatibility; the shell uses [topLevelRoutes]). */
 val TopLevelRoutes: List<Route> = listOf(Route.Home, Route.Search, Route.Library, Route.Settings)
 
-/** The top-level destination that owns [route] (used to highlight the right nav item). */
-fun Route.topLevel(): Route = when (this) {
-    Route.Extensions, Route.Link -> Route.Settings
+/** The compact top-level destination that owns this route (same as `topLevel(wide = false)`). */
+fun Route.topLevel(): Route = topLevel(wide = false)
+
+/**
+ * The top-level destination that owns this route, used to highlight the nav item (12 §3.15).
+ * Compact: Torrents -> Library; Extensions / Link / Linked / Settings / SettingsSection -> You.
+ * Wide: every rail destination is its own (Torrents(*) -> Torrents(), Link -> Linked, SettingsSection / You -> Settings).
+ * Routes without an owner (Details, Player) return themselves; the shell then highlights the entry below them in the back stack.
+ */
+fun Route.topLevel(wide: Boolean): Route = when (this) {
+    is Route.SearchFor -> Route.Search
+    is Route.LibraryTab -> Route.Library
+    is Route.Torrents -> if (wide) Route.Torrents() else Route.Library
+    Route.Extensions -> if (wide) Route.Extensions else Route.You
+    Route.Link, Route.Linked -> if (wide) Route.Linked else Route.You
+    Route.Settings, is Route.SettingsSection -> if (wide) Route.Settings else Route.You
+    Route.You -> if (wide) Route.Settings else Route.You
     else -> this
 }
