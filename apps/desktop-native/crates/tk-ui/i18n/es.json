@@ -741,5 +741,10 @@
   "torrent.settings.fix_fields": "Corrige los campos marcados para guardar",
   "torrent.settings.discard": "Descartar",
   "torrent.settings.saved": "Ajustes de torrents guardados. Los cambios de puerto y descubrimiento se aplican cuando no se reproduce ningún torrent.",
-  "torrent.settings.save_failed": "No se pudieron guardar los ajustes de torrents"
+  "torrent.settings.save_failed": "No se pudieron guardar los ajustes de torrents",
+  "src.download": "Descargar para después",
+  "src.download.started": "Descargando en segundo plano. Aparece en Torrents > Descargas.",
+  "src.download.failed": "No se pudo iniciar la descarga. Puede que las descargas en segundo plano estén apagadas.",
+  "src.download.open": "Descargas",
+  "src.prefer.hint": "Ordena primero las fuentes web o torrent. Los torrents se reproducen mientras se descargan."
 }

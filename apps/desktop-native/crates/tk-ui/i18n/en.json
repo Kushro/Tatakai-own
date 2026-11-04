@@ -741,5 +741,10 @@
   "torrent.settings.fix_fields": "Fix the highlighted fields to save",
   "torrent.settings.discard": "Discard",
   "torrent.settings.saved": "Torrent settings saved. Port and discovery changes apply when no torrent is playing.",
-  "torrent.settings.save_failed": "Could not save the torrent settings"
+  "torrent.settings.save_failed": "Could not save the torrent settings",
+  "src.download": "Download for later",
+  "src.download.started": "Downloading in the background. It shows up in Torrents > Downloads.",
+  "src.download.failed": "Could not start the download. Background downloads may be off.",
+  "src.download.open": "Downloads",
+  "src.prefer.hint": "Ranks web or torrent sources first. Torrents play while they download."
 }
