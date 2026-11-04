@@ -742,6 +742,69 @@
   G.__tk_pending_fetches = () => pending.size;
   G.__tatakai_anitomy__ = () => ({});
 
+  // ---- browser runtime for configureBrowserRuntime (legacy seanime-browser-host.cjs; checks repeated in Rust) -------
+  // __host_browser_start exists only for a bundle with permitted browserDomains; completions arrive like fetch.
+  const browserPending = new Map();
+  let browserSeq = 0;
+  const browserOp = (op, id, arg) => new Promise((resolve, reject) => {
+    const seq = ++browserSeq;
+    browserPending.set(seq, { resolve, reject });
+    try { __host_browser_start(seq, op, id, arg); } catch (e) { browserPending.delete(seq); reject(e); }
+  });
+  G.__tk_browser_done = (seq, json) => {
+    const p = browserPending.get(seq);
+    if (!p) return;
+    browserPending.delete(seq);
+    const r = JSON.parse(json);
+    if (r.ok) p.resolve(r.value === undefined ? null : r.value); else p.reject(new Error(r.error));
+  };
+  G.__tk_pending_browser = () => browserPending.size;
+  G.__tk_browser_runtime = function () {
+    if (typeof G.__host_browser_start !== 'function') return null;
+    let domains;
+    try { domains = JSON.parse(G.__host_browser_domains || '[]'); } catch (e) { domains = []; }
+    if (!Array.isArray(domains) || !domains.length) return null;
+    const closedError = () => new Error('ChromeDP browser is closed');
+    return Object.freeze({
+      newBrowser: async (options) => {
+        const o = options && typeof options === 'object' ? options : {};
+        const id = await browserOp('new', '', JSON.stringify({ headless: o.headless, timeout: o.timeout }));
+        let closed = false;
+        return Object.freeze({
+          navigate: (url) => (closed ? Promise.reject(closedError()) : browserOp('navigate', id, String(url)).then(() => undefined)),
+          evaluate: (expression) => {
+            if (closed) return Promise.reject(closedError());
+            if (typeof expression !== 'string') return Promise.reject(new Error('Invalid ChromeDP expression'));
+            return browserOp('evaluate', id, expression);
+          },
+          executeCDP: (method, params) => {
+            if (closed) return Promise.reject(closedError());
+            if (method === 'Network.getCookies') {
+              const urls = params && params.urls;
+              if (!Array.isArray(urls) || !urls.length || urls.length > 10) return Promise.reject(new Error('ChromeDP cookie URLs are required'));
+              return browserOp('cookies', id, JSON.stringify(urls.map(String)));
+            }
+            if (method === 'Network.getAllCookies') {
+              return browserOp('cookies', id, JSON.stringify(domains.slice(0, 10).map((d) => 'https://' + d + '/')));
+            }
+            return Promise.reject(new Error('Unsupported ChromeDP CDP command: ' + method));
+          },
+          sleep: (ms) => {
+            if (closed) return Promise.reject(closedError());
+            const d = Number(ms);
+            if (!Number.isFinite(d) || d < 0 || d > 10000) return Promise.reject(new Error('Invalid ChromeDP sleep duration'));
+            return new Promise((resolve) => G.setTimeout(resolve, d));
+          },
+          close: () => {
+            if (closed) return Promise.resolve();
+            closed = true;
+            return browserOp('close', id, '').then(() => undefined);
+          },
+        });
+      },
+    });
+  };
+
   // ---- cheerio-like HTML adapter over host-side `scraper` documents --------------------------------------------------
   G.__tatakai_parse_html__ = function parseHtml(html) {
     if (typeof html !== 'string' || html.length === 0) {

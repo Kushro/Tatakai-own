@@ -13,13 +13,13 @@ use tk_core::net::{Policy, SafeHttp, host_matches_permissions};
 use tk_core::sources::SourceCandidate;
 use tk_core::{Compat, InstalledExtension, Media, StreamSource, SubtitleTrack};
 
-use crate::browser::BrowserRuntime;
+use crate::browser::{BrowserRuntime, browser_domains};
 use crate::candidates::map_candidates;
 use crate::compat::{CompatReport, analyze_bundle, deferred_permissions};
 use crate::error::{ExtError, InstallError};
 use crate::manifest::{Manifest, valid_id};
 use crate::package::{Package, read_kai};
-use crate::runtime::{CALL_TIMEOUT, CallKind, LogBuf, Worker, WorkerConfig};
+use crate::runtime::{BrowserCfg, CALL_TIMEOUT, CallKind, LogBuf, Worker, WorkerConfig};
 
 #[derive(Serialize, Deserialize)]
 struct StateFile {
@@ -249,6 +249,12 @@ impl ExtensionHost {
             policy.allow_loopback = true;
         }
         let http = SafeHttp::new(policy).with_host_filter(Arc::new(move |h: &str| host_matches_permissions(h, &filter_perms)));
+        // Legacy host-server.cjs: a browser only for permitted `browserDomains` (configureBrowserRuntime is JS side).
+        let domains = browser_domains(&e.manifest);
+        let browser = match &self.browser {
+            Some(runtime) if !domains.is_empty() => Some(BrowserCfg { runtime: runtime.clone(), domains }),
+            _ => None,
+        };
         let worker = Arc::new(Worker::spawn(WorkerConfig {
             id: e.manifest.id.clone(),
             manifest_json: e.manifest_json.clone(),
@@ -257,6 +263,7 @@ impl ExtensionHost {
             http,
             logs: e.logs.clone(),
             call_timeout: self.call_timeout,
+            browser,
         })?);
         e.worker = Some(worker.clone());
         Ok(worker)
