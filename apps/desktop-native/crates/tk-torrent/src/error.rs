@@ -22,9 +22,3 @@ pub enum TorrentError {
     #[error("torrent engine unavailable: {0}")]
     Unavailable(String),
 }
-
-impl TorrentError {
-    pub(crate) fn not_implemented(what: &str) -> Self {
-        Self::Unavailable(format!("{what} is not implemented yet (wave 3 A)"))
-    }
-}
