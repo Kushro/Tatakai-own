@@ -2,9 +2,49 @@
 <resources>
     <string name="search_hint">Search anime</string>
     <string name="search_clear">Clear search</string>
-    <string name="search_idle_title">Find your next anime</string>
-    <string name="search_idle_message">Type a title to search AniList, Kitsu and more.</string>
-    <string name="search_empty_title">No results for \"%1$s\"</string>
-    <string name="search_empty_message">Check the spelling or try another title.</string>
+    <string name="search_idle_title">Search for an anime</string>
+    <string name="search_idle_message">Type at least two letters. Results come from your metadata sources.</string>
+    <string name="search_empty_title">No results</string>
+    <string name="search_empty_message">Nothing matches \"%1$s\". Try another spelling or the original title.</string>
+    <string name="search_empty_filtered">No result matches the active filters.</string>
     <string name="search_load_more">Load more</string>
+    <!-- android wave (docs/redesign/12 §4 c): prototype screens.js S.search -->
+    <string name="search_title">Search</string>
+    <string name="search_history">Recent searches</string>
+    <string name="search_history_remove">Remove \"%1$s\" from recent searches</string>
+    <string name="search_filters">Filters</string>
+    <string name="search_filters_active">Filters (%1$d active)</string>
+    <string name="search_type">Type</string>
+    <string name="search_type_anime">Anime</string>
+    <string name="search_type_manga">Manga</string>
+    <string name="search_type_novel">Novel</string>
+    <string name="search_source">Source</string>
+    <string name="search_source_metadata">Metadata</string>
+    <plurals name="search_results">
+        <item quantity="one">%1$d result</item>
+        <item quantity="other">%1$d results</item>
+    </plurals>
+    <string name="search_genre">Genre</string>
+    <string name="search_year">Year</string>
+    <string name="search_season">Season</string>
+    <string name="search_status">Status</string>
+    <string name="search_apply">Apply filters</string>
+    <string name="search_reset">Reset</string>
+    <string name="search_remove_filter">Remove filter %1$s</string>
+    <string name="search_season_winter">Winter</string>
+    <string name="search_season_spring">Spring</string>
+    <string name="search_season_summer">Summer</string>
+    <string name="search_season_fall">Fall</string>
+    <string name="search_status_releasing">Airing</string>
+    <string name="search_status_finished">Finished</string>
+    <string name="search_status_upcoming">Upcoming</string>
+    <string name="search_status_cancelled">Cancelled</string>
+    <string name="search_status_hiatus">On hiatus</string>
+    <string name="search_feed_trending">Trending</string>
+    <string name="search_feed_popular">Popular</string>
+    <string name="search_feed_top_rated">Top rated</string>
+    <string name="search_feed_airing">Airing now</string>
+    <string name="search_feed_upcoming">Upcoming</string>
+    <string name="search_feed_seasonal">This season</string>
+    <string name="search_feed_completed">Recently completed</string>
 </resources>
