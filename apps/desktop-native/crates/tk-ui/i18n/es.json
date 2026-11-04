@@ -418,5 +418,18 @@
   "settings.player.enhanced_ui.uosc": "uosc (mpv-anime-build)",
   "player.error.no_player_at": "No se pudo iniciar el reproductor de video. Revisa el registro en {dir}.",
   "account.not_configured_at": "Esta compilación no tiene un servicio de cuentas configurado. Agrega la URL de Supabase y la clave anon en config.json dentro de {dir} para activar la sincronización.",
-  "settings.data.hint_at": "Todo vive en {dir}. Sin telemetría."
+  "settings.data.hint_at": "Todo vive en {dir}. Sin telemetría.",
+  "player.external.title": "Reproduciendo en mpv externo",
+  "player.external.window_title": "{title} · Episodio {n}",
+  "player.external.starting": "Abriendo mpv…",
+  "player.external.paused": "En pausa",
+  "player.external.ended": "Terminó. Cierra mpv o vuelve atrás.",
+  "player.external.hint": "Usa los controles y atajos de mpv. Al cerrar mpv vuelves aquí.",
+  "player.external.stop": "Detener",
+  "player.external.not_found": "No se encontró mpv",
+  "player.external.not_found_cause": "Instala mpv o indica su ruta en Ajustes › Reproductor.",
+  "player.external.searched": "Se buscó en PATH y en las ubicaciones de instalación habituales.",
+  "player.external.open_settings": "Abrir Ajustes",
+  "player.enhanced.preparing": "Preparando mpv-anime-build…",
+  "player.enhanced.fallback": "mpv-anime-build no está disponible. Se reproduce con el motor integrado."
 }

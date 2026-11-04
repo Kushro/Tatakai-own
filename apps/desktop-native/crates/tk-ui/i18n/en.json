@@ -418,5 +418,18 @@
   "settings.player.enhanced_ui.uosc": "uosc (mpv-anime-build)",
   "player.error.no_player_at": "The video player could not start. Check the log in {dir}.",
   "account.not_configured_at": "This build has no account service configured. Add the Supabase URL and anon key to config.json in {dir} to enable sync.",
-  "settings.data.hint_at": "Everything lives in {dir}. No telemetry."
+  "settings.data.hint_at": "Everything lives in {dir}. No telemetry.",
+  "player.external.title": "Playing in external mpv",
+  "player.external.window_title": "{title} · Episode {n}",
+  "player.external.starting": "Opening mpv…",
+  "player.external.paused": "Paused",
+  "player.external.ended": "Finished. Close mpv or go back.",
+  "player.external.hint": "Use mpv's own controls and shortcuts. Closing mpv brings you back here.",
+  "player.external.stop": "Stop",
+  "player.external.not_found": "mpv was not found",
+  "player.external.not_found_cause": "Install mpv or set its path in Settings > Player.",
+  "player.external.searched": "Searched PATH and the usual install locations.",
+  "player.external.open_settings": "Open Settings",
+  "player.enhanced.preparing": "Preparing mpv-anime-build…",
+  "player.enhanced.fallback": "mpv-anime-build is not available. Playing with the embedded engine."
 }
