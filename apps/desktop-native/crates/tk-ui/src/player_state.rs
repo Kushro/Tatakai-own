@@ -298,6 +298,16 @@ pub fn hover_fraction(x: f64, width: f64) -> f64 {
     if width > 0.0 && x.is_finite() { (x / width).clamp(0.0, 1.0) } else { 0.0 }
 }
 
+/// The controls (and the status they carry: "Looking for a source", the buffering spinner) stay up regardless of
+/// pointer activity until the first frame: resolving, waiting for a manual pick, or loading before any picture.
+pub fn keeps_controls_up(phase: Phase, video_ready: bool) -> bool {
+    match phase {
+        Phase::Resolving | Phase::Manual => true,
+        Phase::Buffering => !video_ready,
+        Phase::Playing | Phase::Error => false,
+    }
+}
+
 /// Seconds left on the next-episode card that appeared at `since_ms`.
 pub fn countdown_left(since_ms: u64, now_ms: u64) -> u64 {
     NEXT_COUNTDOWN_SECS.saturating_sub(now_ms.saturating_sub(since_ms) / 1000)
@@ -581,6 +591,12 @@ mod tests {
         assert_eq!(hover_fraction(-5.0, 200.0), 0.0);
         assert_eq!(hover_fraction(500.0, 200.0), 1.0);
         assert_eq!(hover_fraction(5.0, 0.0), 0.0);
+        assert!(keeps_controls_up(Phase::Resolving, false));
+        assert!(keeps_controls_up(Phase::Manual, false));
+        assert!(keeps_controls_up(Phase::Buffering, false));
+        assert!(!keeps_controls_up(Phase::Buffering, true), "a stall mid-episode does not pin the controls");
+        assert!(!keeps_controls_up(Phase::Playing, true));
+        assert!(!keeps_controls_up(Phase::Error, false));
         assert_eq!(countdown_left(1000, 1000), 10);
         assert_eq!(countdown_left(1000, 4500), 7);
         assert_eq!(countdown_left(1000, 60_000), 0);
