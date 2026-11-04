@@ -9,6 +9,7 @@ import app.tatakai.next.model.LinkProfile
 import app.tatakai.next.model.LinkRepository
 import app.tatakai.next.model.LinkSource
 import app.tatakai.next.model.LinkState
+import app.tatakai.next.model.LinkedDevice
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.PairedPc
 import app.tatakai.next.model.RemoteSession
@@ -67,6 +68,15 @@ class LinkViewModelTest {
         override suspend fun forget() {
             forgotten = true
             state.value = LinkState.Unpaired
+            device.value = null
+        }
+
+        val device = MutableStateFlow<LinkedDevice?>(null)
+        var preferred: String? = "unset"
+        override val linkedDevice get() = device
+        override suspend fun setPreferredProfile(profileId: String?) {
+            preferred = profileId
+            device.value = device.value?.copy(preferredProfile = profileId)
         }
     }
 
@@ -151,5 +161,54 @@ class LinkViewModelTest {
         vm.retryCapabilities()
 
         assertIs<LoadState.Ok<LinkCapabilities>>(vm.state.value.capabilities)
+    }
+
+    @Test
+    fun `selecting a profile persists it as the preferred profile`() = runTest {
+        val repo = FakeLink({ Result.success(pc) }, { Result.success(caps) })
+        val vm = LinkViewModel(repo, "Pixel")
+        vm.pair("x")
+
+        vm.selectProfile("p-anime4k-1080")
+
+        assertEquals("p-anime4k-1080", repo.preferred)
+        assertEquals("p-anime4k-1080", vm.state.value.selectedProfile)
+    }
+
+    @Test
+    fun `the stored preferred profile is the initial selection and survives capability loads`() = runTest {
+        val repo = FakeLink({ Result.success(pc) }, { Result.success(caps) })
+        repo.device.value = LinkedDevice("dev1", "Desktop", "192.168.1.9", 47321, "7A3F 91C2", 1L, 2L, "p-anime4k-1080", "Pixel")
+        repo.state.value = LinkState.Paired(pc, reachable = true)
+
+        val vm = LinkViewModel(repo, "Pixel")
+
+        assertEquals("p-anime4k-1080", vm.state.value.selectedProfile)
+        assertEquals("7A3F 91C2", vm.state.value.device?.fingerprint)
+        assertIs<LoadState.Ok<LinkCapabilities>>(vm.state.value.capabilities)
+    }
+
+    @Test
+    fun `pasted pairing text is validated like the prototype`() = runTest {
+        val vm = LinkViewModel(FakeLink({ Result.success(pc) }, { Result.success(caps) }), "Pixel")
+
+        assertEquals(true, vm.isValidPairingText(" tatakai-link:v1?h=192.168.1.24&p=47321&c=7K3MQ9ZX2B "))
+        assertEquals(true, vm.isValidPairingText("7k3mq9zx2b"))
+        assertEquals(false, vm.isValidPairingText("tatakai-link:v1?"))
+        assertEquals(false, vm.isValidPairingText("https://example.test"))
+        assertEquals(false, vm.isValidPairingText("12345"))
+    }
+
+    @Test
+    fun `forgetting clears the selected profile`() = runTest {
+        val repo = FakeLink({ Result.success(pc) }, { Result.success(caps) })
+        val vm = LinkViewModel(repo, "Pixel")
+        vm.pair("x")
+        vm.selectProfile("p-anime4k-1080")
+
+        vm.forget()
+
+        assertNull(vm.state.value.selectedProfile)
+        assertNull(vm.state.value.device)
     }
 }
