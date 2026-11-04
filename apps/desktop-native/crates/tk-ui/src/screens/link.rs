@@ -15,7 +15,7 @@ use crate::components::{
 };
 use crate::i18n::{t, tf};
 use crate::icons::Icon;
-use crate::model::{ErrorKind, Pairing, UiError, format_code, format_countdown, format_unix_utc};
+use crate::model::{ErrorKind, Pairing, PlatformVm, UiError, format_code, format_countdown, format_unix_utc};
 use crate::platform::now_unix;
 use crate::qr::qr_svg;
 
@@ -224,7 +224,11 @@ pub fn LinkPage() -> Element {
         },
     };
 
-    let fw_done = matches!(fw_result(), Some(Ok(())));
+    // The firewall rule flow is Windows-only (netsh + UAC); elsewhere the app does not touch the firewall, so
+    // step 1 is a reminder that counts as done once the server listens.
+    let windows = PlatformVm::current() == PlatformVm::Windows;
+    let port_text = current.as_ref().map(|s| s.port).unwrap_or(DEFAULT_PORT).to_string();
+    let fw_done = if windows { matches!(fw_result(), Some(Ok(()))) } else { running };
     let open_done = pairing().is_some_and(|p| !p.is_expired(now()));
     let scan_done = current.as_ref().is_some_and(|s| !s.devices.is_empty());
     let device_count = current.as_ref().map(|s| s.devices.len()).unwrap_or(0);
@@ -398,7 +402,11 @@ pub fn LinkPage() -> Element {
             }
 
             ol { class: "tk-steps",
-                Step { n: 1, title: t("link.steps.fw"), sub: t("link.steps.fw_sub"), done: fw_done }
+                if windows {
+                    Step { n: 1, title: t("link.steps.fw"), sub: t("link.steps.fw_sub"), done: fw_done }
+                } else {
+                    Step { n: 1, title: t("link.steps.fw_other"), sub: t("link.steps.fw_other_sub"), done: fw_done }
+                }
                 Step { n: 2, title: t("link.steps.open"), sub: t("link.steps.open_sub"), done: open_done }
                 Step { n: 3, title: t("link.steps.scan"), sub: t("link.steps.scan_sub"), done: scan_done }
             }
@@ -431,27 +439,37 @@ pub fn LinkPage() -> Element {
             }
 
             div { class: "tk-link-grid",
-                section { class: "tk-panel",
-                    h2 { class: "tk-panel__title",
-                        Icon { name: "shield".to_string(), size: 24 }
-                        {t("link.allow_private")}
-                    }
-                    p { class: "tk-panel__hint", {t("link.allow_private.hint")} }
-                    if fw_done {
-                        Banner { text: t("link.allow_private.already"), icon: "check".to_string(), tone: Tone::Ok }
-                    } else {
-                        div {
-                            Button {
-                                label: if fw_busy() { t("link.allow_private.busy") } else { t("link.allow_private") },
-                                icon: "shield".to_string(),
-                                variant: ButtonVariant::Tonal,
-                                disabled: fw_busy(),
-                                onclick: allow_private,
+                if windows {
+                    section { class: "tk-panel",
+                        h2 { class: "tk-panel__title",
+                            Icon { name: "shield".to_string(), size: 24 }
+                            {t("link.allow_private")}
+                        }
+                        p { class: "tk-panel__hint", {t("link.allow_private.hint")} }
+                        if fw_done {
+                            Banner { text: t("link.allow_private.already"), icon: "check".to_string(), tone: Tone::Ok }
+                        } else {
+                            div {
+                                Button {
+                                    label: if fw_busy() { t("link.allow_private.busy") } else { t("link.allow_private") },
+                                    icon: "shield".to_string(),
+                                    variant: ButtonVariant::Tonal,
+                                    disabled: fw_busy(),
+                                    onclick: allow_private,
+                                }
                             }
                         }
+                        if let Some(Err(e)) = fw_result() {
+                            ErrorState { error: e, compact: true, retry: false }
+                        }
                     }
-                    if let Some(Err(e)) = fw_result() {
-                        ErrorState { error: e, compact: true, retry: false }
+                } else {
+                    section { class: "tk-panel",
+                        h2 { class: "tk-panel__title",
+                            Icon { name: "shield".to_string(), size: 24 }
+                            {t("link.firewall_other")}
+                        }
+                        p { class: "tk-panel__hint", {tf("link.firewall_other.hint", &[("port", &port_text)])} }
                     }
                 }
 

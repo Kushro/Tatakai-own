@@ -7,9 +7,9 @@
  * </auto-generated> */
 
 :root {
-  --tk-font-display: "Space Grotesk", system-ui, sans-serif;
-  --tk-font-text: "Outfit", system-ui, sans-serif;
-  --tk-font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --tk-font-display: "Space Grotesk", "Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans JP", "Source Han Sans", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --tk-font-text: "Outfit", "Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans JP", "Source Han Sans", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  --tk-font-mono: "JetBrains Mono", ui-monospace, "Noto Sans Mono CJK JP", "Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans JP", "Source Han Sans", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", "Microsoft YaHei", "Noto Sans CJK SC", monospace;
   --tk-tv-type-scale: 1.15;
   --md-sys-typescale-display-large-font: var(--tk-font-display);
   --md-sys-typescale-display-large-size: 57px;
