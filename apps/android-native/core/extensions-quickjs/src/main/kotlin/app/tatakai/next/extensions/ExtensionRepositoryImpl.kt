@@ -77,6 +77,14 @@ class ExtensionRepositoryImpl(
     private val scope = CoroutineScope(SupervisorJob() + io)
     private val state = MutableStateFlow<List<InstalledExtension>>(emptyList())
     private val records = HashMap<String, Record>()
+
+    /**
+     * Raw candidates of a (media, episode) for [CANDIDATE_CACHE_TTL_MS]: Details resolves the panel and the player resolves again when
+     * Watch is pressed; extension routes can take a minute, so the second call reuses the first. Only non-empty results are kept (a retry
+     * after "no sources" asks the extensions again); the key includes every runnable extension's id and package hash, so installing,
+     * updating or toggling one starts fresh. Ranking, reliability and the picked source are recomputed on every call.
+     */
+    private val candidateCache = LinkedHashMap<String, Pair<Long, List<SourceCandidate>>>()
     private val lock = Mutex()
     private val ready = CompletableDeferred<Unit>()
 
@@ -219,21 +227,33 @@ class ExtensionRepositoryImpl(
 
     override suspend fun resolveCandidates(media: Media, episode: Int): List<RankedSource> {
         ready.await()
+        var cacheKey = ""
         val snapshot: List<Pair<ExtensionManifest, List<String>>> = lock.withLock {
-            records.values.filter { it.runnable }
+            val runnable = records.values.filter { it.runnable }
                 .sortedWith(compareBy<Record> { it.manifest.priority }.thenBy { it.manifest.id })
-                .map { it.manifest to Candidates.candidateRoutes(it.manifest, it.torrentAll) }
+            cacheKey = "${media.ref}|$episode|" + runnable.joinToString(",") { "${it.manifest.id}@${it.stored.sha256}" }
+            runnable.map { it.manifest to Candidates.candidateRoutes(it.manifest, it.torrentAll) }
                 .filter { it.second.isNotEmpty() }
         }
         if (snapshot.isEmpty()) return emptyList()
         val enabledIds = snapshot.map { it.first.id }.toSet()
-        val params = streamParams(media, episode)
-        val raw: List<SourceCandidate> = coroutineScope {
-            snapshot.flatMap { (m, routes) ->
-                // Routes of one extension are serialized by the host, so each one may wait for the others.
-                val budget = budgetMs(m) * routes.size
-                routes.map { route -> async(io) { candidatesOf(m, route, params, budget) } }
-            }.awaitAll().flatten()
+        val cached = synchronized(candidateCache) {
+            candidateCache[cacheKey]?.takeIf { clock() - it.first < CANDIDATE_CACHE_TTL_MS }?.second
+        }
+        val raw: List<SourceCandidate> = cached ?: run {
+            val params = streamParams(media, episode)
+            coroutineScope {
+                snapshot.flatMap { (m, routes) ->
+                    // Routes of one extension are serialized by the host, so each one may wait for the others.
+                    val budget = budgetMs(m) * routes.size
+                    routes.map { route -> async(io) { candidatesOf(m, route, params, budget) } }
+                }.awaitAll().flatten()
+            }.also { fresh ->
+                if (fresh.isNotEmpty()) synchronized(candidateCache) {
+                    candidateCache[cacheKey] = clock() to fresh
+                    while (candidateCache.size > CANDIDATE_CACHE_MAX) candidateCache.remove(candidateCache.keys.first())
+                }
+            }
         }
         if (raw.isEmpty()) return emptyList()
         val withReliability = raw.map { c ->
@@ -459,6 +479,9 @@ class ExtensionRepositoryImpl(
 
     companion object {
         const val EXTENSION_BUDGET_MS = 25_000L
+        /** How long Details' resolved candidates serve the player's own resolve (see candidateCache). */
+        const val CANDIDATE_CACHE_TTL_MS = 3 * 60_000L
+        private const val CANDIDATE_CACHE_MAX = 16
         private val SHA_HEX = Regex("^[0-9a-f]{64}$")
 
         internal fun sha256Hex(bytes: ByteArray): String =

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -193,7 +194,8 @@ internal fun SearchContent(
 @Composable
 private fun SearchTopBar(state: SearchUiState, actions: SearchActions, onOpenFilters: () -> Unit) {
     val focusManager = LocalFocusManager.current
-    Column(Modifier.fillMaxWidth()) {
+    // Scaffold's contentWindowInsets only pad the content; the top bar takes the status bar itself.
+    Column(Modifier.fillMaxWidth().statusBarsPadding()) {
         Text(
             stringResource(R.string.search_title),
             style = MaterialTheme.typography.headlineMedium,

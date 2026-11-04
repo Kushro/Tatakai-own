@@ -184,8 +184,17 @@ class MpvEngine(context: Context) {
         // List option: entries separated by ',', so commas inside values are escaped mpv-style.
         mpv.setPropertyString("http-header-fields", rest.entries.joinToString(",") { (k, v) -> "$k: ${v.replace(",", "\\,")}" })
         mpv.setPropertyString("start", if (startSecs > 0) String.format(Locale.ROOT, "%.3f", startSecs) else "none")
-        mpv.command(arrayOf("loadfile", url, "replace"))
-        mpv.setPropertyBoolean("pause", false)
+        val start = {
+            mpv.command(arrayOf("loadfile", url, "replace"))
+            mpv.setPropertyBoolean("pause", false)
+        }
+        // vo=gpu without a surface fails for good ("Failed initializing any suitable GPU context") and mpv goes on audio-only, so the
+        // file is loaded once the SurfaceView is attached (mpv-android loads in surfaceCreated too). Seen when the candidates come from
+        // the cache and the load beats surfaceCreated.
+        val now = synchronized(surfaceLock) {
+            if (surfaceAttached) true else { pendingStart = start; false }
+        }
+        if (now) start()
     }
 
     fun play() {
@@ -266,11 +275,20 @@ class MpvEngine(context: Context) {
 
     fun currentPositionSecs(): Double = if (released) 0.0 else mpv.getPropertyDouble("time-pos") ?: _state.value.positionSecs
 
+    private val surfaceLock = Any()
+    private var surfaceAttached = false
+    private var pendingStart: (() -> Unit)? = null
+
     internal fun attachSurface(surface: Surface) {
         if (released) return
         mpv.attachSurface(surface)
         mpv.setOptionString("force-window", "yes")
         mpv.setPropertyString("vo", "gpu")
+        val start = synchronized(surfaceLock) {
+            surfaceAttached = true
+            pendingStart.also { pendingStart = null }
+        }
+        start?.invoke()
     }
 
     internal fun resizeSurface(width: Int, height: Int) {
@@ -278,6 +296,7 @@ class MpvEngine(context: Context) {
     }
 
     internal fun detachSurface() {
+        synchronized(surfaceLock) { surfaceAttached = false }
         if (released) return
         mpv.setPropertyString("vo", "null")
         mpv.setOptionString("force-window", "no")
@@ -287,6 +306,7 @@ class MpvEngine(context: Context) {
     fun release() {
         if (released) return
         released = true
+        synchronized(surfaceLock) { pendingStart = null }
         mpv.removeObserver(observer)
         mpv.removeLogObserver(logObserver)
         mpv.destroy()

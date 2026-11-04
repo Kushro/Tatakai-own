@@ -1126,7 +1126,8 @@ internal class TorrentRepositoryImpl(
             peers = st.numPeers(),
             etaSecs = if (down > 0 && wanted > done) (wanted - done) / down else null,
             streaming = streaming,
-            elapsedSecs = st.activeDuration(),
+            // libtorrent4j's TorrentStatus durations are milliseconds (swig total_milliseconds), not seconds.
+            elapsedSecs = st.activeDuration() / 1000,
             protocol = ProtocolStatus(
                 dht = s.dht,
                 lsd = s.lsd && !metered,

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -130,7 +131,8 @@ internal fun LibraryContent(
         modifier = modifier,
         contentWindowInsets = screenInsets,
         topBar = {
-            Column(Modifier.fillMaxWidth()) {
+            // Scaffold's contentWindowInsets only pad the content; the top bar takes the status bar itself.
+            Column(Modifier.fillMaxWidth().statusBarsPadding()) {
                 LibraryHeader(state, actions.onSyncNow)
                 LibraryTabs(selected = LibraryTab.entries[tab], activeDownloads = state.activeDownloads, onSelect = { tab = it.ordinal })
             }
@@ -190,11 +192,14 @@ private fun LibraryTabs(selected: LibraryTab, activeDownloads: Int, onSelect: (L
                 text = {
                     if (t == LibraryTab.TORRENTS && activeDownloads > 0) {
                         val badge = stringResource(R.string.library_torrents_badge, activeDownloads)
-                        BadgedBox(
-                            badge = { Badge { Text(activeDownloads.toString()) } },
-                            modifier = Modifier.semantics { contentDescription = badge },
+                        // Badge beside the label: BadgedBox anchors it over the end of the text and hides the last letters.
+                        Row(
+                            modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = badge },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
                             Text(stringResource(t.labelRes()))
+                            Badge { Text(activeDownloads.toString()) }
                         }
                     } else {
                         Text(stringResource(t.labelRes()))
