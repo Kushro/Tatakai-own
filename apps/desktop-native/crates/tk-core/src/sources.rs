@@ -20,6 +20,8 @@ use crate::release::ReleaseTags;
 pub const INITIAL_RELIABILITY: f32 = 0.8;
 /// Weight of the newest result in the reliability moving average.
 pub const RELIABILITY_ALPHA: f32 = 0.2;
+/// Score bonus of a SeaDex "best" torrent release ([`score`]).
+pub const SEADEX_BEST_BONUS: f32 = 4.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -251,6 +253,10 @@ impl Default for SourcePrefs {
 /// `reliability*50 ± 20 (preferred kind) + 6*min(rank,3) − 25 if below min_quality + 10 (sub_lang in subs)
 /// + 6 (dub_lang in dubs) + torrent: min(seeders,500)/50 − 20 if seeders < 20 | web: −min(latency,1000)/100
 /// − 1000 when the extension is disabled`.
+///
+/// Wave 3 (docs/redesign/10 section 3), torrent release tags: `+ SEADEX_BEST_BONUS` (4) when `tags.seadex_best`.
+/// Small on purpose: it reorders otherwise close torrents but never beats a seeder or preference gap. (A batch bonus
+/// would need the requested episode, which `score` does not get; batches are ranked like any other torrent.)
 pub fn score(c: &SourceCandidate, prefs: &SourcePrefs, ext_enabled: bool) -> f32 {
     let mut v = c.reliability * 50.0;
     if let Some(kind) = prefs.prefer {
@@ -273,6 +279,9 @@ pub fn score(c: &SourceCandidate, prefs: &SourcePrefs, ext_enabled: bool) -> f32
             v += seeders.min(500) as f32 / 50.0;
             if seeders < 20 {
                 v -= 20.0;
+            }
+            if c.tags.seadex_best {
+                v += SEADEX_BEST_BONUS;
             }
         }
         SourceKind::Web => {
@@ -476,6 +485,23 @@ mod tests {
         assert_eq!(update_reliability(0.0, false), 0.0);
         assert!((update_reliability(7.0, false) - 0.8).abs() < 1e-6); // clamped to 1 first
         assert!((update_reliability(f32::NAN, true) - 0.84).abs() < 1e-6);
+    }
+
+    #[test]
+    fn seadex_best_torrents_get_a_small_bonus() {
+        let mut t = SourceCandidate::from_stream(&stream(Some("1080p")), "Toko");
+        t.kind = SourceKind::Torrent;
+        t.web = None;
+        t.torrent = Some(TorrentInfo { info_hash: "ab".repeat(20), size_bytes: None, seeders: 100, leechers: 1, magnet: None });
+        let prefs = SourcePrefs::default();
+        let plain = score(&t, &prefs, true);
+        t.tags.seadex_best = true;
+        assert!((score(&t, &prefs, true) - plain - SEADEX_BEST_BONUS).abs() < 1e-4);
+        // web candidates never carry it, and the flag alone does nothing for them
+        let mut w = SourceCandidate::from_stream(&stream(Some("1080p")), "Toko");
+        let base = score(&w, &prefs, true);
+        w.tags.seadex_best = true;
+        assert!((score(&w, &prefs, true) - base).abs() < 1e-4);
     }
 
     #[test]

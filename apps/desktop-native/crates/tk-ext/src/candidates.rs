@@ -5,24 +5,41 @@
 //! missing `quality` is `Unknown`, missing `subs` / `dubs` come from the subtitle tracks / `audioLanguage`, and a
 //! missing `note` is `None`. Nothing here is ever an error; an entry that cannot be listed at all (embed page,
 //! torrent without a hash) is skipped.
+//!
+//! Torrent entries (wave 3, docs/redesign/10 section 6) also accept the field names Toko's torrent providers emit
+//! (`torrentTitle`, `magnetLink`, `releaseGroup`, `fileSize`, `isBest`): the release name is parsed with
+//! `tk_core::release::parse_release` into `SourceCandidate::tags`; `seadex_best` comes from `seadexBest` / `isBest`
+//! / `best`, or, when the entry says nothing, from the provider being SeaDex (Toko drops `isBest` and SeaDex only
+//! lists recommended releases). Base32 info-hashes (32 chars) are converted to the 40-char hex form.
 
 use serde_json::Value;
-use tk_core::release::ReleaseTags;
+use tk_core::release::{ReleaseTags, parse_release};
 use tk_core::sources::{INITIAL_RELIABILITY, Quality, SourceCandidate, SourceKind, TorrentInfo, WebInfo, container_label, lang_codes};
 
 use crate::host::{headers_of, subtitles_of, web_container};
 use crate::manifest::Manifest;
 
 /// Routes [`crate::ExtensionHost::resolve_candidates`] asks one enabled, runnable extension (docs/redesign/10
-/// section 6), in order. Contract stub = the wave 1 rule: `torrent` for `torrent` extensions, `stream` for the others,
-/// each only if `Manifest::gated_routes` allows it. Wave 3 E: `custom` / `onlinestream` extensions whose manifest
-/// lists `torrent` explicitly in `apiServer.routes` (the default route list does not count) or whose bundle exposes
-/// `torrentAll` (`exposes_torrent_all`) are asked `stream` **and** `torrent` (Toko: Nyaa, SubsPlease, AnimeTosho,
-/// SeaDex, nekoBT, AniLiberty).
+/// section 6), in order, each only if `Manifest::gated_routes` allows it: `torrent` for `torrent` extensions; `stream`
+/// for `custom` / `onlinestream` ones, plus `torrent` when their manifest lists it explicitly in `apiServer.routes`
+/// (the default route list does not count) or their bundle exposes `torrentAll` (`exposes_torrent_all`). Toko lists
+/// it, so its torrent providers (Nyaa, SubsPlease, AnimeTosho, SeaDex, nekoBT, AniLiberty) reach the picker.
 pub fn candidate_routes(m: &Manifest, exposes_torrent_all: bool) -> Vec<&'static str> {
-    let _ = exposes_torrent_all;
-    let route = if m.kind == "torrent" { "torrent" } else { "stream" };
-    if m.gated_routes().iter().any(|r| r == route) { vec![route] } else { Vec::new() }
+    let gated = m.gated_routes();
+    let allowed = |route: &str| gated.iter().any(|r| r == route);
+    if m.kind == "torrent" {
+        return if allowed("torrent") { vec!["torrent"] } else { Vec::new() };
+    }
+    // only an explicit `apiServer.routes` list counts: the default list names `torrent` for every extension
+    let lists_torrent = m.api_server.as_ref().and_then(|a| a.routes.as_ref()).is_some_and(|r| r.iter().any(|x| x == "torrent"));
+    let mut out = Vec::new();
+    if allowed("stream") {
+        out.push("stream");
+    }
+    if (lists_torrent || exposes_torrent_all) && allowed("torrent") {
+        out.push("torrent");
+    }
+    out
 }
 
 /// Map one route body (`{ sources: SourceResultNormalized[] }`) of extension `ext_id` (display name `ext_name`).
@@ -75,12 +92,41 @@ fn map_one(ext_id: &str, ext_name: &str, s: &Value) -> Option<SourceCandidate> {
     };
     let note = text(&s["note"]);
     if ty == "torrent" || s["isTorrent"].as_bool() == Some(true) {
-        let magnet = Some(url).filter(|u| u.to_ascii_lowercase().starts_with("magnet:")).map(str::to_owned);
+        let is_magnet = |u: &String| u.to_ascii_lowercase().starts_with("magnet:");
+        let magnet = Some(url.to_owned())
+            .filter(is_magnet)
+            .or_else(|| text(&s["magnetLink"]).filter(is_magnet))
+            .or_else(|| text(&s["magnet"]).filter(is_magnet));
         let info_hash = text(&s["infoHash"])
             .or_else(|| text(&s["hash"]))
             .or_else(|| magnet.as_deref().and_then(btih))
-            .map(|h| h.to_ascii_lowercase())?;
-        let label = text(&s["group"]).or_else(|| text(&s["server"])).unwrap_or(provider);
+            .and_then(|h| hex_info_hash(&h))?;
+        let release_name = text(&s["torrentTitle"])
+            .or_else(|| text(&s["title"]))
+            .or_else(|| text(&s["name"]))
+            .or_else(|| text(&s["releaseName"]))
+            .or_else(|| text(&s["fileName"]))
+            .or_else(|| magnet.as_deref().and_then(magnet_name));
+        let mut tags = release_name.as_deref().map(parse_release).unwrap_or_default();
+        if tags.resolution == Quality::Unknown {
+            tags.resolution = quality;
+        }
+        if s["dualAudio"].as_bool() == Some(true) {
+            tags.dual_audio = true;
+        }
+        if s["isBatch"].as_bool() == Some(true) || s["batch"].as_bool() == Some(true) {
+            tags.batch = true;
+        }
+        let explicit_best = ["seadexBest", "isBest", "best"].iter().find_map(|k| s[*k].as_bool());
+        let from_seadex =
+            [&s["providerName"], &s["source"], &s["providerKey"]].iter().any(|v| v.as_str().is_some_and(|p| p.eq_ignore_ascii_case("seadex")));
+        tags.seadex_best = explicit_best.unwrap_or(from_seadex);
+        let quality = if quality == Quality::Unknown { tags.resolution } else { quality };
+        let label = text(&s["group"])
+            .or_else(|| text(&s["releaseGroup"]))
+            .or_else(|| tags.group.clone())
+            .or_else(|| text(&s["server"]))
+            .unwrap_or(provider);
         let torrent = TorrentInfo {
             info_hash,
             size_bytes: size_of(&s["sizeBytes"]).or_else(|| size_of(&s["fileSize"])).or_else(|| size_of(&s["size"])),
@@ -101,8 +147,7 @@ fn map_one(ext_id: &str, ext_name: &str, s: &Value) -> Option<SourceCandidate> {
             note,
             web: None,
             torrent: Some(torrent),
-            // wave 3 E: parse_release(name / title of the entry) + seadex_best from `seadexBest` / `isBest`
-            tags: ReleaseTags::default(),
+            tags,
         });
     }
     if url.is_empty() {
@@ -180,6 +225,60 @@ fn size_of(v: &Value) -> Option<u64> {
     }
 }
 
+/// `dn=<name>` of a magnet link, percent-decoded (`+` is a space).
+fn magnet_name(magnet: &str) -> Option<String> {
+    let query = magnet.split_once('?')?.1;
+    let raw = query.split('&').find_map(|kv| kv.strip_prefix("dn="))?;
+    let bytes = raw.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => out.push(b' '),
+            b'%' if i + 2 < bytes.len() => match std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|x| u8::from_str_radix(x, 16).ok()) {
+                Some(b) => {
+                    out.push(b);
+                    i += 2;
+                }
+                None => out.push(b'%'),
+            },
+            b => out.push(b),
+        }
+        i += 1;
+    }
+    Some(String::from_utf8_lossy(&out).trim().to_owned()).filter(|n| !n.is_empty())
+}
+
+/// A v1 info-hash as 40 lowercase hex chars: hex is kept, base32 (32 chars, RFC 4648) is converted; anything else is
+/// `None` (the entry is skipped).
+fn hex_info_hash(h: &str) -> Option<String> {
+    let h = h.trim();
+    if h.len() == 40 && h.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Some(h.to_ascii_lowercase());
+    }
+    if h.len() != 32 {
+        return None;
+    }
+    let mut bits: u64 = 0;
+    let mut nbits = 0u32;
+    let mut out = String::with_capacity(40);
+    for c in h.bytes() {
+        let v = match c.to_ascii_uppercase() {
+            c @ b'A'..=b'Z' => c - b'A',
+            c @ b'2'..=b'7' => c - b'2' + 26,
+            _ => return None,
+        };
+        bits = (bits << 5) | u64::from(v);
+        nbits += 5;
+        while nbits >= 8 {
+            nbits -= 8;
+            out.push_str(&format!("{:02x}", (bits >> nbits) & 0xff));
+        }
+        bits &= (1u64 << nbits) - 1;
+    }
+    Some(out).filter(|o| o.len() == 40)
+}
+
 /// `xt=urn:btih:<hash>` of a magnet link.
 fn btih(magnet: &str) -> Option<String> {
     let lower = magnet.to_ascii_lowercase();
@@ -247,6 +346,95 @@ mod tests {
         let t = c[1].torrent.as_ref().unwrap();
         assert_eq!((c[1].label.as_str(), t.seeders, t.leechers, t.size_bytes, t.magnet.clone()), ("nyaa", 6, 0, Some(1_900_000_000), None));
         assert_eq!(c[1].note.as_deref(), Some("sin confirmar"));
+    }
+
+    /// The shape Toko's torrent route returns (host.js `normalize` over `torrentAll` chunks of the nyaa / seadex /
+    /// animetosho providers): no `group` / `infoHash`, but `torrentTitle`, `magnetLink`, `releaseGroup`, `fileSize`.
+    #[test]
+    fn toko_torrent_entries_get_release_tags() {
+        let body = json!({ "sources": [
+            { "source": "nyaa", "providerName": "nyaa", "providerKey": "nyaa", "server": "", "type": "torrent", "sourceType": "torrent",
+              "isTorrent": true, "quality": "1080p", "audioLanguage": "ja", "headers": {}, "subtitles": [],
+              "url": "magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01&dn=%5BSubsPlease%5D%20Show%20-%2005%20(1080p)",
+              "magnetLink": "magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01&dn=%5BSubsPlease%5D%20Show%20-%2005%20(1080p)",
+              "torrentTitle": "[SubsPlease] Show - 05 (1080p) [A1B2C3D4].mkv", "releaseGroup": "SubsPlease",
+              "seeders": 812, "leechers": 41, "peers": 853, "fileSize": "1.4 GiB", "matchScore": 90, "fileFormat": "mkv" },
+            // .torrent url, magnet only in magnetLink, base32 hash, no releaseGroup: label = parsed group
+            { "source": "animetosho", "providerName": "animetosho", "server": "", "type": "torrent", "sourceType": "torrent", "quality": "auto",
+              "url": "https://animetosho.example/1.torrent",
+              "magnetLink": "magnet:?xt=urn:btih:VPG6AARWIEJXHW2N3YAEIQQZRSRGQEAB&dn=x",
+              "torrentTitle": "[Judas] Show S01 (BD 1080p HEVC x265 10bit Dual-Audio Multi-Subs) [Batch]", "seeders": 30 },
+            // SeaDex: `isBest` dropped by the provider -> best from the provider name; explicit false wins
+            { "source": "seadex", "providerName": "seadex", "server": "", "type": "torrent", "sourceType": "torrent", "quality": "1080p",
+              "url": "magnet:?xt=urn:btih:2222222222222222222222222222222222222222&dn=a",
+              "torrentTitle": "[Okay-Subs] Show - S01E01 (BD 1080p) [ABCD].mkv", "releaseGroup": "Okay-Subs", "seeders": 5 },
+            { "source": "seadex", "providerName": "seadex", "server": "", "type": "torrent", "sourceType": "torrent", "isBest": false,
+              "url": "magnet:?xt=urn:btih:3333333333333333333333333333333333333333&dn=b", "torrentTitle": "[Alt] Show (WEB 720p)" },
+            // nekoBT-style explicit flag on another provider
+            { "providerName": "nekobt", "type": "torrent", "seadexBest": true, "infoHash": "4444444444444444444444444444444444444444",
+              "url": "https://nekobt.example/t/4", "torrentTitle": "[Group] Show - 01 [WEB 1080p AV1]" }
+        ]});
+        let c = map_candidates("tatakai.extension.toko", "Toko", &body);
+        assert_eq!(c.len(), 5);
+        assert!(c.iter().all(|c| c.kind == SourceKind::Torrent && c.web.is_none()));
+        // nyaa
+        let t = c[0].torrent.as_ref().unwrap();
+        assert_eq!((c[0].label.as_str(), c[0].quality), ("SubsPlease", Quality::P1080));
+        assert_eq!(t.info_hash, "abcdef0123456789abcdef0123456789abcdef01");
+        assert_eq!((t.seeders, t.leechers, t.size_bytes), (812, 41, Some(1_503_238_554)));
+        assert_eq!(c[0].tags.episodes, Some((5, 5)));
+        assert_eq!(c[0].tags.group.as_deref(), Some("SubsPlease"));
+        assert!(!c[0].tags.batch && !c[0].tags.seadex_best);
+        // animetosho batch
+        let t = c[1].torrent.as_ref().unwrap();
+        assert_eq!(c[1].label, "Judas");
+        assert_eq!(t.info_hash.len(), 40);
+        assert_eq!(t.info_hash, "abcde0023641137b9b4dde004442198ca2681001");
+        assert!(t.magnet.as_deref().is_some_and(|m| m.starts_with("magnet:")));
+        assert_eq!(c[1].quality, Quality::P1080); // "auto" from the provider, 1080p from the name
+        let g = &c[1].tags;
+        assert!(g.batch && g.dual_audio && g.multi_sub && g.bit_depth == Some(10) && g.season == Some(1));
+        assert_eq!((g.source, g.codec), (Some(tk_core::release::ReleaseSource::Bd), Some(tk_core::release::VideoCodec::Hevc)));
+        // seadex
+        assert!(c[2].tags.seadex_best && !c[3].tags.seadex_best);
+        assert_eq!(c[2].label, "Okay-Subs");
+        assert_eq!(c[3].label, "Alt");
+        assert_eq!(c[3].quality, Quality::P720);
+        assert!(c[4].tags.seadex_best);
+        assert_eq!(c[4].tags.codec, Some(tk_core::release::VideoCodec::Av1));
+    }
+
+    #[test]
+    fn hashes_and_magnet_names() {
+        assert_eq!(hex_info_hash("ABCDEF0123456789ABCDEF0123456789ABCDEF01").as_deref(), Some("abcdef0123456789abcdef0123456789abcdef01"));
+        assert_eq!(hex_info_hash("VPG6AARWIEJXHW2N3YAEIQQZRSRGQEAB").as_deref(), Some("abcde0023641137b9b4dde004442198ca2681001"));
+        assert_eq!(hex_info_hash("xyz"), None);
+        assert_eq!(hex_info_hash(&"1".repeat(32)), None); // '1' is not base32
+        assert_eq!(magnet_name("magnet:?xt=urn:btih:aa&dn=%5BG%5D+Show+-+01&tr=x").as_deref(), Some("[G] Show - 01"));
+        assert_eq!(magnet_name("magnet:?xt=urn:btih:aa"), None);
+        assert_eq!(magnet_name("magnet:?dn=50%").as_deref(), Some("50%"));
+    }
+
+    #[test]
+    fn custom_extensions_with_torrent_providers_ask_both_routes() {
+        let base = r#"{"id":"x.toko","name":"Toko","version":"1.0.0","type":"custom","description":"d","permissions":[]}"#;
+        let m = Manifest::parse(base).unwrap();
+        // default route list: stream only, unless the bundle exposes torrentAll
+        assert_eq!(candidate_routes(&m, false), ["stream"]);
+        assert_eq!(candidate_routes(&m, true), ["stream", "torrent"]);
+        // Toko lists torrent explicitly
+        let toko = base.replace(r#""permissions":[]"#, r#""permissions":[],"apiServer":{"routes":["sources","stream","torrent"]}"#);
+        assert_eq!(candidate_routes(&Manifest::parse(&toko).unwrap(), false), ["stream", "torrent"]);
+        // an explicit list without torrent wins over torrentAll
+        let no_torrent = base.replace(r#""permissions":[]"#, r#""permissions":[],"apiServer":{"routes":["sources","stream"]}"#);
+        assert_eq!(candidate_routes(&Manifest::parse(&no_torrent).unwrap(), true), ["stream"]);
+        // onlinestream behaves the same; torrent extensions only ask torrent
+        let online = toko.replace(r#""type":"custom""#, r#""type":"onlinestream""#);
+        assert_eq!(candidate_routes(&Manifest::parse(&online).unwrap(), false), ["stream", "torrent"]);
+        let torrent = base.replace(r#""type":"custom""#, r#""type":"torrent""#);
+        assert_eq!(candidate_routes(&Manifest::parse(&torrent).unwrap(), true), ["torrent"]);
+        let gated = torrent.replace(r#""permissions":[]"#, r#""permissions":[],"apiServer":{"routes":["sources"]}"#);
+        assert!(candidate_routes(&Manifest::parse(&gated).unwrap(), false).is_empty());
     }
 
     #[test]
