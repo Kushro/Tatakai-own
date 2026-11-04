@@ -10,17 +10,17 @@ use dioxus::prelude::*;
 use tk_player::ShaderPreset;
 
 use crate::app::{Route, Services, Ui};
-use crate::backend::{AccountVm, SourceKindVm};
+use crate::backend::{AccountVm, AnimeBuildVm, SourceKindVm};
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, ErrorState, IconButton, IconButtonSize, Pill, Segmented, SkeletonLines, Switch,
-    TextField, Tone, use_snackbar,
+    Button, ButtonSize, ButtonVariant, ErrorState, IconButton, IconButtonSize, LoadingIndicator, Pill, Segmented,
+    SkeletonLines, Switch, TextField, Tone, use_snackbar,
 };
 use crate::i18n::{LangChoice, t, tf};
 use crate::icons::Icon;
 use crate::model::{
-    Contrast, DUB_LANGS, ErrorKind, PALETTES, QualityVm, SUB_LANGS, SettingsAction, SourceModeVm, ThemeMode, UiError,
-    reduce_settings,
+    Contrast, DUB_LANGS, EnhancedUiVm, ErrorKind, PALETTES, PlatformVm, PlayerModeVm, QualityVm, SUB_LANGS,
+    SettingsAction, SourceModeVm, ThemeMode, UiError, reduce_settings,
 };
 
 /// `(section id, icon)`: anchors `set-<id>`, titles `settings.<id>`.
@@ -59,6 +59,21 @@ fn provider_mono(p: &str) -> String {
 /// Parse the Link port field: digits only, `MIN_PORT..=65535`.
 pub fn parse_port(text: &str) -> Option<u16> {
     text.trim().parse::<u16>().ok().filter(|p| *p >= MIN_PORT)
+}
+
+/// `key_at` with the real data directory (`Backend::data_dir_display`), or the older `key` text when the
+/// backend does not know it (docs/redesign/09 section 4.2).
+fn with_data_dir(dir: &str, key_at: &str, key: &str) -> String {
+    if dir.is_empty() { t(key) } else { tf(key_at, &[("dir", dir)]) }
+}
+
+/// Example mpv location for the external-mpv path field, in the OS's own form.
+fn mpv_placeholder(os: PlatformVm) -> &'static str {
+    match os {
+        PlatformVm::Linux => "/usr/bin/mpv",
+        PlatformVm::Windows => "C:\\Program Files\\mpv\\mpv.exe",
+        PlatformVm::Mac => "/opt/homebrew/bin/mpv",
+    }
 }
 
 #[component]
@@ -138,6 +153,7 @@ pub fn SettingsPage() -> Element {
     let mut prefer_options = vec![("any".to_owned(), t("src.prefer.any"))];
     prefer_options.extend(SourceKindVm::ALL.iter().map(|k| (k.id().to_owned(), t(&format!("src.{}", k.id())))));
     let version = format!("{} · tk-app (Dioxus 0.7)", env!("CARGO_PKG_VERSION"));
+    let data_hint = with_data_dir(&backend.data_dir_display(), "settings.data.hint_at", "settings.data.hint");
 
     rsx! {
         div {
@@ -247,7 +263,8 @@ pub fn SettingsPage() -> Element {
                         }
 
                         SettingsPanel { index: 1, panels,
-                            SettingRow { label: t("settings.player.preset"), hint: t("settings.player.preset_hint"), stack: true,
+                            PlayerEngineRows { on_action: commit_saved }
+                            SettingRow { label: t("settings.player.preset"), hint: t("settings.player.preset_hint_embedded"), stack: true,
                                 Segmented {
                                     options: ShaderPreset::ALL
                                         .iter()
@@ -378,7 +395,7 @@ pub fn SettingsPage() -> Element {
                         }
 
                         SettingsPanel { index: 5, panels,
-                            p { class: "tk-panel__hint", {t("settings.data.hint")} }
+                            p { class: "tk-panel__hint", "{data_hint}" }
                             SettingRow { label: t("settings.data.telemetry"), hint: t("settings.data.telemetry_hint"),
                                 Pill { text: t("settings.data.telemetry_none"), tone: Tone::Ok }
                             }
@@ -589,6 +606,256 @@ fn LinkPortRow() -> Element {
     }
 }
 
+/// Settings > Player > Engine (docs/redesign/09 section 4.3): Embedded / Embedded enhanced / External mpv with
+/// a line per mode, then the enhanced rows (who draws the controls + mpv-anime-build status and Prepare) or
+/// the external rows (mpv path + detection). Enhanced is disabled when this installation lacks the release.
+#[component]
+fn PlayerEngineRows(on_action: EventHandler<SettingsAction>) -> Element {
+    let services = use_context::<Services>();
+    let ui = use_context::<Ui>();
+    let snack = use_snackbar();
+    let backend = services.backend.clone();
+    let mut build = use_resource({
+        let backend = backend.clone();
+        move || {
+            let backend = backend.clone();
+            async move { backend.anime_build_status().await }
+        }
+    });
+    let mut preparing = use_signal(|| false);
+    let mut prepare_error = use_signal(|| None::<UiError>);
+
+    let prepare = move |_| {
+        if preparing() {
+            return;
+        }
+        preparing.set(true);
+        prepare_error.set(None);
+        let backend = backend.clone();
+        spawn(async move {
+            match backend.prepare_anime_build().await {
+                Ok(_) => {
+                    snack.show(t("settings.player.anime.prepared"));
+                    build.restart();
+                }
+                Err(e) => prepare_error.set(Some(e)),
+            }
+            preparing.set(false);
+        });
+    };
+
+    let (mode, enhanced_ui) = {
+        let s = ui.settings.read();
+        (s.player_mode, s.enhanced_ui)
+    };
+    let build_vm: Option<Result<AnimeBuildVm, UiError>> = build.read().clone();
+    let unavailable = matches!(&build_vm, Some(Ok(b)) if !b.available);
+    // A saved Enhanced choice stays selectable so the status row can explain why it cannot run.
+    let disabled_keys = if unavailable && mode != PlayerModeVm::EmbeddedEnhanced {
+        vec![PlayerModeVm::EmbeddedEnhanced.id().to_owned()]
+    } else {
+        Vec::new()
+    };
+
+    let build_block = match build_vm {
+        None => rsx! {
+            SkeletonLines { widths: vec![40] }
+        },
+        Some(Err(e)) => rsx! {
+            ErrorState { error: e, compact: true, on_retry: move |_| build.restart() }
+        },
+        Some(Ok(b)) if !b.available => rsx! {
+            div { class: "tk-engine-status",
+                Pill { text: t("settings.player.anime.missing"), tone: Tone::Err }
+                span { class: "tk-engine-status__note", {t("settings.player.anime.missing_hint")} }
+            }
+        },
+        Some(Ok(b)) if b.extracted => {
+            let label = tf("settings.player.anime.ready", &[("version", &b.version)]);
+            let path = b.path.unwrap_or_default();
+            rsx! {
+                div { class: "tk-engine-status",
+                    Pill { text: label, tone: Tone::Ok }
+                    if !path.is_empty() {
+                        code { class: "tk-engine-status__path", "{path}" }
+                    }
+                }
+            }
+        }
+        Some(Ok(b)) => {
+            let label = tf("settings.player.anime.not_prepared", &[("version", &b.version)]);
+            rsx! {
+                div { class: "tk-engine-status",
+                    Pill { text: label, tone: Tone::Warn }
+                    Button {
+                        label: if preparing() { t("settings.player.anime.preparing") } else { t("settings.player.anime.prepare") },
+                        icon: "download".to_string(),
+                        variant: ButtonVariant::Tonal,
+                        size: ButtonSize::Sm,
+                        disabled: preparing(),
+                        onclick: prepare,
+                    }
+                }
+            }
+        }
+    };
+
+    rsx! {
+        SettingRow { label: t("settings.player.engine"), hint: t("settings.player.engine_hint"), stack: true,
+            Segmented {
+                options: seg(&PlayerModeVm::ALL, PlayerModeVm::id, "settings.player.mode"),
+                selected: mode.id().to_owned(),
+                label: t("settings.player.engine"),
+                disabled_keys,
+                on_select: move |id: String| {
+                    if let Some(m) = PlayerModeVm::ALL.into_iter().find(|m| m.id() == id) {
+                        on_action.call(SettingsAction::SetPlayerMode(m));
+                    }
+                },
+            }
+            ul { class: "tk-engine-modes",
+                for m in PlayerModeVm::ALL {
+                    {
+                        let id = m.id();
+                        let name = t(&format!("settings.player.mode.{id}"));
+                        let hint = if m == PlayerModeVm::EmbeddedEnhanced && unavailable {
+                            t("settings.player.anime.missing_hint")
+                        } else {
+                            t(&format!("settings.player.mode.{id}_hint"))
+                        };
+                        let selected = m == mode;
+                        rsx! {
+                            li { key: "{id}", "data-selected": "{selected}",
+                                b { "{name}" }
+                                span { "{hint}" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if mode == PlayerModeVm::EmbeddedEnhanced {
+            SettingRow {
+                label: t("settings.player.enhanced_ui"),
+                hint: t(&format!("settings.player.enhanced_ui.{}_hint", enhanced_ui.id())),
+                Segmented {
+                    options: seg(&EnhancedUiVm::ALL, EnhancedUiVm::id, "settings.player.enhanced_ui"),
+                    selected: enhanced_ui.id().to_owned(),
+                    label: t("settings.player.enhanced_ui"),
+                    small: true,
+                    on_select: move |id: String| {
+                        if let Some(u) = EnhancedUiVm::ALL.into_iter().find(|u| u.id() == id) {
+                            on_action.call(SettingsAction::SetEnhancedUi(u));
+                        }
+                    },
+                }
+            }
+            SettingRow { label: t("settings.player.anime"), hint: t("settings.player.anime_hint"), stack: true,
+                {build_block}
+                if let Some(e) = prepare_error() {
+                    ErrorState { error: e, compact: true, retry: false }
+                }
+            }
+        }
+        if mode == PlayerModeVm::External {
+            ExternalMpvRows { on_action }
+        }
+    }
+}
+
+/// External mpv: path field (empty = autodetect) and the detection status (`tk_player::find_mpv` +
+/// `mpv_version`, off the UI thread), re-run whenever the saved path changes.
+#[component]
+fn ExternalMpvRows(on_action: EventHandler<SettingsAction>) -> Element {
+    let ui = use_context::<Ui>();
+    let os = PlatformVm::current();
+    let mut draft = use_signal(|| None::<String>);
+    let mut detect = use_resource(move || {
+        let custom = ui.settings.read().external_mpv_path.clone();
+        async move {
+            tokio::task::spawn_blocking(move || {
+                let found = tk_player::find_mpv(custom.as_deref().map(std::path::Path::new))?;
+                let version = tk_player::mpv_version(&found);
+                Some((found.display().to_string(), version))
+            })
+            .await
+            .ok()
+            .flatten()
+        }
+    });
+
+    let saved = ui.settings.read().external_mpv_path.clone();
+    let save = use_callback(move |_: ()| {
+        if let Some(d) = draft() {
+            on_action.call(SettingsAction::SetExternalMpvPath(Some(d)));
+            draft.set(None);
+        }
+    });
+    let text = draft().unwrap_or_else(|| saved.clone().unwrap_or_default());
+    let missing_hint = if saved.is_some() {
+        t("settings.player.mpv.not_found_custom")
+    } else {
+        t(&format!("settings.player.mpv.install.{}", os.id()))
+    };
+
+    let detected: Option<Option<(String, Option<String>)>> = detect.read().clone();
+    let status = match detected {
+        None => rsx! {
+            LoadingIndicator { small: true }
+            span { class: "tk-engine-status__note", {t("settings.player.mpv.detecting")} }
+        },
+        Some(None) => rsx! {
+            Pill { text: t("settings.player.mpv.not_found"), tone: Tone::Err }
+            span { class: "tk-engine-status__note", "{missing_hint}" }
+        },
+        Some(Some((path, Some(v)))) => {
+            // "mpv v0.40.0 Copyright © ..." -> "mpv v0.40.0".
+            let short = v.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+            rsx! {
+                Pill { text: tf("settings.player.mpv.found", &[("version", &short)]), tone: Tone::Ok }
+                code { class: "tk-engine-status__path", "{path}" }
+            }
+        }
+        Some(Some((path, None))) => rsx! {
+            Pill { text: t("settings.player.mpv.no_version"), tone: Tone::Warn }
+            code { class: "tk-engine-status__path", "{path}" }
+        },
+    };
+
+    rsx! {
+        SettingRow { label: t("settings.player.mpv_path"), hint: t("settings.player.mpv_path_hint"), stack: true,
+            div { class: "tk-settings__mpv",
+                TextField {
+                    label: t("settings.player.mpv_path"),
+                    value: text,
+                    mono: true,
+                    placeholder: mpv_placeholder(os).to_string(),
+                    hint: t("settings.player.mpv_path_auto"),
+                    oninput: move |v: String| draft.set(Some(v)),
+                    onsubmit: move |_| save.call(()),
+                }
+                Button {
+                    label: t("common.save"),
+                    variant: ButtonVariant::Tonal,
+                    size: ButtonSize::Sm,
+                    disabled: draft().is_none(),
+                    onclick: move |_| save.call(()),
+                }
+            }
+            div { class: "tk-engine-status", role: "status",
+                {status}
+                IconButton {
+                    icon: "refresh".to_string(),
+                    label: t("settings.player.mpv.redetect"),
+                    size: IconButtonSize::Sm,
+                    disabled: detect.read().is_none(),
+                    onclick: move |_| detect.restart(),
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn AccountSection() -> Element {
     let services = use_context::<Services>();
@@ -671,9 +938,12 @@ fn AccountSection() -> Element {
         Some(Err(e)) => rsx! {
             ErrorState { error: e, compact: true, on_retry: move |_| account.restart() }
         },
-        Some(Ok(a)) if !a.configured => rsx! {
-            p { class: "tk-panel__hint", {t("account.not_configured")} }
-        },
+        Some(Ok(a)) if !a.configured => {
+            let text = with_data_dir(&backend.data_dir_display(), "account.not_configured_at", "account.not_configured");
+            rsx! {
+                p { class: "tk-panel__hint", "{text}" }
+            }
+        }
         Some(Ok(AccountVm { email: Some(mail), .. })) => {
             let initial = mail.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
             rsx! {

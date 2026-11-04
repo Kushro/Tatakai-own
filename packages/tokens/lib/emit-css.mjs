@@ -23,9 +23,13 @@ export function emitCss(tokens, all) {
 
   // non-color tokens
   const root = [];
-  root.push(`  --tk-font-display: "${tokens.fonts.display}", system-ui, sans-serif;`);
-  root.push(`  --tk-font-text: "${tokens.fonts.text}", system-ui, sans-serif;`);
-  root.push(`  --tk-font-mono: "${tokens.fonts.mono}", ui-monospace, monospace;`);
+  // CJK fallbacks (Linux: Noto / Source Han; Windows: Yu Gothic / Meiryo / YaHei; macOS: Hiragino) so kanji
+  // and kana in titles render instead of tofu; the bundled Latin families carry no CJK glyphs.
+  const cjk = '"Noto Sans CJK JP", "Noto Sans JP", "Source Han Sans JP", "Source Han Sans", "Hiragino Sans", "Yu Gothic UI", "Yu Gothic", "Meiryo", "Microsoft YaHei", "Noto Sans CJK SC"';
+  const cjkMono = '"Noto Sans Mono CJK JP"';
+  root.push(`  --tk-font-display: "${tokens.fonts.display}", ${cjk}, system-ui, sans-serif;`);
+  root.push(`  --tk-font-text: "${tokens.fonts.text}", ${cjk}, system-ui, sans-serif;`);
+  root.push(`  --tk-font-mono: "${tokens.fonts.mono}", ui-monospace, ${cjkMono}, ${cjk}, monospace;`);
   root.push(`  --tk-tv-type-scale: ${tokens.typography.tvScale};`);
   for (const [role, s] of Object.entries(tokens.typography.roles)) {
     const k = kebab(role);
