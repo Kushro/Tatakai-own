@@ -15,6 +15,8 @@ Orden de precedencia cuando dos textos discrepan: **`06-user-decisions.md` > `05
 | [06-user-decisions.md](06-user-decisions.md) | Decisiones del usuario: AGPL-3.0 para `apps/*`, copiar de repos propios, CameraX+zxing, solo en+es, worktrees |
 | [10-linux-video-embed-debt.md](10-linux-video-embed-debt.md) | Video incrustado en Linux: cómo funciona, la falla de DMA-BUF de Dioxus y alternativas de arquitectura pendientes (deuda) |
 | [10-wave3-torrents-contract.md](10-wave3-torrents-contract.md) | Contrato de la ola 3: torrents en desktop (librqbit 9.1.0, streaming HTTP local, cliente estilo Hayase, etiquetas de release, batches), propiedad A-F |
+| [11-android-torrents-design.md](11-android-torrents-design.md) | Diseño de torrents en Android (pantallas, flujos, modelo compartido, motor, servicio, almacenamiento) |
+| [12-android-wave-contract.md](12-android-wave-contract.md) | Contrato de la ola Android (`android/revamp`): paridad con el prototipo teléfono/tablet, WebView para extensiones, motores Media3/libmpv/externo, torrents con libtorrent4j, propiedad a-f |
 
 ## Qué existe después de B1 (`m3e/foundation`)
 

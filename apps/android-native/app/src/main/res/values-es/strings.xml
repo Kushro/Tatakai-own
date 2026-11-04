@@ -5,4 +5,13 @@
     <string name="nav_search">Buscar</string>
     <string name="nav_library">Biblioteca</string>
     <string name="nav_you">Tú</string>
+    <!-- android wave (12 §3.15): rail destinations on medium / expanded windows. nav_torrents lives in core/ui (shared). -->
+    <string name="nav_extensions">Extensiones</string>
+    <string name="nav_linked">Enlace</string>
+    <string name="nav_settings">Ajustes</string>
+    <plurals name="app_active_downloads">
+        <item quantity="one">%1$d descarga activa</item>
+        <item quantity="many">%1$d descargas activas</item>
+        <item quantity="other">%1$d descargas activas</item>
+    </plurals>
 </resources>

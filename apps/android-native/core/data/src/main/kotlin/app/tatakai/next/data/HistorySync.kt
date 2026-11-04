@@ -15,6 +15,7 @@ import app.tatakai.next.supabase.SupabaseAuthSource
 import app.tatakai.next.supabase.SupabaseNotConfiguredException
 import app.tatakai.next.supabase.WatchHistoryRemote
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.StateFlow
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.util.concurrent.TimeUnit
@@ -57,8 +58,17 @@ class HistorySyncer(
     private val dao: HistoryDao,
     private val remote: WatchHistoryRemote,
     private val auth: SupabaseAuthSource,
+    // android wave (12 §3.6): stamp of the last successful pass, exposed as HistoryRepository.lastSyncedAt
+    private val stamp: HistorySyncStamp = HistorySyncStamp(),
+    private val clock: () -> Long = System::currentTimeMillis,
 ) {
     enum class Outcome { SKIPPED_SIGNED_OUT, SYNCED }
+
+    /** Epoch ms of the last successful [syncOnce]; null = never / signed out. */
+    val lastSyncedAt: StateFlow<Long?> get() = stamp.value
+
+    /** Sign-out: the stamp belongs to the account that left. */
+    suspend fun resetStamp() = stamp.set(null)
 
     /** @throws SessionExpiredException when the token cannot be refreshed; other exceptions mean "retry later". */
     suspend fun syncOnce(): Outcome {
@@ -72,6 +82,7 @@ class HistorySyncer(
             if (batch.size < BATCH) break
         }
         remote.recent(PULL_LIMIT).forEach { dao.mergeRemote(it.toRow()) }
+        stamp.set(clock())
         return Outcome.SYNCED
     }
 

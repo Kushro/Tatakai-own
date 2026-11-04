@@ -23,6 +23,10 @@ import app.tatakai.next.supabase.supabaseModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
+import app.tatakai.next.feature.torrents.torrentsFeatureModule
+import app.tatakai.next.feature.you.youFeatureModule
+import app.tatakai.next.player.mpv.mpvPlayerModule
+import app.tatakai.next.torrent.torrentModule
 
 /** Player -> data bridge: flush pending watch history on pause / exit. */
 private val appModule = module {
@@ -53,6 +57,8 @@ class TatakaiApplication : Application() {
                 homeModule, searchModule, detailsModule, libraryModule, settingsModule,
                 extensionsFeatureModule, linkFeatureModule,
                 appModule,
+                // android wave contract (docs/redesign/12 §3.16)
+                torrentModule, mpvPlayerModule, torrentsFeatureModule, youFeatureModule,
             )
         }
     }

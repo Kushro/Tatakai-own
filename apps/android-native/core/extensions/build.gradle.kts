@@ -6,4 +6,6 @@ dependencies {
     api(projects.core.model)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
+    // android wave (12-android-wave-contract.md): parseRelease for torrent tags, rank() for resolveCandidates
+    implementation(projects.core.release)
 }

@@ -63,4 +63,34 @@ interface FeedCacheDao {
 
     @Query("DELETE FROM feed_cache")
     suspend fun clear()
+
+    // --- android wave (12 §3.6): Settings › Metadatos › caché ---
+    @Query("SELECT COUNT(*) FROM feed_cache")
+    suspend fun count(): Int
+
+    /** UTF-8 bytes of every cached JSON blob. */
+    @Query("SELECT COALESCE(SUM(LENGTH(CAST(json AS BLOB))), 0) FROM feed_cache")
+    suspend fun totalBytes(): Long
+}
+
+/** android wave (12 §3.1): per-source facts behind `SourceStatsStore` (:core:data). */
+@Dao
+abstract class SourceStatsDao {
+    @Query("SELECT * FROM source_stats WHERE extId = :extId AND label = :label")
+    abstract suspend fun stat(extId: String, label: String): SourceStatRow?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun putStat(row: SourceStatRow)
+
+    @Query("SELECT `key` FROM picked_source WHERE mediaId = :mediaId AND episode = :episode")
+    abstract suspend fun picked(mediaId: String, episode: Int): String?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun putPicked(row: PickedSourceRow)
+
+    @Query("DELETE FROM picked_source WHERE mediaId = :mediaId AND episode = :episode")
+    abstract suspend fun clearPicked(mediaId: String, episode: Int)
+
+    @Query("DELETE FROM source_stats")
+    abstract suspend fun clearStats()
 }
