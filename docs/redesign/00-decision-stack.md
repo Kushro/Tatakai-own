@@ -40,6 +40,17 @@ Decisión del usuario (`09-wave2-contract.md` §0, prevalece sobre la fila "Desk
 - Datos en Linux: `~/.config/Tatakai-Next/` (equivalente a `%APPDATA%\Tatakai-Next\`).
 - Licencias: en Linux libmpv/FFmpeg son los del sistema (enlace dinámico / proceso externo); el AppImage los incluye con sus licencias de distribución. mpv-anime-build (MIT) va en `THIRD_PARTY_NOTICES.md` y en `/usr/share/licenses/tatakai-next/`.
 
+## Enmienda de la ola 3 (2026-11-04): torrents en desktop ahora, Android después
+
+Decisión del usuario (`10-wave3-torrents-contract.md` §0, prevalece sobre el roadmap de `04` §8, que dejaba los torrents en M2):
+
+- **Los torrents se adelantan de M2 a la ola 3 en desktop.** Motor **librqbit 9.1.0** (Rust puro, Apache-2.0) en el crate nuevo `crates/tk-torrent`, con DHT, PEX, trackers, LSD, UPnP opcional y persistencia de sesión (`<datos>/torrents/`). Se descarta libtorrent-rasterbar en desktop (C++ con Boost/OpenSSL: build propio en Windows) y se evita el TLS de librqbit por rustls (trae aws-lc, CMake + NASM en Windows): SHA-1 por `crypto-hash` y `reqwest 0.13` con `native-tls` (`10` §2.1).
+- **Streaming por HTTP loopback** (`127.0.0.1`, token aleatorio por arranque, `Range`) con prioridad de piezas según la posición leída; los tres modos de reproductor (integrado, integrado mejorado, mpv externo) cargan la misma URL, sin cabeceras.
+- **Cliente estilo Hayase** como destino nuevo del rail (Torrents: Overview, Files, Peers, Trackers, Library, Downloads, Settings), descargas en segundo plano solo tras un aviso explícito ("Entiendo").
+- **Etiquetas de release** (`tk-core::release`, parseo tipo anitomy sin dependencias) para filtros en el selector de fuentes, elección del archivo del episodio dentro de un batch y reutilización del mismo torrent para el siguiente episodio. Las extensiones custom (Toko) también se consultan por la ruta `torrent`.
+- **Android: solo diseño** en esta ola (`11-android-torrents-design.md`). Propuesta: reutilizar `tk-torrent` vía UniFFI (crate fino `tk-torrent-ffi`, NDK desde el equipo Linux) con libtorrent4j como alternativa; streaming loopback hacia Media3, servicio en primer plano (`mediaPlayback` / `dataSync`), almacenamiento específico de la app por defecto, solo Wi-Fi por defecto. Esto adelanta para el motor de torrents la evaluación de UniFFI que la fila "Core compartido" dejaba para M3; el resto del core sigue con contratos compartidos e implementaciones nativas.
+- Extensiones: `torrent:session` deja de ser un permiso diferido en desktop (la sesión la da `tk-torrent`), sin cambiar el nivel de compatibilidad.
+
 ## Compatibilidad del contrato de extensiones `.kai`
 - Se conserva el formato: ZIP con `manifest.json` (`id, name, version, type: torrent|onlinestream|custom`, `permissions: ["network:domain:x"]`, `apiServer.routes`) + `bundle.js` CJS (≤10 MB).
 - Las rutas del host (hoy en `desktop/runtime/extension-api-host/host-server.cjs`) se congelan en `contracts/extension-host/routes.v1.json`:

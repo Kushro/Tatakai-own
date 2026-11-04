@@ -43,6 +43,23 @@ Space Grotesk y Outfit (y JetBrains Mono en Android) no están incluidas; no se 
 - FSR.glsl y las fuentes Space Grotesk / Outfit siguen sin hash en sus locks: `fetch-deps.sh` las omite (nunca instala sin verificar) hasta que se fijen con `--pin`.
 - El PKGBUILD compila desde el checkout local (no descarga fuentes) y `check()` repite los tests del workspace en perfil release (`makepkg --nocheck` para saltarlos).
 
+## Torrents (ola 3)
+
+Contrato: `10-wave3-torrents-contract.md`. Los seis workers escribieron sin compilar; lo que sigue es lo conocido al cerrar la ola, a revisar tras el build del integrador y la primera prueba real.
+
+- **Sin probar contra la red real**: DHT, trackers, UPnP y el streaming con prioridad de piezas solo tienen (como mucho) tests en loopback con DHT apagado. Sin medir: tiempo hasta el primer frame, comportamiento del seek a zonas sin descargar, uso de CPU/disco de las descargas en segundo plano.
+- **PEX no se puede apagar**: `librqbit::SessionOptions` 9.1.0 no tiene opción para PEX. El ajuste existe por contrato, pero `ProtocolStatus::pex` refleja lo que hace el motor, no el ajuste.
+- **Trackers**: librqbit expone poco estado por tracker; lo que no expone sale como `TrackerStatus::Unknown` y las cifras (seeders / leechers / descargado) pueden quedar vacías aunque el tracker funcione.
+- **Listener**: el `ListenerOptions` por defecto de librqbit 9.1.0 es solo TCP (uTP marcado como no estable aguas arriba); si `tk-torrent` activa TCP+uTP, vigilar regresiones de uTP.
+- **Cuenta de peers** (a confirmar con la implementación de A): si `seeders` / `leechers` salen de lo que el motor sabe en vivo (peers conectados / conocidos) y no del *scrape* de los trackers, pueden diferir de lo que muestra el sitio de la fuente.
+- **Windows**: el puerto de escucha entrante puede disparar el aviso del firewall la primera vez (el contrato no prevé una regla de firewall para torrents, a diferencia de Link). UPnP en redes con CGNAT no abre nada: `nat` / `forwarding` lo indican.
+- **TLS de trackers / descargas `.torrent` por HTTPS**: `native-tls` (OpenSSL en Linux, SChannel en Windows), distinto del rustls/ring del resto de la app; un fallo TLS en un tracker concreto no se reintenta con otro backend.
+- **Fallback de fuentes en Auto**: las torrent ya no se saltan; una fuente con 0 seeders puede consumir hasta 90 s (timeout de metadata) antes de pasar a la siguiente.
+- **Política "después de ver"** (`Delete` por defecto): borrar al salir del player elimina también los archivos de un torrent no conservado. Si la app se cierra de golpe durante la reproducción, el torrent queda en la sesión y se limpia en el siguiente arranque solo si el integrador añade esa limpieza (no está en el contrato).
+- **Archivo del episodio en batches**: `pick_episode_file` es heurístico (tipo anitomy). Numeración absoluta frente a por temporada, especiales y OVAs pueden elegir mal; la salida es la página Files del cliente para elegir a mano.
+- **Marcas intro/outro**: AniSkip solo con MAL id y solo para episodios con datos enviados por la comunidad; sin datos no hay marcas ni botón "Saltar intro".
+- **Android**: solo diseño (`11-android-torrents-design.md`); nada implementado. Riesgos ya identificados ahí: subtítulos ASS simplificados en Media3, límite de 6 h/24 h de los servicios `dataSync` en Android 15, SAF sin rutas de archivo para el motor.
+
 ## Tokens
 
 - Corregido: el esquema `Expressive` rota el matiz del primario (violeta -> verde azulado, sakura -> azul, aurora -> naranja). Las tres paletas pasaron a `Vibrant`; un test exige que el matiz del primario esté a <= 20 grados de la semilla en todas las paletas no monocromas.
