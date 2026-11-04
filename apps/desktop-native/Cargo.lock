@@ -5440,9 +5440,11 @@ dependencies = [
  "async-trait",
  "dioxus",
  "directories",
+ "gtk",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "time",
  "tk-core",
@@ -5453,7 +5455,9 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "webkit2gtk",
  "windows-sys 0.61.2",
+ "zip",
 ]
 
 [[package]]
@@ -5481,6 +5485,7 @@ name = "tk-ext"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "futures-util",
  "hex",
@@ -5544,10 +5549,14 @@ dependencies = [
 name = "tk-player"
 version = "0.1.0"
 dependencies = [
+ "gtk",
+ "libloading 0.8.9",
  "libmpv2",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "webkit2gtk",
  "windows-sys 0.61.2",
 ]
 
