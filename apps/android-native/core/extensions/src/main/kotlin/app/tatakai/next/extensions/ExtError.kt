@@ -14,7 +14,7 @@ sealed class ExtError(message: String, val status: Int, cause: Throwable? = null
     /** Exceeded the 15 s wall-clock budget of one call; the runtime is discarded. */
     class Timeout : ExtError("Extension call timed out", 504)
 
-    /** Exceeded the 64 MiB memory limit; the runtime is discarded. */
+    /** Exceeded the JsEngine.MEMORY_LIMIT_BYTES memory limit; the runtime is discarded. */
     class OutOfMemory : ExtError("Extension exceeded its memory limit", 507)
 
     /** `compat = unsupported`, or the extension is disabled. */
