@@ -7,6 +7,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import app.tatakai.next.nav.TatakaiApp
+import app.tatakai.next.nav.TorrentLink
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * Single activity (edge-to-edge). The SplashScreen API keeps the splash until the first frame; there is no fixed delay.
@@ -14,6 +16,9 @@ import app.tatakai.next.nav.TatakaiApp
  * The system bar icon style follows the in-app theme mode ([TatakaiApp] re-calls `enableEdgeToEdge` when it changes).
  */
 class MainActivity : ComponentActivity() {
+    /** Pending torrent notification deep link (consumed and cleared by the shell). */
+    private val torrentLinks = MutableStateFlow<TorrentLink?>(null)
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLocale.wrap(newBase))
     }
@@ -22,6 +27,10 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { TatakaiApp() }
+        // Torrent notifications relaunch the (singleTask) activity with extras: cold start reads the launch intent once,
+        // a running activity receives them through onNewIntent.
+        if (savedInstanceState == null) torrentLinks.value = TorrentLink.from(intent)
+        addOnNewIntentListener { newIntent -> TorrentLink.from(newIntent)?.let { torrentLinks.value = it } }
+        setContent { TatakaiApp(torrentLinks) }
     }
 }
