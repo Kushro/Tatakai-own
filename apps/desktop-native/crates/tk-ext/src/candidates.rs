@@ -389,7 +389,7 @@ mod tests {
         let t = c[1].torrent.as_ref().unwrap();
         assert_eq!(c[1].label, "Judas");
         assert_eq!(t.info_hash.len(), 40);
-        assert_eq!(t.info_hash, "abcde0023641137b9b4dde004442198ca2681001");
+        assert_eq!(t.info_hash, "abcde00236411373db4dde004442198ca2681001");
         assert!(t.magnet.as_deref().is_some_and(|m| m.starts_with("magnet:")));
         assert_eq!(c[1].quality, Quality::P1080); // "auto" from the provider, 1080p from the name
         let g = &c[1].tags;
@@ -407,7 +407,7 @@ mod tests {
     #[test]
     fn hashes_and_magnet_names() {
         assert_eq!(hex_info_hash("ABCDEF0123456789ABCDEF0123456789ABCDEF01").as_deref(), Some("abcdef0123456789abcdef0123456789abcdef01"));
-        assert_eq!(hex_info_hash("VPG6AARWIEJXHW2N3YAEIQQZRSRGQEAB").as_deref(), Some("abcde0023641137b9b4dde004442198ca2681001"));
+        assert_eq!(hex_info_hash("VPG6AARWIEJXHW2N3YAEIQQZRSRGQEAB").as_deref(), Some("abcde00236411373db4dde004442198ca2681001"));
         assert_eq!(hex_info_hash("xyz"), None);
         assert_eq!(hex_info_hash(&"1".repeat(32)), None); // '1' is not base32
         assert_eq!(magnet_name("magnet:?xt=urn:btih:aa&dn=%5BG%5D+Show+-+01&tr=x").as_deref(), Some("[G] Show - 01"));
