@@ -1,12 +1,16 @@
 package app.tatakai.next.feature.extensions
 
+import app.tatakai.next.model.ExtLogLevel
 import app.tatakai.next.model.ExtensionCompat
+import app.tatakai.next.model.ExtensionDetail
+import app.tatakai.next.model.ExtensionLogEntry
 import app.tatakai.next.model.ExtensionRepository
 import app.tatakai.next.model.InstalledExtension
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.StreamSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -42,6 +46,15 @@ class ExtensionsViewModelTest {
             installed.value = installed.value.filterNot { it.id == id }
         }
         override suspend fun resolveStreams(media: Media, episode: Int): List<StreamSource> = emptyList()
+
+        var detailFails = true
+        override suspend fun detail(extensionId: String): ExtensionDetail? {
+            if (detailFails) throw IllegalStateException("boom")
+            return ExtensionDetail(extensionId, listOf("example.com"), "9f2c…b71e", 1L, "onlinestream")
+        }
+
+        val logLines = MutableStateFlow(listOf(ExtensionLogEntry(ExtLogLevel.OK, "install", "installed", 1L)))
+        override fun logs(extensionId: String): Flow<List<ExtensionLogEntry>> = logLines
     }
 
     @Test
@@ -81,5 +94,24 @@ class ExtensionsViewModelTest {
         val s = vm.state.first { it.items.size == 1 }
         assertEquals(listOf("a"), s.items.map { it.id })
         assertEquals(false, s.items.single().enabled)
+    }
+
+    @Test
+    fun `details load per row, fail with retry and logs toggle`() = runTest {
+        val repo = FakeRepo().apply { installed.value = listOf(ext("a")) }
+        val vm = ExtensionsViewModel(repo)
+
+        assertIs<DetailState.Failed>(vm.state.first { it.details["a"] is DetailState.Failed }.details["a"])
+        repo.detailFails = false
+        vm.retryDetail("a")
+        val ready = assertIs<DetailState.Ready>(vm.state.first { it.details["a"] is DetailState.Ready }.details["a"])
+        assertEquals("9f2c…b71e", ready.detail?.hash)
+        assertEquals(false, vm.state.value.loading)
+
+        vm.toggleLog("a")
+        assertEquals(setOf("a"), vm.state.first { it.expandedLogs.isNotEmpty() }.expandedLogs)
+        assertEquals("install", vm.logs("a").first().single().op)
+        vm.toggleLog("a")
+        assertEquals(emptySet<String>(), vm.state.first { it.expandedLogs.isEmpty() }.expandedLogs)
     }
 }

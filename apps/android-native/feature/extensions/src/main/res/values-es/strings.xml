@@ -1,17 +1,60 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="extensions_title">Extensiones</string>
-    <string name="extensions_install">Instalar .kai</string>
+    <string name="extensions_intro">Las extensiones (.kai) resuelven los streams de los episodios. Instala solo extensiones en las que confíes.</string>
+    <plurals name="extensions_installed_count">
+        <item quantity="one">%1$d instalada</item>
+        <item quantity="other">%1$d instaladas</item>
+    </plurals>
+    <string name="extensions_install">Instalar archivo .kai</string>
+    <string name="extensions_install_hint">Elige un paquete .kai de tus archivos.</string>
+    <string name="extensions_install_choose">Elegir archivo</string>
+    <string name="extensions_install_invalid">Elige un archivo con la extensión .kai.</string>
     <string name="extensions_installing">Instalando…</string>
     <string name="extensions_empty_title">No hay extensiones instaladas</string>
-    <string name="extensions_empty_message">Las extensiones aportan las fuentes de video. Instalá un paquete .kai desde tus archivos.</string>
+    <string name="extensions_empty_message">Instala un paquete .kai para empezar a ver.</string>
     <string name="extensions_installed">%1$s instalada.</string>
     <string name="extensions_install_failed">No se pudo instalar: %1$s</string>
-    <string name="extensions_remove">Quitar</string>
+    <string name="extensions_remove">Quitar extensión</string>
+    <string name="extensions_remove_confirm">Quitar</string>
     <string name="extensions_remove_title">¿Quitar %1$s?</string>
     <string name="extensions_remove_message">La extensión y sus datos se borran de este dispositivo.</string>
-    <string name="extensions_permissions">Acceso de red: %1$s</string>
-    <string name="extensions_compat_full">Totalmente compatible</string>
-    <string name="extensions_compat_partial">Parcialmente compatible</string>
+    <string name="extensions_removed">%1$s quitada</string>
+    <string name="extensions_enabled">Activada</string>
+    <string name="extensions_now_enabled">%1$s activada</string>
+    <string name="extensions_now_disabled">%1$s desactivada</string>
+    <string name="extensions_permissions">Permisos</string>
+    <string name="extensions_no_permissions">Sin permisos especiales</string>
+    <string name="extensions_more">+%1$d</string>
+    <string name="extensions_compat_full">Completa</string>
+    <string name="extensions_compat_partial">Parcial</string>
     <string name="extensions_compat_unsupported">No compatible</string>
+    <string name="extensions_cannot_enable">Esta extensión necesita funciones que no están disponibles en la app nativa.</string>
+    <string name="extensions_compat_partial_hint">Funciona la búsqueda y los streams; el catálogo personalizado se omite.</string>
+    <string name="extensions_compat_reason">Detalle técnico: %1$s</string>
+    <string name="extensions_version">Versión %1$s</string>
+    <string name="extensions_kind_torrent">Torrent</string>
+    <string name="extensions_kind_onlinestream">Streaming</string>
+    <string name="extensions_kind_custom">Personalizada</string>
+    <string name="extensions_updated">Actualizada %1$s</string>
+    <string name="extensions_hash">SHA-256 %1$s</string>
+    <plurals name="extensions_domains">
+        <item quantity="one">%1$d dominio</item>
+        <item quantity="other">%1$d dominios</item>
+    </plurals>
+    <plurals name="extensions_browser">
+        <item quantity="one">Navegador oculto para %1$d sitio</item>
+        <item quantity="other">Navegador oculto para %1$d sitios</item>
+    </plurals>
+    <string name="extensions_routes">Fuentes: %1$s</string>
+    <string name="extensions_route_stream">streams</string>
+    <string name="extensions_route_torrent">torrents</string>
+    <string name="extensions_detail_error">No se pudieron leer los detalles de la extensión.</string>
+    <string name="extensions_logs">Registro</string>
+    <string name="extensions_hide_logs">Ocultar registro</string>
+    <string name="extensions_logs_empty">Todavía no hay nada registrado.</string>
+    <string name="extensions_log_ok">ok</string>
+    <string name="extensions_log_warn">aviso</string>
+    <string name="extensions_log_err">error</string>
+    <string name="extensions_log_line">[%1$s] %2$s: %3$s</string>
 </resources>
