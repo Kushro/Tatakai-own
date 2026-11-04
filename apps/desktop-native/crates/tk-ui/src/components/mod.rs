@@ -24,7 +24,7 @@ pub use button::{Button, ButtonSize, ButtonVariant, IconButton, IconButtonSize, 
 pub use chips::{Banner, Chip, ChipKind, InfoChip, Kbd, Pill, Tone};
 pub use dialog::ConfirmDialog;
 pub use floating_toolbar::{FloatingToolbar, ToolbarSeparator};
-pub use form::{Switch, TextField};
+pub use form::{Switch, TextField, use_uncontrolled_input};
 pub use loading::LoadingIndicator;
 pub use media::{EpisodeRow, MediaCard, MediaCover};
 pub use media::{ContinueCard, HeroCarousel, format_score, monogram, safe_css_color};
