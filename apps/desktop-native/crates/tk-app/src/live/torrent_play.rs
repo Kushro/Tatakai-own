@@ -42,10 +42,10 @@ pub async fn play(b: &LiveBackend, source: &str, id: &str, episode: u32) -> UiRe
     let engine = b.torrent.engine().await?;
     let keep = super::torrent_settings::load(&b.paths()).after_watch == AfterWatchVm::Keep;
     let label = TorrentLabel { episode: Some(episode), ..resolved.label.clone() };
-    let torrent_id = engine
-        .add(resolved.source, AddOptions { persist: keep, label: Some(label.clone()), ..AddOptions::default() })
-        .await
-        .map_err(engine_err)?;
+    // Start with nothing selected: librqbit begins downloading the selection as soon as the torrent is added, so a
+    // season pack added with every file would fetch all of them before `select_file` narrows it to the episode.
+    let add = AddOptions { only_files: Some(Vec::new()), persist: keep, label: Some(label.clone()), ..AddOptions::default() };
+    let torrent_id = engine.add(resolved.source, add).await.map_err(engine_err)?;
 
     let files = engine.files(&torrent_id).map_err(engine_err)?;
     let candidates: Vec<CandidateFile> =
