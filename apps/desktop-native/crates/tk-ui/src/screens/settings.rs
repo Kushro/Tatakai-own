@@ -292,7 +292,7 @@ pub fn SettingsPage() -> Element {
                                     },
                                 }
                             }
-                            SettingRow { label: t("src.prefer"), hint: t("src.m2"),
+                            SettingRow { label: t("src.prefer"), hint: t("src.prefer.hint"),
                                 Segmented {
                                     options: prefer_options,
                                     selected: prefer_id,

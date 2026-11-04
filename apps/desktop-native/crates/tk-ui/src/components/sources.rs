@@ -16,7 +16,7 @@ use dioxus::prelude::*;
 
 use crate::app::{Route, Services, Ui};
 use crate::backend::{ReleaseSourceVm, SourceKindVm, SourceVm, VideoCodecVm};
-use crate::components::button::{Button, ButtonSize, ButtonVariant};
+use crate::components::button::{Button, ButtonSize, ButtonVariant, IconButton, IconButtonVariant};
 use crate::components::chips::{Banner, Chip, ChipKind, InfoChip, Pill, Tone};
 use crate::components::segmented::{SegOption, Segmented};
 use crate::components::sheet::Sheet;
@@ -331,6 +331,8 @@ pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>
 /// All sources of an episode in a side sheet, already ranked (`sources[0]` is the recommended one).
 /// Render it always; it shows nothing while `open` is false. Picking calls `on_pick(id)`; the caller
 /// closes it. The checked row is the `picked` one (or the recommended one when nothing is picked).
+/// With `on_download`, torrent rows of enabled extensions also get a "Download for later" button that
+/// calls `on_download(id)` (background download, `Backend::torrent_add_download`).
 #[component]
 pub fn SourcePicker(
     open: bool,
@@ -338,6 +340,7 @@ pub fn SourcePicker(
     prefs: SourcePrefsVm,
     on_pick: EventHandler<String>,
     on_close: EventHandler<()>,
+    #[props(default)] on_download: Option<EventHandler<String>>,
 ) -> Element {
     let mut filters = use_signal(SourceFilters::default);
     let mut show_filters = use_signal(|| false);
@@ -374,6 +377,7 @@ pub fn SourcePicker(
     let quality_chip = format!("≥ {}", prefs.min_quality.id());
     let prefer_chip = prefs.prefer.map(|k| format!("{}: {}", t("src.prefer"), t(&format!("src.{}", k.id()))));
     let list_label = t("src.title");
+    let download_label = t("src.download");
     rsx! {
         Sheet { title: t("src.title"), wide: true, on_close: move |_| on_close.call(()),
             div { class: "tk-spicker",
@@ -560,11 +564,24 @@ pub fn SourcePicker(
                 } else {
                     div { class: "tk-slist", role: "radiogroup", "aria-label": "{list_label}",
                         for s in shown.iter() {
-                            SourceRow {
-                                key: "{s.id}",
-                                source: s.clone(),
-                                selected: s.picked || (!any_picked && s.recommended),
-                                on_pick: move |id: String| on_pick.call(id),
+                            div { key: "{s.id}", class: "tk-srow-wrap",
+                                SourceRow {
+                                    source: s.clone(),
+                                    selected: s.picked || (!any_picked && s.recommended),
+                                    on_pick: move |id: String| on_pick.call(id),
+                                }
+                                if let Some(handler) = on_download.filter(|_| s.kind == SourceKindVm::Torrent && s.ext_enabled) {
+                                    IconButton {
+                                        icon: "download".to_string(),
+                                        label: download_label.clone(),
+                                        variant: IconButtonVariant::Tonal,
+                                        class: "tk-srow-wrap__dl".to_string(),
+                                        onclick: {
+                                            let sid = s.id.clone();
+                                            move |_| handler.call(sid.clone())
+                                        },
+                                    }
+                                }
                             }
                         }
                     }

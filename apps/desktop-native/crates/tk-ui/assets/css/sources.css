@@ -55,3 +55,8 @@
 @media (max-width: 599px) {
   .tk-sfilters__group { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Row + "Download for later" (torrent rows when the caller passes on_download; integration wave 3). */
+.tk-srow-wrap { display: flex; gap: var(--tk-space-8); align-items: flex-start; }
+.tk-srow-wrap > .tk-srow { flex: 1 1 auto; min-width: 0; }
+.tk-srow-wrap__dl { flex: none; margin-top: var(--tk-space-12); }

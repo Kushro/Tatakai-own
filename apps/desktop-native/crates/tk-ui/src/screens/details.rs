@@ -170,6 +170,27 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
         }
     });
 
+    // Torrent rows of the picker: "Download for later" (a background download; Torrents > Downloads lists it and
+    // holds the warning / switch when background downloads are still off).
+    let open_downloads = use_callback(move |_: ()| {
+        navigator.push(Route::TorrentDownloadsPage {});
+    });
+    let download_source = use_callback({
+        let (backend, id) = (backend.clone(), id.clone());
+        move |(ep, source_id): (u32, String)| {
+            let (backend, id) = (backend.clone(), id.clone());
+            spawn(async move {
+                match backend.torrent_add_download(&source_id, &id, Some(ep)).await {
+                    Ok(_) => snackbar.show_action(t("src.download.started"), t("src.download.open"), open_downloads),
+                    Err(e) => {
+                        tracing::warn!(detail = %e.detail, "starting a background download failed");
+                        snackbar.show_action(t("src.download.failed"), t("src.download.open"), open_downloads);
+                    }
+                }
+            });
+        }
+    });
+
     // No paired device: go pair one (Link) instead of opening an empty dialog.
     let ask_send = use_callback(move |device: Option<String>| {
         let target = match &*link.read() {
@@ -236,6 +257,7 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                     prefs: ui.settings.read().sources.clone(),
                     on_pick: move |sid: String| play_source.call((*picker_ep.peek(), sid)),
                     on_close: move |_| picker_open.set(false),
+                    on_download: move |sid: String| download_source.call((*picker_ep.peek(), sid)),
                 }
             },
         }
