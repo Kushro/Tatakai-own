@@ -431,6 +431,7 @@
   "player.external.searched": "Se buscó en PATH y en las ubicaciones de instalación habituales.",
   "player.external.open_settings": "Abrir Ajustes",
   "player.enhanced.preparing": "Preparando mpv-anime-build…",
+  "player.embed.own_window": "Aquí el video no se puede mostrar dentro de la ventana; mpv lo reproduce en su propia ventana.",
   "player.enhanced.fallback": "mpv-anime-build no está disponible. Se reproduce con el motor integrado.",
   "settings.player.engine_hint": "Cómo se reproduce el video. El cambio se aplica la próxima vez que inicies un episodio.",
   "settings.player.mode.embedded_hint": "mpv dentro de esta ventana con los controles de Tatakai. Funciona en Linux y Windows.",

@@ -32,3 +32,6 @@ windows-sys = { workspace = true }
 gtk = { workspace = true }
 webkit2gtk = { workspace = true, features = ["v2_8"] }
 libloading = { workspace = true }
+
+[dev-dependencies]
+tracing-subscriber = { workspace = true }

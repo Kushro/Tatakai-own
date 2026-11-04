@@ -689,6 +689,10 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     }
                 };
                 player.set(Some(p.clone()));
+                if !p.is_embedded() {
+                    // mpv fell back to its own window (the reason is in the log).
+                    notice.set(Some(t("player.embed.own_window")));
+                }
                 let mut rx = p.events();
 
                 // Hole geometry -> child window.

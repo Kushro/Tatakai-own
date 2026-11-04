@@ -21,9 +21,9 @@ else
     unset GDK_BACKEND
 fi
 
-# WebKitGTK's DMA-BUF renderer shows blank or flickering pages on several driver / compositor combinations
-# (NVIDIA, some Wayland setups). Export WEBKIT_DISABLE_DMABUF_RENDERER=0 to try it anyway.
-export WEBKIT_DISABLE_DMABUF_RENDERER="${WEBKIT_DISABLE_DMABUF_RENDERER:-1}"
+# WebKitGTK's DMA-BUF renderer stays on: the embedded player needs it (the page composites with alpha over the
+# video). On driver / compositor combinations where pages render blank or flicker (some NVIDIA setups), export
+# WEBKIT_DISABLE_DMABUF_RENDERER=1 yourself; mpv then plays in its own window.
 
 # TLS for the web view (cover images, the extension browser): the bundled glib-networking module.
 if [ -d "$APPDIR/usr/lib/gio/modules" ]; then

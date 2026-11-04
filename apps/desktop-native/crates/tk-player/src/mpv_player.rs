@@ -71,7 +71,14 @@ impl Player {
 
         // Create (with the engine's pre-init options), then set properties: some options return
         // PROPERTY_NOT_FOUND during pre-init.
-        let mpv = Mpv::with_initializer(|init| crate::enhanced::pre_init(&init, &cfg.mode)).map_err(mpv_err)?;
+        let mpv = Mpv::with_initializer(|init| {
+            // Diagnostics: TK_MPV_LOG=<file> makes mpv write its own verbose log there.
+            if let Some(path) = std::env::var_os("TK_MPV_LOG").filter(|p| !p.is_empty()) {
+                init.set_option("log-file", path.to_string_lossy().as_ref())?;
+            }
+            crate::enhanced::pre_init(&init, &cfg.mode)
+        })
+        .map_err(mpv_err)?;
         #[cfg(windows)]
         mpv.set_property("wid", surface.wid()).map_err(mpv_err)?;
         for (key, value) in crate::enhanced::base_options(&cfg.mode) {
@@ -219,6 +226,23 @@ impl Player {
         #[cfg(not(any(windows, target_os = "linux")))]
         {
             let _ = (rect, dpr);
+            false
+        }
+    }
+
+    /// Whether the picture is drawn inside the app window. False when mpv had to open its own window (Linux
+    /// without a usable GL surface, e.g. WebKitGTK's DMA-BUF renderer disabled).
+    pub fn is_embedded(&self) -> bool {
+        #[cfg(windows)]
+        {
+            true
+        }
+        #[cfg(target_os = "linux")]
+        {
+            self.gl.is_active()
+        }
+        #[cfg(not(any(windows, target_os = "linux")))]
+        {
             false
         }
     }
