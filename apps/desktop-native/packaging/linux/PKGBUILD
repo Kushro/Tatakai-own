@@ -1,0 +1,84 @@
+# Maintainer: Tatakai contributors
+#
+# Arch Linux / CachyOS package of the native desktop app, built from THIS checkout (no download of the app
+# sources): run `makepkg -si` inside apps/desktop-native/packaging/linux. libmpv, WebKitGTK and GTK come from
+# the system. Anime4K shaders are fetched and SHA-256-verified by fetch-deps.sh in prepare(); set
+# _fetch_shaders=0 to package without them (the upscale presets then report the missing files).
+# `makepkg --nocheck` skips the workspace tests.
+#
+# Installed layout (docs/redesign/09 section 8): /usr/lib/tatakai-next/{tatakai-next, assets/fonts/, shaders/,
+# mpv-anime-build/, ffmpeg/bin/ -> /usr/bin} with a /usr/bin/tatakai-next symlink.
+
+pkgname=tatakai-next
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Native anime player (Dioxus + libmpv) with Anime4K and sandboxed .kai extensions'
+arch=('x86_64')
+url='https://github.com/Kushro/Tatakai-own'
+license=('AGPL-3.0-or-later' 'MIT' 'OFL-1.1')
+depends=(
+    'mpv'              # libmpv.so.2 (client API 2.x)
+    'webkit2gtk-4.1'
+    'gtk3'
+    'glib2'
+    'glib-networking'  # TLS for the web view
+    'libsoup3'
+    'cairo'
+    'pango'
+    'gdk-pixbuf2'
+    'xdotool'          # libxdo (menu accelerators)
+    'ffmpeg'           # Tatakai Link sessions
+    'hicolor-icon-theme'
+)
+optdepends=(
+    'noto-fonts-cjk: kanji and kana in titles'
+    'libayatana-appindicator: tray icon'
+    'xdg-desktop-portal: native file dialogs'
+)
+makedepends=('cargo' 'curl' 'python' 'pkgconf')
+# GCC LTO objects from the cc-built C code (bundled SQLite, ring) do not link into the Rust binary.
+options=('!lto')
+
+_fetch_shaders=1
+# This file lives in apps/desktop-native/packaging/linux.
+_repo="$(cd "$startdir/../../../.." && pwd)"
+_app="$_repo/apps/desktop-native"
+
+pkgver() {
+    local ver
+    ver="$(sed -n 's/^version = "\(.*\)"$/\1/p' "$_app/Cargo.toml" | head -n1)"
+    if git -C "$_repo" rev-parse --git-dir >/dev/null 2>&1; then
+        printf '%s.r%s.g%s' "$ver" "$(git -C "$_repo" rev-list --count HEAD)" "$(git -C "$_repo" rev-parse --short HEAD)"
+    else
+        printf '%s' "$ver"
+    fi
+}
+
+prepare() {
+    cd "$_app"
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+    if [ "$_fetch_shaders" = 1 ]; then
+        "$_app/packaging/linux/fetch-deps.sh" --only anime4k,fsr,fonts --dest "$srcdir/deps" --cache "$srcdir/deps-cache"
+    fi
+}
+
+build() {
+    cd "$_app"
+    export CARGO_TARGET_DIR="$srcdir/target"
+    cargo build --release --locked -p tk-app
+}
+
+check() {
+    cd "$_app"
+    export CARGO_TARGET_DIR="$srcdir/target"
+    # Same set as CI: the crates' unit and fixture tests, without libmpv or the live backend.
+    cargo test --release --locked --workspace --no-default-features
+}
+
+package() {
+    "$_app/packaging/linux/install-tree.sh" \
+        --bin "$srcdir/target/release/tatakai-next" \
+        --root "$pkgdir" \
+        --prefix /usr \
+        --deps "$srcdir/deps"
+}
