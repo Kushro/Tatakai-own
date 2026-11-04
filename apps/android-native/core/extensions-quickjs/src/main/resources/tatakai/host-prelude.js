@@ -4,6 +4,8 @@
 //   __host_log(level, message)                 __host_sleep(ms) -> Promise
 //   __host_fetch(requestJson) -> Promise<json> __host_hash(algo, b64) -> b64        __host_hmac(algo, keyB64, dataB64) -> b64
 //   __host_random(n) -> b64                    __host_html(op, handle, arg) -> json  __host_args() -> json string
+// and, ONLY for a bundle with permitted browserDomains (docs/redesign/12 §3.7): the global string __host_browser_domains (JSON array)
+// and __host_browser(op, id, arg) -> Promise<json envelope {ok, value | error}>.
 // There is no fs, no sockets, no eval of remote code and no access to the app database or the Supabase session.
 (function (g) {
   'use strict';
@@ -801,6 +803,62 @@
   };
   g.__tk_require.resolve = function (name) { throw new Error(UNSUPPORTED_MSG(name)); };
 
+  // ---------------------------------------------------------------- browser runtime for configureBrowserRuntime ----------------------
+  // Same surface as desktop tk-ext/src/js/prelude.js (legacy seanime-browser-host.cjs); every check is repeated on the Kotlin side.
+  g.__tk_browser_runtime = function () {
+    var hostBrowser = g.__host_browser;
+    if (typeof hostBrowser !== 'function') return null;
+    var domains;
+    try { domains = JSON.parse(g.__host_browser_domains || '[]'); } catch (e) { domains = []; }
+    if (!Array.isArray(domains) || !domains.length) return null;
+    function browserOp(op, id, arg) {
+      return Promise.resolve(hostBrowser(op, id, arg)).then(function (json) {
+        var r = JSON.parse(json);
+        if (r.ok) return r.value === undefined ? null : r.value;
+        throw new Error(r.error);
+      });
+    }
+    var closedError = function () { return new Error('ChromeDP browser is closed'); };
+    return Object.freeze({
+      newBrowser: async function (options) {
+        var o = options && typeof options === 'object' ? options : {};
+        var id = await browserOp('new', '', JSON.stringify({ headless: o.headless, timeout: o.timeout }));
+        var closed = false;
+        return Object.freeze({
+          navigate: function (url) { return closed ? Promise.reject(closedError()) : browserOp('navigate', id, String(url)).then(function () { return undefined; }); },
+          evaluate: function (expression) {
+            if (closed) return Promise.reject(closedError());
+            if (typeof expression !== 'string') return Promise.reject(new Error('Invalid ChromeDP expression'));
+            return browserOp('evaluate', id, expression);
+          },
+          executeCDP: function (method, params) {
+            if (closed) return Promise.reject(closedError());
+            if (method === 'Network.getCookies') {
+              var urls = params && params.urls;
+              if (!Array.isArray(urls) || !urls.length || urls.length > 10) return Promise.reject(new Error('ChromeDP cookie URLs are required'));
+              return browserOp('cookies', id, JSON.stringify(urls.map(String)));
+            }
+            if (method === 'Network.getAllCookies') {
+              return browserOp('cookies', id, JSON.stringify(domains.slice(0, 10).map(function (d) { return 'https://' + d + '/'; })));
+            }
+            return Promise.reject(new Error('Unsupported ChromeDP CDP command: ' + method));
+          },
+          sleep: function (ms) {
+            if (closed) return Promise.reject(closedError());
+            var d = Number(ms);
+            if (!Number.isFinite(d) || d < 0 || d > 10000) return Promise.reject(new Error('Invalid ChromeDP sleep duration'));
+            return new Promise(function (resolve) { g.setTimeout(resolve, d); });
+          },
+          close: function () {
+            if (closed) return Promise.resolve();
+            closed = true;
+            return browserOp('close', id, '').then(function () { return undefined; });
+          },
+        });
+      },
+    });
+  };
+
   // ---------------------------------------------------------------- bundle instantiation and calls -----------------------------------
   g.__tk_instantiate = function () {
     var module = { exports: {} };
@@ -810,6 +868,11 @@
     var inst = typeof ex === 'function' ? new ex() : ex;
     if (!inst || typeof inst !== 'object') throw new Error('Extension bundle produced no usable export');
     g.__tk_instance = inst;
+    // Hand the bundle a browser only when it has permitted browserDomains (Kotlin decides by defining __host_browser).
+    if (typeof inst.configureBrowserRuntime === 'function') {
+      var runtime = g.__tk_browser_runtime();
+      if (runtime) inst.configureBrowserRuntime(runtime);
+    }
     return true;
   };
   g.__tk_has = function (name) { return !!g.__tk_instance && typeof g.__tk_instance[name] === 'function'; };
