@@ -40,6 +40,25 @@ pub struct MediaSource {
     pub subtitles: Vec<SubtitleSource>,
 }
 
+/// mpv `network-timeout` (seconds) for remote streams (embedded and enhanced engines).
+pub const NETWORK_TIMEOUT_SECS: i64 = 20;
+/// mpv `network-timeout` for streams served from this machine: the torrent engine's loopback HTTP server can stall
+/// for a while when the pieces at the read position still have to arrive from peers.
+pub const LOOPBACK_NETWORK_TIMEOUT_SECS: i64 = 120;
+
+impl MediaSource {
+    /// `http://127.0.0.1…`, `http://localhost…` or `http://[::1]…` (the torrent engine's stream server).
+    pub fn is_loopback(&self) -> bool {
+        let rest = self.url.strip_prefix("http://").unwrap_or("");
+        ["127.0.0.1:", "127.0.0.1/", "localhost:", "localhost/", "[::1]:", "[::1]/"].iter().any(|p| rest.starts_with(p))
+    }
+
+    /// The `network-timeout` to use for this source.
+    pub fn network_timeout_secs(&self) -> i64 {
+        if self.is_loopback() { LOOPBACK_NETWORK_TIMEOUT_SECS } else { NETWORK_TIMEOUT_SECS }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubtitleSource {
     pub url: String,

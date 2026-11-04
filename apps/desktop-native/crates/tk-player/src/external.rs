@@ -273,6 +273,10 @@ fn mpv_args(endpoint: &str, src: &MediaSource, start_secs: f64, title: &str) -> 
         args.push(format!("--referrer={r}").into());
     }
     args.push(format!("--user-agent={}", plan.user_agent.as_deref().unwrap_or(DEFAULT_UA)).into());
+    // Torrent streams (loopback HTTP) may wait for pieces; remote sources keep the user's own network-timeout.
+    if src.is_loopback() {
+        args.push(format!("--network-timeout={}", src.network_timeout_secs()).into());
+    }
     // `-append` adds one item without splitting on commas (cookies and the like contain them).
     for field in plan.fields {
         args.push(format!("--http-header-fields-append={field}").into());
@@ -521,6 +525,18 @@ mod tests {
         assert_eq!(&a[a.len() - 2..], ["--", "https://cdn.example/v.m3u8"]);
         let b = strs(&mpv_args("p", &MediaSource { url: "u".into(), ..Default::default() }, 0.0, ""));
         assert!(!b.iter().any(|x| x.starts_with("--start") || x.starts_with("--title") || x.starts_with("--referrer")));
+        assert!(!a.iter().any(|x| x.starts_with("--network-timeout")));
+    }
+
+    #[test]
+    fn loopback_torrent_streams_get_a_longer_network_timeout() {
+        let url = "http://127.0.0.1:41234/tok/0123456789abcdef0123456789abcdef01234567/3/Ep%2003.mkv";
+        let src = MediaSource { url: url.into(), ..Default::default() };
+        assert!(src.is_loopback());
+        let a = strs(&mpv_args("p", &src, 0.0, ""));
+        assert!(a.contains(&format!("--network-timeout={}", crate::types::LOOPBACK_NETWORK_TIMEOUT_SECS)));
+        assert!(!MediaSource { url: "http://127.0.0.1.example.com/v.mkv".into(), ..Default::default() }.is_loopback());
+        assert!(!MediaSource { url: "https://cdn.example/v.m3u8".into(), ..Default::default() }.is_loopback());
     }
 
     #[test]
