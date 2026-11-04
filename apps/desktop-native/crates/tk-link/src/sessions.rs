@@ -250,6 +250,11 @@ impl Manager {
         lock(&self.sessions).len()
     }
 
+    /// Devices that own a session right now.
+    pub fn device_ids(&self) -> Vec<String> {
+        lock(&self.by_device).keys().cloned().collect()
+    }
+
     // ---- create / close ---------------------------------------------------------------------------------------------
 
     pub async fn create(self: &Arc<Self>, device_id: &str, req: CreateRequest) -> ApiResult<SessionCreated> {

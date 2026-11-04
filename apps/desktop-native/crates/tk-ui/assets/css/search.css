@@ -1,0 +1,48 @@
+/* Search - owner: wave 1 B. Colors/type/shape/motion only from tokens.css; layout literals only. */
+
+/* search (master | detail) */
+.tk-page--search { max-width: none; gap: var(--tk-space-20); }
+.tk-page--search[data-dual="true"] { display: grid; grid-template-columns: minmax(380px, 6fr) minmax(340px, 5fr); gap: var(--tk-space-24); align-items: start; }
+.tk-search__list { display: flex; flex-direction: column; gap: var(--tk-space-16); min-width: 0; }
+.tk-search__detail { position: sticky; top: var(--tk-space-24); max-height: calc(100vh - var(--tk-titlebar-h) - var(--tk-space-48)); overflow-y: auto; padding: var(--tk-space-20); display: flex; flex-direction: column; gap: var(--tk-space-16); border-radius: var(--md-sys-shape-corner-extra-large); background: var(--md-sys-color-surface-container-low); }
+
+/* search bar */
+.tk-searchbar { display: flex; align-items: center; gap: var(--tk-space-8); padding: 0 var(--tk-space-8) 0 var(--tk-space-16); height: 56px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant); transition: background-color var(--tk-mo-fx-fast); }
+.tk-searchbar:focus-within { background: var(--md-sys-color-surface-container-highest); }
+.tk-searchbar__input { color: var(--md-sys-color-on-surface); font: inherit; min-width: 0; flex: 1; height: 100%; border: 0; background: transparent; padding: 0; font-size: var(--md-sys-typescale-body-large-size); }
+.tk-searchbar__input:focus { outline: none; }
+.tk-searchbar .tk-kbd { flex: none; }
+
+/* type / origin / active filter chips */
+.tk-search__chips { align-items: center; }
+.tk-search__sep { width: 1px; align-self: stretch; margin: var(--tk-space-4); background: var(--md-sys-color-outline-variant); }
+
+/* recent searches */
+.tk-search__history { display: flex; flex-direction: column; gap: 2px; }
+.tk-search__hist { display: flex; align-items: center; gap: var(--tk-space-4); border-radius: var(--md-sys-shape-corner-medium); transition: background-color var(--tk-mo-fx-fast); }
+.tk-search__hist:hover { background: var(--md-sys-color-surface-container-high); }
+.tk-search__histq { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--tk-space-12); height: 44px; padding: 0 var(--tk-space-12); border: 0; background: transparent; color: var(--md-sys-color-on-surface); text-align: start; border-radius: inherit; }
+.tk-search__histq .tk-icon { color: var(--md-sys-color-on-surface-variant); flex: none; }
+.tk-search__histq span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* counter + result list */
+.tk-search__count { font-size: var(--md-sys-typescale-label-large-size); }
+.tk-result { display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: var(--tk-space-12); align-items: center; width: 100%; padding: var(--tk-space-8); border: 0; border-radius: var(--md-sys-shape-corner-large); background: transparent; color: inherit; text-align: start; transition: background-color var(--tk-mo-fx-fast); }
+.tk-result:hover { background: var(--md-sys-color-surface-container-high); }
+.tk-result[aria-selected="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.tk-result__cover .tk-cover { border-radius: var(--md-sys-shape-corner-small); }
+.tk-result__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tk-result__title { font-size: var(--md-sys-typescale-title-small-size); font-weight: var(--md-sys-typescale-title-small-weight-emphasized); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-result__sub { font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-result[aria-selected="true"] .tk-result__sub { color: inherit; opacity: 0.8; }
+.tk-result__meta { display: flex; gap: var(--tk-space-4); }
+
+/* filter sheet */
+.tk-filters { display: flex; flex-direction: column; gap: var(--tk-space-24); }
+.tk-filters__group { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-filters__label { font-size: var(--md-sys-typescale-title-small-size); font-weight: var(--md-sys-typescale-title-small-weight-emphasized); color: var(--md-sys-color-on-surface-variant); }
+
+@media (max-width: 839px) {
+  .tk-page--search[data-dual="true"] { display: flex; flex-direction: column; }
+  .tk-search__detail { position: static; max-height: none; }
+}

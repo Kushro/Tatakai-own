@@ -1,0 +1,32 @@
+{
+  "$comment": "The 11 example sources of the Tatakai Next prototype (data.js sourcesFor) as tk-core SourceCandidate JSON, with the per-media seed fixed at 0 (web latencies 180/260 ms, SubsPlease 812 seeders). Sizes are decimal GB in bytes; info hashes are placeholders. tk-core/tests/sources_ranking.rs asserts the order the prototype score() produces.",
+  "extensions": [
+    { "id": "io.github.toko", "name": "Toko" },
+    { "id": "es.spanishpack", "name": "SpanishPack" },
+    { "id": "io.github.nyaa-own", "name": "Nyaa" }
+  ],
+  "candidates": [
+    { "extId": "io.github.toko", "extName": "Toko", "kind": "web", "label": "Alpha", "quality": "1080p", "container": "HLS", "subs": ["es", "en"], "dubs": ["ja"], "reliability": 0.97,
+      "web": { "url": "https://cdn.toko.example/alpha/ep.m3u8", "latencyMs": 180 } },
+    { "extId": "io.github.toko", "extName": "Toko", "kind": "web", "label": "Beta", "quality": "1080p", "container": "HLS", "subs": ["es"], "dubs": ["ja"], "reliability": 0.91,
+      "web": { "url": "https://cdn.toko.example/beta/ep.m3u8", "latencyMs": 260 } },
+    { "extId": "io.github.toko", "extName": "Toko", "kind": "web", "label": "Zulu", "quality": "720p", "container": "HLS", "subs": ["es", "en", "pt"], "dubs": ["ja", "es"], "reliability": 0.84, "note": "dub latino",
+      "web": { "url": "https://cdn.toko.example/zulu/ep.m3u8", "latencyMs": 340 } },
+    { "extId": "es.spanishpack", "extName": "SpanishPack", "kind": "web", "label": "Ok.ru", "quality": "720p", "container": "MP4", "subs": ["es"], "dubs": ["es"], "reliability": 0.72, "note": "dub latino · anuncios",
+      "web": { "url": "https://animeflv.example/okru/ep.mp4", "latencyMs": 420 } },
+    { "extId": "es.spanishpack", "extName": "SpanishPack", "kind": "web", "label": "Fembed", "quality": "480p", "container": "MP4", "subs": ["es"], "dubs": ["ja"], "reliability": 0.41, "note": "caído a menudo",
+      "web": { "url": "https://jkanime.example/fembed/ep.mp4", "latencyMs": 900 } },
+    { "extId": "es.spanishpack", "extName": "SpanishPack", "kind": "web", "label": "Streamwish", "quality": "1080p", "container": "HLS", "subs": ["es"], "dubs": ["ja"], "reliability": 0.78,
+      "web": { "url": "https://tioanime.example/streamwish/ep.m3u8", "latencyMs": 310 } },
+    { "extId": "io.github.nyaa-own", "extName": "Nyaa", "kind": "torrent", "label": "SubsPlease", "quality": "1080p", "container": "H.264", "subs": ["en"], "dubs": ["ja"], "reliability": 0.99,
+      "torrent": { "infoHash": "1111111111111111111111111111111111111111", "sizeBytes": 1380000000, "seeders": 812, "leechers": 41 } },
+    { "extId": "io.github.nyaa-own", "extName": "Nyaa", "kind": "torrent", "label": "Erai-raws", "quality": "1080p", "container": "H.264", "subs": ["en", "es", "pt", "fr", "de"], "dubs": ["ja"], "reliability": 0.97, "note": "multi-sub",
+      "torrent": { "infoHash": "2222222222222222222222222222222222222222", "sizeBytes": 1410000000, "seeders": 455, "leechers": 23 } },
+    { "extId": "io.github.nyaa-own", "extName": "Nyaa", "kind": "torrent", "label": "Varyg", "quality": "1080p", "container": "HEVC", "subs": ["en", "es"], "dubs": ["ja", "en"], "reliability": 0.93, "note": "dual audio",
+      "torrent": { "infoHash": "3333333333333333333333333333333333333333", "sizeBytes": 920000000, "seeders": 203, "leechers": 18 } },
+    { "extId": "io.github.nyaa-own", "extName": "Nyaa", "kind": "torrent", "label": "Judas", "quality": "1080p", "container": "HEVC 10-bit", "subs": ["en"], "dubs": ["ja"], "reliability": 0.88, "note": "mini",
+      "torrent": { "infoHash": "4444444444444444444444444444444444444444", "sizeBytes": 310000000, "seeders": 97, "leechers": 9 } },
+    { "extId": "io.github.nyaa-own", "extName": "Nyaa", "kind": "torrent", "label": "Anon-uploader", "quality": "1080p", "container": "H.264", "subs": [], "dubs": ["ja"], "reliability": 0.35, "note": "sin confirmar",
+      "torrent": { "infoHash": "5555555555555555555555555555555555555555", "sizeBytes": 1900000000, "seeders": 6, "leechers": 14 } }
+  ]
+}

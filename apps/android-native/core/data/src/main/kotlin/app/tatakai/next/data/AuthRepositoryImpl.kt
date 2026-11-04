@@ -38,5 +38,6 @@ class AuthRepositoryImpl(
         }
         source.signOut()
         history.clear()
+        syncer.resetStamp()
     }
 }

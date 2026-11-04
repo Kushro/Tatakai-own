@@ -78,7 +78,7 @@ test('extension-host/routes.v1.json lists the legacy route families', () => {
 
 test('extension-host/globals.v1.md documents the injected globals and require tiers', () => {
   const md = text(join(contracts, 'extension-host', 'globals.v1.md'));
-  for (const needle of ['__tatakai_fetch__', '__tatakai_parse_html__', 'Network permission denied', '64 MiB', '10485760', 'network:domain:', '`full`', '`partial`', '`unsupported`']) {
+  for (const needle of ['__tatakai_fetch__', '__tatakai_parse_html__', 'Network permission denied', '256 MiB', '10485760', 'network:domain:', '`full`', '`partial`', '`unsupported`']) {
     assert.ok(md.includes(needle), `globals.v1.md must mention ${needle}`);
   }
 });

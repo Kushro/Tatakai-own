@@ -119,6 +119,28 @@ async fn synthetic_full_resolves_playable_stream_sources() {
 }
 
 #[tokio::test]
+async fn synthetic_full_lists_selector_candidates_without_the_widened_fields() {
+    use tk_core::sources::{INITIAL_RELIABILITY, Quality, SourceKind, source_key};
+    let (_d, host) = host();
+    host.install_kai(&fixtures().join("packed/synthetic-full.kai")).unwrap();
+    let c = host.resolve_candidates(&media(), 3).await;
+    let labels: Vec<&str> = c.iter().map(|c| c.label.as_str()).collect();
+    // `server` is used as the label; the second beta-main entry gets its quality appended (unique source_key)
+    assert_eq!(labels, ["alpha-main", "beta-main", "beta-main 480p"]);
+    assert!(c.iter().all(|c| c.kind == SourceKind::Web && c.ext_id == "synthetic-full" && c.reliability == INITIAL_RELIABILITY));
+    assert_eq!((c[0].quality, c[1].quality, c[2].quality), (Quality::P1080, Quality::P720, Quality::P480));
+    // no subs / dubs / note in the bundle output: derived from subtitle tracks and audioLanguage, never an error
+    assert_eq!(c[0].subs, ["en"]);
+    assert_eq!(c[0].dubs, ["ja"]);
+    assert!(c[1].subs.is_empty() && c[1].dubs == ["en"] && c.iter().all(|c| c.note.is_none()));
+    assert_eq!(source_key(&c[0]), "synthetic-full|web|alpha-main");
+    // the playable stream is the same one resolve_streams returns (except the provider label)
+    let s = c[0].to_stream().unwrap();
+    assert_eq!((s.container, s.url.as_str()), (Container::Hls, "https://cdn.alpha.example.invalid/hls/1/3/master.m3u8?t=a28b1e3e"));
+    assert_eq!(s.headers["Referer"], "https://alpha.example.invalid/");
+}
+
+#[tokio::test]
 async fn gated_routes_and_unknown_routes() {
     let (_d, host) = host();
     host.install_kai(&fixtures().join("packed/synthetic-full.kai")).unwrap();

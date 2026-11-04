@@ -81,6 +81,15 @@ object AndroidKeystoreKey {
 @Serializable
 data class StoredPairing(val deviceId: String, val serverName: String, val host: String, val port: Int, val caSha256: String)
 
+/** android wave (12 §3.5): non-secret facts of the pairing shown by the "Dispositivo enlazado" screen. */
+@Serializable
+data class StoredDeviceMeta(
+    val pairedAtMs: Long? = null,
+    val lastSeenMs: Long? = null,
+    val preferredProfile: String? = null,
+    val localDeviceName: String? = null,
+)
+
 /** Everything needed to talk to the paired PC, loaded into memory. [toString] reveals nothing secret. */
 class LinkIdentity(
     val pairing: StoredPairing,
@@ -132,9 +141,19 @@ class LinkKeyVault(baseDir: File, private val cipher: KeyCipher) {
 
     fun hasPairing(): Boolean = File(dir, PAIRING_FILE).isFile
 
+    /** android wave: pairing date, last contact, preferred profile, local name; null when missing or unreadable. */
+    fun meta(): StoredDeviceMeta? =
+        runCatching { META_JSON.decodeFromString(StoredDeviceMeta.serializer(), File(dir, META_FILE).readText()) }.getOrNull()
+
+    fun saveMeta(meta: StoredDeviceMeta) {
+        dir.mkdirs()
+        restrict(dir, executable = true)
+        write(META_FILE, META_JSON.encodeToString(StoredDeviceMeta.serializer(), meta).toByteArray(Charsets.UTF_8))
+    }
+
     /** Forgets the pairing: deletes the fixed set of files, nothing else. */
     fun clear() {
-        listOf(KEY_FILE, CERT_FILE, CA_FILE, PAIRING_FILE).forEach { File(dir, it).delete() }
+        listOf(KEY_FILE, CERT_FILE, CA_FILE, PAIRING_FILE, META_FILE).forEach { File(dir, it).delete() }
     }
 
     /** Raw bytes of the sealed key file (tests assert it is not plaintext). */
@@ -166,5 +185,7 @@ class LinkKeyVault(baseDir: File, private val cipher: KeyCipher) {
         const val CERT_FILE = "client.cert.pem"
         const val CA_FILE = "ca.pem"
         const val PAIRING_FILE = "pairing.json"
+        const val META_FILE = "device.json"
+        private val META_JSON = Json { ignoreUnknownKeys = true }
     }
 }

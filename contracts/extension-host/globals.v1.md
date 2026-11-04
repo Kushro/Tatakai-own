@@ -7,7 +7,7 @@ Contract for the native `.kai` hosts: Kotlin (`apps/android-native/core/extensio
 
 ## 1. Evaluation model
 
-* One QuickJS runtime per installed extension (never shared). Memory limit **64 MiB**, interrupt handler + wall-clock
+* One QuickJS runtime per installed extension (never shared). Memory limit **256 MiB**, interrupt handler + wall-clock
   timeout **15 s per host call** (a route call, not the whole session). Exceeding either fails the call with `ExtError::Timeout` /
   `ExtError::OutOfMemory`; the runtime is discarded and re-created on the next call.
 * The bundle is evaluated as a CommonJS function body with the parameters, in this order (same as the legacy `new Function`):
@@ -32,6 +32,7 @@ Contract for the native `.kai` hosts: Kotlin (`apps/android-native/core/extensio
 | `setTimeout / clearTimeout / setInterval / clearInterval / setImmediate / clearImmediate` | Host event loop. |
 | `console` | `log/info/warn/error/debug` forwarded to the per-extension log buffer (Extensions screen shows it). Never to logcat/stdout with payloads over 4 KiB. |
 | `URL`, `URLSearchParams` | Standard semantics (WHATWG). |
+| `AbortController`, `AbortSignal` | `abort(reason)`, `signal.aborted/reason/onabort`, `add/removeEventListener('abort')`, `throwIfAborted()`, static `abort/timeout/any`. `fetch` honours `init.signal`: aborting rejects with an `AbortError` (the host request still completes and is dropped). |
 | `TextEncoder`, `TextDecoder` | `utf-8` (and `utf-16le` decode). |
 | `atob`, `btoa` | Standard. |
 | `crypto` (global) | `randomUUID()`, `getRandomValues(typedArray)`. |
@@ -70,6 +71,10 @@ Additional install-time validation (error, not a compat level): `manifest.json` 
 (`id, name, version, type, description, permissions`), `type` not in `torrent|onlinestream|custom`, `id` not matching
 `^[a-z0-9][a-z0-9._-]{0,63}$`, `bundle.js` missing or > 10 MiB, a ZIP entry whose path escapes the archive (`..`, absolute path, drive letter), more than
 64 entries, or uncompressed size over 32 MiB. Error messages name the failing field.
+
+Permissions accepted but deferred (never an error, never lower the compat level): `torrent:session` (in `permissions` or
+`capabilities`). The extension installs and its `torrent` route entries are listed in the source selector with their index
+data (seeders, leechers, size, hash); playing a torrent is **M2**. The native host logs one `warn` line per deferred permission.
 
 Renderer extensions (`manifest.contributes.rendererEntry`, ESM `activate(ctx)` with React) are **ignored** by the native hosts:
 the entry file is not extracted and never executed. `contributes.themes` are ignored in M0 (importable as tokens in M3).

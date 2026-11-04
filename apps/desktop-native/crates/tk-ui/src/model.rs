@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use tk_player::ShaderPreset;
 
+use crate::backend::SourceKindVm;
 use crate::i18n::LangChoice;
 
 // ---------------------------------------------------------------------------------------------
@@ -93,6 +94,16 @@ pub struct Settings {
     /// `ShaderPreset::id()` applied when playback starts.
     pub shader_preset: String,
     pub volume: u8,
+    /// Also forced by the OS `prefers-reduced-motion`; sets `data-reduce-motion` on `<html>`.
+    pub reduce_motion: bool,
+    /// Source selection (Settings > Player); mirrored to `tk_core::sources::SourcePrefs` by tk-app.
+    pub sources: SourcePrefsVm,
+    /// Settings > Player > Engine (docs/redesign/09): embedded / embedded enhanced / external mpv.
+    pub player_mode: PlayerModeVm,
+    /// Embedded enhanced only: whose controls show (ours, or mpv-anime-build's uosc).
+    pub enhanced_ui: EnhancedUiVm,
+    /// External mode: the mpv executable; `None` = autodetect on PATH (`tk_player::find_mpv`).
+    pub external_mpv_path: Option<String>,
 }
 
 impl Default for Settings {
@@ -105,7 +116,192 @@ impl Default for Settings {
             provider_priority: PROVIDERS.iter().map(|s| (*s).to_owned()).collect(),
             shader_preset: ShaderPreset::Off.id().to_owned(),
             volume: 100,
+            reduce_motion: false,
+            sources: SourcePrefsVm::default(),
+            player_mode: PlayerModeVm::default(),
+            enhanced_ui: EnhancedUiVm::default(),
+            external_mpv_path: None,
         }
+    }
+}
+
+/// The three player modes (Settings > Player > Engine). Persisted as `"embedded"` / `"embedded_enhanced"` /
+/// `"external"`. A missing field takes the default; keep the names stable (an unknown value fails the whole file).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlayerModeVm {
+    /// libmpv inside the app window (Windows child HWND, Linux GL widget), our controls.
+    #[default]
+    Embedded,
+    /// Same embedded libmpv with the vendored mpv-anime-build config (`Backend::prepare_anime_build`).
+    EmbeddedEnhanced,
+    /// The machine's own mpv in its own window (`tk_player::ExternalPlayer`); the app shows an info screen.
+    External,
+}
+
+impl PlayerModeVm {
+    pub const ALL: [PlayerModeVm; 3] = [Self::Embedded, Self::EmbeddedEnhanced, Self::External];
+
+    /// i18n suffix: `settings.player.mode.<id>` (+ `settings.player.mode.<id>_hint`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Embedded => "embedded",
+            Self::EmbeddedEnhanced => "embedded_enhanced",
+            Self::External => "external",
+        }
+    }
+}
+
+/// Embedded enhanced: who draws the player UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EnhancedUiVm {
+    /// Our controls; uosc is disabled, the build's profiles / shaders / scripts stay.
+    #[default]
+    Ours,
+    /// The build's own uosc UI; our player controls hide and the page relays input to mpv.
+    Uosc,
+}
+
+impl EnhancedUiVm {
+    pub const ALL: [EnhancedUiVm; 2] = [Self::Ours, Self::Uosc];
+
+    /// i18n suffix: `settings.player.enhanced_ui.<id>`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Ours => "ours",
+            Self::Uosc => "uosc",
+        }
+    }
+}
+
+/// The OS this UI build runs on (compile-time; tk-ui is built for the same target as the app).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlatformVm {
+    Linux,
+    Windows,
+    Mac,
+}
+
+impl PlatformVm {
+    pub const fn current() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else if cfg!(target_os = "macos") {
+            Self::Mac
+        } else {
+            Self::Linux
+        }
+    }
+
+    /// `linux` / `windows` / `mac`: i18n suffix for per-OS texts (`*.<id>` keys) and `data-os` value.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Linux => "linux",
+            Self::Windows => "windows",
+            Self::Mac => "mac",
+        }
+    }
+}
+
+/// `Some(trimmed)` unless blank.
+pub fn clean_mpv_path(path: Option<String>) -> Option<String> {
+    path.map(|p| p.trim().to_owned()).filter(|p| !p.is_empty())
+}
+
+/// Mirrors `tk_core::sources::SourceMode`. Manual: the player waits until the user picks a source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SourceModeVm {
+    #[default]
+    Auto,
+    Manual,
+}
+
+impl SourceModeVm {
+    pub const ALL: [SourceModeVm; 2] = [Self::Auto, Self::Manual];
+
+    /// i18n suffix: `src.mode.<id>`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Manual => "manual",
+        }
+    }
+}
+
+/// Minimum quality preference (mirrors the real qualities of `tk_core::sources::Quality`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
+pub enum QualityVm {
+    #[serde(rename = "480p")]
+    P480,
+    #[default]
+    #[serde(rename = "720p")]
+    P720,
+    #[serde(rename = "1080p")]
+    P1080,
+    #[serde(rename = "1440p")]
+    P1440,
+    #[serde(rename = "2160p")]
+    P2160,
+}
+
+impl QualityVm {
+    pub const ALL: [QualityVm; 5] = [Self::P480, Self::P720, Self::P1080, Self::P1440, Self::P2160];
+    /// The options Settings offers (prototype: 480p / 720p / 1080p).
+    pub const OFFERED: [QualityVm; 3] = [Self::P480, Self::P720, Self::P1080];
+
+    /// Display label and serde value (`720p`); same text as `SourceVm::quality`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::P480 => "480p",
+            Self::P720 => "720p",
+            Self::P1080 => "1080p",
+            Self::P1440 => "1440p",
+            Self::P2160 => "2160p",
+        }
+    }
+}
+
+/// Subtitle languages offered in Settings (ISO 639-1, first = default).
+pub const SUB_LANGS: [&str; 3] = ["es", "en", "pt"];
+/// Audio languages offered in Settings (first = default).
+pub const DUB_LANGS: [&str; 3] = ["ja", "es", "en"];
+
+/// Mirrors `tk_core::sources::SourcePrefs`. Defaults: Auto / any / 720p / `es` / `ja`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SourcePrefsVm {
+    pub mode: SourceModeVm,
+    /// `None` = any kind (`src.prefer.any`).
+    pub prefer: Option<SourceKindVm>,
+    pub min_quality: QualityVm,
+    pub sub_lang: String,
+    pub dub_lang: String,
+}
+
+impl Default for SourcePrefsVm {
+    fn default() -> Self {
+        Self {
+            mode: SourceModeVm::Auto,
+            prefer: None,
+            min_quality: QualityVm::P720,
+            sub_lang: SUB_LANGS[0].to_owned(),
+            dub_lang: DUB_LANGS[0].to_owned(),
+        }
+    }
+}
+
+impl SourcePrefsVm {
+    /// Unknown languages fall back to the defaults.
+    pub fn sanitized(mut self) -> Self {
+        if !SUB_LANGS.contains(&self.sub_lang.as_str()) {
+            self.sub_lang = SUB_LANGS[0].to_owned();
+        }
+        if !DUB_LANGS.contains(&self.dub_lang.as_str()) {
+            self.dub_lang = DUB_LANGS[0].to_owned();
+        }
+        self
     }
 }
 
@@ -160,6 +356,8 @@ impl Settings {
             self.shader_preset = ShaderPreset::Off.id().to_owned();
         }
         self.volume = self.volume.min(100);
+        self.sources = self.sources.sanitized();
+        self.external_mpv_path = clean_mpv_path(self.external_mpv_path);
         self
     }
 }
@@ -190,6 +388,19 @@ pub enum SettingsAction {
     MoveProvider { index: usize, delta: i8 },
     SetPreset(ShaderPreset),
     SetVolume(u8),
+    SetReduceMotion(bool),
+    SetSourceMode(SourceModeVm),
+    /// `None` = any kind.
+    SetSourcePrefer(Option<SourceKindVm>),
+    SetMinQuality(QualityVm),
+    /// Ignored unless it is one of [`SUB_LANGS`].
+    SetSubLang(String),
+    /// Ignored unless it is one of [`DUB_LANGS`].
+    SetDubLang(String),
+    SetPlayerMode(PlayerModeVm),
+    SetEnhancedUi(EnhancedUiVm),
+    /// Trimmed; blank = `None` (autodetect).
+    SetExternalMpvPath(Option<String>),
 }
 
 pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
@@ -213,6 +424,23 @@ pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
         }
         SettingsAction::SetPreset(p) => n.shader_preset = p.id().to_owned(),
         SettingsAction::SetVolume(v) => n.volume = v.min(100),
+        SettingsAction::SetReduceMotion(on) => n.reduce_motion = on,
+        SettingsAction::SetSourceMode(m) => n.sources.mode = m,
+        SettingsAction::SetSourcePrefer(k) => n.sources.prefer = k,
+        SettingsAction::SetMinQuality(q) => n.sources.min_quality = q,
+        SettingsAction::SetSubLang(l) => {
+            if SUB_LANGS.contains(&l.as_str()) {
+                n.sources.sub_lang = l;
+            }
+        }
+        SettingsAction::SetDubLang(l) => {
+            if DUB_LANGS.contains(&l.as_str()) {
+                n.sources.dub_lang = l;
+            }
+        }
+        SettingsAction::SetPlayerMode(m) => n.player_mode = m,
+        SettingsAction::SetEnhancedUi(u) => n.enhanced_ui = u,
+        SettingsAction::SetExternalMpvPath(p) => n.external_mpv_path = clean_mpv_path(p),
     }
     n
 }
@@ -225,23 +453,90 @@ pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
 pub enum NavDest {
     Home,
     Search,
+    Library,
+    /// Torrent client (wave 3, docs/redesign/10 section 5).
+    Torrents,
     Extensions,
     Link,
     Settings,
 }
 
 impl NavDest {
-    pub const ALL: [NavDest; 5] = [Self::Home, Self::Search, Self::Extensions, Self::Link, Self::Settings];
+    /// Rail order; shortcut digit `n` (1..=7 outside the player) opens `ALL[n - 1]`.
+    pub const ALL: [NavDest; 7] =
+        [Self::Home, Self::Search, Self::Library, Self::Torrents, Self::Extensions, Self::Link, Self::Settings];
 
     /// i18n key of the label (`nav.<id>`).
     pub fn label_key(self) -> &'static str {
         match self {
             Self::Home => "nav.home",
             Self::Search => "nav.search",
+            Self::Library => "nav.library",
+            Self::Torrents => "nav.torrents",
             Self::Extensions => "nav.extensions",
             Self::Link => "nav.link",
             Self::Settings => "nav.settings",
         }
+    }
+}
+
+/// Sub-pages of the torrent client (side index like Settings). Routes `/torrents`, `/torrents/<id>`
+/// (`app::Route::for_torrent_section`); titles `torrent.section.<id>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TorrentSection {
+    Overview,
+    Files,
+    Peers,
+    Trackers,
+    Library,
+    Downloads,
+    Settings,
+}
+
+impl TorrentSection {
+    pub const ALL: [TorrentSection; 7] =
+        [Self::Overview, Self::Files, Self::Peers, Self::Trackers, Self::Library, Self::Downloads, Self::Settings];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Overview => "overview",
+            Self::Files => "files",
+            Self::Peers => "peers",
+            Self::Trackers => "trackers",
+            Self::Library => "library",
+            Self::Downloads => "downloads",
+            Self::Settings => "settings",
+        }
+    }
+
+    /// i18n key of the index entry and page title.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::Overview => "torrent.section.overview",
+            Self::Files => "torrent.section.files",
+            Self::Peers => "torrent.section.peers",
+            Self::Trackers => "torrent.section.trackers",
+            Self::Library => "torrent.section.library",
+            Self::Downloads => "torrent.section.downloads",
+            Self::Settings => "torrent.section.settings",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Overview => "info",
+            Self::Files => "folder",
+            Self::Peers => "user",
+            Self::Trackers => "cast",
+            Self::Library => "library",
+            Self::Downloads => "download",
+            Self::Settings => "settings",
+        }
+    }
+
+    /// Sections about one torrent (need the selected torrent, `Ui::torrent`); the rest are client-wide.
+    pub fn per_torrent(self) -> bool {
+        matches!(self, Self::Overview | Self::Files | Self::Peers | Self::Trackers)
     }
 }
 
@@ -309,10 +604,28 @@ pub enum ErrorKind {
     Extension,
     NoSource,
     Auth,
+    /// A local port is taken (Link server: os error 10048 on Windows, 98 on Linux).
+    AddrInUse,
+    /// The backend does not implement this call yet (default `Backend` methods, offline build).
+    NotWired,
+    /// A torrent source was chosen; the desktop torrent engine arrives in M2.
+    TorrentM2,
     Other,
 }
 
 impl ErrorKind {
+    pub const ALL: [ErrorKind; 9] = [
+        Self::Offline,
+        Self::RateLimited,
+        Self::Extension,
+        Self::NoSource,
+        Self::Auth,
+        Self::AddrInUse,
+        Self::NotWired,
+        Self::TorrentM2,
+        Self::Other,
+    ];
+
     pub fn key(self) -> &'static str {
         match self {
             Self::Offline => "error.offline",
@@ -320,6 +633,9 @@ impl ErrorKind {
             Self::Extension => "error.extension",
             Self::NoSource => "error.no_source",
             Self::Auth => "error.auth",
+            Self::AddrInUse => "error.addr_in_use",
+            Self::NotWired => "error.not_wired",
+            Self::TorrentM2 => "src.m2",
             Self::Other => "error.generic",
         }
     }
@@ -335,6 +651,11 @@ pub struct UiError {
 impl UiError {
     pub fn new(kind: ErrorKind, detail: impl Into<String>) -> Self {
         Self { kind, detail: detail.into() }
+    }
+
+    /// `ErrorKind::NotWired` with the name of the missing backend call as detail.
+    pub fn not_wired(what: &str) -> Self {
+        Self::new(ErrorKind::NotWired, format!("{what} is not wired in this build"))
     }
 }
 
@@ -720,6 +1041,27 @@ mod tests {
     }
 
     #[test]
+    fn player_mode_settings_reduce_persist_and_sanitize() {
+        let d = Settings::default();
+        assert_eq!((d.player_mode, d.enhanced_ui, d.external_mpv_path.clone()), (PlayerModeVm::Embedded, EnhancedUiVm::Ours, None));
+        let s = reduce_settings(&d, SettingsAction::SetPlayerMode(PlayerModeVm::External));
+        let s = reduce_settings(&s, SettingsAction::SetEnhancedUi(EnhancedUiVm::Uosc));
+        let s = reduce_settings(&s, SettingsAction::SetExternalMpvPath(Some("  /usr/bin/mpv ".into())));
+        assert_eq!(s.external_mpv_path.as_deref(), Some("/usr/bin/mpv"));
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains(r#""player_mode":"external""#) && json.contains(r#""enhanced_ui":"uosc""#), "{json}");
+        let back: Settings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, s);
+        let cleared = reduce_settings(&s, SettingsAction::SetExternalMpvPath(Some("   ".into())));
+        assert_eq!(cleared.external_mpv_path, None);
+        let old: Settings = serde_json::from_str(r#"{"palette":"mono","external_mpv_path":" "}"#).unwrap();
+        assert_eq!(old.player_mode, PlayerModeVm::Embedded);
+        assert_eq!(old.sanitized().external_mpv_path, None);
+        let enhanced: Settings = serde_json::from_str(r#"{"player_mode":"embedded_enhanced"}"#).unwrap();
+        assert_eq!(enhanced.player_mode, PlayerModeVm::EmbeddedEnhanced);
+    }
+
+    #[test]
     fn settings_json_round_trips_and_tolerates_partial_files() {
         let s = Settings { mode: ThemeMode::Dark, language: LangChoice::Es, ..Settings::default() };
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
@@ -763,10 +1105,68 @@ mod tests {
             for d in NavDest::ALL {
                 assert_ne!(lookup(lang, d.label_key()), d.label_key());
             }
-            for k in [ErrorKind::Offline, ErrorKind::RateLimited, ErrorKind::Extension, ErrorKind::NoSource, ErrorKind::Auth, ErrorKind::Other] {
+            for k in ErrorKind::ALL {
                 assert_ne!(lookup(lang, k.key()), k.key());
             }
+            for m in SourceModeVm::ALL {
+                let k = format!("src.mode.{}", m.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for s in SourceKindVm::ALL {
+                let k = format!("src.{}", s.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for m in PlayerModeVm::ALL {
+                let k = format!("settings.player.mode.{}", m.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for u in EnhancedUiVm::ALL {
+                let k = format!("settings.player.enhanced_ui.{}", u.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            // wave 3 (docs/redesign/10)
+            for s in TorrentSection::ALL {
+                assert_ne!(lookup(lang, s.label_key()), s.label_key());
+            }
+            for s in crate::backend::TorrentStateVm::ALL {
+                let k = format!("torrent.state.{}", s.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for s in crate::backend::TrackerStatusVm::ALL {
+                let k = format!("torrent.tracker.{}", s.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for a in crate::backend::AfterWatchVm::ALL {
+                let k = format!("torrent.settings.after_watch.{}", a.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for s in crate::backend::SkipKindVm::ALL {
+                let k = format!("player.skip.{}", s.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for p in ["dht", "lsd", "pex", "nat", "forwarding", "persisting", "streaming"] {
+                let k = format!("torrent.proto.{p}");
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
         }
+    }
+
+    #[test]
+    fn torrent_settings_sanitize_and_tolerate_partial_files() {
+        use crate::backend::{AfterWatchVm, TorrentSettingsVm};
+        let partial: TorrentSettingsVm = serde_json::from_str(r#"{"max_peers":0,"background_downloads":true}"#).unwrap();
+        let s = partial.sanitized();
+        assert_eq!(s.max_peers, 1);
+        assert!(!s.background_downloads, "background downloads need the warning accepted");
+        assert_eq!(s.after_watch, AfterWatchVm::Delete);
+        let acked = TorrentSettingsVm { background_ack: true, background_downloads: true, download_limit_kib: u32::MAX, ..Default::default() };
+        let acked = acked.sanitized();
+        assert!(acked.background_downloads);
+        assert_eq!(acked.download_limit_kib, crate::backend::TORRENT_MAX_LIMIT_KIB);
+        let json = serde_json::to_string(&TorrentSettingsVm { default_download_dir: "/x".into(), ..Default::default() }).unwrap();
+        assert!(!json.contains("default_download_dir"));
+        assert_eq!(TorrentSection::ALL.len(), 7);
+        assert!(TorrentSection::Files.per_torrent() && !TorrentSection::Library.per_torrent());
     }
 
     #[test]

@@ -16,7 +16,7 @@
         "version": "string, semver",
         "type": "torrent | onlinestream | custom",
         "description": "string",
-        "permissions": "string[]; network:domain:<hostname|*>, parse:<parser>",
+        "permissions": "string[]; network:domain:<hostname|*>, parse:<parser>, torrent:session (accepted by native hosts; desktop plays torrents through its own engine since wave 3 (tk-torrent), Android lists them only for now; also accepted in capabilities)",
         "apiServer": "{ namespace: string, contract: string, routes: string[], healthPath?: string }",
         "capabilities": "string[]; known: manga, preview, websiteIndex, theme, metrics-sink, service, module, ui, custom-source",
         "customSources": "CustomSourceDescriptor[] { id, kind: read|watch, name, icon?, description? }; non-empty when capabilities has custom-source",
@@ -99,7 +99,7 @@
       "query": { "$ref": "#/queryParams/sourceOptions" },
       "transport": "same as sources",
       "cache": { "ttlSeconds": 1800 },
-      "milestone": "M2 (native hosts answer but the apps do not play torrents in M0)"
+      "milestone": "M2 (native hosts answer; desktop plays torrents since wave 3 through tk-torrent, Android still lists them only)"
     },
     {
       "id": "providers",
@@ -238,7 +238,8 @@
   },
   "types": {
     "SourceOptions": "see src/core/extensions/sdk/types.ts: { anilistId: number, titles: string[], episode?: number, episodeCount?: number, resolution: string, tatakaiId?: string, countryCode?: string, exclusions?: string[], preferredLanguage?: string, preferredLanguages?: string[], providerOptions?: { maxConcurrency?, maxRetries?, retryDelayMs?, timeoutMs? } }",
-    "SourceResult": "{ source: string, url: string, quality: string, headers: Record<string,string>, refererCandidates?: string[], subtitles: SubtitleTrack[], audioLanguage?: string, sourceType?: 'torrent'|'hls'|'mp4'|'custom', server?: string }",
+    "SourceResult": "{ source: string, url: string, quality: string, headers: Record<string,string>, refererCandidates?: string[], subtitles: SubtitleTrack[], audioLanguage?: string, sourceType?: 'torrent'|'hls'|'mp4'|'custom', server?: string, subs?: string[], dubs?: string[], note?: string, latencyMs?: number, group?: string, codec?: string, infoHash?: string, seeders?: number, leechers?: number, sizeBytes?: number, fileSize?: number|string }",
+    "SourceResultSelectorFields": "v1 widening (docs/redesign/07 section 3.2), all optional and never an error when missing or malformed: server (web server name), quality ('480p'..'2160p', '1080', 'FHD', '4K' ...; else unknown), subs / dubs (ISO 639-1 codes; array or one comma-separated string), note (short free text: 'dub latino', 'multi-sub'), latencyMs (measured time to first byte). Torrent entries (sourceType torrent) may add group (release group), codec, infoHash (hex; else read from the magnet url xt=urn:btih), seeders, leechers, sizeBytes or fileSize (bytes or a display string like '1.38 GB')",
     "SubtitleTrack": "{ url: string, label: string, language: string, default?: boolean }",
     "SourceResultNormalized": "SourceResult plus host-added fields: providerName, providerKey, server, providerPriority, audioLanguage, language, languageLabel, isDub, type, sourceType (hls|mp4|embed|torrent), fileFormat, isM3U8, isEmbed, isTorrent, seeders?, leechers?, peers?, torrentTitle?, fileSize?",
     "ProviderDiagnostic": "{ provider: string, status: 'ok'|'empty'|'error'|'timeout', resultCount: number, durationMs: number, attempts: number, error?: string }",
@@ -267,7 +268,21 @@
       "extensionId": "manifest.id",
       "subtitles": "SourceResult.subtitles -> SubtitleTrack{ url, lang=language, label, format inferred from extension: vtt|srt|ass }"
     },
-    "skipped": { "embed": "type embed / custom: not playable natively in M0, listed as unsupported in the UI", "torrent": "M2" },
+    "SourceCandidate": {
+      "$comment": "Source selector entry (tk-core sources::SourceCandidate, tk-ext map_candidates). Built from the stream route of onlinestream/custom extensions and the torrent route of torrent extensions; ranked by tk-core sources::score.",
+      "kind": "torrent when sourceType is torrent, else web (only hls / mp4 / dash(.mpd) web entries are listed)",
+      "label": "web: server, else providerName, else manifest.id. torrent: group, else server, else providerName. A label repeated inside one response gets ' <quality>' or ' #n' appended",
+      "quality": "SourceResult.quality parsed leniently; unknown when missing",
+      "container": "web: HLS | MP4 | DASH from the type. torrent: codec or container string",
+      "subs": "subs[], else the languages of subtitles[] (lowercase, region dropped, und skipped)",
+      "dubs": "dubs[], else [audioLanguage], else []",
+      "note": "note or null",
+      "web": "{ url, headers, latencyMs (latencyMs or null = not measured), subtitles }",
+      "torrent": "{ infoHash, sizeBytes, seeders (0 when missing), leechers, magnet (url when it is a magnet link) }; entries without any hash are skipped",
+      "reliability": "0.8 until the app applies its stored moving average",
+      "sourceKey": "<extensionId>|<web|torrent>|<label>"
+    },
+    "skipped": { "embed": "type embed / custom: not playable natively in M0, listed as unsupported in the UI", "torrent": "listed as SourceCandidate with index data; played by the desktop torrent engine (wave 3), not yet on Android" },
     "ordering": "providerPriority ascending, then quality descending, then preferredLanguages order"
   }
 }

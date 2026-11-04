@@ -117,6 +117,13 @@ pub fn tf(key: &str, args: &[(&str, &str)]) -> String {
     s
 }
 
+/// A count: `{key}.one` when `n` is 1, `key` otherwise, with `{n}` replaced.
+pub fn tn(key: &str, n: usize) -> String {
+    let n_text = n.to_string();
+    let args = [("n", n_text.as_str())];
+    if n == 1 { tf(&format!("{key}.one"), &args) } else { tf(key, &args) }
+}
+
 pub fn lookup(lang: Lang, key: &str) -> String {
     catalog(lang)
         .get(key)
@@ -197,7 +204,7 @@ mod tests {
                 continue;
             }
             let text = std::fs::read_to_string(&f).unwrap();
-            for marker in ["t(\"", "tf(\"", "tr!(\""] {
+            for marker in ["t(\"", "tf(\"", "tn(\"", "tr!(\""] {
                 let mut rest = text.as_str();
                 while let Some(i) = rest.find(marker) {
                     // Skip identifiers that merely end in `t`/`tf` (e.g. `select(\"`).
@@ -209,11 +216,29 @@ mod tests {
                     {
                         missing.push(format!("{}: {}", f.file_name().unwrap().to_string_lossy(), &after[..end]));
                     }
+                    if marker == "tn(\""
+                        && let Some(end) = after.find('"')
+                        && !known.contains(format!("{}.one", &after[..end]).as_str())
+                    {
+                        missing.push(format!("{}: {}.one", f.file_name().unwrap().to_string_lossy(), &after[..end]));
+                    }
                     rest = after;
                 }
             }
         }
         assert!(missing.is_empty(), "keys used but not defined: {missing:#?}");
+    }
+
+    #[test]
+    fn counts_pick_the_singular_form() {
+        let es = |key: &str, n: usize| {
+            let k = if n == 1 { format!("{key}.one") } else { key.to_owned() };
+            lookup(Lang::Es, &k).replace("{n}", &n.to_string())
+        };
+        assert_eq!(es("torrent.files.selected_n", 1), "1 seleccionado");
+        assert_eq!(es("torrent.files.selected_n", 3), "3 seleccionados");
+        assert_eq!(tn("torrent.files.count", 1), lookup(lang(), "torrent.files.count.one").replace("{n}", "1"));
+        assert_eq!(tn("torrent.files.count", 28), lookup(lang(), "torrent.files.count").replace("{n}", "28"));
     }
 
     #[test]

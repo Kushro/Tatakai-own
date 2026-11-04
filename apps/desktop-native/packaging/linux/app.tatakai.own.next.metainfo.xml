@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for the native desktop app. Validate with appstreamcli validate (offline mode). -->
+<component type="desktop-application">
+  <id>app.tatakai.own.next</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-or-later</project_license>
+  <name>Tatakai Next</name>
+  <summary>Native anime player with libmpv and local extensions</summary>
+  <summary xml:lang="es">Reproductor de anime nativo con libmpv y extensiones locales</summary>
+  <description>
+    <p>
+      Tatakai Next is the native desktop app of Tatakai: browse your library and history, play episodes with
+      libmpv and Anime4K or FSR upscaling, and run sideloaded .kai extensions in a sandboxed host.
+    </p>
+    <p>Three player modes are available in Settings:</p>
+    <ul>
+      <li>Embedded: libmpv drawn inside the app window, with the app controls.</li>
+      <li>Embedded enhanced: the same player with the bundled mpv-anime-build profiles, shaders and scripts.</li>
+      <li>External mpv: your own mpv, with your configuration and controls, in its own window.</li>
+    </ul>
+    <p xml:lang="es">
+      Tatakai Next es la app nativa de escritorio de Tatakai: explora tu biblioteca e historial, reproduce
+      episodios con libmpv y escalado Anime4K o FSR, y ejecuta extensiones .kai locales en un host aislado.
+    </p>
+  </description>
+  <developer id="com.github.kushro">
+    <name>Tatakai contributors</name>
+  </developer>
+  <url type="homepage">https://github.com/Kushro/Tatakai-own</url>
+  <url type="bugtracker">https://github.com/Kushro/Tatakai-own/issues</url>
+  <launchable type="desktop-id">app.tatakai.own.next.desktop</launchable>
+  <provides>
+    <binary>tatakai-next</binary>
+  </provides>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+    <category>Player</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <releases>
+    <release version="0.1.0" date="2026-11-03">
+      <description>
+        <p>First Linux build: embedded, enhanced and external mpv player modes.</p>
+      </description>
+    </release>
+  </releases>
+</component>

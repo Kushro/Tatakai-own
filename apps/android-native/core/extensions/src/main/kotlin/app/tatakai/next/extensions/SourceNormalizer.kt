@@ -25,7 +25,8 @@ object SourceNormalizer {
 
     fun normalize(raw: JsonObject, providerName: String, chunkPriority: Int?): JsonObject {
         val url = raw.str("url").orEmpty()
-        val sourceType = classify(raw.str("sourceType"), url)
+        // android wave: entries that only say `type` (or `isTorrent`) keep it, so torrent entries survive the `torrent` route filter.
+        val sourceType = if (raw.str("sourceType") == null && raw.bool("isTorrent") == true) "torrent" else classify(raw.str("sourceType") ?: raw.str("type"), url)
         val audio = raw.str("audioLanguage")
         val language = raw.str("language") ?: audio
         val priority = raw.int("providerPriority") ?: chunkPriority ?: 100
