@@ -12,7 +12,7 @@ use super::layout::common::{
 use crate::app::Ui;
 use crate::backend::TorrentFileVm;
 use crate::components::{EmptyState, ErrorState, Pill, SkeletonLines, TextField};
-use crate::i18n::{t, tf};
+use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
 use crate::model::ErrorKind;
 
@@ -95,8 +95,8 @@ pub fn TorrentFilesPage() -> Element {
             let summary = tf(
                 "torrent.files.summary",
                 &[
-                    ("n", &list.len().to_string()),
-                    ("selected", &picked.len().to_string()),
+                    ("files", &tn("torrent.files.count", list.len())),
+                    ("selected", &tn("torrent.files.selected_n", picked.len())),
                     ("size", &format_bytes(picked.iter().map(|f| f.size_bytes).sum())),
                 ],
             );

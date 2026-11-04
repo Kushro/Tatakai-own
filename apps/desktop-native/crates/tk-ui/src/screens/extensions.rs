@@ -12,7 +12,7 @@ use crate::components::{
     Banner, Button, ButtonSize, ButtonVariant, ConfirmDialog, EmptyState, ErrorState, IconButton, InfoChip,
     LoadingIndicator, Pill, SkeletonLines, Switch, TextField, Tone, use_snackbar,
 };
-use crate::i18n::{t, tf};
+use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
 use crate::model::{CompatLevel, ErrorKind, PlatformVm, UiError, is_kai_path};
 
@@ -175,7 +175,7 @@ pub fn ExtensionsPage() -> Element {
                     p { class: "tk-page__intro tk-muted", {t("ext.intro")} }
                 }
                 if let Some(n) = installed {
-                    Pill { text: tf("ext.installed", &[("n", &n.to_string())]) }
+                    Pill { text: tn("ext.installed", n) }
                 }
             }
             section { class: "tk-panel tk-install",
@@ -350,7 +350,7 @@ fn ExtensionRow(
                 if !d.hash.is_empty() {
                     span { "{hash_label} " code { class: "tk-mono", "{d.hash}" } }
                 }
-                span { title: "{domains}", {tf("ext.domains", &[("n", &d.domains.len().to_string())])} }
+                span { title: "{domains}", {tn("ext.domains", d.domains.len())} }
                 if !d.kind.is_empty() {
                     span { class: "tk-mono", "{d.kind}" }
                 }

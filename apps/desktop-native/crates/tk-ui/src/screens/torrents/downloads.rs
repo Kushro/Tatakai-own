@@ -16,7 +16,7 @@ use crate::components::{
     Banner, Button, ButtonSize, ButtonVariant, ConfirmDialog, EmptyState, ErrorState, IconButton, IconButtonSize,
     LoadingIndicator, Pill, SkeletonLines, Switch, Tone, WavyProgress, use_snackbar,
 };
-use crate::i18n::{t, tf};
+use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
 use crate::model::UiError;
 
@@ -366,7 +366,7 @@ fn DownloadCard(
         (
             tf("torrent.downloads.down", &[("speed", &format_speed(s.down_bps))]),
             tf("torrent.downloads.up", &[("speed", &format_speed(s.up_bps))]),
-            tf("torrent.downloads.peers", &[("n", &s.peers.to_string())]),
+            tn("torrent.downloads.peers", s.peers as usize),
             s.eta_secs.map(|e| tf("torrent.downloads.eta", &[("time", &format_duration(e))])),
         )
     });
