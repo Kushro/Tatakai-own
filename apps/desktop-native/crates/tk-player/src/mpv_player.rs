@@ -25,6 +25,21 @@ fn mpv_err(e: impl std::fmt::Display) -> PlayerError {
     PlayerError::Mpv(e.to_string())
 }
 
+/// libmpv refuses to start (`mpv_create` returns NULL) unless LC_NUMERIC is "C". GTK, which WebKitGTK pulls in
+/// outside Windows, sets the user's locale at start-up (e.g. es_AR, decimal comma), so reset just that category.
+#[cfg(unix)]
+fn force_c_numeric_locale() {
+    unsafe extern "C" {
+        fn setlocale(category: std::ffi::c_int, locale: *const std::ffi::c_char) -> *mut std::ffi::c_char;
+    }
+    // glibc and musl: LC_NUMERIC = 1.
+    const LC_NUMERIC: std::ffi::c_int = 1;
+    // SAFETY: called on the UI thread before mpv starts its threads; the argument is a static C string.
+    unsafe {
+        setlocale(LC_NUMERIC, c"C".as_ptr());
+    }
+}
+
 pub struct Player {
     // Field order matters: mpv is dropped (after the event thread is joined in `Drop`) before the
     // surface window is destroyed.
@@ -46,6 +61,8 @@ impl Player {
         let surface = crate::surface::VideoSurface::create(parent_hwnd)?;
         #[cfg(not(windows))]
         let _ = parent_hwnd;
+        #[cfg(unix)]
+        force_c_numeric_locale();
 
         // Create first, then set properties: some options return PROPERTY_NOT_FOUND during pre-init.
         let mpv = Mpv::new().map_err(mpv_err)?;
