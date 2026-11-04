@@ -18,6 +18,11 @@
     if (typeof exp === 'function') inst = new exp();
     if (!inst || (typeof inst !== 'object' && typeof inst !== 'function')) throw new Error('Extension bundle produced no usable export');
     state.instance = inst;
+    // Legacy host-server.cjs: hand the bundle a browser only when it has permitted browserDomains (Rust decides).
+    if (typeof inst.configureBrowserRuntime === 'function') {
+      const runtime = G.__tk_browser_runtime();
+      if (runtime) inst.configureBrowserRuntime(runtime);
+    }
   };
 
   const has = (name) => state.instance && typeof state.instance[name] === 'function';
@@ -210,7 +215,7 @@
     settle(p);
   };
 
-  // One round trip per host-loop iteration: JSON {done, envelope?, timer, fetches}
+  // One round trip per host-loop iteration: JSON {done, envelope?, timer, fetches, browsers}
   G.__tk_status = function () {
     if (state.result) {
       let env;
@@ -218,6 +223,6 @@
       state.result = null;
       return JSON.stringify({ done: true, envelope: env });
     }
-    return JSON.stringify({ done: false, timer: G.__tk_next_timer(), fetches: G.__tk_pending_fetches() });
+    return JSON.stringify({ done: false, timer: G.__tk_next_timer(), fetches: G.__tk_pending_fetches(), browsers: G.__tk_pending_browser() });
   };
 })(globalThis);
