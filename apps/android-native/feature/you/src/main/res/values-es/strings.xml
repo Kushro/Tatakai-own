@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="you_title">Tú</string>
+    <string name="you_guest_name">Invitado</string>
+    <string name="you_guest">Sin cuenta · historial local</string>
+    <string name="you_sign_in">Iniciar sesión para sincronizar</string>
+    <string name="you_sync_now">Sincronizar ahora</string>
+    <string name="you_syncing">Sincronizando…</string>
+    <string name="you_synced">Historial sincronizado %1$s</string>
+    <string name="you_never_synced">Aún sin sincronizar</string>
+    <string name="you_synced_now">Historial sincronizado</string>
+    <string name="you_sync_failed">No se pudo sincronizar el historial</string>
+    <string name="you_load_error">No se pudo cargar tu perfil</string>
+    <string name="you_history">Historial</string>
+    <string name="you_history_empty">Aún no has visto nada</string>
+    <plurals name="you_history_count">
+        <item quantity="one">%1$d episodio · local</item>
+        <item quantity="many">%1$d episodios · local</item>
+        <item quantity="other">%1$d episodios · local</item>
+    </plurals>
+    <string name="you_downloads">Descargas</string>
+    <string name="you_downloads_none">Sin descargas</string>
+    <plurals name="you_downloads_active">
+        <item quantity="one">%1$d descargando</item>
+        <item quantity="many">%1$d descargando</item>
+        <item quantity="other">%1$d descargando</item>
+    </plurals>
+    <plurals name="you_downloads_total">
+        <item quantity="one">%1$d torrent en la biblioteca</item>
+        <item quantity="many">%1$d torrents en la biblioteca</item>
+        <item quantity="other">%1$d torrents en la biblioteca</item>
+    </plurals>
+    <string name="you_extensions">Extensiones</string>
+    <string name="you_extensions_none">Ninguna instalada</string>
+    <plurals name="you_extensions_count">
+        <item quantity="one">%1$d instalada</item>
+        <item quantity="many">%1$d instaladas</item>
+        <item quantity="other">%1$d instaladas</item>
+    </plurals>
+    <string name="you_linked">Dispositivo enlazado</string>
+    <string name="you_linked_none">Ninguna PC enlazada</string>
+    <string name="you_linked_problem">Problema con el enlace</string>
+    <string name="you_linked_connected">%1$s · PC conectada</string>
+    <string name="you_linked_unreachable">%1$s · fuera de alcance</string>
+    <string name="you_settings">Ajustes</string>
+    <string name="you_settings_summary">Apariencia · Reproductor · Torrents</string>
+</resources>
