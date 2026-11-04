@@ -1110,29 +1110,29 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         let can_pick = !fs.legacy && !fs.sources.is_empty();
         rsx! {
             div { class: "tk-player__ext",
-                div { class: "tk-ext",
-                    div { class: "tk-ext__art",
+                div { class: "tk-xmpv",
+                    div { class: "tk-xmpv__art",
                         if poster.is_empty() {
                             Icon { name: "external".to_string(), size: 48 }
                         } else {
                             img { src: "{poster}", alt: "" }
                         }
                     }
-                    div { class: "tk-ext__body",
-                        span { class: "tk-ext__eyebrow",
+                    div { class: "tk-xmpv__body",
+                        span { class: "tk-xmpv__eyebrow",
                             Icon { name: "external".to_string(), size: 16 }
                             span { {t("player.external.title")} }
                         }
-                        h2 { class: "tk-ext__title", "{title}" }
-                        p { class: "tk-ext__ep",
+                        h2 { class: "tk-xmpv__title", "{title}" }
+                        p { class: "tk-xmpv__ep",
                             span { "{ep_label}" }
                             if !source_label.is_empty() {
-                                span { class: "tk-ext__src", "{source_label}" }
+                                span { class: "tk-xmpv__src", "{source_label}" }
                             }
                         }
-                        div { class: "tk-ext__status", role: "status", "aria-live": "polite",
+                        div { class: "tk-xmpv__status", role: "status", "aria-live": "polite",
                             if let Some(text) = busy {
-                                div { class: "tk-ext__busy",
+                                div { class: "tk-xmpv__busy",
                                     LoadingIndicator { small: true }
                                     span { "{text}" }
                                 }
@@ -1141,17 +1141,17 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                             } else if ended {
                                 span { {t("player.external.ended")} }
                             } else {
-                                div { class: "tk-ext__time",
+                                div { class: "tk-xmpv__time",
                                     span { "{time}" }
                                     if st.paused {
-                                        span { class: "tk-ext__paused", {t("player.external.paused")} }
+                                        span { class: "tk-xmpv__paused", {t("player.external.paused")} }
                                     }
                                 }
                                 WavyProgress { fraction: st.fraction(), label: progress_label, active: !st.paused }
                             }
                         }
-                        p { class: "tk-ext__hint", {t("player.external.hint")} }
-                        div { class: "tk-ext__actions",
+                        p { class: "tk-xmpv__hint", {t("player.external.hint")} }
+                        div { class: "tk-xmpv__actions",
                             Button {
                                 label: t("player.external.stop"),
                                 variant: ButtonVariant::Filled,
