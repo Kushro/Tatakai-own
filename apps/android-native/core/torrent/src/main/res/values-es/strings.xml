@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- :core:torrent (worker f, docs/redesign/12 §2): notification channel, foreground service and system messages. -->
+<resources>
+    <string name="torrent_notif_channel_name">Torrents</string>
+    <string name="torrent_notif_channel_desc">Progreso del streaming por torrent y de las descargas en segundo plano</string>
+    <string name="torrent_notif_title_streaming">Reproduciendo %1$s</string>
+    <string name="torrent_notif_title_idle">Motor de torrents activo</string>
+    <plurals name="torrent_notif_title_downloads">
+        <item quantity="one">%1$d descarga</item>
+        <item quantity="many">%1$d descargas</item>
+        <item quantity="other">%1$d descargas</item>
+    </plurals>
+    <string name="torrent_notif_speed">↓ %1$s · ↑ %2$s</string>
+    <string name="torrent_notif_pause_all">Pausar todo</string>
+    <string name="torrent_notif_resume">Reanudar</string>
+    <string name="torrent_notif_open">Abrir</string>
+    <string name="torrent_notif_episode_ready">El episodio %1$d está listo</string>
+    <string name="torrent_notif_download_ready">Descarga terminada</string>
+    <string name="torrent_notif_watch">Ver</string>
+    <string name="torrent_notif_error_title">Problema con un torrent</string>
+    <string name="torrent_android_service_paused_title">Descargas pausadas por el sistema</string>
+    <string name="torrent_android_service_paused_body">Android limita cuánto tiempo corren las descargas en segundo plano. Toca Reanudar para seguir.</string>
+</resources>
