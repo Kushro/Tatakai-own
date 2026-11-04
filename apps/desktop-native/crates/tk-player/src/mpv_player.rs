@@ -259,6 +259,12 @@ impl Player {
         self.mpv.command("mouse", &[&px.to_string(), &py.to_string()]).map_err(mpv_err)
     }
 
+    /// Enhanced + uosc: show uosc's timeline and controls for a moment. uosc reveals them only when the pointer
+    /// nears the bottom edge; this makes any pointer movement over the video bring them up, like our own bar.
+    pub fn flash_uosc_controls(&self) -> Result<(), PlayerError> {
+        self.mpv.command("script-message-to", &["uosc", "flash-elements", "timeline,controls"]).map_err(mpv_err)
+    }
+
     /// Relay a key or mouse button by its mpv name (`SPACE`, `LEFT`, `f`, `MBTN_LEFT`, `WHEEL_UP` ...).
     pub fn forward_key(&self, name: &str, action: KeyAction) -> Result<(), PlayerError> {
         let cmd = match action {

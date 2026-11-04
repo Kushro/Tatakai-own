@@ -76,6 +76,10 @@ impl Player {
         Ok(())
     }
 
+    pub fn flash_uosc_controls(&self) -> Result<(), PlayerError> {
+        Ok(())
+    }
+
     pub fn forward_key(&self, _name: &str, _action: KeyAction) -> Result<(), PlayerError> {
         Ok(())
     }
