@@ -255,6 +255,12 @@ fn set_pip(win: &DesktopContext, on: bool, state: &PipWindow) {
 // Torrent playback (docs/redesign/10 section 5.5)
 // ---------------------------------------------------------------------------------------------
 
+/// Pointer movement re-flashes uosc's controls at most this often (its flash lasts 2 s).
+const UOSC_FLASH_EVERY_MS: u64 = 1000;
+
+/// The "torrent has no file for this episode" flash stays this much longer than a regular one.
+const NO_FILE_NOTICE_EXTRA_MS: u64 = 6000;
+
 /// Watched past this share of the duration = completed (`Backend::torrent_playback_ended`).
 const TORRENT_COMPLETED: f64 = 0.9;
 /// Downloaded ranges (`Backend::seek_marks`) are refreshed every this many stats ticks (1 s each).
@@ -534,12 +540,21 @@ impl Flow {
     /// Records a failure of `attempt`; the caller (or the `drive` loop) resolves the next one.
     fn fail(&self, attempt: u64, e: UiError) {
         let mut flow = self.flow;
+        // A torrent without this episode's file: say so, longer than a flash, since playback now continues
+        // from a different source than the one picked.
+        let no_file = e.kind == ErrorKind::NoSource && is_info_hash(&e.detail);
         let failed = flow.write().fail(attempt, e);
         if let Some(sid) = failed {
             report_source(&self.backend, sid, false);
         }
         if flow.peek().to_resolve().is_some() {
-            self.flash(t("player.error.trying_next"));
+            if no_file && flow.peek().last_failed_torrent() {
+                let mut f = self.flash;
+                let text = tf("player.torrent.no_file_next", &[("n", &self.episode.to_string())]);
+                f.set(Some((text, now_ms() + NO_FILE_NOTICE_EXTRA_MS)));
+            } else {
+                self.flash(t("player.error.trying_next"));
+            }
         }
     }
 
@@ -781,6 +796,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let mut enhanced = use_signal(|| false);
     // Enhanced with uosc: mpv draws the UI, the hole relays input.
     let mut uosc = use_signal(|| false);
+    // Last time uosc was asked to show its controls (pointer movement over the hole).
+    let mut uosc_flashed = use_signal(|| 0_u64);
     let mut dpr = use_signal(|| 1.0_f64);
 
     let ctx = Flow {
@@ -1798,6 +1815,11 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     if relay && let Some(p) = player.peek().clone() {
                         let pt = e.element_coordinates();
                         let _ = p.forward_mouse(pt.x, pt.y, *dpr.peek());
+                        let now = now_ms();
+                        if now.saturating_sub(*uosc_flashed.peek()) > UOSC_FLASH_EVERY_MS {
+                            uosc_flashed.set(now);
+                            let _ = p.flash_uosc_controls();
+                        }
                     }
                 },
                 onmousedown: move |e: MouseEvent| {
