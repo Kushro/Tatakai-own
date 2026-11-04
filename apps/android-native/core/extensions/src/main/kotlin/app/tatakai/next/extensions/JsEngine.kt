@@ -62,8 +62,8 @@ interface JsEngine {
     companion object {
         const val CALL_TIMEOUT_MS = 15_000L
         /**
-         * 256 MiB, above the 64 MiB of contracts/extension-host/globals.v1.md: Toko's stream route (cheerio over many provider pages) runs
-         * out at 64 MiB on a device and lists 13 sources at 256. Pending a decision to raise the contract (and desktop) too.
+         * 256 MiB, as in contracts/extension-host/globals.v1.md: Toko's stream route (cheerio over many provider pages) runs
+         * out at 64 MiB on a device and lists 13 sources at 256.
          */
         const val MEMORY_LIMIT_BYTES = 256L * 1024 * 1024
     }

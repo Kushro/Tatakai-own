@@ -1,6 +1,6 @@
 //! One QuickJS runtime per extension, each on its own OS thread.
 //!
-//! Limits (globals.v1.md section 1): 64 MiB heap, 15 s wall-clock per host call (interrupt handler + event-loop
+//! Limits (globals.v1.md section 1): 256 MiB heap, 15 s wall-clock per host call (interrupt handler + event-loop
 //! deadline). A call that times out or runs out of memory discards the runtime; the next call rebuilds it.
 //! Network `fetch` is started on the shared tokio runtime and its completion is delivered back to this thread's
 //! event loop, so several fetches of one extension run in parallel. Browser runtime operations
@@ -27,7 +27,8 @@ use crate::hashing::{Algo, hmac};
 /// Whole-call budget. Aggregating bundles (Toko) run dozens of providers at once, each bounded by
 /// `providerOptions.timeoutMs` plus retries, so a source listing needs well over the 15 s a single route took.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(40);
-pub const MEMORY_LIMIT: usize = 64 * 1024 * 1024;
+/// Toko's stream route (cheerio over many provider pages) runs out at 64 MiB.
+pub const MEMORY_LIMIT: usize = 256 * 1024 * 1024;
 const STACK_LIMIT: usize = 1024 * 1024;
 pub const FETCH_CAP: usize = 25 * 1024 * 1024;
 const LOG_LINES: usize = 500;
