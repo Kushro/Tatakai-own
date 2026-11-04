@@ -6,7 +6,7 @@ Design docs: [`docs/redesign/`](../docs/redesign/README.md). Contracts shared by
 | Path | What | License |
 |---|---|---|
 | `apps/android-native/` | Kotlin 2.4 + Jetpack Compose + Material 3 Expressive, `applicationId app.tatakai.own.next` | AGPL-3.0-or-later |
-| `apps/desktop-native/` | Rust 1.94.1 + Dioxus 0.7.10 (WebView2) + libmpv, binary `tatakai-next.exe`, data in `%APPDATA%\Tatakai-Next\` | AGPL-3.0-or-later |
+| `apps/desktop-native/` | Rust 1.94.1 + Dioxus 0.7.10 (WebKitGTK on Linux, WebView2 on Windows) + libmpv, binary `tatakai-next`, data in `~/.config/Tatakai-Next/` or `%APPDATA%\Tatakai-Next\`. Linux first, see its [README](desktop-native/README.md) | AGPL-3.0-or-later |
 | `packages/tokens/` | `tokens.json` -> `Tokens.kt` + `tokens.css` (generated files are committed) | (repo) MPL-2.0 |
 | `contracts/` | extension-host routes/globals, Link v1 OpenAPI, Supabase M0 tables, fixtures | (repo) MPL-2.0 |
 

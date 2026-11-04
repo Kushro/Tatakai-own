@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# AppImage entry point (installed by build-appimage.sh as the AppDir's AppRun).
+# No `set -e`: a failing command inside a sourced hook must not stop the launch.
+
+HERE="$(dirname "$(readlink -f "$0")")"
+export APPDIR="${APPDIR:-$HERE}"
+
+# linuxdeploy-plugin-gtk's hook points GTK at the bundled modules, loaders and schemas. It also forces
+# GDK_BACKEND=x11; we keep the user's choice instead and let GTK pick Wayland or X11 when none is set.
+user_gdk_backend_set="${GDK_BACKEND+x}"
+user_gdk_backend="${GDK_BACKEND-}"
+for hook in "$APPDIR"/apprun-hooks/*.sh; do
+    if [ -f "$hook" ]; then
+        # shellcheck disable=SC1090
+        . "$hook"
+    fi
+done
+if [ -n "$user_gdk_backend_set" ]; then
+    export GDK_BACKEND="$user_gdk_backend"
+else
+    unset GDK_BACKEND
+fi
+
+# WebKitGTK's DMA-BUF renderer shows blank or flickering pages on several driver / compositor combinations
+# (NVIDIA, some Wayland setups). Export WEBKIT_DISABLE_DMABUF_RENDERER=0 to try it anyway.
+export WEBKIT_DISABLE_DMABUF_RENDERER="${WEBKIT_DISABLE_DMABUF_RENDERER:-1}"
+
+# TLS for the web view (cover images, the extension browser): the bundled glib-networking module.
+if [ -d "$APPDIR/usr/lib/gio/modules" ]; then
+    export GIO_MODULE_DIR="$APPDIR/usr/lib/gio/modules"
+fi
+
+# The bundled libwebkit2gtk was patched to look for its helper processes (WebKitWebProcess,
+# WebKitNetworkProcess, the injected bundle) under ././/lib/<triplet>/webkit2gtk-4.1, relative to the working
+# directory, so the app runs from $APPDIR/usr. The caller's directory stays available as $OWD.
+export OWD="${OWD:-$PWD}"
+cd "$APPDIR/usr"
+exec "$APPDIR/usr/lib/tatakai-next/tatakai-next" "$@"

@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Tatakai Next
+GenericName=Anime player
+GenericName[es]=Reproductor de anime
+Comment=Native anime player with libmpv, Anime4K and local extensions
+Comment[es]=Reproductor de anime nativo con libmpv, Anime4K y extensiones locales
+Exec=tatakai-next
+TryExec=tatakai-next
+Icon=app.tatakai.own.next
+Terminal=false
+Categories=AudioVideo;Video;Player;
+Keywords=anime;mpv;player;video;streaming;
+Keywords[es]=anime;mpv;reproductor;video;streaming;
+StartupNotify=true
+StartupWMClass=tatakai-next
+SingleMainWindow=true
