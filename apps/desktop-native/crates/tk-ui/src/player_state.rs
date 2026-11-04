@@ -6,7 +6,7 @@
 //! means "resolve `sources[i]` now" (`Backend::playback_source`), tagged with [`FlowState::attempt`] so a
 //! late answer for an older attempt is ignored. Nothing else in here starts network work.
 
-use crate::backend::{SourceKindVm, SourceVm};
+use crate::backend::{SkipKindVm, SkipMarkVm, SourceKindVm, SourceVm};
 use crate::model::{ErrorKind, SourceModeVm, UiError};
 
 /// Legacy path (`Backend::sources` not wired): at most this many `PlaybackVm::streams` are tried.
@@ -47,9 +47,10 @@ pub fn source_name(s: &SourceVm) -> String {
     format!("{} · {}", s.ext_name, s.label)
 }
 
-/// What Auto mode may try on its own: enabled extension and a web stream (torrent playback is M2).
+/// What Auto mode may try on its own: any source of an enabled extension. Torrents play since wave 3
+/// (docs/redesign/10 section 5.5): the ranking alone decides whether a web or a torrent source goes first.
 pub fn playable(s: &SourceVm) -> bool {
-    s.ext_enabled && s.kind == SourceKindVm::Web
+    s.ext_enabled
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -109,11 +110,7 @@ impl FlowState {
     }
 
     fn no_playable_error(&self) -> UiError {
-        if self.sources.iter().any(|s| s.ext_enabled && s.kind == SourceKindVm::Torrent) {
-            UiError::new(ErrorKind::TorrentM2, "")
-        } else {
-            UiError::new(ErrorKind::NoSource, "")
-        }
+        UiError::new(ErrorKind::NoSource, "")
     }
 
     fn enter(&mut self, i: usize) {
@@ -219,9 +216,22 @@ impl FlowState {
         self.begin();
     }
 
-    /// Best web source to offer when a torrent fails with `TorrentM2` (not failed yet if possible).
+    /// Best web source to offer when a torrent fails (not failed yet if possible).
     pub fn best_web(&self) -> Option<&SourceVm> {
-        self.next_playable().map(|i| &self.sources[i]).or_else(|| self.sources.iter().find(|s| playable(s)))
+        let web = |s: &&SourceVm| playable(s) && s.kind == SourceKindVm::Web;
+        self.sources
+            .iter()
+            .filter(web)
+            .find(|s| !self.failed.iter().any(|f| f.id == s.id))
+            .or_else(|| self.sources.iter().find(web))
+    }
+
+    /// The last failure was a torrent source (the error screen then offers the best web source).
+    pub fn last_failed_torrent(&self) -> bool {
+        self.failed
+            .last()
+            .and_then(|f| self.sources.iter().find(|s| s.id == f.id))
+            .is_some_and(|s| s.kind == SourceKindVm::Torrent)
     }
 
     /// Distinct qualities of the playable sources, highest first (quality menu).
@@ -249,7 +259,7 @@ pub fn quality_rank(q: &str) -> u32 {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Intro / outro markers (ani.zip / AniSkip arrive in M1; the screen keeps the hook)
+// Intro / outro / recap markers (`Backend::skip_marks`, AniSkip) and torrent seek-bar ranges
 // ---------------------------------------------------------------------------------------------
 
 /// A marked range in seconds.
@@ -259,34 +269,151 @@ pub struct Span {
     pub end: f64,
 }
 
+impl Span {
+    fn contains(self, pos: f64) -> bool {
+        pos >= self.start && pos < self.end
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Markers {
     pub intro: Option<Span>,
     pub outro: Option<Span>,
+    pub recap: Option<Span>,
+}
+
+/// One marker drawn on the seek bar: `(left %, width %)` of the bar.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BarMark {
+    pub kind: SkipKindVm,
+    pub left: f64,
+    pub width: f64,
 }
 
 impl Markers {
+    /// The first mark of each kind (AniSkip may list more than one; the earliest wins).
+    pub fn from_skips(marks: &[SkipMarkVm]) -> Self {
+        let mut out = Self::default();
+        for m in marks {
+            if !(m.start_secs.is_finite() && m.end_secs.is_finite() && m.end_secs > m.start_secs) {
+                continue;
+            }
+            let span = Span { start: m.start_secs.max(0.0), end: m.end_secs };
+            let slot = match m.kind {
+                SkipKindVm::Intro => &mut out.intro,
+                SkipKindVm::Outro => &mut out.outro,
+                SkipKindVm::Recap => &mut out.recap,
+            };
+            if slot.is_none_or(|old| span.start < old.start) {
+                *slot = Some(span);
+            }
+        }
+        out
+    }
+
+    fn spans(&self) -> [(SkipKindVm, Option<Span>); 3] {
+        [(SkipKindVm::Recap, self.recap), (SkipKindVm::Intro, self.intro), (SkipKindVm::Outro, self.outro)]
+    }
+
+    /// The mark `pos` is inside and where skipping it jumps to (its end).
+    pub fn skip_at(&self, pos: f64) -> Option<(SkipKindVm, f64)> {
+        self.spans().into_iter().find_map(|(kind, s)| s.filter(|s| s.contains(pos)).map(|s| (kind, s.end)))
+    }
+
     /// Where "Skip intro" jumps to, while `pos` is inside the intro.
     pub fn skip_target(&self, pos: f64) -> Option<f64> {
-        self.intro.filter(|s| pos >= s.start && pos < s.end).map(|s| s.end)
+        self.intro.filter(|s| s.contains(pos)).map(|s| s.end)
     }
 
     /// `(left %, width %)` of every marker on a seek bar of `duration` seconds.
     pub fn bar_spans(&self, duration: f64) -> Vec<(f64, f64)> {
+        self.bar_marks(duration).into_iter().map(|m| (m.left, m.width)).collect()
+    }
+
+    /// Every marker with its kind (the CSS colours them per kind), in recap / intro / outro order.
+    pub fn bar_marks(&self, duration: f64) -> Vec<BarMark> {
         if !(duration.is_finite() && duration > 0.0) {
             return Vec::new();
         }
-        [self.intro, self.outro]
+        self.spans()
             .into_iter()
-            .flatten()
-            .filter(|s| s.end > s.start)
-            .map(|s| {
+            .filter_map(|(kind, s)| s.map(|s| (kind, s)))
+            .filter(|(_, s)| s.end > s.start && s.start < duration)
+            .map(|(kind, s)| {
                 let a = (s.start / duration).clamp(0.0, 1.0);
                 let b = (s.end / duration).clamp(0.0, 1.0);
-                (a * 100.0, (b - a) * 100.0)
+                BarMark { kind, left: a * 100.0, width: (b - a) * 100.0 }
             })
             .collect()
     }
+}
+
+/// Downloaded ranges of the playing file (`Backend::seek_marks`, byte fractions 0.0..=1.0, sorted) as
+/// `(left %, width %)` of the seek bar. Byte fractions stand in for time fractions (near-constant bitrate).
+pub fn range_spans(ranges: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    ranges
+        .iter()
+        .filter(|(a, b)| a.is_finite() && b.is_finite())
+        .map(|&(a, b)| (a.clamp(0.0, 1.0), b.clamp(0.0, 1.0)))
+        .filter(|(a, b)| b > a)
+        .map(|(a, b)| (a * 100.0, (b - a) * 100.0))
+        .collect()
+}
+
+/// Share of the file already downloaded (sum of the ranges), 0.0..=1.0.
+pub fn downloaded_fraction(ranges: &[(f64, f64)]) -> f64 {
+    ranges
+        .iter()
+        .filter(|(a, b)| a.is_finite() && b.is_finite() && b > a)
+        .map(|(a, b)| (b.min(1.0) - a.max(0.0)).max(0.0))
+        .sum::<f64>()
+        .clamp(0.0, 1.0)
+}
+
+/// "Ready to play" from `at` (fraction of the file): `(left %, width %)` from `at` to the end of the downloaded
+/// range that contains it. `None` when the position is not downloaded yet (mpv is waiting for data there).
+pub fn ready_span(ranges: &[(f64, f64)], at: f64) -> Option<(f64, f64)> {
+    if !at.is_finite() {
+        return None;
+    }
+    let at = at.clamp(0.0, 1.0);
+    // A tiny slack: right after a seek the playhead sits on a range boundary.
+    ranges
+        .iter()
+        .find(|(a, b)| at >= *a - 1e-6 && at < *b)
+        .map(|&(_, b)| (at * 100.0, (b.min(1.0) - at).max(0.0) * 100.0))
+        .filter(|(_, w)| *w > 0.0)
+}
+
+/// `4.20 MB/s`, `512 KB/s`, `0 B/s` (decimal units, like the torrent client).
+pub fn format_rate(bps: u64) -> String {
+    format!("{}/s", format_bytes(bps))
+}
+
+/// `13.8 GB`, `512 KB`, `4.20 MB`, `12 B`.
+pub fn format_bytes(n: u64) -> String {
+    const UNITS: [&str; 5] = ["KB", "MB", "GB", "TB", "PB"];
+    if n < 1000 {
+        return format!("{n} B");
+    }
+    let mut v = n as f64 / 1000.0;
+    let mut unit = 0;
+    while v >= 1000.0 && unit + 1 < UNITS.len() {
+        v /= 1000.0;
+        unit += 1;
+    }
+    if v >= 100.0 {
+        format!("{v:.0} {}", UNITS[unit])
+    } else if v >= 10.0 {
+        format!("{v:.1} {}", UNITS[unit])
+    } else {
+        format!("{v:.2} {}", UNITS[unit])
+    }
+}
+
+/// A torrent id / v1 info-hash: 40 hex characters.
+pub fn is_info_hash(s: &str) -> bool {
+    s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -465,13 +592,14 @@ mod tests {
         let mut v = list();
         v[2].picked = true;
         assert_eq!(FlowState::new(v, SourceModeVm::Auto).to_resolve(), Some(2));
-        // A disabled extension or a torrent at the top is skipped: [Gamma(off), SubsPlease, Beta, Ok.ru].
+        // A disabled extension at the top is skipped; a torrent is played like any other source:
+        // [Gamma(off), SubsPlease, Beta, Ok.ru].
         let mut v = list();
         v.remove(0);
         v.swap(0, 2);
         v.swap(1, 2);
         assert_eq!((v[0].ext_id.as_str(), v[1].kind), ("off", SourceKindVm::Torrent));
-        assert_eq!(FlowState::new(v, SourceModeVm::Auto).to_resolve(), Some(2));
+        assert_eq!(FlowState::new(v, SourceModeVm::Auto).to_resolve(), Some(1));
     }
 
     #[test]
@@ -479,7 +607,11 @@ mod tests {
         let mut f = FlowState::new(list(), SourceModeVm::Auto);
         let a = f.attempt;
         assert_eq!(f.fail(a, err()).as_deref(), Some("anipro|web|Alpha"));
-        // Skips the torrent (M2) and the disabled extension.
+        // The torrent is next in ranking order (wave 3: torrents play).
+        assert_eq!(f.to_resolve(), Some(1));
+        let a = f.attempt;
+        assert_eq!(f.fail(a, UiError::new(ErrorKind::NoSource, "no peers")).as_deref(), Some("nyaa|torrent|SubsPlease"));
+        // Then Beta; the disabled extension is skipped later on.
         assert_eq!(f.to_resolve(), Some(2));
         let a = f.attempt;
         f.resolved(a);
@@ -491,7 +623,7 @@ mod tests {
         assert_eq!(f.phase, Phase::Error);
         assert_eq!(f.to_resolve(), None);
         let names: Vec<_> = f.failed.iter().map(|x| x.name.as_str()).collect();
-        assert_eq!(names, ["anipro · Alpha", "anipro · Beta", "toko · Ok.ru"]);
+        assert_eq!(names, ["anipro · Alpha", "nyaa · SubsPlease", "anipro · Beta", "toko · Ok.ru"]);
         assert_eq!(f.failed[0].detail, "HTTP 403");
         assert_eq!(f.error.as_ref().map(|e| e.kind), Some(ErrorKind::Offline));
         // Retry starts over from the top.
@@ -512,14 +644,19 @@ mod tests {
     }
 
     #[test]
-    fn manual_mode_stops_on_failure_and_offers_the_best_web_source() {
+    fn manual_mode_stops_on_a_failed_torrent_and_offers_the_best_web_source() {
         let mut f = FlowState::new(list(), SourceModeVm::Manual);
         f.pick("nyaa|torrent|SubsPlease");
+        assert_eq!(f.to_resolve(), Some(1), "a picked torrent is resolved, not rejected");
         let a = f.attempt;
-        assert!(f.fail(a, UiError::new(ErrorKind::TorrentM2, "")).is_some());
+        assert!(f.fail(a, UiError::new(ErrorKind::NoSource, "0123456789abcdef0123456789abcdef01234567")).is_some());
         assert_eq!(f.phase, Phase::Error);
-        assert_eq!(f.error.as_ref().map(|e| e.kind), Some(ErrorKind::TorrentM2));
+        assert_eq!(f.error.as_ref().map(|e| e.kind), Some(ErrorKind::NoSource));
+        assert!(f.last_failed_torrent());
         assert_eq!(f.best_web().map(|s| s.label.as_str()), Some("Alpha"));
+        // best_web never offers a torrent.
+        let only_torrents = FlowState::new(vec![src("nyaa", "Erai", SourceKindVm::Torrent, "1080p")], SourceModeVm::Manual);
+        assert!(only_torrents.best_web().is_none());
     }
 
     #[test]
@@ -541,8 +678,9 @@ mod tests {
     fn empty_or_unplayable_lists_end_in_an_error() {
         let f = FlowState::new(Vec::new(), SourceModeVm::Auto);
         assert_eq!((f.phase, f.error.map(|e| e.kind)), (Phase::Error, Some(ErrorKind::NoSource)));
+        // A torrent-only list plays the torrent (no more M2 rejection).
         let f = FlowState::new(vec![src("nyaa", "Erai", SourceKindVm::Torrent, "1080p")], SourceModeVm::Auto);
-        assert_eq!(f.error.map(|e| e.kind), Some(ErrorKind::TorrentM2));
+        assert_eq!((f.phase, f.to_resolve()), (Phase::Resolving, Some(0)));
         let mut off = src("x", "y", SourceKindVm::Web, "");
         off.ext_enabled = false;
         let f = FlowState::new(vec![off], SourceModeVm::Auto);
@@ -575,7 +713,11 @@ mod tests {
 
     #[test]
     fn markers_skip_and_bar_spans() {
-        let m = Markers { intro: Some(Span { start: 85.0, end: 175.0 }), outro: Some(Span { start: 1300.0, end: 1400.0 }) };
+        let m = Markers {
+            intro: Some(Span { start: 85.0, end: 175.0 }),
+            outro: Some(Span { start: 1300.0, end: 1400.0 }),
+            recap: None,
+        };
         assert_eq!(m.skip_target(90.0), Some(175.0));
         assert_eq!(m.skip_target(175.0), None);
         assert_eq!(m.skip_target(10.0), None);
@@ -584,6 +726,56 @@ mod tests {
         assert!((spans[0].0 - 85.0 / 14.0).abs() < 1e-9);
         assert!(Markers::default().bar_spans(1400.0).is_empty());
         assert!(m.bar_spans(0.0).is_empty());
+        assert_eq!(m.skip_at(1350.0), Some((SkipKindVm::Outro, 1400.0)));
+        assert_eq!(m.bar_marks(1400.0)[1].kind, SkipKindVm::Outro);
+    }
+
+    #[test]
+    fn markers_from_skip_marks_keep_the_earliest_of_each_kind() {
+        let mk = |kind, a, b| SkipMarkVm { kind, start_secs: a, end_secs: b };
+        let m = Markers::from_skips(&[
+            mk(SkipKindVm::Intro, 300.0, 390.0),
+            mk(SkipKindVm::Intro, 80.0, 170.0),
+            mk(SkipKindVm::Recap, 0.0, 40.0),
+            mk(SkipKindVm::Outro, 50.0, 10.0),
+        ]);
+        assert_eq!(m.intro, Some(Span { start: 80.0, end: 170.0 }));
+        assert_eq!(m.recap, Some(Span { start: 0.0, end: 40.0 }));
+        assert_eq!(m.outro, None, "inverted intervals are dropped");
+        assert_eq!(m.skip_at(10.0), Some((SkipKindVm::Recap, 40.0)));
+        assert_eq!(m.skip_at(100.0), Some((SkipKindVm::Intro, 170.0)));
+        assert_eq!(m.skip_at(200.0), None);
+        let kinds: Vec<_> = m.bar_marks(1440.0).into_iter().map(|b| b.kind).collect();
+        assert_eq!(kinds, [SkipKindVm::Recap, SkipKindVm::Intro]);
+    }
+
+    #[test]
+    fn torrent_ranges_on_the_seek_bar() {
+        let ranges = [(0.0, 0.25), (0.5, 0.75)];
+        assert_eq!(range_spans(&ranges), vec![(0.0, 25.0), (50.0, 25.0)]);
+        assert!(range_spans(&[(0.4, 0.4), (f64::NAN, 1.0)]).is_empty());
+        assert!((downloaded_fraction(&ranges) - 0.5).abs() < 1e-9);
+        assert_eq!(downloaded_fraction(&[]), 0.0);
+        assert_eq!(downloaded_fraction(&[(0.0, 1.0)]), 1.0);
+        // Ready from the playhead to the end of its range; nothing when the playhead is not downloaded.
+        let r = ready_span(&ranges, 0.1).expect("inside the first range");
+        assert!((r.0 - 10.0).abs() < 1e-9 && (r.1 - 15.0).abs() < 1e-9);
+        assert_eq!(ready_span(&ranges, 0.3), None);
+        assert_eq!(ready_span(&ranges, 0.75), None);
+        assert!(ready_span(&ranges, 0.5).is_some());
+    }
+
+    #[test]
+    fn rates_bytes_and_hashes() {
+        assert_eq!(format_bytes(12), "12 B");
+        assert_eq!(format_bytes(512_000), "512 KB");
+        assert_eq!(format_bytes(4_200_000), "4.20 MB");
+        assert_eq!(format_bytes(13_800_000_000), "13.8 GB");
+        assert_eq!(format_rate(4_200_000), "4.20 MB/s");
+        assert_eq!(format_rate(0), "0 B/s");
+        assert!(is_info_hash("0123456789abcdef0123456789ABCDEF01234567"));
+        assert!(!is_info_hash("toko|torrent|SubsPlease"));
+        assert!(!is_info_hash("0123"));
     }
 
     #[test]

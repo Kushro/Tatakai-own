@@ -12,6 +12,13 @@
 //! player shortcuts hide and the hole relays pointer / keys to mpv. External mpv never creates the embedded
 //! player: the same source flow spawns the machine's mpv (`tk_player::ExternalPlayer`) and this page shows an
 //! informative card (Stop / Back) until mpv closes, then returns to where the user came from.
+//!
+//! Wave 3 (docs/redesign/10 section 5.5): a torrent source resolves through `Backend::torrent_play` (a loopback
+//! HTTP URL, so the three engines load it like any stream). While it loads, the status shows "Waiting for
+//! metadata…" and then speed / peers / file progress (`torrent_stats`, 1 s); the seek bar draws the downloaded
+//! ranges (`seek_marks`) and the ready-to-play run, plus intro / outro / recap marks (`skip_marks`, any source).
+//! "Next episode" of a batch hands the same torrent to the next screen; leaving ends the session
+//! (`torrent_playback_ended`).
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
@@ -31,7 +38,7 @@ use tk_player::{
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::{Route, Services, Ui};
-use crate::backend::{BackendRef, PlaybackVm, ReleaseTagsVm, SourceKindVm, SourceVm};
+use crate::backend::{BackendRef, PlaybackVm, ReleaseTagsVm, SourceKindVm, SourceVm, TorrentStateVm, TorrentStatsVm};
 use crate::components::player_controls::NextEpisodeCard;
 use crate::components::{
     Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, PlayerControls, SourcePicker,
@@ -45,8 +52,8 @@ use crate::model::{
 };
 use crate::platform::{self, now_ms};
 use crate::player_state::{
-    FLASH_MS, FlowState, MAX_LEGACY_STREAMS, Markers, Phase, countdown_left, format_speed, keeps_controls_up, mpv_key_name,
-    mpv_mouse_button, source_name,
+    FLASH_MS, FlowState, MAX_LEGACY_STREAMS, Markers, Phase, countdown_left, downloaded_fraction, format_rate, format_speed,
+    is_info_hash, keeps_controls_up, mpv_key_name, mpv_mouse_button, range_spans, ready_span, source_name,
 };
 use crate::shortcuts::Shortcut;
 
@@ -244,6 +251,100 @@ fn set_pip(win: &DesktopContext, on: bool, state: &PipWindow) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Torrent playback (docs/redesign/10 section 5.5)
+// ---------------------------------------------------------------------------------------------
+
+/// Watched past this share of the duration = completed (`Backend::torrent_playback_ended`).
+const TORRENT_COMPLETED: f64 = 0.9;
+/// Downloaded ranges (`Backend::seek_marks`) are refreshed every this many stats ticks (1 s each).
+const SEEK_MARKS_EVERY: u64 = 3;
+
+/// The torrent this screen streams from: what `Backend::torrent_play` returned plus the source it came from.
+#[derive(Debug, Clone, PartialEq)]
+struct TorrentSession {
+    torrent_id: String,
+    file_index: usize,
+    file_name: String,
+    /// More than one video file: "next episode" reuses the torrent.
+    batch: bool,
+    /// The picker row it was played from (carried to the next episode of a batch).
+    source: SourceVm,
+}
+
+/// The session outside signals so `use_drop` can still end it (`torrent_playback_ended`).
+#[derive(Default)]
+struct TorrentSlot {
+    session: RefCell<Option<TorrentSession>>,
+    /// Last known `PlayerState::fraction`, for `completed`.
+    fraction: Cell<f64>,
+    /// The torrent was handed on (batch next episode, "open in the torrent client"): leaving this screen does not
+    /// end it.
+    handed_over: Cell<bool>,
+}
+
+impl TorrentSlot {
+    /// Replace the session; a different torrent that was playing ends here (not completed: the user switched).
+    fn replace(&self, backend: &BackendRef, next: Option<TorrentSession>) {
+        let old = self.session.replace(next);
+        let now = self.session.borrow().as_ref().map(|s| s.torrent_id.clone());
+        if let Some(old) = old
+            && now.as_deref() != Some(old.torrent_id.as_str())
+        {
+            end_torrent(backend, old.torrent_id, false);
+        }
+    }
+
+    fn completed(&self) -> bool {
+        self.fraction.get() >= TORRENT_COMPLETED
+    }
+}
+
+/// A batch handed to the next episode's screen: that screen plays `torrent_id` again with the file of its episode
+/// instead of resolving sources. Single UI thread, so a thread-local is enough (the route only carries id/episode).
+struct BatchNext {
+    id: String,
+    episode: u32,
+    torrent_id: String,
+    source: SourceVm,
+}
+
+thread_local! {
+    static BATCH_NEXT: RefCell<Option<BatchNext>> = const { RefCell::new(None) };
+}
+
+/// The batch handed to `(id, episode)`, if any. A hand-over meant for another screen is stale (the user went
+/// elsewhere): its torrent session ends here.
+fn take_batch_next(backend: &BackendRef, id: &str, episode: u32) -> Option<BatchNext> {
+    let next = BATCH_NEXT.with(|b| b.borrow_mut().take())?;
+    if next.id == id && next.episode == episode {
+        return Some(next);
+    }
+    end_torrent(backend, next.torrent_id, false);
+    None
+}
+
+/// `Backend::torrent_playback_ended` in the background. Runs from `use_drop` too, hence `spawn_forever` (the
+/// screen's scope is going away).
+fn end_torrent(backend: &BackendRef, torrent_id: String, completed: bool) {
+    let backend = backend.clone();
+    dioxus::dioxus_core::spawn_forever(async move {
+        if let Err(e) = backend.torrent_playback_ended(&torrent_id, completed).await
+            && e.kind != ErrorKind::NotWired
+        {
+            tracing::warn!(detail = %e.detail, "ending the torrent session failed");
+        }
+    });
+}
+
+/// The speed / peers / file line under the buffering status (empty without stats).
+fn torrent_line(stats: Option<&TorrentStatsVm>, have: &[(f64, f64)]) -> String {
+    let Some(s) = stats else { return String::new() };
+    let file = if have.is_empty() { s.progress } else { downloaded_fraction(have) };
+    let pct = ((file.clamp(0.0, 1.0) * 100.0).floor() as u32).to_string();
+    tf("player.torrent.status", &[("speed", &format_rate(s.down_bps)), ("peers", &s.peers.to_string()), ("pct", &pct)])
+}
+
 /// Handles shared by the resolve loop, the mpv event pump and the UI callbacks (all `Copy` except the
 /// backend and the id).
 #[derive(Clone)]
@@ -267,6 +368,14 @@ struct Flow {
     ext_closed: Signal<bool>,
     next_since: Signal<Option<u64>>,
     nav: Navigator,
+    /// The torrent being streamed (mirrors `tslot` for rendering).
+    torrent: Signal<Option<TorrentSession>>,
+    tslot: Rc<TorrentSlot>,
+    /// Batch next episode: `(source id, torrent id)`; that source plays the torrent again instead of resolving.
+    reuse: Signal<Option<(String, String)>>,
+    /// A torrent whose files had no match for this episode (the error screen offers its Files page).
+    files_hint: Signal<Option<String>>,
+    picker_open: Signal<bool>,
 }
 
 impl Flow {
@@ -290,19 +399,52 @@ impl Flow {
                     None => return,
                 }
             };
-            let source_id = flow.peek().sources[idx].id.clone();
+            let source = flow.peek().sources[idx].clone();
+            let source_id = source.id.clone();
             dispatch(&mut pstate, PlayerAction::Loading);
+            // A batch handed over by the previous episode plays that torrent again (no source resolution).
+            let reused = self.reuse.peek().as_ref().filter(|(sid, _)| *sid == source_id).map(|(_, tid)| tid.clone());
+            let mut session = None;
             let resolved = if legacy {
                 self.legacy
                     .peek()
                     .clone()
                     .map(|vm| PlaybackVm { streams: vm.streams.get(idx).cloned().into_iter().collect(), ..vm })
                     .ok_or_else(|| UiError::new(ErrorKind::NoSource, ""))
+            } else if source.kind == SourceKindVm::Torrent {
+                // docs/redesign/10 section 5.5: torrents go through `torrent_play` (loopback HTTP URL), never
+                // `playback_source`.
+                let target = reused.clone().unwrap_or_else(|| source_id.clone());
+                match self.backend.torrent_play(&target, &self.id, self.episode).await {
+                    Ok(tvm) => {
+                        session = Some(TorrentSession {
+                            torrent_id: tvm.torrent_id,
+                            file_index: tvm.file_index,
+                            file_name: tvm.file_name,
+                            batch: tvm.batch,
+                            source: SourceVm { picked: false, ..source.clone() },
+                        });
+                        Ok(tvm.playback)
+                    }
+                    Err(e) => Err(e),
+                }
             } else {
                 self.backend.playback_source(&self.id, self.episode, &source_id).await
             };
             if flow.peek().attempt != attempt {
                 return;
+            }
+            if let Err(e) = &resolved
+                && source.kind == SourceKindVm::Torrent
+                && e.kind == ErrorKind::NoSource
+                && is_info_hash(&e.detail)
+            {
+                let mut hint = self.files_hint;
+                hint.set(Some(e.detail.to_ascii_lowercase()));
+            }
+            if resolved.is_ok() {
+                // A web source (or another torrent) replaces the torrent that was playing: that one ends.
+                self.set_torrent(session);
             }
             let loaded = match resolved {
                 Ok(vm) if vm.streams.is_empty() => Err(UiError::new(ErrorKind::NoSource, "")),
@@ -329,9 +471,64 @@ impl Flow {
                 Err(e) => {
                     tracing::warn!(kind = ?e.kind, detail = %e.detail, "source failed");
                     self.fail(attempt, e);
+                    if reused.is_some() {
+                        // The batch has no file for this episode (or the torrent is gone): resolve the episode's
+                        // sources like a normal start.
+                        let mut reuse = self.reuse;
+                        reuse.set(None);
+                        self.reload().await;
+                    }
                 }
             }
         }
+    }
+
+    /// The episode's ranked sources, as at boot (used when a handed-over batch cannot play this episode).
+    async fn reload(&self) {
+        let mode = self.flow.peek().mode;
+        match self.backend.sources(&self.id, self.episode).await {
+            Ok(list) => {
+                let state = FlowState::new(list, mode);
+                let waiting = state.phase == Phase::Manual;
+                let mut flow = self.flow;
+                flow.set(state);
+                if waiting {
+                    let mut open = self.picker_open;
+                    open.set(true);
+                }
+            }
+            Err(e) => tracing::warn!(kind = ?e.kind, detail = %e.detail, "listing the sources again failed"),
+        }
+    }
+
+    /// The torrent now streaming (`None` for a web source); the previous one ends if it is a different torrent.
+    fn set_torrent(&self, session: Option<TorrentSession>) {
+        self.tslot.replace(&self.backend, session.clone());
+        let mut t = self.torrent;
+        if *t.peek() != session {
+            t.set(session);
+        }
+    }
+
+    /// Remember the playhead for `completed` (cheap: a `Cell`).
+    fn track_fraction(&self, fraction: f64) {
+        if fraction.is_finite() {
+            self.tslot.fraction.set(fraction);
+        }
+    }
+
+    /// "Next episode": a batch torrent is handed to the next screen (same torrent, its next file); otherwise the
+    /// next screen resolves sources as usual and this torrent ends when this screen goes away.
+    fn go_next(&self) {
+        let session = self.tslot.session.borrow().clone();
+        if let Some(s) = session.filter(|s| s.batch) {
+            BATCH_NEXT.with(|b| {
+                *b.borrow_mut() =
+                    Some(BatchNext { id: self.id.clone(), episode: self.episode + 1, torrent_id: s.torrent_id, source: s.source })
+            });
+            self.tslot.handed_over.set(true);
+        }
+        self.nav.push(Route::PlayerPage { id: self.id.clone(), episode: self.episode + 1 });
     }
 
     /// Records a failure of `attempt`; the caller (or the `drive` loop) resolves the next one.
@@ -441,6 +638,7 @@ impl Flow {
                     if (pos - last_pos).abs() >= 0.25 {
                         last_pos = pos;
                         dispatch(&mut pstate, PlayerAction::Position(pos));
+                        self.track_fraction(pstate.peek().fraction());
                     }
                     if phase == Phase::Buffering && pos > 0.0
                         && let Some(sid) = flow.write().started()
@@ -473,6 +671,7 @@ impl Flow {
                     }
                     ext_ended.set(true);
                     dispatch(&mut pstate, PlayerAction::Eof);
+                    self.track_fraction(1.0);
                     let mut done = pstate.peek().clone();
                     done.position = done.duration.max(done.position);
                     report(&self.backend, &self.id, self.episode, &done);
@@ -551,8 +750,16 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let mut pip = use_signal(|| false);
     let pip_win = use_hook(|| Rc::new(PipWindow::default()));
     let mut next_since = use_signal(|| None::<u64>);
-    // Intro/outro markers hook: ani.zip / AniSkip arrive in M1; until then nothing is marked.
-    let markers = use_signal(Markers::default);
+    // Intro / outro / recap marks (`Backend::skip_marks`, AniSkip), for web and torrent sources alike.
+    let mut markers = use_signal(Markers::default);
+    // Torrent playback (docs/redesign/10 section 5.5).
+    let torrent = use_signal(|| None::<TorrentSession>);
+    let tslot = use_hook(|| Rc::new(TorrentSlot::default()));
+    let reuse = use_signal(|| None::<(String, String)>);
+    let files_hint = use_signal(|| None::<String>);
+    let mut tstats = use_signal(|| None::<TorrentStatsVm>);
+    // Downloaded ranges of the playing file (byte fractions).
+    let mut have = use_signal(Vec::<(f64, f64)>::new);
     // Title, poster and episode count before any source resolves (Manual mode waits for a pick).
     let details = use_resource({
         let (backend, id) = (backend.clone(), id.clone());
@@ -592,6 +799,11 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         ext_closed,
         next_since,
         nav: navigator,
+        torrent,
+        tslot: tslot.clone(),
+        reuse,
+        files_hint,
+        picker_open,
     };
 
     // Rank the sources, start mpv, resolve the first one and pump mpv's events.
@@ -651,7 +863,19 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 }
 
                 let mode = settings.sources.mode;
-                let state = match backend.sources(&id, episode).await {
+                let batch = take_batch_next(&backend, &id, episode);
+                let listed = match batch {
+                    // Next episode of a batch: the same torrent, no source resolution (docs/redesign/10 section 5.5).
+                    Some(next) => {
+                        let mut reuse = ctx.reuse;
+                        reuse.set(Some((next.source.id.clone(), next.torrent_id.clone())));
+                        ctx.flash(t("player.torrent.batch_next"));
+                        // Picked, so Manual mode plays it at once too.
+                        Ok(vec![SourceVm { picked: true, ..next.source }])
+                    }
+                    None => backend.sources(&id, episode).await,
+                };
+                let state = match listed {
                     Ok(list) => FlowState::new(list, mode),
                     Err(e) if e.kind == ErrorKind::NotWired => match backend.playback(&id, episode).await {
                         Ok(vm) => {
@@ -738,6 +962,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                             if (pos - last_pos).abs() >= 0.25 {
                                 last_pos = pos;
                                 dispatch(&mut pstate, PlayerAction::Position(pos));
+                                ctx.track_fraction(pstate.peek().fraction());
                             }
                             if phase == Phase::Buffering && pos > 0.0 && !pstate.peek().buffering
                                 && let Some(sid) = flow.write().started()
@@ -782,6 +1007,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                                 continue;
                             }
                             dispatch(&mut pstate, PlayerAction::Eof);
+                            ctx.track_fraction(1.0);
                             let mut done = pstate.peek().clone();
                             done.position = done.duration.max(done.position);
                             report(&backend, &id, episode, &done);
@@ -818,13 +1044,79 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
 
     // Next-episode countdown reached zero.
     use_effect({
-        let id = id.clone();
+        let ctx = ctx.clone();
         move || {
             let now = clock();
             let Some(since) = next_since() else { return };
             if countdown_left(since, now) == 0 {
                 next_since.set(None);
-                navigator.push(Route::PlayerPage { id: id.clone(), episode: episode + 1 });
+                ctx.go_next();
+            }
+        }
+    });
+
+    // Intro / outro / recap marks of this episode (AniSkip through the backend; nothing marked when unknown).
+    use_future({
+        let (backend, id) = (backend.clone(), id.clone());
+        move || {
+            let (backend, id) = (backend.clone(), id.clone());
+            async move {
+                match backend.skip_marks(&id, episode).await {
+                    Ok(list) => markers.set(Markers::from_skips(&list)),
+                    Err(e) if e.kind == ErrorKind::NotWired => {}
+                    Err(e) => tracing::debug!(kind = ?e.kind, detail = %e.detail, "no skip marks"),
+                }
+            }
+        }
+    });
+
+    // Torrent stats (overlay line, external card) every second and the downloaded ranges every few seconds, while
+    // a torrent source is resolving or playing. Before `torrent_play` answers, the info-hash of the source is polled
+    // (metadata / peers of a torrent being added); errors just mean "nothing yet".
+    use_future({
+        let backend = backend.clone();
+        move || {
+            let backend = backend.clone();
+            async move {
+                let mut tick: u64 = 0;
+                let mut last_file: Option<(String, usize)> = None;
+                loop {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    tick += 1;
+                    let session = torrent.peek().clone();
+                    let pending = {
+                        let f = flow.peek();
+                        f.current_source()
+                            .filter(|s| s.kind == SourceKindVm::Torrent && f.phase == Phase::Resolving)
+                            .and_then(|s| s.info_hash.clone())
+                            .filter(|h| is_info_hash(h))
+                            .map(|h| h.to_ascii_lowercase())
+                    };
+                    let file = session.as_ref().map(|s| (s.torrent_id.clone(), s.file_index));
+                    if file != last_file {
+                        last_file = file.clone();
+                        have.set(Vec::new());
+                        // Ask for the ranges of a new file on this tick.
+                        tick = 0;
+                    }
+                    let Some(tid) = session.as_ref().map(|s| s.torrent_id.clone()).or(pending) else {
+                        if tstats.peek().is_some() {
+                            tstats.set(None);
+                        }
+                        continue;
+                    };
+                    match backend.torrent_stats(&tid).await {
+                        Ok(s) => tstats.set(Some(s)),
+                        Err(_) if session.is_none() => tstats.set(None),
+                        Err(_) => {}
+                    }
+                    if let Some((tid, index)) = file
+                        && tick % SEEK_MARKS_EVERY == 0
+                        && let Ok(ranges) = backend.seek_marks(&tid, index).await
+                    {
+                        have.set(ranges);
+                    }
+                }
             }
         }
     });
@@ -835,9 +1127,17 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         let host = host.clone();
         let pip_win = pip_win.clone();
         let external = external.clone();
+        let (backend, tslot) = (backend.clone(), tslot.clone());
         move || {
             // An external session never outlives its screen.
             external.set(None);
+            // Leaving the player ends its torrent session (after-watch policy), unless the torrent was handed on.
+            let session = tslot.session.borrow_mut().take();
+            if let Some(s) = session
+                && !tslot.handed_over.get()
+            {
+                end_torrent(&backend, s.torrent_id, tslot.completed());
+            }
             if let Some(p) = host.current() {
                 p.set_rect(None, 1.0);
                 p.stop();
@@ -929,9 +1229,41 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         _ => String::new(),
     };
     let source_icon = if current.as_ref().is_some_and(|s| s.kind == SourceKindVm::Torrent) { "download" } else { "language" };
+    // Torrent: "Waiting for metadata…" while `torrent_play` adds the torrent, then the speed / peers / file line
+    // while mpv waits for data (docs/redesign/10 section 5.5).
+    let torrent_now = current.as_ref().is_some_and(|s| s.kind == SourceKindVm::Torrent);
+    let session = torrent();
+    let stats = tstats();
+    let ranges = if session.is_some() { have() } else { Vec::new() };
+    let metadata_wait = torrent_now
+        && fs.phase == Phase::Resolving
+        && stats.as_ref().is_none_or(|s| s.state == TorrentStateVm::Initializing);
     let resolving_label = match &current {
+        _ if metadata_wait => t("player.torrent.metadata"),
         Some(s) if !s.ext_name.is_empty() => format!("{} · {}", t("player.resolving"), s.ext_name),
         _ => t("player.resolving"),
+    };
+    let waiting_data = matches!(fs.phase, Phase::Resolving | Phase::Buffering) || st.buffering;
+    let status_line = if torrent_now && waiting_data { torrent_line(stats.as_ref(), &ranges) } else { String::new() };
+    let have_spans = range_spans(&ranges);
+    let ready = if ranges.is_empty() { None } else { ready_span(&ranges, st.fraction()) };
+    // "Open in the torrent client": select it there and go to its Overview (or its Files when no file matched).
+    let open_client = {
+        let tslot = tslot.clone();
+        move |files: bool| {
+            let Some(tid) = torrent.peek().as_ref().map(|s| s.torrent_id.clone()).or_else(|| files_hint.peek().clone()) else {
+                return;
+            };
+            // The user wants to look at this torrent: leaving the player must not delete it.
+            tslot.handed_over.set(true);
+            let mut sel = ui.torrent;
+            sel.set(Some(tid));
+            if files {
+                navigator.push(Route::TorrentFilesPage {});
+            } else {
+                navigator.push(Route::TorrentOverviewPage {});
+            }
+        }
     };
     let qualities = fs.qualities();
     let quality = current.as_ref().map(|s| s.quality.clone()).unwrap_or_default();
@@ -1039,8 +1371,16 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         };
         let m2 = err.kind == ErrorKind::TorrentM2;
         let title = if m2 { t("src.m2") } else { t("player.error.title") };
-        let cause = if m2 || fs.failed.is_empty() { String::new() } else { t("player.error.no_more") };
-        let best_web = if m2 { fs.best_web().map(|s| s.id.clone()) } else { None };
+        // A torrent whose files had no match for this episode: point at its Files page.
+        let pick_file = files_hint().filter(|_| fs.last_failed_torrent());
+        let cause = if pick_file.is_some() {
+            t("player.torrent.no_file_cause")
+        } else if m2 || fs.failed.is_empty() {
+            String::new()
+        } else {
+            t("player.error.no_more")
+        };
+        let best_web = if m2 || fs.last_failed_torrent() { fs.best_web().map(|s| s.id.clone()) } else { None };
         let can_pick = !fs.legacy && !fs.sources.is_empty();
         rsx! {
             div { class: "tk-player__fail",
@@ -1063,6 +1403,17 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                             let ctx = ctx.clone();
                             move |_| ctx.retry()
                         },
+                        if pick_file.is_some() {
+                            Button {
+                                label: t("player.torrent.pick_file"),
+                                variant: ButtonVariant::Filled,
+                                icon: "magnet".to_string(),
+                                onclick: {
+                                    let open = open_client.clone();
+                                    move |_| open(true)
+                                },
+                            }
+                        }
                         if let Some(web) = best_web {
                             Button {
                                 label: t("src.use_web"),
@@ -1113,6 +1464,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         let time = format!("{} / {}", format_time(st.position), format_time(st.duration));
         let progress_label = t("player.seek");
         let can_pick = !fs.legacy && !fs.sources.is_empty();
+        // External mpv shows the same speed / peers line for the whole session, not only while it waits.
+        let ext_torrent_line = if torrent_now { torrent_line(stats.as_ref(), &ranges) } else { String::new() };
+        let file_line = session.as_ref().map(|s| tf("player.torrent.file", &[("name", &s.file_name)]));
         rsx! {
             div { class: "tk-player__ext",
                 div { class: "tk-xmpv",
@@ -1135,6 +1489,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                                 span { class: "tk-xmpv__src", "{source_label}" }
                             }
                         }
+                        if let Some(name) = file_line {
+                            p { class: "tk-xmpv__file", title: "{name}", "{name}" }
+                        }
                         div { class: "tk-xmpv__status", role: "status", "aria-live": "polite",
                             if let Some(text) = busy {
                                 div { class: "tk-xmpv__busy",
@@ -1153,6 +1510,12 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                                     }
                                 }
                                 WavyProgress { fraction: st.fraction(), label: progress_label, active: !st.paused }
+                            }
+                            if !ext_torrent_line.is_empty() {
+                                p { class: "tk-xmpv__torrent",
+                                    Icon { name: "download".to_string(), size: 16 }
+                                    span { "{ext_torrent_line}" }
+                                }
                             }
                         }
                         p { class: "tk-xmpv__hint", {t("player.external.hint")} }
@@ -1174,6 +1537,17 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                                     onclick: move |_| picker_open.set(true),
                                 }
                             }
+                            if session.is_some() {
+                                Button {
+                                    label: t("player.torrent.open_client"),
+                                    variant: ButtonVariant::Tonal,
+                                    icon: "magnet".to_string(),
+                                    onclick: {
+                                        let open = open_client.clone();
+                                        move |_| open(false)
+                                    },
+                                }
+                            }
                             Button {
                                 label: t("common.back"),
                                 variant: ButtonVariant::Text,
@@ -1193,6 +1567,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         let busy = match fs.phase {
             Phase::Resolving => Some(resolving_label.clone()),
             Phase::Buffering if !st.video_ready => Some(t("player.buffering")),
+            // A torrent stalls mid-episode while pieces arrive: show the line with the status.
+            Phase::Buffering if !status_line.is_empty() => Some(t("player.buffering")),
             _ => None,
         };
         rsx! {
@@ -1212,9 +1588,14 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 }
                 if let Some(text) = busy {
                     div { class: "tk-pc__center",
-                        div { class: "tk-pc__status", role: "status",
-                            LoadingIndicator { small: true }
-                            span { "{text}" }
+                        div { class: "tk-pc__wait",
+                            div { class: "tk-pc__status", role: "status",
+                                LoadingIndicator { small: true }
+                                span { "{text}" }
+                            }
+                            if !status_line.is_empty() {
+                                span { class: "tk-pc__tline", "{status_line}" }
+                            }
                         }
                     }
                 } else if fs.phase == Phase::Manual {
@@ -1299,10 +1680,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     }
                 },
                 on_next: {
-                    let id = id.clone();
-                    move |_| {
-                        navigator.push(Route::PlayerPage { id: id.clone(), episode: episode + 1 });
-                    }
+                    let ctx = ctx.clone();
+                    move |_| ctx.go_next()
                 },
                 on_fullscreen: {
                     let win = win.clone();
@@ -1316,7 +1695,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 on_skip: move |_| {
                     // Read the position first: a guard held in the let-chain would still borrow pstate in the body.
                     let position = pstate.peek().position;
-                    if let Some(target) = markers.peek().skip_target(position)
+                    let target = markers.peek().skip_at(position).map(|(_, end)| end);
+                    if let Some(target) = target
                         && let Some(p) = player.peek().clone()
                     {
                         let _ = p.seek(target);
@@ -1381,6 +1761,14 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 on_capture: {
                     let ctx = ctx.clone();
                     move |_| ctx.flash(t("error.not_wired"))
+                },
+                have: have_spans,
+                ready,
+                status_line: status_line.clone(),
+                torrent_client: session.is_some(),
+                on_torrent_client: {
+                    let open = open_client.clone();
+                    move |_| open(false)
                 },
             }
         }
@@ -1485,10 +1873,10 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     left,
                     poster: poster.clone(),
                     on_play: {
-                        let id = id.clone();
+                        let ctx = ctx.clone();
                         move |_| {
                             next_since.set(None);
-                            navigator.push(Route::PlayerPage { id: id.clone(), episode: episode + 1 });
+                            ctx.go_next();
                         }
                     },
                     on_cancel: move |_| {
