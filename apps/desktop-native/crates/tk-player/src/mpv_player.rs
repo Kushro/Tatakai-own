@@ -87,7 +87,7 @@ impl Player {
                 tracing::warn!(key, error = %e, "mpv refused an option");
             }
         }
-        let _ = mpv.set_property("network-timeout", 20_i64);
+        let _ = mpv.set_property("network-timeout", crate::types::NETWORK_TIMEOUT_SECS);
         let _ = mpv.set_property("demuxer-max-bytes", 150_i64 * 1024 * 1024);
 
         let ev = EventContext::new(mpv.ctx);
@@ -148,6 +148,10 @@ impl Player {
         self.mpv.set_property("http-header-fields", mpv_list(&plan.fields).as_str()).map_err(mpv_err)?;
         let start = if start_secs.is_finite() && start_secs > 0.0 { start_secs } else { 0.0 };
         self.mpv.set_property("start", format!("{start:.3}").as_str()).map_err(mpv_err)?;
+        // Torrent streams (loopback HTTP) may wait for pieces longer than a remote server would answer.
+        if let Err(e) = self.mpv.set_property("network-timeout", src.network_timeout_secs()) {
+            tracing::warn!(error = %e, "mpv refused network-timeout");
+        }
         if let Ok(mut s) = self.pending_subs.lock() {
             *s = src.subtitles.clone();
         }
