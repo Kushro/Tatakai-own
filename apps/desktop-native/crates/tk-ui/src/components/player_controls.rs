@@ -34,6 +34,8 @@ pub fn PlayerControls(
     episode: u32,
     visible: bool,
     preset: ShaderPreset,
+    /// Our upscaling presets apply (false in the enhanced mode: mpv-anime-build brings its own shaders).
+    #[props(default = true)] presets: bool,
     #[props(default)] phase: Phase,
     /// "Looking for a source · Toko" while resolving.
     #[props(default)] resolving_label: String,
@@ -146,7 +148,7 @@ pub fn PlayerControls(
                                 }
                             }
                         }
-                        if preset != ShaderPreset::Off {
+                        if presets && preset != ShaderPreset::Off {
                             Pill { text: preset_text, tone: Tone::Primary, plain: true }
                         }
                     }
@@ -375,31 +377,33 @@ pub fn PlayerControls(
                             }
                         }
                     }
-                    Menu {
-                        open: preset_open(),
-                        label: t("preset.title"),
-                        title: t("preset.title"),
-                        placement: MenuPlacement::Above,
-                        align: MenuAlign::End,
-                        on_close: move |_| preset_open.set(false),
-                        trigger: rsx! {
-                            IconButton {
-                                icon: "enhance".to_string(),
-                                label: t("player.enhance"),
-                                toggled: preset != ShaderPreset::Off,
-                                onclick: move |_| preset_open.toggle(),
-                            }
-                        },
-                        for (i , p) in ShaderPreset::ALL.into_iter().enumerate() {
-                            MenuItem {
-                                key: "{p.id()}",
-                                label: t(&format!("preset.{}", p.id())),
-                                hint: format!("Ctrl+{}", i + 1),
-                                checked: Some(p == preset),
-                                on_select: move |_| {
-                                    preset_open.set(false);
-                                    on_preset.call(p);
-                                },
+                    if presets {
+                        Menu {
+                            open: preset_open(),
+                            label: t("preset.title"),
+                            title: t("preset.title"),
+                            placement: MenuPlacement::Above,
+                            align: MenuAlign::End,
+                            on_close: move |_| preset_open.set(false),
+                            trigger: rsx! {
+                                IconButton {
+                                    icon: "enhance".to_string(),
+                                    label: t("player.enhance"),
+                                    toggled: preset != ShaderPreset::Off,
+                                    onclick: move |_| preset_open.toggle(),
+                                }
+                            },
+                            for (i , p) in ShaderPreset::ALL.into_iter().enumerate() {
+                                MenuItem {
+                                    key: "{p.id()}",
+                                    label: t(&format!("preset.{}", p.id())),
+                                    hint: format!("Ctrl+{}", i + 1),
+                                    checked: Some(p == preset),
+                                    on_select: move |_| {
+                                        preset_open.set(false);
+                                        on_preset.call(p);
+                                    },
+                                }
                             }
                         }
                     }

@@ -77,3 +77,35 @@ button.tk-pc__src:hover { background: color-mix(in srgb, var(--md-sys-color-inve
 .tk-toast--flash, .tk-pc__status, .tk-pc__next { transform-origin: center; }
 :root[data-reduce-motion="true"] .tk-toast--flash, :root[data-reduce-motion="true"] .tk-pc__status, :root[data-reduce-motion="true"] .tk-pc__next { animation: none; }
 @media (prefers-reduced-motion: reduce) { .tk-toast--flash, .tk-pc__status, .tk-pc__next { animation: none; } }
+
+/* ---- engines (docs/redesign/09 section 4.4) ----------------------------------------------------------- */
+.tk-player__prep { margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-medium-size); }
+
+/* External mpv: an informative card instead of controls (the video is in mpv's own window). */
+.tk-player__ext { position: absolute; inset: 0; display: grid; place-items: center; padding: var(--tk-space-24); overflow: auto; background: var(--md-sys-color-surface); color: var(--md-sys-color-on-surface); z-index: 3; }
+.tk-ext { width: min(100%, 720px); display: flex; gap: var(--tk-space-24); padding: var(--tk-space-24); border-radius: var(--md-sys-shape-corner-extra-large); background: var(--md-sys-color-surface-container); }
+.tk-ext__art { width: 160px; aspect-ratio: 2 / 3; flex: none; display: grid; place-items: center; overflow: hidden; border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
+.tk-ext__art img { width: 100%; height: 100%; object-fit: cover; }
+.tk-ext__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-ext__eyebrow { display: inline-flex; align-items: center; gap: var(--tk-space-8); color: var(--md-sys-color-primary); font-size: var(--md-sys-typescale-label-large-size); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-ext__title { margin: 0; font-family: var(--tk-font-display); font-size: var(--md-sys-typescale-headline-small-size); font-weight: var(--md-sys-typescale-headline-small-weight-emphasized); overflow-wrap: anywhere; }
+.tk-ext__ep { margin: 0; display: flex; flex-wrap: wrap; gap: var(--tk-space-8); color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-medium-size); }
+.tk-ext__src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.tk-ext__status { min-height: 56px; display: flex; flex-direction: column; justify-content: center; gap: var(--tk-space-8); }
+.tk-ext__busy { display: flex; align-items: center; gap: var(--tk-space-8); }
+.tk-ext__time { display: flex; align-items: center; gap: var(--tk-space-12); font-family: var(--tk-font-mono); font-variant-numeric: tabular-nums; }
+.tk-ext__paused { color: var(--md-sys-color-tertiary); font-size: var(--md-sys-typescale-label-large-size); }
+.tk-ext__hint { margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-ext__actions { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); margin-top: var(--tk-space-8); }
+@media (max-width: 600px) {
+  .tk-ext { flex-direction: column; align-items: center; text-align: center; }
+  .tk-ext__art { width: 120px; }
+  .tk-ext__eyebrow, .tk-ext__ep, .tk-ext__busy, .tk-ext__time, .tk-ext__actions { justify-content: center; }
+}
+
+/* Embedded enhanced + uosc: mpv draws the controls; only Back (with activity) and the pre-playback status. */
+.tk-uosc { position: absolute; inset: 0; pointer-events: none; color: var(--md-sys-color-inverse-on-surface); z-index: 2; }
+.tk-uosc__top { position: absolute; top: var(--tk-space-12); left: var(--tk-space-16); opacity: 0; transition: opacity var(--tk-mo-fx); }
+.tk-uosc[data-visible="true"] .tk-uosc__top { opacity: 1; pointer-events: auto; }
+.tk-uosc__top .tk-iconbtn { color: inherit; background: color-mix(in srgb, var(--md-sys-color-scrim) 45%, transparent); }
+.tk-hole[data-relay="true"] { outline: none; }

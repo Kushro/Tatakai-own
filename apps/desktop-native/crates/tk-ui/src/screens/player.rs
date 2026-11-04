@@ -6,30 +6,47 @@
 //! [`FlowState`](crate::player_state::FlowState) (Resolving / Buffering / Playing / Error / Manual) with
 //! failover and `report_source_result`; Manual mode resolves nothing until a source is picked. When the
 //! backend has no `sources` yet (`NotWired`) the old `Backend::playback` streams feed the same flow.
+//!
+//! Wave 2 (docs/redesign/09 section 4.4): Settings > Player picks the engine at boot. Embedded enhanced
+//! prepares mpv-anime-build first (falls back to Embedded with a notice); with its uosc UI our controls and
+//! player shortcuts hide and the hole relays pointer / keys to mpv. External mpv never creates the embedded
+//! player: the same source flow spawns the machine's mpv (`tk_player::ExternalPlayer`) and this page shows an
+//! informative card (Stop / Back) until mpv closes, then returns to where the user came from.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
 use dioxus::desktop::tao::dpi::PhysicalSize;
 use dioxus::desktop::{DesktopContext, LogicalSize, use_window};
+use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
-use tk_player::{MediaSource, Player, PlayerError, PlayerEvent, Rect, ShaderPreset, SubtitleSource, TrackInfo, TrackKind};
+use dioxus::router::Navigator;
+use tk_player::{
+    EngineMode, ExternalEvent, ExternalPlayer, KeyAction, MediaSource, Player, PlayerError, PlayerEvent, Rect,
+    ShaderPreset, SubtitleSource, TrackInfo, TrackKind,
+};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::{Route, Services, Ui};
 use crate::backend::{BackendRef, PlaybackVm, SourceKindVm, SourceVm};
 use crate::components::player_controls::NextEpisodeCard;
-use crate::components::{Button, ButtonVariant, EmptyState, ErrorState, PlayerControls, SourcePicker};
+use crate::components::{
+    Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, PlayerControls, SourcePicker,
+    WavyProgress,
+};
 use crate::i18n::{t, tf};
+use crate::icons::Icon;
 use crate::model::{
-    ErrorKind, PlayerAction, PlayerState, SEEK_STEP_SECS, SettingsAction, UiError, next_episode,
-    reduce_player, reduce_settings, should_report,
+    EnhancedUiVm, ErrorKind, PlatformVm, PlayerAction, PlayerModeVm, PlayerState, SEEK_STEP_SECS, SettingsAction,
+    UiError, format_time, next_episode, reduce_player, reduce_settings, should_report,
 };
 use crate::platform::{self, now_ms};
 use crate::player_state::{
-    FLASH_MS, FlowState, MAX_LEGACY_STREAMS, Markers, Phase, countdown_left, format_speed, source_name,
+    FLASH_MS, FlowState, MAX_LEGACY_STREAMS, Markers, Phase, countdown_left, format_speed, mpv_key_name,
+    mpv_mouse_button, source_name,
 };
 use crate::shortcuts::Shortcut;
 
@@ -54,9 +71,9 @@ fn dispatch(sig: &mut Signal<PlayerState>, action: PlayerAction) {
     sig.set(next);
 }
 
-fn load_stream(p: &Player, vm: &PlaybackVm, idx: usize, start: f64) -> Result<(), PlayerError> {
+fn media_source(vm: &PlaybackVm, idx: usize) -> MediaSource {
     let s = &vm.streams[idx];
-    let src = MediaSource {
+    MediaSource {
         url: s.url.clone(),
         headers: s.headers.clone(),
         subtitles: s
@@ -64,8 +81,57 @@ fn load_stream(p: &Player, vm: &PlaybackVm, idx: usize, start: f64) -> Result<()
             .iter()
             .map(|x| SubtitleSource { url: x.url.clone(), lang: x.lang.clone(), label: x.label.clone() })
             .collect(),
-    };
-    p.load(&src, start)
+    }
+}
+
+fn load_stream(p: &Player, vm: &PlaybackVm, idx: usize, start: f64) -> Result<(), PlayerError> {
+    p.load(&media_source(vm, idx), start)
+}
+
+/// "Check the log in <real data dir>/logs" (docs/redesign/09 section 4.2); the old text when the backend has no path.
+fn no_player_text(backend: &BackendRef) -> String {
+    let dir = backend.data_dir_display();
+    if dir.is_empty() {
+        return t("player.error.no_player");
+    }
+    let sep = if PlatformVm::current() == PlatformVm::Windows { '\\' } else { '/' };
+    let logs = format!("{}{sep}logs", dir.trim_end_matches(['/', '\\']));
+    tf("player.error.no_player_at", &[("dir", &logs)])
+}
+
+/// The external mpv of this screen, kept outside signals so `use_drop` can still stop it. Replacing or
+/// clearing it stops the previous one (one mpv window per screen).
+#[derive(Default)]
+struct ExternalSlot(RefCell<Option<Arc<ExternalPlayer>>>);
+
+impl ExternalSlot {
+    fn set(&self, p: Option<Arc<ExternalPlayer>>) {
+        let old = self.0.replace(p);
+        if let Some(old) = old {
+            old.stop();
+        }
+    }
+
+    /// Forget the player without stopping it (it already exited).
+    fn forget(&self) {
+        self.0.borrow_mut().take();
+    }
+
+    fn is(&self, p: &Arc<ExternalPlayer>) -> bool {
+        self.0.borrow().as_ref().is_some_and(|c| Arc::ptr_eq(c, p))
+    }
+}
+
+/// `MouseEvent.button` index of a Dioxus mouse button (for [`mpv_mouse_button`]).
+fn button_index(b: MouseButton) -> u8 {
+    match b {
+        MouseButton::Primary => 0,
+        MouseButton::Auxiliary => 1,
+        MouseButton::Secondary => 2,
+        MouseButton::Fourth => 3,
+        MouseButton::Fifth => 4,
+        _ => u8::MAX,
+    }
 }
 
 fn report(backend: &BackendRef, id: &str, episode: u32, st: &PlayerState) {
@@ -192,6 +258,14 @@ struct Flow {
     legacy: Signal<Option<PlaybackVm>>,
     player: Signal<Option<Arc<Player>>>,
     flash: Signal<Option<(String, u64)>>,
+    /// External mode: the mpv executable (`None` in the embedded modes).
+    ext_mpv: Signal<Option<PathBuf>>,
+    external: Rc<ExternalSlot>,
+    /// External mode: the file played to the end / mpv exited by itself.
+    ext_ended: Signal<bool>,
+    ext_closed: Signal<bool>,
+    next_since: Signal<Option<u64>>,
+    nav: Navigator,
 }
 
 impl Flow {
@@ -234,9 +308,14 @@ impl Flow {
                 Ok(vm) => {
                     let start = resume.filter(|p| *p > 0.0).unwrap_or(f64::from(vm.start_secs));
                     meta.set(Some(vm.clone()));
-                    match self.player.peek().clone() {
-                        Some(p) => load_stream(&p, &vm, 0, start).map_err(|e| UiError::new(ErrorKind::Other, e.to_string())),
-                        None => Err(UiError::new(ErrorKind::Other, t("player.error.no_player"))),
+                    let mpv = self.ext_mpv.peek().clone();
+                    if let Some(mpv) = mpv {
+                        self.start_external(mpv, &vm, start, attempt).await
+                    } else {
+                        match self.player.peek().clone() {
+                            Some(p) => load_stream(&p, &vm, 0, start).map_err(|e| UiError::new(ErrorKind::Other, e.to_string())),
+                            None => Err(UiError::new(ErrorKind::Other, no_player_text(&self.backend))),
+                        }
                     }
                 }
                 Err(e) => Err(e),
@@ -303,6 +382,135 @@ impl Flow {
         flow.write().retry();
         spawn(self.clone().drive(None));
     }
+
+    /// External mode: open the resolved stream in the machine's mpv (closing the previous window) and pump its
+    /// events. `Ok` hands the source to mpv; whether it plays is decided by the pump (`Position > 0` / `Duration`).
+    async fn start_external(&self, mpv: PathBuf, vm: &PlaybackVm, start: f64, attempt: u64) -> Result<(), UiError> {
+        let src = media_source(vm, 0);
+        let n = self.episode.to_string();
+        let title = if vm.title.is_empty() {
+            tf("player.episode", &[("n", &n)])
+        } else {
+            tf("player.external.window_title", &[("title", &vm.title), ("n", &n)])
+        };
+        self.external.set(None);
+        let spawned = tokio::task::spawn_blocking(move || ExternalPlayer::spawn(&mpv, &src, start, &title)).await;
+        let p = match spawned {
+            Ok(Ok(p)) => Arc::new(p),
+            Ok(Err(e)) => return Err(UiError::new(ErrorKind::Other, e.to_string())),
+            Err(e) => return Err(UiError::new(ErrorKind::Other, e.to_string())),
+        };
+        if self.flow.peek().attempt != attempt {
+            // A pick took over while mpv was starting: `p` drops here and closes its window.
+            return Ok(());
+        }
+        let rx = p.events();
+        self.external.set(Some(p.clone()));
+        spawn(self.clone().pump_external(p, rx, attempt));
+        Ok(())
+    }
+
+    /// Events of one external mpv until it closes or is replaced. Progress is recorded like the embedded path.
+    async fn pump_external(
+        self,
+        p: Arc<ExternalPlayer>,
+        mut rx: tokio::sync::broadcast::Receiver<ExternalEvent>,
+        attempt: u64,
+    ) {
+        let mut flow = self.flow;
+        let mut pstate = self.pstate;
+        let mut ext_ended = self.ext_ended;
+        let mut ext_closed = self.ext_closed;
+        let mut next_since = self.next_since;
+        let mut last_report = now_ms();
+        let mut last_pos = -1.0_f64;
+        loop {
+            let ev = match rx.recv().await {
+                Ok(ev) => ev,
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => ExternalEvent::Closed,
+            };
+            if !self.external.is(&p) {
+                // Replaced by another source, stopped by Stop / Back, or the screen is gone.
+                return;
+            }
+            let phase = flow.peek().phase;
+            match ev {
+                ExternalEvent::Position(pos) => {
+                    if (pos - last_pos).abs() >= 0.25 {
+                        last_pos = pos;
+                        dispatch(&mut pstate, PlayerAction::Position(pos));
+                    }
+                    if phase == Phase::Buffering && pos > 0.0
+                        && let Some(sid) = flow.write().started()
+                    {
+                        report_source(&self.backend, sid, true);
+                    }
+                    let now = now_ms();
+                    if should_report(last_report, now) {
+                        last_report = now;
+                        report(&self.backend, &self.id, self.episode, &pstate.peek());
+                    }
+                }
+                ExternalEvent::Duration(d) => {
+                    dispatch(&mut pstate, PlayerAction::Duration(d));
+                    if phase == Phase::Buffering
+                        && let Some(sid) = flow.write().started()
+                    {
+                        report_source(&self.backend, sid, true);
+                    }
+                }
+                ExternalEvent::Paused(b) => {
+                    dispatch(&mut pstate, PlayerAction::Paused(b));
+                    if b {
+                        report(&self.backend, &self.id, self.episode, &pstate.peek());
+                    }
+                }
+                ExternalEvent::Ended => {
+                    if phase != Phase::Playing || *ext_ended.peek() {
+                        continue;
+                    }
+                    ext_ended.set(true);
+                    dispatch(&mut pstate, PlayerAction::Eof);
+                    let mut done = pstate.peek().clone();
+                    done.position = done.duration.max(done.position);
+                    report(&self.backend, &self.id, self.episode, &done);
+                    let total = self.meta.peek().as_ref().and_then(|m| m.episodes_total);
+                    if next_episode(self.episode, total).is_some() {
+                        next_since.set(Some(now_ms()));
+                    }
+                }
+                ExternalEvent::Error(msg) => {
+                    tracing::warn!(%msg, "external mpv error");
+                    if phase != Phase::Buffering {
+                        continue;
+                    }
+                    // Nothing played yet: this source does not work, close the window and fail over.
+                    self.external.set(None);
+                    self.fail(attempt, UiError::new(ErrorKind::Other, msg));
+                    if flow.peek().to_resolve().is_some() {
+                        // Type-erased: `drive` -> `start_external` -> this pump -> `drive` would be a cyclic
+                        // opaque future type otherwise.
+                        let next: std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> = Box::pin(self.clone().drive(None));
+                        spawn(next);
+                    }
+                    return;
+                }
+                ExternalEvent::Closed => {
+                    self.external.forget();
+                    ext_closed.set(true);
+                    if !*ext_ended.peek() {
+                        report(&self.backend, &self.id, self.episode, &pstate.peek());
+                    }
+                    // Ended with a next episode: the countdown card stays; otherwise back to where we came from.
+                    if next_since.peek().is_none() {
+                        self.nav.go_back();
+                    }
+                    return;
+                }
+            }
+        }
+    }
 }
 
 /// Route component. Keys the screen by episode so "next episode" remounts it (fresh hooks and flow).
@@ -353,7 +561,37 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         }
     });
 
-    let ctx = Flow { backend: backend.clone(), id: id.clone(), episode, flow, pstate, meta, legacy, player, flash };
+    // Engine (docs/redesign/09 section 4.4), decided at boot from Settings > Player.
+    let mut ext_mpv = use_signal(|| None::<PathBuf>);
+    let external = use_hook(|| Rc::new(ExternalSlot::default()));
+    let ext_ended = use_signal(|| false);
+    let ext_closed = use_signal(|| false);
+    // External mode without an mpv executable: `Some(configured path or "")`.
+    let mut mpv_missing = use_signal(|| None::<String>);
+    // Embedded enhanced: mpv-anime-build is being verified / extracted.
+    let mut preparing = use_signal(|| false);
+    let mut enhanced = use_signal(|| false);
+    // Enhanced with uosc: mpv draws the UI, the hole relays input.
+    let mut uosc = use_signal(|| false);
+    let mut dpr = use_signal(|| 1.0_f64);
+
+    let ctx = Flow {
+        backend: backend.clone(),
+        id: id.clone(),
+        episode,
+        flow,
+        pstate,
+        meta,
+        legacy,
+        player,
+        flash,
+        ext_mpv,
+        external: external.clone(),
+        ext_ended,
+        ext_closed,
+        next_since,
+        nav: navigator,
+    };
 
     // Rank the sources, start mpv, resolve the first one and pump mpv's events.
     let mut boot = use_future({
@@ -365,7 +603,53 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 let mut flow = ctx.flow;
                 dispatch(&mut pstate, PlayerAction::Loading);
                 dispatch(&mut pstate, PlayerAction::Activity(now_ms()));
-                let mode = ui.settings.peek().sources.mode;
+
+                // Engine selection.
+                let settings = ui.settings.peek().clone();
+                mpv_missing.set(None);
+                ext_mpv.set(None);
+                enhanced.set(false);
+                uosc.set(false);
+                match settings.player_mode {
+                    PlayerModeVm::External => {
+                        let custom = settings.external_mpv_path.clone();
+                        let path = custom.clone().map(PathBuf::from);
+                        let found = tokio::task::spawn_blocking(move || tk_player::find_mpv(path.as_deref())).await.ok().flatten();
+                        match found {
+                            Some(mpv) => {
+                                tracing::info!(mpv = %mpv.display(), "external player mode");
+                                ext_mpv.set(Some(mpv));
+                                // No embedded libmpv in this mode.
+                                host.release();
+                            }
+                            None => {
+                                mpv_missing.set(Some(custom.unwrap_or_default()));
+                                return;
+                            }
+                        }
+                    }
+                    PlayerModeVm::EmbeddedEnhanced => {
+                        preparing.set(true);
+                        let prepared = backend.prepare_anime_build().await;
+                        preparing.set(false);
+                        match prepared {
+                            Ok(config_dir) => {
+                                let with_uosc = settings.enhanced_ui == EnhancedUiVm::Uosc;
+                                host.set_engine(EngineMode::Enhanced { config_dir, uosc: with_uosc });
+                                enhanced.set(true);
+                                uosc.set(with_uosc);
+                            }
+                            Err(e) => {
+                                tracing::warn!(kind = ?e.kind, detail = %e.detail, "mpv-anime-build unavailable; using the embedded engine");
+                                host.set_engine(EngineMode::Embedded);
+                                notice.set(Some(t("player.enhanced.fallback")));
+                            }
+                        }
+                    }
+                    PlayerModeVm::Embedded => host.set_engine(EngineMode::Embedded),
+                }
+
+                let mode = settings.sources.mode;
                 let state = match backend.sources(&id, episode).await {
                     Ok(list) => FlowState::new(list, mode),
                     Err(e) if e.kind == ErrorKind::NotWired => match backend.playback(&id, episode).await {
@@ -390,11 +674,17 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     picker_open.set(true);
                 }
 
+                if ext_mpv.peek().is_some() {
+                    // External mode: `drive` spawns mpv per resolved source and pumps its events.
+                    spawn(ctx.clone().drive(None));
+                    return;
+                }
+
                 let p = match host.get_or_init(&platform::embed_target()) {
                     Ok(p) => p,
                     Err(e) => {
                         tracing::error!(error = %e, "player start failed");
-                        failure.set(Some((UiError::new(ErrorKind::Other, e.to_string()), t("player.error.no_player"))));
+                        failure.set(Some((UiError::new(ErrorKind::Other, e.to_string()), no_player_text(&backend))));
                         return;
                     }
                 };
@@ -408,15 +698,20 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                         let mut eval = document::eval(RECT_JS);
                         while let Ok(v) = eval.recv::<[f64; 5]>().await {
                             p.set_rect(Some(Rect { x: v[0], y: v[1], w: v[2], h: v[3] }), v[4]);
+                            dpr.set(v[4]);
                         }
                     }
                 });
+                if *uosc.peek() {
+                    // Keys reach the hole (and from there mpv) without a click first.
+                    let _ = document::eval("document.getElementById('tk-video-hole')?.focus()");
+                }
 
-                let settings = ui.settings.peek().clone();
                 let _ = p.set_volume(f64::from(settings.volume));
                 dispatch(&mut pstate, PlayerAction::SetVolume(settings.volume));
                 let initial = settings.preset();
-                if initial != ShaderPreset::Off {
+                // Our presets are an Embedded-only feature: mpv-anime-build brings its own shaders.
+                if initial != ShaderPreset::Off && !*enhanced.peek() {
                     apply_preset(&p, initial, &mut notice);
                 }
                 // Manual mode without a pick: `to_resolve` is None, so this returns without network.
@@ -534,7 +829,10 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         let win = win.clone();
         let host = host.clone();
         let pip_win = pip_win.clone();
+        let external = external.clone();
         move || {
+            // An external session never outlives its screen.
+            external.set(None);
             if let Some(p) = host.current() {
                 p.set_rect(None, 1.0);
                 p.stop();
@@ -554,6 +852,16 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 return;
             }
             seen.set(evt.seq);
+            // External mpv has its own window and keys; with uosc the hole relays keys to mpv instead.
+            if ext_mpv.peek().is_some() {
+                return;
+            }
+            if *uosc.peek() && !matches!(evt.action, Shortcut::Fullscreen | Shortcut::Escape) {
+                return;
+            }
+            if *enhanced.peek() && matches!(evt.action, Shortcut::Preset(_)) {
+                return;
+            }
             let Some(p) = player.peek().clone() else { return };
             match evt.action {
                 Shortcut::TogglePause => {
@@ -643,7 +951,55 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         }
     };
 
-    let body = if let Some((err, cause)) = failure() {
+    let ext_mode = ext_mpv().is_some();
+    let relay = uosc() && !ext_mode;
+    let hole_tab = if relay { "0" } else { "-1" };
+    // External Stop / Back: both close mpv and return (a session never outlives this screen).
+    let ext_leave = {
+        let (backend, id, external) = (backend.clone(), id.clone(), external.clone());
+        move || {
+            report(&backend, &id, episode, &pstate.peek());
+            external.set(None);
+            navigator.go_back();
+        }
+    };
+
+    let body = if let Some(path) = mpv_missing() {
+        let detail = if path.is_empty() { t("player.external.searched") } else { path };
+        rsx! {
+            div { class: "tk-player__fail",
+                ErrorState {
+                    error: UiError::new(ErrorKind::Other, detail),
+                    title: t("player.external.not_found"),
+                    cause: t("player.external.not_found_cause"),
+                    on_retry: move |_| boot.restart(),
+                    Button {
+                        label: t("player.external.open_settings"),
+                        variant: ButtonVariant::Filled,
+                        icon: "settings".to_string(),
+                        onclick: move |_| {
+                            navigator.push(Route::SettingsPage {});
+                        },
+                    }
+                }
+                Button {
+                    label: t("common.back"),
+                    variant: ButtonVariant::Text,
+                    icon: "back".to_string(),
+                    onclick: move |_| {
+                        navigator.go_back();
+                    },
+                }
+            }
+        }
+    } else if preparing() {
+        rsx! {
+            div { class: "tk-player__fail", role: "status",
+                LoadingIndicator {}
+                p { class: "tk-player__prep", {t("player.enhanced.preparing")} }
+            }
+        }
+    } else if let Some((err, cause)) = failure() {
         rsx! {
             div { class: "tk-player__fail",
                 ErrorState {
@@ -741,6 +1097,134 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 }
             }
         }
+    } else if ext_mode {
+        let ended = ext_ended();
+        let ep_label = tf("player.episode", &[("n", &episode.to_string())]);
+        let busy = match fs.phase {
+            Phase::Resolving => Some(resolving_label.clone()),
+            Phase::Buffering => Some(t("player.external.starting")),
+            _ => None,
+        };
+        let time = format!("{} / {}", format_time(st.position), format_time(st.duration));
+        let progress_label = t("player.seek");
+        let can_pick = !fs.legacy && !fs.sources.is_empty();
+        rsx! {
+            div { class: "tk-player__ext",
+                div { class: "tk-ext",
+                    div { class: "tk-ext__art",
+                        if poster.is_empty() {
+                            Icon { name: "external".to_string(), size: 48 }
+                        } else {
+                            img { src: "{poster}", alt: "" }
+                        }
+                    }
+                    div { class: "tk-ext__body",
+                        span { class: "tk-ext__eyebrow",
+                            Icon { name: "external".to_string(), size: 16 }
+                            span { {t("player.external.title")} }
+                        }
+                        h2 { class: "tk-ext__title", "{title}" }
+                        p { class: "tk-ext__ep",
+                            span { "{ep_label}" }
+                            if !source_label.is_empty() {
+                                span { class: "tk-ext__src", "{source_label}" }
+                            }
+                        }
+                        div { class: "tk-ext__status", role: "status", "aria-live": "polite",
+                            if let Some(text) = busy {
+                                div { class: "tk-ext__busy",
+                                    LoadingIndicator { small: true }
+                                    span { "{text}" }
+                                }
+                            } else if fs.phase == Phase::Manual {
+                                span { {t("src.choose_first")} }
+                            } else if ended {
+                                span { {t("player.external.ended")} }
+                            } else {
+                                div { class: "tk-ext__time",
+                                    span { "{time}" }
+                                    if st.paused {
+                                        span { class: "tk-ext__paused", {t("player.external.paused")} }
+                                    }
+                                }
+                                WavyProgress { fraction: st.fraction(), label: progress_label, active: !st.paused }
+                            }
+                        }
+                        p { class: "tk-ext__hint", {t("player.external.hint")} }
+                        div { class: "tk-ext__actions",
+                            Button {
+                                label: t("player.external.stop"),
+                                variant: ButtonVariant::Filled,
+                                icon: "close".to_string(),
+                                onclick: {
+                                    let leave = ext_leave.clone();
+                                    move |_| leave()
+                                },
+                            }
+                            if can_pick {
+                                Button {
+                                    label: tf("src.all", &[("n", &fs.sources.len().to_string())]),
+                                    variant: ButtonVariant::Tonal,
+                                    icon: "tune".to_string(),
+                                    onclick: move |_| picker_open.set(true),
+                                }
+                            }
+                            Button {
+                                label: t("common.back"),
+                                variant: ButtonVariant::Text,
+                                icon: "back".to_string(),
+                                onclick: {
+                                    let leave = ext_leave.clone();
+                                    move |_| leave()
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else if relay {
+        // mpv-anime-build's uosc draws the controls; we keep only Back and the pre-playback status.
+        let busy = match fs.phase {
+            Phase::Resolving => Some(resolving_label.clone()),
+            Phase::Buffering if !st.video_ready => Some(t("player.buffering")),
+            _ => None,
+        };
+        rsx! {
+            div { class: "tk-uosc", "data-visible": "{visible}",
+                div { class: "tk-uosc__top",
+                    IconButton {
+                        icon: "back".to_string(),
+                        label: t("player.back"),
+                        onclick: {
+                            let (backend, id) = (backend.clone(), id.clone());
+                            move |_| {
+                                report(&backend, &id, episode, &pstate.peek());
+                                navigator.go_back();
+                            }
+                        },
+                    }
+                }
+                if let Some(text) = busy {
+                    div { class: "tk-pc__center",
+                        div { class: "tk-pc__status", role: "status",
+                            LoadingIndicator { small: true }
+                            span { "{text}" }
+                        }
+                    }
+                } else if fs.phase == Phase::Manual {
+                    div { class: "tk-pc__center",
+                        Button {
+                            label: t("src.choose_first"),
+                            icon: "tune".to_string(),
+                            variant: ButtonVariant::Tonal,
+                            class: "tk-pc__choose".to_string(),
+                            onclick: move |_| picker_open.set(true),
+                        }
+                    }
+                }
+            }
+        }
     } else {
         rsx! {
             PlayerControls {
@@ -749,6 +1233,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 episode,
                 visible,
                 preset: preset(),
+                presets: !enhanced(),
                 phase: fs.phase,
                 resolving_label,
                 source_label,
@@ -904,7 +1389,90 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     dispatch(&mut pstate, PlayerAction::Activity(now_ms()));
                 }
             },
-            div { id: "tk-video-hole", class: "tk-hole", "data-open": "{hole_open}" }
+            div {
+                id: "tk-video-hole",
+                class: "tk-hole",
+                "data-open": "{hole_open}",
+                "data-relay": "{relay}",
+                tabindex: hole_tab,
+                // Embedded enhanced + uosc: pointer and keys go to mpv (coordinates are relative to the hole,
+                // which is exactly the video surface).
+                onmousemove: move |e: MouseEvent| {
+                    if relay && let Some(p) = player.peek().clone() {
+                        let pt = e.element_coordinates();
+                        let _ = p.forward_mouse(pt.x, pt.y, *dpr.peek());
+                    }
+                },
+                onmousedown: move |e: MouseEvent| {
+                    if relay && let Some(p) = player.peek().clone()
+                        && let Some(name) = e.trigger_button().and_then(|b| mpv_mouse_button(button_index(b)))
+                    {
+                        let pt = e.element_coordinates();
+                        let _ = p.forward_mouse(pt.x, pt.y, *dpr.peek());
+                        let _ = p.forward_key(name, KeyAction::Down);
+                    }
+                },
+                onmouseup: move |e: MouseEvent| {
+                    if relay && let Some(p) = player.peek().clone()
+                        && let Some(name) = e.trigger_button().and_then(|b| mpv_mouse_button(button_index(b)))
+                    {
+                        let _ = p.forward_key(name, KeyAction::Up);
+                    }
+                },
+                ondoubleclick: move |_| {
+                    if relay && let Some(p) = player.peek().clone() {
+                        let _ = p.forward_key("MBTN_LEFT_DBL", KeyAction::Press);
+                    }
+                },
+                oncontextmenu: move |e: MouseEvent| {
+                    if relay {
+                        e.prevent_default();
+                    }
+                },
+                onwheel: move |e: WheelEvent| {
+                    if relay && let Some(p) = player.peek().clone() {
+                        let d = e.delta().strip_units();
+                        let name = if d.y < 0.0 {
+                            "WHEEL_UP"
+                        } else if d.y > 0.0 {
+                            "WHEEL_DOWN"
+                        } else if d.x < 0.0 {
+                            "WHEEL_LEFT"
+                        } else if d.x > 0.0 {
+                            "WHEEL_RIGHT"
+                        } else {
+                            return;
+                        };
+                        let _ = p.forward_key(name, KeyAction::Press);
+                    }
+                },
+                onkeydown: move |e: KeyboardEvent| {
+                    if relay && let Some(p) = player.peek().clone() {
+                        let key = e.key().to_string();
+                        let m = e.modifiers();
+                        // Escape and F stay ours (window full screen); the global bridge already handles them.
+                        if key == "Escape" || (key.eq_ignore_ascii_case("f") && !m.ctrl() && !m.alt() && !m.meta()) {
+                            return;
+                        }
+                        if let Some(name) = mpv_key_name(&key, m.ctrl(), m.alt(), m.shift(), m.meta()) {
+                            e.prevent_default();
+                            let _ = p.forward_key(&name, KeyAction::Down);
+                        }
+                    }
+                },
+                onkeyup: move |e: KeyboardEvent| {
+                    if relay && let Some(p) = player.peek().clone() {
+                        let key = e.key().to_string();
+                        let m = e.modifiers();
+                        if key == "Escape" || (key.eq_ignore_ascii_case("f") && !m.ctrl() && !m.alt() && !m.meta()) {
+                            return;
+                        }
+                        if let Some(name) = mpv_key_name(&key, m.ctrl(), m.alt(), m.shift(), m.meta()) {
+                            let _ = p.forward_key(&name, KeyAction::Up);
+                        }
+                    }
+                },
+            }
             {body}
             if let Some(left) = next_left {
                 NextEpisodeCard {
@@ -918,7 +1486,13 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                             navigator.push(Route::PlayerPage { id: id.clone(), episode: episode + 1 });
                         }
                     },
-                    on_cancel: move |_| next_since.set(None),
+                    on_cancel: move |_| {
+                        next_since.set(None);
+                        // External mpv already exited: nothing left to show here.
+                        if *ext_closed.peek() {
+                            navigator.go_back();
+                        }
+                    },
                 }
             }
             if let Some(text) = flash_text {
