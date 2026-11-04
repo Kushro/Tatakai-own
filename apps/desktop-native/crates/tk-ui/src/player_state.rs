@@ -405,6 +405,7 @@ mod tests {
             score: 0.0,
             recommended: false,
             picked: false,
+            tags: Default::default(),
         }
     }
 

@@ -454,13 +454,17 @@ pub enum NavDest {
     Home,
     Search,
     Library,
+    /// Torrent client (wave 3, docs/redesign/10 section 5).
+    Torrents,
     Extensions,
     Link,
     Settings,
 }
 
 impl NavDest {
-    pub const ALL: [NavDest; 6] = [Self::Home, Self::Search, Self::Library, Self::Extensions, Self::Link, Self::Settings];
+    /// Rail order; shortcut digit `n` (1..=7 outside the player) opens `ALL[n - 1]`.
+    pub const ALL: [NavDest; 7] =
+        [Self::Home, Self::Search, Self::Library, Self::Torrents, Self::Extensions, Self::Link, Self::Settings];
 
     /// i18n key of the label (`nav.<id>`).
     pub fn label_key(self) -> &'static str {
@@ -468,10 +472,71 @@ impl NavDest {
             Self::Home => "nav.home",
             Self::Search => "nav.search",
             Self::Library => "nav.library",
+            Self::Torrents => "nav.torrents",
             Self::Extensions => "nav.extensions",
             Self::Link => "nav.link",
             Self::Settings => "nav.settings",
         }
+    }
+}
+
+/// Sub-pages of the torrent client (side index like Settings). Routes `/torrents`, `/torrents/<id>`
+/// (`app::Route::for_torrent_section`); titles `torrent.section.<id>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TorrentSection {
+    Overview,
+    Files,
+    Peers,
+    Trackers,
+    Library,
+    Downloads,
+    Settings,
+}
+
+impl TorrentSection {
+    pub const ALL: [TorrentSection; 7] =
+        [Self::Overview, Self::Files, Self::Peers, Self::Trackers, Self::Library, Self::Downloads, Self::Settings];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Overview => "overview",
+            Self::Files => "files",
+            Self::Peers => "peers",
+            Self::Trackers => "trackers",
+            Self::Library => "library",
+            Self::Downloads => "downloads",
+            Self::Settings => "settings",
+        }
+    }
+
+    /// i18n key of the index entry and page title.
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::Overview => "torrent.section.overview",
+            Self::Files => "torrent.section.files",
+            Self::Peers => "torrent.section.peers",
+            Self::Trackers => "torrent.section.trackers",
+            Self::Library => "torrent.section.library",
+            Self::Downloads => "torrent.section.downloads",
+            Self::Settings => "torrent.section.settings",
+        }
+    }
+
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Overview => "info",
+            Self::Files => "folder",
+            Self::Peers => "user",
+            Self::Trackers => "cast",
+            Self::Library => "library",
+            Self::Downloads => "download",
+            Self::Settings => "settings",
+        }
+    }
+
+    /// Sections about one torrent (need the selected torrent, `Ui::torrent`); the rest are client-wide.
+    pub fn per_torrent(self) -> bool {
+        matches!(self, Self::Overview | Self::Files | Self::Peers | Self::Trackers)
     }
 }
 
@@ -1059,7 +1124,49 @@ mod tests {
                 let k = format!("settings.player.enhanced_ui.{}", u.id());
                 assert_ne!(lookup(lang, &k), k, "{k}");
             }
+            // wave 3 (docs/redesign/10)
+            for s in TorrentSection::ALL {
+                assert_ne!(lookup(lang, s.label_key()), s.label_key());
+            }
+            for s in crate::backend::TorrentStateVm::ALL {
+                let k = format!("torrent.state.{}", s.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for s in crate::backend::TrackerStatusVm::ALL {
+                let k = format!("torrent.tracker.{}", s.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for a in crate::backend::AfterWatchVm::ALL {
+                let k = format!("torrent.settings.after_watch.{}", a.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for s in crate::backend::SkipKindVm::ALL {
+                let k = format!("player.skip.{}", s.id());
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
+            for p in ["dht", "lsd", "pex", "nat", "forwarding", "persisting", "streaming"] {
+                let k = format!("torrent.proto.{p}");
+                assert_ne!(lookup(lang, &k), k, "{k}");
+            }
         }
+    }
+
+    #[test]
+    fn torrent_settings_sanitize_and_tolerate_partial_files() {
+        use crate::backend::{AfterWatchVm, TorrentSettingsVm};
+        let partial: TorrentSettingsVm = serde_json::from_str(r#"{"max_peers":0,"background_downloads":true}"#).unwrap();
+        let s = partial.sanitized();
+        assert_eq!(s.max_peers, 1);
+        assert!(!s.background_downloads, "background downloads need the warning accepted");
+        assert_eq!(s.after_watch, AfterWatchVm::Delete);
+        let acked = TorrentSettingsVm { background_ack: true, background_downloads: true, download_limit_kib: u32::MAX, ..Default::default() };
+        let acked = acked.sanitized();
+        assert!(acked.background_downloads);
+        assert_eq!(acked.download_limit_kib, crate::backend::TORRENT_MAX_LIMIT_KIB);
+        let json = serde_json::to_string(&TorrentSettingsVm { default_download_dir: "/x".into(), ..Default::default() }).unwrap();
+        assert!(!json.contains("default_download_dir"));
+        assert_eq!(TorrentSection::ALL.len(), 7);
+        assert!(TorrentSection::Files.per_torrent() && !TorrentSection::Library.per_torrent());
     }
 
     #[test]

@@ -10,6 +10,7 @@ members = [
     "crates/tk-player",
     "crates/tk-ui",
     "crates/tk-app",
+    "crates/tk-torrent",
 ]
 
 [workspace.package]
@@ -26,6 +27,7 @@ tk-ext = { path = "crates/tk-ext" }
 tk-link = { path = "crates/tk-link" }
 tk-player = { path = "crates/tk-player", default-features = false }
 tk-ui = { path = "crates/tk-ui" }
+tk-torrent = { path = "crates/tk-torrent" }
 
 # --- UI ---
 dioxus = { version = "0.7.10", features = ["desktop", "router"] }
@@ -99,6 +101,16 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+# --- torrents (wave 3, docs/redesign/10 section 2): librqbit 9.1.0 WITHOUT its default TLS. Both TLS features of
+# librqbit go through reqwest 0.13 `rustls`, which pulls aws-lc-rs (CMake + NASM on Windows, see the Link note
+# above). Instead: SHA-1 from `crypto-hash` (OpenSSL on Linux, CryptoAPI on Windows) and reqwest 0.13 with
+# `native-tls` (OpenSSL on Linux, already in the lock; SChannel on Windows). Checked with `cargo tree` on a probe
+# crate: no aws-lc-sys or ring anywhere, no openssl-sys on x86_64-pc-windows-msvc.
+librqbit = { version = "=9.1.0", default-features = false }
+librqbit-core = { version = "=9.1.0", default-features = false, features = ["sha1-crypto-hash"] }
+librqbit-sha1-wrapper = { version = "=9.1.0", default-features = false, features = ["sha1-crypto-hash"] }
+reqwest-rqbit = { package = "reqwest", version = "0.13", default-features = false, features = ["native-tls"] }
 
 # --- tests only ---
 tempfile = "3"

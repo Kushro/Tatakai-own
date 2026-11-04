@@ -9,3 +9,4 @@ pub mod link;
 pub mod player;
 pub mod search;
 pub mod settings;
+pub mod torrents;

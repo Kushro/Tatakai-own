@@ -1,0 +1,19 @@
+/* Torrent client shell + Overview / Files / Peers / Trackers - owner: wave 3 C (docs/redesign/10 section 5).
+   Colors/type/shape/motion only from tokens.css; layout literals only. Contract placeholder: the side index. */
+
+.tk-torrents-scroll { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; }
+.tk-torrents { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--tk-space-32); align-items: start; }
+.tk-torrents__nav { position: sticky; top: var(--tk-space-16); display: flex; flex-direction: column; gap: 2px; }
+.tk-torrents__link {
+  display: flex; align-items: center; gap: var(--tk-space-12); height: 44px; padding: 0 var(--tk-space-16); flex: none;
+  border-radius: var(--md-sys-shape-corner-full); color: var(--md-sys-color-on-surface-variant); text-align: start;
+  font-family: var(--md-sys-typescale-label-large-font); font-size: var(--md-sys-typescale-label-large-size); font-weight: var(--md-sys-typescale-label-large-weight);
+  transition: background-color var(--tk-mo-fx-fast), color var(--tk-mo-fx-fast);
+}
+.tk-torrents__link:hover { background: var(--tk-hover); }
+.tk-torrents__link[aria-current="page"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.tk-torrents__body { min-width: 0; display: flex; flex-direction: column; gap: var(--tk-space-16); }
+@media (max-width: 899px) {
+  .tk-torrents { grid-template-columns: 1fr; }
+  .tk-torrents__nav { position: static; flex-direction: row; overflow-x: auto; padding-bottom: var(--tk-space-4); }
+}

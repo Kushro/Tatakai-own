@@ -21,6 +21,14 @@ pub fn deferred_permissions(m: &Manifest) -> Vec<String> {
     out
 }
 
+/// Whether a bundle exposes the legacy `torrentAll` entry point (custom extensions with torrent providers, e.g.
+/// Toko), so `resolve_candidates` also asks its `torrent` route (docs/redesign/10 section 6). Contract stub: `false`;
+/// wave 3 E scans the bundle text (cheap, regex-free like `analyze_bundle`) and may cache the answer per install.
+pub fn exposes_torrent_all(bundle: &str) -> bool {
+    let _ = bundle;
+    false
+}
+
 /// Whether the extension asked for a torrent session (`torrent:session`).
 pub fn wants_torrent_session(m: &Manifest) -> bool {
     m.permissions.iter().chain(m.capabilities.iter()).any(|p| p == "torrent:session")

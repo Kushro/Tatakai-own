@@ -81,6 +81,8 @@ fn glyph(name: &str) -> Option<(&'static str, bool)> {
         "update" => ("M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5M12 8v4l3 2", false),
         "logout" => ("M10 4H4v16h6M14 8l4 4-4 4M18 12H9", false),
         "tablet" => ("M5 3h14v18H5zM11 18h2", false),
+        // wave 3 (torrent client rail destination)
+        "magnet" => ("M5 4h4v7a3 3 0 0 0 6 0V4h4v7a7 7 0 0 1-14 0zM5 8h4M15 8h4", false),
         _ => return None,
     })
 }
@@ -128,6 +130,7 @@ mod tests {
         for n in ["offline", "storage", "terminal", "update", "logout", "tablet"] {
             assert!(glyph(n).is_some(), "{n}");
         }
+        assert!(glyph("magnet").is_some());
         assert!(glyph("nope").is_none());
     }
 }

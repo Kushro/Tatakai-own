@@ -9,6 +9,7 @@ pub mod error;
 pub mod metadata;
 pub mod model;
 pub mod net;
+pub mod release;
 pub mod sources;
 pub mod store;
 pub mod supabase;

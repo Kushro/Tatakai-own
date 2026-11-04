@@ -12,6 +12,7 @@ pub fn icon_for(dest: NavDest) -> &'static str {
         NavDest::Home => "home",
         NavDest::Search => "search",
         NavDest::Library => "library",
+        NavDest::Torrents => "magnet",
         NavDest::Extensions => "extensions",
         NavDest::Link => "link",
         NavDest::Settings => "settings",

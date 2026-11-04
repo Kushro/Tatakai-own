@@ -9,8 +9,12 @@ use tk_player::PlayerHost;
 use crate::backend::BackendRef;
 use crate::components::{NavRail, RailFootItem, Snackbar, SnackbarHost, TitleBar};
 use crate::i18n::{self, resolve, t};
-use crate::model::{NavAction, NavDest, NavState, Settings, nav_expanded, reduce_nav};
+use crate::model::{NavAction, NavDest, NavState, Settings, TorrentSection, nav_expanded, reduce_nav};
 use crate::platform;
+use crate::screens::torrents::{
+    downloads::TorrentDownloadsPage, files::TorrentFilesPage, layout::TorrentsLayout, library::TorrentLibraryPage,
+    overview::TorrentOverviewPage, peers::TorrentPeersPage, settings::TorrentSettingsPage, trackers::TorrentTrackersPage,
+};
 use crate::screens::{
     details::DetailsPage, extensions::ExtensionsPage, gallery::GalleryPage, home::HomePage, library::LibraryPage,
     link::LinkPage, player::PlayerPage, search::SearchPage, settings::SettingsPage,
@@ -33,6 +37,9 @@ const APP_CSS: &[&str] = &[
     include_str!("../assets/css/link.css"),
     include_str!("../assets/css/settings.css"),
     include_str!("../assets/css/player.css"),
+    // wave 3 (docs/redesign/10): torrent client shell + per-torrent pages (C), library / downloads / settings (D)
+    include_str!("../assets/css/torrents.css"),
+    include_str!("../assets/css/torrents_manage.css"),
 ];
 
 /// What tk-app injects (`LaunchBuilder::with_context`).
@@ -66,6 +73,9 @@ pub struct Ui {
     pub width: Signal<f64>,
     pub nav: Signal<NavState>,
     pub shortcut: Signal<Option<ShortcutEvt>>,
+    /// Torrent the client's per-torrent pages show (`TorrentStatsVm::id`); set by the Library "open", the client's
+    /// own picker and the player ("open in the torrent client"). Lives here so it survives leaving `/torrents`.
+    pub torrent: Signal<Option<String>>,
 }
 
 impl Ui {
@@ -100,6 +110,25 @@ pub enum Route {
     LinkPage {},
     #[route("/settings")]
     SettingsPage {},
+    // Torrent client (wave 3, docs/redesign/10 section 5): side index layout + one page per `TorrentSection`.
+    #[nest("/torrents")]
+        #[layout(TorrentsLayout)]
+            #[route("/")]
+            TorrentOverviewPage {},
+            #[route("/files")]
+            TorrentFilesPage {},
+            #[route("/peers")]
+            TorrentPeersPage {},
+            #[route("/trackers")]
+            TorrentTrackersPage {},
+            #[route("/library")]
+            TorrentLibraryPage {},
+            #[route("/downloads")]
+            TorrentDownloadsPage {},
+            #[route("/settings")]
+            TorrentSettingsPage {},
+        #[end_layout]
+    #[end_nest]
     /// Component gallery; renders nothing in release builds.
     #[route("/gallery")]
     GalleryPage {},
@@ -115,6 +144,33 @@ impl Route {
             Self::LinkPage {} => Some(NavDest::Link),
             Self::SettingsPage {} => Some(NavDest::Settings),
             Self::PlayerPage { .. } | Self::GalleryPage {} => None,
+            _ => self.torrent_section().map(|_| NavDest::Torrents),
+        }
+    }
+
+    /// The torrent client page this route shows, if any.
+    pub fn torrent_section(&self) -> Option<TorrentSection> {
+        match self {
+            Self::TorrentOverviewPage {} => Some(TorrentSection::Overview),
+            Self::TorrentFilesPage {} => Some(TorrentSection::Files),
+            Self::TorrentPeersPage {} => Some(TorrentSection::Peers),
+            Self::TorrentTrackersPage {} => Some(TorrentSection::Trackers),
+            Self::TorrentLibraryPage {} => Some(TorrentSection::Library),
+            Self::TorrentDownloadsPage {} => Some(TorrentSection::Downloads),
+            Self::TorrentSettingsPage {} => Some(TorrentSection::Settings),
+            _ => None,
+        }
+    }
+
+    pub fn for_torrent_section(section: TorrentSection) -> Self {
+        match section {
+            TorrentSection::Overview => Self::TorrentOverviewPage {},
+            TorrentSection::Files => Self::TorrentFilesPage {},
+            TorrentSection::Peers => Self::TorrentPeersPage {},
+            TorrentSection::Trackers => Self::TorrentTrackersPage {},
+            TorrentSection::Library => Self::TorrentLibraryPage {},
+            TorrentSection::Downloads => Self::TorrentDownloadsPage {},
+            TorrentSection::Settings => Self::TorrentSettingsPage {},
         }
     }
 
@@ -127,6 +183,7 @@ impl Route {
             NavDest::Home => Self::HomePage {},
             NavDest::Search => Self::SearchPage {},
             NavDest::Library => Self::LibraryPage {},
+            NavDest::Torrents => Self::TorrentOverviewPage {},
             NavDest::Extensions => Self::ExtensionsPage {},
             NavDest::Link => Self::LinkPage {},
             NavDest::Settings => Self::SettingsPage {},
@@ -141,9 +198,10 @@ pub fn App() -> Element {
     let mut width = use_signal(|| 1280.0_f64);
     let nav = use_signal(NavState::default);
     let mut shortcut_sig = use_signal(|| None::<ShortcutEvt>);
+    let torrent = use_signal(|| None::<String>);
     let mut sys_tag = use_signal(|| "en".to_owned());
     let mut sys_dark = use_signal(|| true);
-    use_context_provider(|| Ui { settings, width, nav, shortcut: shortcut_sig });
+    use_context_provider(|| Ui { settings, width, nav, shortcut: shortcut_sig, torrent });
     use_context_provider(Snackbar::new);
 
     let fonts_css = use_hook({

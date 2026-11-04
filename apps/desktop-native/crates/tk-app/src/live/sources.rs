@@ -3,7 +3,7 @@
 
 use tk_core::StreamSource;
 use tk_core::sources::{Quality, SourceCandidate, SourceKind, SourceMode, SourcePrefs, rank, source_key};
-use tk_ui::backend::{SourceKindVm, SourceVm, StreamVm, SubtitleVm};
+use tk_ui::backend::{ReleaseTagsVm, SourceKindVm, SourceVm, StreamVm, SubtitleVm};
 use tk_ui::model::{QualityVm, SourceModeVm, SourcePrefsVm};
 
 pub fn core_kind(k: SourceKindVm) -> SourceKind {
@@ -86,6 +86,8 @@ fn source_vm(c: SourceCandidate, score: f32, ext_enabled: bool, picked: Option<&
         score,
         recommended,
         picked,
+        // wave 3 E: map `c.tags` (tk_core::release::ReleaseTags -> ReleaseTagsVm)
+        tags: ReleaseTagsVm::default(),
     }
 }
 
@@ -135,6 +137,7 @@ mod tests {
             note: None,
             web: Some(WebInfo { url: format!("https://{label}.test/a.m3u8"), headers: Default::default(), latency_ms: Some(120), subtitles: Vec::new() }),
             torrent: None,
+            tags: Default::default(),
         }
     }
 

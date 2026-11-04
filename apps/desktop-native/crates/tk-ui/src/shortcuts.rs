@@ -15,7 +15,7 @@ pub enum Shortcut {
     /// Ctrl+1..Ctrl+6 -> 1-based preset index.
     Preset(u8),
     Escape,
-    /// 1..6 outside the player -> 1-based index into `NavDest::ALL`.
+    /// 1..7 outside the player -> 1-based index into `NavDest::ALL` (7 destinations since wave 3).
     NavTo(u8),
 }
 
@@ -56,7 +56,7 @@ pub fn shortcut(key: &str, ctrl: bool, editable: bool, in_player: bool) -> Optio
     }
     if !in_player {
         return match key {
-            "1" | "2" | "3" | "4" | "5" | "6" => key.parse().ok().map(Shortcut::NavTo),
+            "1" | "2" | "3" | "4" | "5" | "6" | "7" => key.parse().ok().map(Shortcut::NavTo),
             _ => None,
         };
     }
@@ -122,7 +122,8 @@ mod tests {
     fn digits_navigate_outside_the_player_only() {
         assert_eq!(shortcut("1", false, false, false), Some(Shortcut::NavTo(1)));
         assert_eq!(shortcut("6", false, false, false), Some(Shortcut::NavTo(6)));
-        assert_eq!(shortcut("7", false, false, false), None);
+        assert_eq!(shortcut("7", false, false, false), Some(Shortcut::NavTo(7)));
+        assert_eq!(shortcut("8", false, false, false), None);
         assert_eq!(shortcut("2", false, true, false), None);
         assert_eq!(shortcut("2", false, false, true), None);
     }

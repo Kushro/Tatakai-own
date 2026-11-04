@@ -31,7 +31,7 @@ use tk_player::{
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::{Route, Services, Ui};
-use crate::backend::{BackendRef, PlaybackVm, SourceKindVm, SourceVm};
+use crate::backend::{BackendRef, PlaybackVm, ReleaseTagsVm, SourceKindVm, SourceVm};
 use crate::components::player_controls::NextEpisodeCard;
 use crate::components::{
     Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, PlayerControls, SourcePicker,
@@ -214,6 +214,7 @@ fn legacy_sources(vm: &PlaybackVm) -> Vec<SourceVm> {
             score: 0.0,
             recommended: i == 0,
             picked: false,
+            tags: ReleaseTagsVm::default(),
         })
         .collect()
 }
