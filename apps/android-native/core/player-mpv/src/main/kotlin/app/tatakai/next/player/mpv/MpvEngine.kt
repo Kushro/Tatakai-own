@@ -17,7 +17,7 @@ import java.util.Locale
 // command(Array<String>), setOptionString, get/setProperty{Int,Double,Boolean,String}, observeProperty(name, MpvFormat), addObserver,
 // addLogObserver) - see .deps-sources/libmpv-1.0.0/MPVLib.signatures.txt.
 
-/** One subtitle / audio track as mpv lists it (`track-list/N/*`). [id] is mpv's `sid` / `aid`. */
+/** One subtitle / audio track as mpv lists it (`track-list/N/...`). [id] is mpv's `sid` / `aid`. */
 data class MpvTrack(val id: Int, val title: String?, val lang: String?, val codec: String?, val selected: Boolean)
 
 /** Minimal state the player UI renders for the mpv branch (d may extend it). */
@@ -54,7 +54,7 @@ class MpvEngine(context: Context) {
     private val _state = MutableStateFlow(MpvState(buffering = false))
     val state: StateFlow<MpvState> get() = _state.asStateFlow()
 
-    private val mpv: MPVLib = MPVLib.create(appContext)
+    private val mpv: MPVLib = checkNotNull(MPVLib.create(appContext)) { "libmpv could not create an instance" }
 
     @Volatile
     private var released = false

@@ -39,9 +39,9 @@ class DeviceAndExternalTest {
         assertEquals("Frieren · Episode 1", l.extras["title"])
         assertEquals(65_000, l.extras["position"])
         assertEquals(65_000L, l.extras["extra_position"])
-        assertContentEquals(arrayOf("Referer", "https://site.example/", "User-Agent", "UA"), l.extras["headers"] as Array<*>)
+        assertContentEquals(listOf("Referer", "https://site.example/", "User-Agent", "UA"), (l.extras["headers"] as Array<*>).toList())
         assertEquals("Referer: https://site.example/\r\nUser-Agent: UA", l.extras["http-headers"])
-        assertContentEquals(arrayOf("https://cdn.example/es.vtt"), l.extras["subs"] as Array<*>)
+        assertContentEquals(listOf("https://cdn.example/es.vtt"), (l.extras["subs"] as Array<*>).toList())
 
         val loopback = PlayableSource("http://127.0.0.1:4000/t/hash/3/Ep%2003.mkv", emptyMap(), Container.PROGRESSIVE, "torrent", torrent = true)
         val t = ExternalPlayer.launch(loopback, "x", 0, "  ")

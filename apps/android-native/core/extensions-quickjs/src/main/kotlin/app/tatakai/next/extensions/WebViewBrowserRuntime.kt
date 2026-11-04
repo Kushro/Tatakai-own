@@ -294,7 +294,7 @@ class WebViewBrowserRuntime(
          * error and `undefined` becomes `null`. Promises are not awaited (same as desktop).
          */
         internal fun wrapExpression(js: String): String {
-            val expr = js.trim().trimEnd(';')
+            val expr = js.trim().trimEnd { it == ';' || it.isWhitespace() }
             return "(function(){try{var v=(\n$expr\n);return JSON.stringify({ok:true,v:v===undefined?null:v});}" +
                 "catch(e){return JSON.stringify({ok:false,e:String(e&&e.message||e)});}})()"
         }
