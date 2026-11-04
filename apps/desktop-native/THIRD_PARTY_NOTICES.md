@@ -32,6 +32,10 @@ Every branch that copies a file MUST add a row here (origin repo + path, license
 Dioxus (MIT/Apache-2.0), tokio (MIT), reqwest (MIT/Apache-2.0), rustls with the `ring` provider (Apache-2.0/ISC/MIT), axum/hyper (MIT), rcgen (MIT/Apache-2.0), x509-parser (MIT/Apache-2.0),
 rquickjs with bundled QuickJS (MIT), rusqlite with bundled SQLite (MIT / public domain), scraper (ISC), libmpv2 (LGPL-2.1+ wrapper), windows-sys (MIT/Apache-2.0),
 serde, serde_json, thiserror, anyhow, tracing, uuid, time, directories, url, ipnet, hickory-resolver, m3u8-rs, qrcode, zip, sha2, hmac, hex, base32, base64 (MIT/Apache-2.0).
+Torrent engine (wave 3, `crates/tk-torrent`): [librqbit](https://github.com/ikatson/rqbit) 9.1.0 and its sub-crates (librqbit-core, -bencode, -buffers,
+-clone-to-owned, -dht, -lsd, -peer-protocol, -sha1-wrapper, -tracker-comms, -upnp, -utp, -dualstack-sockets) by Igor Katson: **Apache-2.0**. Used as an
+unmodified dependency (no source copied); ship its license text with the release notices. SHA-1 via `crypto-hash` (OpenSSL on Linux, CryptoAPI on
+Windows) and reqwest 0.13 with `native-tls` (MIT/Apache-2.0).
 `cargo about` / `cargo deny` output replaces this paragraph before a release.
 
 ## 4. Fonts (bundled in `assets/fonts`, never loaded from a CDN) - added by `m3e/desktop-app`
