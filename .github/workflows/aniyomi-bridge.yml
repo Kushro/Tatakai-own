@@ -1,0 +1,230 @@
+# Builds the Aniyomi compatibility bridge (desktop JAR + Android APK) from
+# reviewed upstream source instead of trusting upstream-hosted binaries.
+# Audit: docs/security/aniyomi-bridge-audit.md
+# Consumer: desktop/runtime/compatibility/aniyomi-artifacts.json (URL + SHA-256 pin).
+#
+# Runs on GitHub-hosted runners only (no `runner` job, see docs/ci.md): the
+# build executes unreviewed third-party Gradle code and the provenance
+# attestation should come from an ephemeral hosted runner.
+#
+# Two jobs on purpose:
+#   build   - runs the untrusted upstream Gradle build with read-only token
+#             permissions and no secrets.
+#   publish - holds contents/id-token/attestations write, never runs upstream
+#             build code; it only verifies, attests and releases the outputs.
+name: Aniyomi bridge from source
+
+on:
+  workflow_dispatch:
+    inputs:
+      bridge_commit:
+        description: "Commit of aayush2622/DartotsuExtensionBridge to build (40 hex chars)"
+        required: true
+        default: "7778da72eb450d5108b9672d194414c74bd6caf9"
+        type: string
+      release_tag:
+        description: "Pre-release tag to create/replace on this repository"
+        required: true
+        default: "compat-runtime-bridge-2.0.17-own"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aniyomi-bridge-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  BRIDGE_REPOSITORY: aayush2622/DartotsuExtensionBridge
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Validate inputs
+        env:
+          BRIDGE_COMMIT: ${{ inputs.bridge_commit }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          [[ "$BRIDGE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::bridge_commit must be 40 lowercase hex chars"; exit 1; }
+          [[ "$RELEASE_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ ]] || { echo "::error::release_tag has invalid characters"; exit 1; }
+
+      - name: Checkout bridge source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.BRIDGE_REPOSITORY }}
+          ref: ${{ inputs.bridge_commit }}
+          path: bridge
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify checked-out commit
+        env:
+          BRIDGE_COMMIT: ${{ inputs.bridge_commit }}
+        run: |
+          set -euo pipefail
+          head_sha="$(git -C "$GITHUB_WORKSPACE/bridge" rev-parse HEAD)"
+          echo "HEAD=$head_sha expected=$BRIDGE_COMMIT"
+          [ "$head_sha" = "$BRIDGE_COMMIT" ] || { echo "::error::checked-out commit does not match bridge_commit"; exit 1; }
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: "platform-tools"
+
+      # Validates every gradle-wrapper.jar in the workspace against Gradle's
+      # published checksums. Caching is disabled: no cache poisoning surface.
+      - name: Set up Gradle (wrapper validation)
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          validate-wrappers: true
+          cache-disabled: true
+          add-job-summary: never
+
+      # gradle/gradle-daemon-jvm.properties asks Gradle to auto-download a
+      # JetBrains JDK 21 through api.foojay.io (no checksum). We run on the
+      # pinned Temurin 17 instead and forbid toolchain auto-download below.
+      # This only selects the JVM that runs Gradle; the build still targets
+      # Java 17 bytecode.
+      - name: Drop daemon-JVM auto-provisioning file
+        run: |
+          set -euo pipefail
+          target="$GITHUB_WORKSPACE/bridge/runtimeManager/gradle/gradle-daemon-jvm.properties"
+          echo "target=$target"
+          ls -l -- "$target"
+          rm -f -- "$target"
+
+      # Single aggregate invocation, like upstream CI: aniyomiCommon drops its
+      # compileOnly desktop-lib dependency whenever a requested task name
+      # contains "android", which breaks a direct :aniyomiAndroid:buildPlugin.
+      # Only the two Aniyomi outputs are collected below.
+      - name: Build plugins (desktop JAR + Android APK)
+        working-directory: bridge/runtimeManager
+        run: |
+          sh ./gradlew --no-daemon --no-build-cache --console=plain --stacktrace \
+            -Porg.gradle.java.installations.auto-download=false \
+            buildAllPlugins
+
+      - name: Collect assets and checksums
+        env:
+          BRIDGE_COMMIT: ${{ inputs.bridge_commit }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          src="$GITHUB_WORKSPACE/bridge"
+          out="$GITHUB_WORKSPACE/out"
+          mkdir -p -- "$out"
+          cp -- "$src/runtimeManager/builds/aniyomiDesktop/aniyomiDesktop-plugin.jar" "$out/aniyomiDesktop-plugin.jar"
+          cp -- "$src/runtimeManager/builds/aniyomiAndroid/aniyomiAndroid-plugin.apk" "$out/aniyomiAndroid-plugin.apk"
+          cp -- "$src/LICENSE" "$out/LICENSE-DartotsuExtensionBridge"
+          cp -- "$src/runtimeManager/aniyomi/aniyomiCommon/src/commonMain/kotlin/eu/kanade/tachiyomi/LICENSE" "$out/LICENSE-tachiyomi-aniyomiCommon"
+          cd "$out"
+          sha256sum aniyomiDesktop-plugin.jar aniyomiAndroid-plugin.apk > SHA256SUMS
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          jq -n \
+            --arg repo "https://github.com/$BRIDGE_REPOSITORY" \
+            --arg commit "$BRIDGE_COMMIT" \
+            --arg runUrl "$run_url" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg workflowSha "$GITHUB_SHA" \
+            --arg tag "$RELEASE_TAG" \
+            --arg builtAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg licenseSha256 "$(sha256sum LICENSE-DartotsuExtensionBridge | cut -d' ' -f1)" \
+            --arg dName "aniyomiDesktop-plugin.jar" --argjson dBytes "$(stat -c %s aniyomiDesktop-plugin.jar)" --arg dSha "$(sha256sum aniyomiDesktop-plugin.jar | cut -d' ' -f1)" \
+            --arg aName "aniyomiAndroid-plugin.apk" --argjson aBytes "$(stat -c %s aniyomiAndroid-plugin.apk)" --arg aSha "$(sha256sum aniyomiAndroid-plugin.apk | cut -d' ' -f1)" \
+            '{
+              schema: 1,
+              bridge: {repository: $repo, commit: $commit, licenseSha256: $licenseSha256},
+              build: {
+                runUrl: $runUrl, runId: $runId, workflowSha: $workflowSha, releaseTag: $tag, builtAt: $builtAt,
+                gradleTasks: ["buildAllPlugins"],
+                notes: "Built from source; Android APK is the unsigned release output (no signingConfig upstream)."
+              },
+              desktop: {name: $dName, bytes: $dBytes, sha256: $dSha},
+              android: {name: $aName, bytes: $aBytes, sha256: $aSha}
+            }' > artifacts.json
+          cat SHA256SUMS
+          cat artifacts.json
+          ls -l
+
+      - name: Upload build outputs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: aniyomi-bridge-out
+          path: out/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Download build outputs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: aniyomi-bridge-out
+          path: out
+
+      - name: Re-verify checksums
+        working-directory: out
+        run: |
+          set -euo pipefail
+          sha256sum -c SHA256SUMS
+          test "$(jq -r '.desktop.sha256' artifacts.json)" = "$(sha256sum aniyomiDesktop-plugin.jar | cut -d' ' -f1)"
+          test "$(jq -r '.android.sha256' artifacts.json)" = "$(sha256sum aniyomiAndroid-plugin.apk | cut -d' ' -f1)"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            out/aniyomiDesktop-plugin.jar
+            out/aniyomiAndroid-plugin.apk
+
+      - name: Create or replace pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          BRIDGE_COMMIT: ${{ inputs.bridge_commit }}
+        working-directory: out
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            is_pre="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q .isPrerelease)"
+            [ "$is_pre" = "true" ] || { echo "::error::release $RELEASE_TAG exists and is not a pre-release; refusing to replace it"; exit 1; }
+            gh release delete "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
+          {
+            echo "Aniyomi compatibility bridge built from source."
+            echo
+            echo "- Source: https://github.com/$BRIDGE_REPOSITORY/tree/$BRIDGE_COMMIT"
+            echo "- Build run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- Audit: docs/security/aniyomi-bridge-audit.md"
+            echo "- Verify: gh attestation verify <asset> --repo $GITHUB_REPOSITORY"
+            echo "- License: Unabandon Public License (GPLv3 based); corresponding source is the commit above."
+            echo
+            echo '```'
+            cat SHA256SUMS
+            echo '```'
+          } > "$RUNNER_TEMP/notes.md"
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --prerelease --target "$GITHUB_SHA" \
+            --title "Aniyomi bridge (own build) $RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            aniyomiDesktop-plugin.jar aniyomiAndroid-plugin.apk SHA256SUMS artifacts.json \
+            LICENSE-DartotsuExtensionBridge LICENSE-tachiyomi-aniyomiCommon
