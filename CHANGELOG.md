@@ -4,6 +4,14 @@ All notable changes to Tatakai are documented here.
 
 ---
 
+## [7.0.0] - 2026-11-05
+
+Release mayor con los últimos cambios de Tatakai-own.
+
+- Actualiza la versión de escritorio, Android y los metadatos de iOS a `7.0.0`.
+- Incluye los últimos cambios integrados en `main`, incluyendo el puente Aniyomi propio y las previews nativas de Tatakai Next.
+- Publica instaladores para Windows y Linux, APK clásico y previews nativas cuando los builds correspondientes finalizan correctamente.
+
 ## [6.4.2-own] - 2026-10-28
 
 Primera release del fork Tatakai-own.
