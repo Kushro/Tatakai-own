@@ -185,6 +185,7 @@
   "error.extension": "An extension failed.",
   "error.no_source": "No source could provide this video.",
   "error.auth": "Sign-in failed. Check your email and password.",
+  "error.email_not_confirmed": "Your email isn't confirmed yet. Enter the code from your sign-up email on the Tatakai website, then sign in again.",
   "error.generic": "Something went wrong.",
   "error.addr_in_use": "That port is already in use by another program.",
   "error.not_wired": "This is not available in this build yet.",

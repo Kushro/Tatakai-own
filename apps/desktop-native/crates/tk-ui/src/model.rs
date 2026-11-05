@@ -604,6 +604,8 @@ pub enum ErrorKind {
     Extension,
     NoSource,
     Auth,
+    /// Sign-in refused because the account never confirmed its email address.
+    EmailNotConfirmed,
     /// A local port is taken (Link server: os error 10048 on Windows, 98 on Linux).
     AddrInUse,
     /// The backend does not implement this call yet (default `Backend` methods, offline build).
@@ -614,12 +616,13 @@ pub enum ErrorKind {
 }
 
 impl ErrorKind {
-    pub const ALL: [ErrorKind; 9] = [
+    pub const ALL: [ErrorKind; 10] = [
         Self::Offline,
         Self::RateLimited,
         Self::Extension,
         Self::NoSource,
         Self::Auth,
+        Self::EmailNotConfirmed,
         Self::AddrInUse,
         Self::NotWired,
         Self::TorrentM2,
@@ -633,6 +636,7 @@ impl ErrorKind {
             Self::Extension => "error.extension",
             Self::NoSource => "error.no_source",
             Self::Auth => "error.auth",
+            Self::EmailNotConfirmed => "error.email_not_confirmed",
             Self::AddrInUse => "error.addr_in_use",
             Self::NotWired => "error.not_wired",
             Self::TorrentM2 => "src.m2",

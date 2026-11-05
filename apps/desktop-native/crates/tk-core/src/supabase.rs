@@ -90,13 +90,26 @@ impl Supabase {
         url.set_query(Some(&format!("grant_type={grant}")));
         let resp = self.http.post(url).header("apikey", &self.anon_key).json(&body).send().await?;
         match resp.status().as_u16() {
-            400 | 401 | 422 => Err(if grant == "password" { SupabaseError::InvalidCredentials } else { SupabaseError::SessionExpired }),
+            400 | 401 | 422 if grant == "password" => {
+                let v: Value = resp.json().await.unwrap_or(Value::Null);
+                Err(if Self::is_email_not_confirmed(&v) { SupabaseError::EmailNotConfirmed } else { SupabaseError::InvalidCredentials })
+            }
+            400 | 401 | 422 => Err(SupabaseError::SessionExpired),
             s if !(200..300).contains(&s) => Err(SupabaseError::Http(s)),
             _ => {
                 let v: Value = resp.json().await.map_err(|e| SupabaseError::Parse(e.without_url().to_string()))?;
                 Self::parse_session(&v, OffsetDateTime::now_utc().unix_timestamp())
             }
         }
+    }
+
+    /// GoTrue answers `{"error_code":"email_not_confirmed","msg":"Email not confirmed"}`;
+    /// older versions only send `error_description`.
+    fn is_email_not_confirmed(body: &Value) -> bool {
+        body["error_code"].as_str() == Some("email_not_confirmed")
+            || ["msg", "error_description"]
+                .iter()
+                .any(|k| body[*k].as_str().is_some_and(|m| m.eq_ignore_ascii_case("email not confirmed")))
     }
 
     pub async fn sign_in_password(&self, email: &str, password: &str) -> Result<Session, SupabaseError> {

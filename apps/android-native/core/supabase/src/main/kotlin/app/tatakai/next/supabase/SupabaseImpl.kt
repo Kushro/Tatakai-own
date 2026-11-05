@@ -1,9 +1,12 @@
 package app.tatakai.next.supabase
 
+import app.tatakai.next.model.EmailNotConfirmedException
 import app.tatakai.next.model.UserSession
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
+import io.github.jan.supabase.auth.exception.AuthErrorCode
+import io.github.jan.supabase.auth.exception.AuthRestException
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.createSupabaseClient
@@ -80,9 +83,13 @@ class SupabaseAuthSourceImpl(
 
     override suspend fun signIn(email: String, password: String): Result<Unit> = runCatchingNonCancel {
         val client = gateway.requireClient()
-        client.auth.signInWith(Email) {
-            this.email = email.trim()
-            this.password = password
+        try {
+            client.auth.signInWith(Email) {
+                this.email = email.trim()
+                this.password = password
+            }
+        } catch (e: AuthRestException) {
+            throw if (e.errorCode == AuthErrorCode.EmailNotConfirmed) EmailNotConfirmedException() else e
         }
     }
 

@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { isEmailNotConfirmedError } from '@/lib/authErrors';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -164,7 +165,9 @@ export default function AuthPage() {
     try {
       if (isLogin) {
         const { error } = await signIn(email, password, captchaToken ?? undefined);
-        if (error) {
+        if (error && isEmailNotConfirmedError(error)) {
+          await verifyUnconfirmedAccount();
+        } else if (error) {
           toast.error(error.message.includes('Invalid login credentials') ? t('auth.invalidCredentials') : error.message);
           resetCaptcha();
         } else {
@@ -176,8 +179,12 @@ export default function AuthPage() {
         if (error) {
           toast.error(error.message.includes('already registered') ? t('auth.emailRegistered') : error.message);
           resetCaptcha();
-        } else if (mode === 'restricted') {
-          toast.info(uiI18n.t('app.account_created_sign_in_to_browse_verify_your_em_2a041254'));
+        } else if (mode === 'signed_in') {
+          // Email confirmation is off for this project: the account is already signed in.
+          toast.success(t('auth.accountCreated'));
+          navigate('/onboarding');
+        } else if (mode === 'already_registered') {
+          toast.error(t('auth.emailRegistered'));
           setIsLogin(true);
           resetCaptcha();
         } else {
@@ -188,6 +195,21 @@ export default function AuthPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // The password was right but the account never confirmed its email: go to the
+  // code step instead of showing Supabase's raw error. Without Turnstile a fresh
+  // code goes out right away; with it, the code step has its own challenge for
+  // "Resend code".
+  const verifyUnconfirmedAccount = async () => {
+    goToVerify();
+    if (turnstileEnabled) {
+      toast.info(t('auth.emailNotConfirmed'));
+      return;
+    }
+    const { error } = await resendSignupCode(email);
+    if (error) toast.info(t('auth.emailNotConfirmed'));
+    else toast.success(t('auth.emailNotConfirmedCodeSent', { email }));
   };
 
   const handleVerify = async (codeOverride?: string) => {
@@ -213,17 +235,17 @@ export default function AuthPage() {
   };
 
   const handleResend = async () => {
-    if (turnstileEnabled) {
-      toast.info(t('auth.resendChallengeHint'));
-      backToForm();
+    if (turnstileEnabled && !captchaToken) {
+      toast.error(t('auth.completeChallenge'));
       return;
     }
     setIsLoading(true);
     try {
-      const { error } = await resendSignupCode(email);
+      const { error } = await resendSignupCode(email, captchaToken ?? undefined);
       if (error) toast.error(error.message);
       else toast.success(t('auth.newCodeSent', { email }));
     } finally {
+      resetCaptcha();
       setIsLoading(false);
     }
   };
@@ -236,6 +258,38 @@ export default function AuthPage() {
     setErrors({});
     resetCaptcha();
   };
+
+  // One Turnstile widget per step: the form uses it to sign in or sign up, the code
+  // step to resend the code. Only one step is mounted, so they share turnstileRef.
+  const turnstileChallenge = (action: string) =>
+    turnstileEnabled && (
+      <div className="space-y-2">
+        <TurnstileWidget
+          ref={turnstileRef}
+          action={action}
+          onToken={handleChallengeToken}
+          onExpire={() => setCaptchaToken(null)}
+          onError={handleChallengeError}
+          onTimeout={handleChallengeError}
+          className="flex justify-center"
+        />
+        {challengeError && !captchaToken && (
+          <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-center">
+            <p className="text-sm text-foreground font-medium">{uiI18n.t('app.verification_didn_t_load_correctly_4902f292')}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {uiI18n.t('app.on_iphone_this_is_usually_icloud_private_relay_a_b6f8de3d')}
+            </p>
+            <button
+              type="button"
+              onClick={retryChallenge}
+              className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
+            >
+              <RefreshCw className="w-4 h-4" /> {uiI18n.t('app.retry_verification_a113d86c')}
+            </button>
+          </div>
+        )}
+      </div>
+    );
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
@@ -296,11 +350,12 @@ export default function AuthPage() {
                   <span className="flex items-center gap-2"><ShieldCheck className="w-5 h-5" /> {t('auth.verify')}</span>
                 )}
               </Button>
+              {turnstileChallenge('resend')}
               <div className="flex items-center justify-between text-sm">
                 <button type="button" onClick={backToForm} className="text-muted-foreground hover:text-foreground transition-colors">
                   {t('auth.useDifferentEmail')}
                 </button>
-                <button type="button" onClick={handleResend} disabled={isLoading} className="text-primary hover:underline font-medium disabled:opacity-50">
+                <button type="button" onClick={handleResend} disabled={isLoading || (turnstileEnabled && !captchaToken)} className="text-primary hover:underline font-medium disabled:opacity-50">
                   {t('auth.resendCode')}
                 </button>
               </div>
@@ -378,34 +433,7 @@ export default function AuthPage() {
                 )}
               </div>
 
-              {turnstileEnabled && (
-                <div className="space-y-2">
-                  <TurnstileWidget
-                    ref={turnstileRef}
-                    action={isLogin ? 'login' : 'signup'}
-                    onToken={handleChallengeToken}
-                    onExpire={() => setCaptchaToken(null)}
-                    onError={handleChallengeError}
-                    onTimeout={handleChallengeError}
-                    className="flex justify-center"
-                  />
-                  {challengeError && !captchaToken && (
-                    <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-center">
-                      <p className="text-sm text-foreground font-medium">{uiI18n.t('app.verification_didn_t_load_correctly_4902f292')}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {uiI18n.t('app.on_iphone_this_is_usually_icloud_private_relay_a_b6f8de3d')}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={retryChallenge}
-                        className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline"
-                      >
-                        <RefreshCw className="w-4 h-4" /> {uiI18n.t('app.retry_verification_a113d86c')}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
+              {turnstileChallenge(isLogin ? 'login' : 'signup')}
 
               <Button
                 type="submit"

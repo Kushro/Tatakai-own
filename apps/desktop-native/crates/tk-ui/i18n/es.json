@@ -185,6 +185,7 @@
   "error.extension": "Una extensión falló.",
   "error.no_source": "Ninguna fuente pudo ofrecer este video.",
   "error.auth": "No se pudo iniciar sesión. Revisa tu correo y contraseña.",
+  "error.email_not_confirmed": "Tu correo aún no está confirmado. Ingresa en la web de Tatakai el código del correo de registro y vuelve a iniciar sesión.",
   "error.generic": "Algo salió mal.",
   "error.addr_in_use": "Ese puerto ya está en uso por otro programa.",
   "error.not_wired": "Esto aún no está disponible en esta versión.",

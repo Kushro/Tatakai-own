@@ -35,6 +35,8 @@ export interface Profile {
   app_settings?: Record<string, any> | null;
 }
 
+export type SignUpMode = 'otp_required' | 'signed_in' | 'already_registered';
+
 interface AuthContextType {
   user: User | null;
   session: Session | null;
@@ -47,7 +49,13 @@ interface AuthContextType {
   /** False until staff roles have been resolved for the current session. */
   rolesResolved: boolean;
   signIn: (email: string, password: string, captchaToken?: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, displayName?: string, captchaToken?: string) => Promise<{ error: Error | null; mode?: 'otp_required' | 'restricted' }>;
+  /**
+   * `mode` says what happened: `otp_required` (a confirmation code was mailed),
+   * `signed_in` (the project does not require email confirmation, so the new user
+   * already has a session) or `already_registered` (the address belongs to a
+   * confirmed account; Supabase sends nothing in that case).
+   */
+  signUp: (email: string, password: string, displayName?: string, captchaToken?: string) => Promise<{ error: Error | null; mode?: SignUpMode }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   // Passwordless / verification via 6-digit email codes (no email links → no redirect).
@@ -304,7 +312,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string, displayName?: string, captchaToken?: string) => {
     const redirectUrl = `${window.location.origin}/`;
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -316,16 +324,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
     });
 
-    // Notify Discord on successful signup
-    if (!error) {
-      notifyUserCreated({
-        email,
-        displayName: displayName || email.split('@')[0],
-        provider: 'email',
-      });
+    if (error) return { error };
+
+    // With "Confirm email" on, an address that already has a confirmed account gets
+    // back a placeholder user without identities, and no email is sent.
+    if (data.user && data.user.identities?.length === 0) {
+      return { error: null, mode: 'already_registered' as const };
     }
 
-    return { error };
+    // Notify Discord on successful signup
+    notifyUserCreated({
+      email,
+      displayName: displayName || email.split('@')[0],
+      provider: 'email',
+    });
+
+    // With "Confirm email" off, Supabase signs the new user in right away.
+    return { error: null, mode: data.session ? ('signed_in' as const) : ('otp_required' as const) };
   };
 
   // --- 6-digit email code flows -------------------------------------------

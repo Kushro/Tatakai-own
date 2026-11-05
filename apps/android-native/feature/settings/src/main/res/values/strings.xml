@@ -98,6 +98,7 @@
     <string name="settings_signed_in_as">Signed in as %1$s</string>
     <string name="settings_error_invalid">Could not sign in. Check your email and password.</string>
     <string name="settings_error_suspended">This account is suspended.</string>
+    <string name="settings_error_email_not_confirmed">Your email isn\'t confirmed yet. Enter the code from your sign-up email on the Tatakai website, then sign in again.</string>
     <string name="settings_account_synced">History synced %1$s</string>
     <string name="settings_account_never">Not synced yet</string>
     <string name="settings_account_lists">AniList and MAL lists arrive in M1.</string>

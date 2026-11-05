@@ -3,6 +3,7 @@ package app.tatakai.next.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.tatakai.next.model.AccountSuspendedException
+import app.tatakai.next.model.EmailNotConfirmedException
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppLanguage
 import app.tatakai.next.model.AppSettings
@@ -37,7 +38,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class SignInError { INVALID, SUSPENDED }
+enum class SignInError { INVALID, SUSPENDED, EMAIL_NOT_CONFIRMED }
 
 /** Data & storage figures (Settings › Datos y almacenamiento): metadata cache + torrent storage. Either may be unknown. */
 data class StorageInfo(val cache: MetadataCacheStats?, val torrents: TorrentStorage?)
@@ -163,7 +164,13 @@ class SettingsViewModel(
             signInState.value = result.fold(
                 onSuccess = { SignInProgress() },
                 onFailure = { e ->
-                    SignInProgress(error = if (e is AccountSuspendedException) SignInError.SUSPENDED else SignInError.INVALID)
+                    SignInProgress(
+                        error = when (e) {
+                            is AccountSuspendedException -> SignInError.SUSPENDED
+                            is EmailNotConfirmedException -> SignInError.EMAIL_NOT_CONFIRMED
+                            else -> SignInError.INVALID
+                        },
+                    )
                 },
             )
         }

@@ -44,6 +44,9 @@ pub enum SupabaseError {
     NotSignedIn,
     #[error("invalid credentials")]
     InvalidCredentials,
+    /// The password was right but the account never confirmed its email address.
+    #[error("email not confirmed")]
+    EmailNotConfirmed,
     #[error("session expired")]
     SessionExpired,
     #[error("http status {0}")]
