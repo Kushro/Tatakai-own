@@ -529,7 +529,13 @@ internal fun AccountSection(state: SettingsUiState, vm: SettingsViewModel) {
             supportingText = state.signInError?.let { error ->
                 {
                     Text(
-                        stringResource(if (error == SignInError.SUSPENDED) R.string.settings_error_suspended else R.string.settings_error_invalid),
+                        stringResource(
+                            when (error) {
+                                SignInError.SUSPENDED -> R.string.settings_error_suspended
+                                SignInError.EMAIL_NOT_CONFIRMED -> R.string.settings_error_email_not_confirmed
+                                SignInError.INVALID -> R.string.settings_error_invalid
+                            },
+                        ),
                     )
                 }
             },

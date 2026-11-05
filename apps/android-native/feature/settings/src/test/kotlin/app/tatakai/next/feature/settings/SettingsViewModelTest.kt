@@ -1,6 +1,7 @@
 package app.tatakai.next.feature.settings
 
 import app.tatakai.next.model.AccountSuspendedException
+import app.tatakai.next.model.EmailNotConfirmedException
 import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.AuthRepository
 import app.tatakai.next.model.ContrastPref
@@ -108,7 +109,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `sign in failures distinguish suspended accounts`() = runTest {
+    fun `sign in failures distinguish suspended and unconfirmed accounts`() = runTest {
         val auth = FakeAuth(Result.failure(IllegalStateException("bad")))
         val vm = SettingsViewModel(FakeSettings(), auth)
 
@@ -118,6 +119,13 @@ class SettingsViewModelTest {
         auth.signInResult = Result.failure(AccountSuspendedException())
         vm.signIn("a@b.c", "x")
         assertEquals(SignInError.SUSPENDED, vm.state.first { it.signInError == SignInError.SUSPENDED }.signInError)
+
+        auth.signInResult = Result.failure(EmailNotConfirmedException())
+        vm.signIn("a@b.c", "x")
+        assertEquals(
+            SignInError.EMAIL_NOT_CONFIRMED,
+            vm.state.first { it.signInError == SignInError.EMAIL_NOT_CONFIRMED }.signInError,
+        )
     }
 
     private class FakeMetadata(var stats: MetadataCacheStats = MetadataCacheStats(entries = 12, bytes = 98_000_000)) : MetadataRepository {

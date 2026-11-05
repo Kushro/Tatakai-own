@@ -86,6 +86,19 @@ async fn a_401_refreshes_once_then_retries() {
 }
 
 #[tokio::test]
+async fn unconfirmed_email_is_not_a_bad_password() {
+    let (url, _) = stub(vec![
+        (400, r#"{"code":400,"error_code":"email_not_confirmed","msg":"Email not confirmed"}"#),
+        (400, r#"{"error":"invalid_grant","error_description":"Email not confirmed"}"#),
+    ])
+    .await;
+    let sb = Supabase::new(&url, "ANON").unwrap();
+    assert!(matches!(sb.sign_in_password("a", "b").await, Err(tk_core::SupabaseError::EmailNotConfirmed)));
+    assert!(matches!(sb.sign_in_password("a", "b").await, Err(tk_core::SupabaseError::EmailNotConfirmed)));
+    assert!(sb.session().is_none());
+}
+
+#[tokio::test]
 async fn bad_password_and_not_signed_in() {
     let (url, _) = stub(vec![(400, r#"{"error":"invalid_grant"}"#)]).await;
     let sb = Supabase::new(&url, "ANON").unwrap();

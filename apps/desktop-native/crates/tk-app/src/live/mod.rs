@@ -248,6 +248,7 @@ fn provider_err(e: ProviderError) -> UiError {
 fn supabase_err(e: SupabaseError) -> UiError {
     let kind = match &e {
         SupabaseError::InvalidCredentials | SupabaseError::NotSignedIn | SupabaseError::SessionExpired => ErrorKind::Auth,
+        SupabaseError::EmailNotConfirmed => ErrorKind::EmailNotConfirmed,
         SupabaseError::Network(_) => ErrorKind::Offline,
         _ => ErrorKind::Other,
     };

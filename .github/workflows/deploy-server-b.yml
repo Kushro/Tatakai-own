@@ -22,6 +22,10 @@ jobs:
   build:
     needs: runner
     runs-on: ${{ needs.runner.outputs.linux }}
+    env:
+      # Delivery needs the Server B SSH secrets; without them (this fork) the job
+      # still checks that the website builds and skips the delivery (docs/ci.md).
+      HAS_DEPLOY_KEY: ${{ secrets.DEPLOY_SSH_KEY != '' && secrets.DEPLOY_KNOWN_HOSTS != '' }}
     steps:
       - uses: actions/checkout@v4
       # The delivery step runs python3; do not rely on the runner image having it.
@@ -69,8 +73,11 @@ jobs:
           if grep -qw bbr /proc/sys/net/ipv4/tcp_available_congestion_control; then
             sudo sysctl -q -w net.ipv4.tcp_congestion_control=bbr
           fi
+      - name: Skip Server B delivery (no deploy secrets)
+        if: github.event_name == 'push' && env.HAS_DEPLOY_KEY != 'true'
+        run: echo "::notice::DEPLOY_SSH_KEY / DEPLOY_KNOWN_HOSTS are not set; the website was built but not delivered to Server B."
       - name: Deliver verified build archive to Server B
-        if: github.event_name == 'push' && steps.release_artifact.outcome == 'success'
+        if: github.event_name == 'push' && steps.release_artifact.outcome == 'success' && env.HAS_DEPLOY_KEY == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
