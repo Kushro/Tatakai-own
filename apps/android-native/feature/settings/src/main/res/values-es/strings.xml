@@ -98,6 +98,7 @@
     <string name="settings_signed_in_as">Sesión iniciada como %1$s</string>
     <string name="settings_error_invalid">No se pudo iniciar sesión. Revisa tu correo y contraseña.</string>
     <string name="settings_error_suspended">Esta cuenta está suspendida.</string>
+    <string name="settings_error_email_not_confirmed">Tu correo aún no está confirmado. Ingresa en la web de Tatakai el código del correo de registro y vuelve a iniciar sesión.</string>
     <string name="settings_account_synced">Historial sincronizado %1$s</string>
     <string name="settings_account_never">Aún sin sincronizar</string>
     <string name="settings_account_lists">Las listas de AniList y MAL llegan en M1.</string>
