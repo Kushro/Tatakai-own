@@ -31,6 +31,10 @@ Known quirks:
 - Windows jobs that use `shell: bash` assume Git Bash on the Avrea image.
 - ARM entries of `translate-engine.yml` (`windows-11-arm`, `ubuntu-24.04-arm`) stay on
   GitHub-hosted runners; no Avrea ARM label is known.
+- `aniyomi-bridge.yml` has no `runner` job and always uses GitHub-hosted `ubuntu-24.04`:
+  it builds unreviewed upstream Gradle code and attests the result, so it stays on
+  ephemeral hosted runners. It is manual (`workflow_dispatch`) and publishes a
+  pre-release, which `releases/latest` (the app updaters) ignores.
 - Tools are installed by setup actions (Node, Java, Android SDK, Python, Rust, Bun)
   instead of relying on the image.
 
