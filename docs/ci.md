@@ -47,3 +47,14 @@ step and the `release` parts (see git history of `build.yml` before the "Disable
 commit); remove `if: false` from `build-ios-unsigned` and add it back to `release.needs`
 and its `if`; uncomment the macOS translate-engine entries; remove `if: false` in
 `macos-rebuild.yml`.
+
+## Server B website delivery: skipped without deploy secrets
+
+`deploy-server-b.yml` builds the website on every push to `main` and then delivers it over
+SSH to Server B (`ubuntu@137.23.42.34`, upstream's host). The delivery step only runs when
+the `DEPLOY_SSH_KEY` and `DEPLOY_KNOWN_HOSTS` secrets are both set. This fork has neither,
+so the job builds and packages the website, prints a notice and skips the delivery instead
+of failing on host key verification.
+
+To deliver to a server of your own: change the host in the delivery step and add both
+secrets (`DEPLOY_KNOWN_HOSTS` is the `ssh-keyscan` line for that host).
