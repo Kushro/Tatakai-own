@@ -11,3 +11,6 @@ fun Throwable.toAppError(): AppError = when (this) {
 
 /** Sign-in succeeded but `profiles.is_banned = true`: the app shows "account suspended" and does not sync. */
 class AccountSuspendedException : Exception("Account suspended")
+
+/** The password was right but the account never confirmed its email address (confirmed on the website). */
+class EmailNotConfirmedException : Exception("Email not confirmed")
