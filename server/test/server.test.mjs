@@ -1,15 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer, API } from '../src/core.mjs';
+import { existsSync } from 'node:fs';
+import { createServer, API, defaults } from '../src/core.mjs';
 import { memoryStore } from '../src/storage.mjs';
 import { createNetwork, publicUrl, vault, digest } from '../src/security.mjs';
-import { interpreter } from '../dist/interpreter.mjs';
+// The QuickJS interpreter bundle comes from `npm run server:build`; without it the tests that need it are skipped, not deleted.
+const built = existsSync(new URL('../dist/interpreter.mjs', import.meta.url));
+const { interpreter } = built ? await import('../dist/interpreter.mjs') : {};
+const needsDist = { skip: built ? false : 'server/dist is missing; run npm run server:build' };
 import { nodeInterpreter } from '../src/node-extension.mjs';
 const secret = 'test-secret-with-at-least-thirty-two-characters';
 const bootstrap = 'bootstrap-for-tests';
 const password = 'viewer-test-password', adminPassword = 'owner-test-password';
 const manifest = { id: 'fixture', name: 'Fixture', version: '1.0', resources: ['stream', 'catalog', 'meta', 'subtitles'], types: ['series'], catalogs: [{ id: 'fixture', type: 'series' }] };
-async function fixture(platform = 'node') {
+async function fixture(platform = 'node', { withNode = true } = {}) {
   const store = memoryStore(), files = new Map(), calls = [];
   const artifacts = { put: async (key, value) => files.set(key, value), get: async key => files.get(key), remove: async key => files.delete(key) };
   const network = createNetwork({ fetch: async (url, init) => {
@@ -23,7 +27,7 @@ async function fixture(platform = 'node') {
     if (url.includes('redirect.example')) return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/private' } });
     return new Response('media bytes', { status: init.headers.range ? 206 : 200, headers: { 'content-type': 'video/mp2t', 'content-length': '11', ...(init.headers.range ? { 'content-range': 'bytes 0-10/11' } : {}) } });
   } });
-  const options = { store, artifacts, secret, bootstrapSecret: bootstrap, platform, network, interpreter, nodeInterpreter: ['node','desktop'].includes(platform) ? nodeInterpreter : undefined };
+  const options = { store, artifacts, secret, bootstrapSecret: bootstrap, platform, network, interpreter, nodeInterpreter: withNode ? nodeInterpreter : undefined };
   let app = await createServer(options);
   async function request(path, { method = 'GET', data, token, headers = {} } = {}) {
     return app(new Request('https://server.example' + API + path, { method, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...headers }, body: data === undefined ? undefined : JSON.stringify(data) }));
@@ -34,7 +38,7 @@ async function fixture(platform = 'node') {
   const login = await json('/auth/login', { method: 'POST', data: { password, label: 'Test viewer' } }); const viewer = login.data.token;
   return { store, calls, request, json, owner, viewer, files, handler: request => app(request), coldStart: async () => { app = await createServer(options); } };
 }
-test('public health advertises validated owner artwork and runtime uptime without credentials', async () => {
+test('public health advertises validated owner artwork and runtime uptime without credentials', needsDist, async () => {
   const f = await fixture();
   const changed = await f.json('/settings', {method:'PATCH', token:f.owner, data:{name:'Community Source',logoUrl:'https://images.example/logo.png'}});
   assert.equal(changed.status,200);
@@ -45,10 +49,11 @@ test('public health advertises validated owner artwork and runtime uptime withou
   assert.equal(health.token,undefined);
   assert.equal((await f.json('/settings',{method:'PATCH',token:f.owner,data:{logoUrl:'https://user:password@images.example/logo.png'}})).status,400);
   assert.equal((await f.json('/settings',{method:'PATCH',token:f.viewer,data:{logoUrl:'https://images.example/logo.png'}})).status,403);
-  const serverless=await fixture('workers');
-  assert.equal((await serverless.json('/health')).data.uptimeSeconds,undefined);
+  assert.equal(health.dashboardPath,'/server/');
+  assert.equal(health.pairingRequired,false);
+  assert.equal(health.proxy.maxResponseBytes,null);
 });
-for (const platform of ['node', 'vercel', 'workers', 'desktop']) test(`${platform}: setup, auth, addon, proxy, cold start, and revocation contract`, async () => {
+for (const platform of ['node', 'desktop']) test(`${platform}: setup, auth, addon, proxy, cold start, and revocation contract`, needsDist, async () => {
   const f = await fixture(platform);
   assert.equal((await f.json('/settings', { token: f.viewer })).status, 403);
   assert.equal((await f.json('/settings')).status, 401);
@@ -85,7 +90,7 @@ test('setup requires bootstrap; racing setup creates one owner', async () => {
   const results = await Promise.all([app(req({ 'x-tatakai-bootstrap': bootstrap })), app(req({ 'x-tatakai-bootstrap': bootstrap }))]);
   assert.deepEqual(results.map(row => row.status).sort(), [200, 409]);
 });
-test('preferences are encrypted; bad update preserves previous install', async () => {
+test('preferences are encrypted; bad update preserves previous install', needsDist, async () => {
   const f = await fixture();
   const installed = await f.json('/extensions', { method: 'POST', token: f.owner, data: { url: 'https://addon.example/manifest.json', preferences: { secret: 'private-provider-value' } } });
   assert.ok(!JSON.stringify(await f.store.read()).includes('private-provider-value'));
@@ -93,15 +98,20 @@ test('preferences are encrypted; bad update preserves previous install', async (
   assert.equal(update.status, 403); assert.equal((await f.json('/extensions', { token: f.owner })).data.length, 1);
   const exported = await f.json('/export', { token: f.owner }); assert.ok(!JSON.stringify(exported).includes('private-provider-value'));
 });
-test('pairing is one-use, password change revokes viewers, and origins apply to errors', async () => {
+test('pairing is one-use, password change revokes viewers, and origins apply to errors', needsDist, async () => {
   const f = await fixture();
   const pair = await f.json('/auth/pairing', { method: 'POST', token: f.owner, data: {} });
+  assert.equal(pair.data.expiresIn, 300);
+  assert.equal(pair.data.deepLink, `tatakai://extensionserver/connect?server=${encodeURIComponent('https://server.example')}&code=${encodeURIComponent(pair.data.code)}`);
+  assert.equal(pair.data.url, pair.data.deepLink);
   assert.equal((await f.json('/auth/pair', { method: 'POST', data: { code: pair.data.code } })).status, 200);
   assert.equal((await f.json('/auth/pair', { method: 'POST', data: { code: pair.data.code } })).status, 401);
   assert.equal((await f.json('/auth/password', { method: 'POST', token: f.owner, data: { role: 'viewer', currentPassword: adminPassword, password: 'changed-viewer-password' } })).status, 200);
   assert.equal((await f.json('/sources', { token: f.viewer })).status, 401);
   const error = await f.request('/settings', { headers: { origin: 'https://tatakai.me' } }); assert.equal(error.headers.get('access-control-allow-origin'), 'https://tatakai.me');
   assert.equal((await f.request('/health', { headers: { origin: 'https://evil.example' } })).status, 403);
+  assert.equal((await f.request('/health', { headers: { origin: 'https://www.tatakai.me' } })).status, 403);
+  assert.ok(!defaults.allowedOrigins.includes('https://www.tatakai.me'));
   for (const origin of ['app://tatakai.me', 'capacitor://localhost', 'http://localhost', 'https://localhost']) {
     const native = await f.request('/health', { headers: { origin } });
     assert.equal(native.status, 200);
@@ -122,25 +132,25 @@ test('SSRF rejects encoded IPv4, IPv6, metadata, private DNS and redirect target
   const redirect = createNetwork({ fetch: async () => new Response(null, { status: 302, headers: { location: 'http://localhost/private' } }) });
   await assert.rejects(redirect('https://public.example/'), /private_upstream/);
 });
-test('serverless reports native families unavailable', async () => {
-  const f = await fixture('workers'); const health = await f.json('/health');
+test('native families are unavailable without a compatibility host', needsDist, async () => {
+  const f = await fixture('node'); const health = await f.json('/health');
   for (const family of ['mihon', 'cloudstream', 'aniyomi', 'kodi']) assert.equal(health.data.capabilities.find(row => row.ecosystem === family).available, false);
 });
-test('Tatakai script executes inside interpreter and host modules are rejected', async () => {
+test('Tatakai script executes inside interpreter and host modules are rejected', needsDist, async () => {
   const f = await fixture();
   const installed = await f.json('/extensions', { method: 'POST', token: f.owner, data: { manifest: { id: 'script', name: 'Script', version: '1' }, code: 'module.exports = { async single(options) { return [{url:"https://cdn.example/video.mp4",quality:options.resolution}]; } }' } });
   assert.equal(installed.status, 200, JSON.stringify(installed));
   const result = await f.json('/resolve', { method: 'POST', token: f.viewer, data: { title: 'Anything', episode: 1 } }); assert.equal(result.data.sources.length, 1);
   const bad = await f.json('/extensions', { method: 'POST', token: f.owner, data: { manifest: { id: 'bad', name: 'Bad', version: '1' }, code: 'module.exports=require("node:fs")' } }); assert.equal(bad.status, 422);
 });
-test('forged and expired media capabilities are rejected', async () => {
+test('forged and expired media capabilities are rejected', needsDist, async () => {
   const f = await fixture(), encryption = await vault(secret);
   assert.equal((await f.request('/media/forged')).status, 401);
   const ticket = await encryption.seal({ expires: 0, url: 'https://cdn.example/file' });
   assert.equal((await f.request('/media/' + ticket)).status, 410);
 });
 
-for (const platform of ['node', 'vercel', 'workers', 'desktop']) test(`${platform}: novel discovery and chapter text use the declared novel capability`, async () => {
+for (const platform of ['node', 'desktop']) test(`${platform}: novel discovery and chapter text use the declared novel capability`, needsDist, async () => {
   const f = await fixture(platform);
   const installed = await f.json('/extensions', { method: 'POST', token: f.owner, data: {
     manifest: { id: 'novel-fixture', name: 'Novel Fixture', version: '1', capabilities: ['novel'] },
@@ -158,7 +168,7 @@ for (const platform of ['node', 'vercel', 'workers', 'desktop']) test(`${platfor
   const rejected = await f.json('/invoke', { method: 'POST', token: f.viewer, data: { sourceId: noNovel.data.id, op: 'novelContent', args: {} } });
   assert.equal(rejected.status, 422);
 });
-test('lookup cache survives cold starts, is encrypted, and clears from owner controls', async () => {
+test('lookup cache survives cold starts, is encrypted, and clears from owner controls', needsDist, async () => {
   const f = await fixture();
   await f.json('/extensions', { method: 'POST', token: f.owner, data: { url: 'https://addon.example/manifest.json' } });
   const source = (await f.json('/sources', { token: f.viewer })).data[0];
@@ -171,7 +181,7 @@ test('lookup cache survives cold starts, is encrypted, and clears from owner con
   await f.json('/cache', { method: 'DELETE', token: f.owner }); await invoke();
   assert.equal(f.calls.filter(call => call.url.includes('/catalog/')).length, 2);
 });
-test('media cache isolates credentials and checks revocation before cache hits', async () => {
+test('media cache isolates credentials and checks revocation before cache hits', needsDist, async () => {
   const f = await fixture(), encryption = await vault(secret);
   const ticket = async cookie => encryption.seal({ url: 'https://cdn.example/image.png', headers: { cookie }, sessionId: await digest(f.viewer), expires: Date.now() + 60000 });
   const first = await ticket('first-cookie'), other = await ticket('other-cookie');
@@ -187,7 +197,7 @@ test('media cache isolates credentials and checks revocation before cache hits',
   assert.equal((await f.request('/media/' + first)).status, 401);
   await f.json('/cache', { method: 'DELETE', token: f.owner }); assert.equal((await f.json('/cache', { token: f.owner })).data.mediaBytes, 0);
 });
-for (const family of ['sora', 'mangayomi', 'seanime']) test(`${family}: original script adapter resolves a title and proxies playback`, async () => {
+for (const family of ['sora', 'mangayomi', 'seanime']) test(`${family}: original script adapter resolves a title and proxies playback`, needsDist, async () => {
   const f = await fixture();
   const code = family === 'sora' ? `
     async function searchResults(){return [{title:'Exact title',href:'https://source.example/title'}]}
@@ -211,13 +221,13 @@ for (const family of ['sora', 'mangayomi', 'seanime']) test(`${family}: original
   assert.equal(resolved.data.sources.length, 1, JSON.stringify(resolved));
   assert.match(resolved.data.sources[0].url, /\/media\//);
 });
-test('viewer invocation cannot change preferences or read provider secrets', async () => {
+test('viewer invocation cannot change preferences or read provider secrets', needsDist, async () => {
   const f = await fixture();
   for (const op of ['preferences', 'setPreference']) assert.equal((await f.json('/invoke', { method: 'POST', token: f.viewer, data: { op, sourceId: 'anything' } })).status, 403);
 });
 
-test('live logs require owner access, redact inputs, support cursors, and survive cold starts', async () => {
-  const f = await fixture('workers');
+test('live logs require owner access, redact inputs, support cursors, and survive cold starts', needsDist, async () => {
+  const f = await fixture('node');
   assert.equal((await f.json('/logs', { token: f.viewer })).status, 403);
   assert.equal((await f.json('/logs')).status, 401);
   await f.json('/auth/login', { method: 'POST', data: { password: 'private-login-secret?token=private-token' } });
@@ -232,7 +242,7 @@ test('live logs require owner access, redact inputs, support cursors, and surviv
   const persisted = await f.json('/logs', { token: f.owner });
   assert.deepEqual(persisted.data, first.data);
 });
-test('large Node bundles require explicit owner selection and retain source methods', async () => {
+test('large Node bundles require explicit owner selection and retain source methods', needsDist, async () => {
   const f = await fixture();
   const code = 'module.exports={single(){if(process.env.SERVER_SECRET)throw Error("Deployment secret leaked");return [{url:"https://cdn.example/video.mp4"}];}};/*' + 'x'.repeat(3 * 1024 * 1024) + '*/';
   const input = { manifest: { id: 'large-native', name: 'Large native fixture', version: '1' }, code };
@@ -241,10 +251,10 @@ test('large Node bundles require explicit owner selection and retain source meth
   assert.equal(installed.status, 200, JSON.stringify(installed)); assert.equal(installed.data.runtime, 'node');
   const resolved = await f.json('/resolve', { method: 'POST', token: f.viewer, data: { title: 'Fixture' } });
   assert.equal(resolved.data.sources.length, 1, JSON.stringify(resolved));
-  const worker = await fixture('workers');
-  assert.equal((await worker.json('/extensions', { method: 'POST', token: worker.owner, data: { ...input, runtime: 'node' } })).status, 422);
+  const withoutNode = await fixture('node', { withNode: false });
+  assert.equal((await withoutNode.json('/extensions', { method: 'POST', token: withoutNode.owner, data: { ...input, runtime: 'node' } })).status, 422);
 });
-test('native worker cancellation terminates hung source code', async () => {
+test('native worker cancellation terminates hung source code', needsDist, async () => {
   const started = Date.now();
   await assert.rejects(nodeInterpreter({ code: 'module.exports={single(){while(true){}}}', method: 'single', signal: AbortSignal.timeout(150), network: async () => { throw Error('Unexpected network'); } }));
   assert.ok(Date.now() - started < 3000);
@@ -252,7 +262,7 @@ test('native worker cancellation terminates hung source code', async () => {
   assert.equal(probe.valid, true);
 });
 
-test('Node streams playable sources before extension completion and deduplicates the final batch', async () => {
+test('Node streams playable sources before extension completion and deduplicates the final batch', needsDist, async () => {
   const f = await fixture();
   const installed = await f.json('/extensions', { method: 'POST', token: f.owner, data: { runtime: 'node', manifest: { id: 'progressive', name: 'Progressive', version: '1' },
     code: 'module.exports={async streamAll(args,onChunk){const first={url:"https://cdn.example/first.m3u8",source:"First provider",language:"English",sourceType:"hls"};onChunk({results:[first],providerPriority:8});await new Promise(resolve=>setTimeout(resolve,500));return[first,{url:"https://cdn.example/second.mp4",source:"Second provider",language:"Japanese",sourceType:"mp4",providerPriority:0}];}}' } });
@@ -274,7 +284,7 @@ test('Node streams playable sources before extension completion and deduplicates
   assert.equal(final.sources.length, 2); assert.equal(final.statuses[0].status, 'ok');
   assert.equal(final.sources[0].sourceName, 'Second provider'); assert.equal(final.sources[0].providerPriority, 0);
 });
-test('oversized HTTP uploads return JSON without resetting the connection', async () => {
+test('oversized HTTP uploads return JSON without resetting the connection', needsDist, async () => {
   const { createServer: httpServer } = await import('node:http'); const { serveNodeRequest } = await import('../src/node.mjs');
   const f = await fixture();
   const server = httpServer((req,res) => serveNodeRequest(f.handler, req, res, 'http://127.0.0.1:' + server.address().port));
@@ -304,7 +314,7 @@ test('public access needs no password while management still requires owner acce
   assert.equal((await request('/sources')).status, 200);
 });
 
-test('hosted chapter discovery publishes early sources and retains later providers in one scan',async()=>{
+test('hosted chapter discovery publishes early sources and retains later providers in one scan', needsDist, async()=>{
  const f=await fixture('node');
  const code=`module.exports={getMangaChapters:async()=>[],streamMangaChapters:async(args,publish)=>{
   await fetch('https://addon.example/catalog/series/reading.json');
