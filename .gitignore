@@ -152,3 +152,10 @@ supabase/.temp/
 /research/
 /.playwright-mcp/
 /agent.md
+
+# Integrated extension server (server/, contract 13). server/dist is the output of
+# `npm run server:build` (also covered by dist*); server/data is the standalone
+# default DATA_DIR (SQLite state + node-secrets.json) and must never be committed.
+server/dist/
+server/data/
+server/node_modules/

@@ -54,7 +54,11 @@ function handleDeepLink(url, getMainWindow) {
     // Only allow alphanumeric, slashes, dashes, underscores, dots, and question marks (for queries)
     const hashAt = rawRoute.indexOf('#');
     const beforeHash = hashAt >= 0 ? rawRoute.slice(0, hashAt) : rawRoute;
-    const sanitizedRoute = '/' + beforeHash.replace(/[^a-zA-Z0-9\/\-_\.\?\=&]/g, '');
+    // Extension-server pairing links carry a percent-encoded origin
+    // (tatakai://extensionserver/connect?server=http%3A%2F%2F…&code=…): keep '%'
+    // for that route only so the encoded query survives.
+    const allowPercent = /^extensionserver\//i.test(beforeHash);
+    const sanitizedRoute = '/' + beforeHash.replace(allowPercent ? /[^a-zA-Z0-9\/\-_\.\?\=&%]/g : /[^a-zA-Z0-9\/\-_\.\?\=&]/g, '');
 
     // OAuth callbacks need their URL fragment: the AniList implicit grant returns
     // the token as tatakai://integration/anilist/redirect#access_token=…. Keep it

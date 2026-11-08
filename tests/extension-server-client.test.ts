@@ -14,7 +14,7 @@ describe('extension server host guard', () => {
   });
   it('blocks http for public, dotless and out-of-range hosts and other schemes', () => {
     for (const url of ['http://example.com', 'http://8.8.8.8', 'http://172.32.0.1', 'http://172.15.0.1', 'http://100.128.0.1', 'http://100.63.0.1', 'http://mipc',
-      'http://[2001:db8::1]', 'http://local', 'ftp://192.168.1.2', 'tatakai://extensionserver/connect', 'not a url', '']) expect(isAllowedServerUrl(url)).toBe(false);
+      'http://[2001:db8::1]', 'http://local', 'http://user:pass@192.168.1.2', 'https://user@example.com', 'ftp://192.168.1.2', 'tatakai://extensionserver/connect', 'not a url', '']) expect(isAllowedServerUrl(url)).toBe(false);
     expect(() => assertAllowedServerUrl('http://example.com')).toThrow('insecure_host');
   });
 });

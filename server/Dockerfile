@@ -9,7 +9,7 @@ RUN npm ci --ignore-scripts --no-audit --no-fund
 # Only what server/scripts/build.mjs reads: the server, the app code it bundles
 # (interpreter.ts -> src/core/extensions/{sora,mangayomi,compatibility}; dashboard ->
 # src/components/ui, src/lib/utils, src/locales) and the compatibility runtime.
-# If the dashboard starts importing more of '@/...', add those paths here and in .dockerignore.
+# If the dashboard starts importing more of '@/...', add those paths here and in server/Dockerfile.dockerignore.
 COPY server ./server
 COPY src/core/extensions ./src/core/extensions
 COPY src/components/ui ./src/components/ui

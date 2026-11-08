@@ -7,6 +7,7 @@
  *    the literal host (no DNS): loopback (127/8, ::1, localhost, *.localhost),
  *    RFC1918 (10/8, 172.16/12, 192.168/16), link-local (169.254/16, fe80::/10),
  *    CGNAT / Tailscale (100.64/10), private IPv6 (fc00::/7) and mDNS `*.local`.
+ *  - URLs with embedded credentials (`user:pass@host`) are rejected.
  *  - Anything else (other schemes, dotless names, public hosts over http) is
  *    blocked with `insecure_host`.
  *
@@ -51,6 +52,8 @@ export function isLocalNetworkHost(rawHost: string): boolean {
 export function isAllowedServerUrl(url: string): boolean {
   let parsed: URL;
   try { parsed = new URL(url); } catch { return false; }
+  // Same as the Kotlin HostGuard: embedded credentials (user:pass@) are never accepted.
+  if (parsed.username || parsed.password) return false;
   if (parsed.protocol === 'https:') return Boolean(parsed.hostname);
   if (parsed.protocol === 'http:') return isLocalNetworkHost(parsed.hostname);
   return false;
