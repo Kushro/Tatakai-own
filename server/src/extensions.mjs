@@ -5,8 +5,8 @@ export const operations = ['browse', 'search', 'info', 'episodes', 'resolve', 'c
 const nativeFamilies = new Set(['mihon', 'cloudstream', 'aniyomi']);
 export function capability(ecosystem, platform, hosts = {}) {
   if (ecosystem === 'kodi') return { available: false, reason: 'No Kodi execution adapter exists' };
-  if (nativeFamilies.has(ecosystem)) return { available: platform === 'node' || platform === 'desktop' ? !!hosts[ecosystem] : false,
-    reason: platform === 'node' || platform === 'desktop' ? 'Requires the optional Java compatibility runtime' : 'Requires a Node or desktop host; unavailable on serverless' };
+  if (nativeFamilies.has(ecosystem)) return { available: (platform === 'node' || platform === 'desktop') && !!hosts[ecosystem],
+    reason: 'Requires the optional Java compatibility runtime' };
   return { available: true, reason: ecosystem === 'stremio' ? 'Hosted HTTP addons' : 'Compatible scripts; unsupported host APIs are reported per extension' };
 }
 function resourceUrl(row, resource, type, id, extra) {

@@ -6,9 +6,15 @@ import { createLookupCache } from './lookup-cache.mjs';
 import { appendServerLog, logRoute } from './logs.mjs';
 
 export const API = '/api/server/v1';
+export const DASHBOARD_PATH = '/server/';
+export const PAIRING_SECONDS = 300;
+export const platforms = ['node', 'desktop'];
+// https://tatakai.me is the classic Capacitor APK WebView origin (androidScheme https + hostname tatakai.me),
+// app://tatakai.me is Electron; the rest are native shells. No hosted website is contacted.
 const nativeOrigins = ['app://tatakai.me', 'capacitor://localhost', 'http://localhost', 'https://localhost'];
 export const defaults = { name: 'Tatakai Server', languages: [], timeoutMs: 25000, concurrency: 4,
-  cacheSeconds: 300, mediaCacheMb: 32, mediaCacheSeconds: 300, proxyEnabled: true, allowedOrigins: ['https://tatakai.me', 'https://www.tatakai.me', ...nativeOrigins] };
+  cacheSeconds: 300, mediaCacheMb: 32, mediaCacheSeconds: 300, proxyEnabled: true, allowedOrigins: ['https://tatakai.me', ...nativeOrigins] };
+export const pairingDeepLink = (origin, code) => `tatakai://extensionserver/connect?server=${encodeURIComponent(origin)}&code=${encodeURIComponent(code)}`;
 const redactExtension = row => ({ id: row.id, manifestId: row.manifest.id, ecosystem: row.ecosystem, name: row.manifest.name, version: row.manifest.version,
   enabled: row.enabled, priority: row.priority, languages: row.languages, kind: row.kind, updatedAt: row.updatedAt,
   hasPreferences: !!row.preferences, runtime: row.runtime || 'interpreter' });
@@ -31,23 +37,25 @@ function settings(input, current = defaults) {
   }
   return out;
 }
-export async function createServer({ store, artifacts, secret, bootstrapSecret, platform = 'node', network = createNetwork(), interpreter, nodeInterpreter, hosts = {}, staticResponse, legacyVerify }) {
+export async function createServer({ store, artifacts, secret, bootstrapSecret, platform = 'node', network = createNetwork(), interpreter, nodeInterpreter, hosts = {}, staticResponse, legacyVerify, requireDeviceToken = false }) {
+  if (!platforms.includes(platform)) throw Error(`Unsupported server platform: ${platform}`);
   const startedAt = Date.now(), startedClock = performance.now();
   const encryption = await vault(secret);
   const extensions = createExtensions({ network, artifacts, interpreter, nodeInterpreter, platform, hosts, vault: encryption });
   const lookups = createLookupCache();
   const mediaCache = createMediaCache({ store, artifacts, vault: encryption });
-  const proxy = createProxy({ vault: encryption, network, platform, cache: mediaCache });
+  const proxy = createProxy({ vault: encryption, network, cache: mediaCache, allowPublic: !requireDeviceToken });
   const sourceRows = async state => [...state.extensions, ...(hosts.catalog ? await hosts.catalog.list() : [])];
   const checkPassword = (value, stored) => stored?.legacyHash && legacyVerify ? (typeof value === 'string' && value.length <= 1024 ? legacyVerify(value, stored) : false) : verifyPassword(value, stored);
   async function edit(fn) { return store.mutate(async state => { if (!state) fail(409, 'setup_required'); return { state, value: await fn(state) }; }); }
   async function body(request) {
-    try { return JSON.parse(await limitedText(request, ['node', 'desktop'].includes(platform) ? 14 * 1024 * 1024 : 4 * 1024 * 1024)); }
+    try { return JSON.parse(await limitedText(request, 14 * 1024 * 1024)); }
     catch (error) { if (error.status) throw error; fail(400, 'invalid_json'); }
   }
   async function authorize(request, state, admin = false) {
     const value = request.headers.get('authorization')?.match(/^Bearer (.+)$/)?.[1];
-    if (!value && !admin && state && !state.viewer) return { role: 'viewer', id: `public:${state.publicEpoch || state.id}` };
+    // Desktop hosts never grant anonymous LAN access: devices pair (or use the viewer password).
+    if (!value && !admin && state && !state.viewer && !requireDeviceToken) return { role: 'viewer', id: `public:${state.publicEpoch || state.id}` };
     const id = value && await digest(value), session = id && state?.sessions[id];
     if (!session || session.expires < Date.now()) fail(401, 'authentication_required');
     if (admin && session.role !== 'admin') fail(403, 'admin_required');
@@ -61,6 +69,17 @@ export async function createServer({ store, artifacts, secret, bootstrapSecret, 
       state.sessions[id] = { role, label: String(label || 'Device').slice(0, 100), createdAt: Date.now(), expires: Date.now() + (role === 'admin' ? 12 * 3600000 : 90 * 86400000) };
     });
     return { token: value, role, deviceId: id };
+  }
+  // Shared by POST /auth/pairing and handle.createPairing: one-use code, 5 minutes, 50 live codes.
+  async function pairing(origin) {
+    const code = random() + random(), key = await digest(code);
+    await edit(current => {
+      current.pairs ||= {};
+      for (const [id, expires] of Object.entries(current.pairs)) if (expires < Date.now()) delete current.pairs[id];
+      if (Object.keys(current.pairs).length >= 50) fail(409, 'pairing_limit');
+      current.pairs[key] = Date.now() + PAIRING_SECONDS * 1000;
+    });
+    return { code, expiresIn: PAIRING_SECONDS, deepLink: pairingDeepLink(origin, code) };
   }
   async function proxify(value, base, session, state, inherited) {
     if (Array.isArray(value)) return Promise.all(value.map(item => proxify(item, base, session, state, inherited)));
@@ -125,9 +144,11 @@ export async function createServer({ store, artifacts, secret, bootstrapSecret, 
     const base = url.origin;
     if (path === '/health' && method === 'GET') return { protocolVersion: 1, serverId: state?.id || null, name: state?.settings.name || defaults.name, platform,
       logoUrl: state?.settings.logoUrl || null,
-      ...(['node', 'desktop'].includes(platform) ? { startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.floor((performance.now() - startedClock) / 1000) } : {}),
-      setupRequired: !state, accessPasswordRequired: !!state?.viewer, adminPasswordRequired: !!state?.admin, capabilities: families.map(ecosystem => ({ ecosystem, ...capability(ecosystem, platform, hosts) })),
-      proxy: { hls: true, range: true, maxResponseBytes: platform === 'vercel' ? 4000000 : null }, desktop: platform === 'desktop' };
+      startedAt: new Date(startedAt).toISOString(), uptimeSeconds: Math.floor((performance.now() - startedClock) / 1000),
+      setupRequired: !state, accessPasswordRequired: !!state?.viewer, adminPasswordRequired: !!state?.admin,
+      pairingRequired: requireDeviceToken && !state?.viewer, dashboardPath: DASHBOARD_PATH,
+      capabilities: families.map(ecosystem => ({ ecosystem, ...capability(ecosystem, platform, hosts) })),
+      proxy: { hls: true, range: true, maxResponseBytes: null }, desktop: platform === 'desktop' };
     if (path === '/setup' && method === 'POST') {
       if (state) fail(409, 'already_configured');
       if (!bootstrapSecret || !await equal(request.headers.get('x-tatakai-bootstrap') || '', bootstrapSecret)) fail(403, 'bootstrap_required');
@@ -139,6 +160,7 @@ export async function createServer({ store, artifacts, secret, bootstrapSecret, 
     if (path === '/auth/login' && method === 'POST') {
       if (!state) fail(409, 'setup_required');
       const input = await body(request), role = input.role === 'admin' ? 'admin' : 'viewer';
+      if (role === 'viewer' && requireDeviceToken && !state.viewer) fail(401, 'pairing_required', 'Pair this device from the server owner (QR code or link)');
       // Shared durable budget prevents cold-start bypass. Global limit deliberately
       // avoids trusting spoofable forwarded-IP headers on self-hosted deployments.
       await edit(current => {
@@ -156,7 +178,7 @@ export async function createServer({ store, artifacts, secret, bootstrapSecret, 
     }
     if (path === '/auth/pair' && method === 'POST') {
       const input = await body(request), key = await digest(String(input.code || ''));
-      await edit(current => { if (!current.pairs[key] || current.pairs[key] < Date.now()) fail(401, 'pairing_expired'); delete current.pairs[key]; });
+      await edit(current => { if (!current.pairs?.[key] || current.pairs[key] < Date.now()) fail(401, 'pairing_expired'); delete current.pairs[key]; });
       return token('viewer', input.label);
     }
     if (path.startsWith('/media/') && ['GET', 'HEAD'].includes(method)) {
@@ -185,9 +207,8 @@ export async function createServer({ store, artifacts, secret, bootstrapSecret, 
     }
     if (path === '/auth/logout' && method === 'POST') { await edit(current => { delete current.sessions[session.id]; }); return { success: true }; }
     if (path === '/auth/pairing' && method === 'POST') {
-      const code = random() + random(), key = await digest(code);
-      await edit(current => { for (const [id, expires] of Object.entries(current.pairs)) if (expires < Date.now()) delete current.pairs[id]; if (Object.keys(current.pairs).length >= 50) fail(409, 'pairing_limit'); current.pairs[key] = Date.now() + 300000; });
-      return { code, expiresIn: 300, url: `https://tatakai.me/connect-server?server=${encodeURIComponent(base)}&code=${encodeURIComponent(code)}` };
+      const created = await pairing(base);
+      return { ...created, url: created.deepLink };
     }
     if (path === '/auth/password' && method === 'POST') {
       const input = await body(request);
@@ -314,7 +335,7 @@ export async function createServer({ store, artifacts, secret, bootstrapSecret, 
     if (path === '/diagnostics' && method === 'GET') return { platform, protocolVersion: 1, extensionCount: state.extensions.length, recent: state.audit || [], capabilities: families.map(ecosystem => ({ ecosystem, ...capability(ecosystem, platform, hosts) })) };
     fail(404, 'route_not_found');
   }
-  return async function handle(request) {
+  async function handle(request) {
     const url = new URL(request.url), origin = request.headers.get('origin');
     const started = Date.now(), route = logRoute(url.pathname, API);
     const logRequest = status => url.pathname.startsWith(API + '/') && !['/health', '/media'].includes(route) && !url.pathname.startsWith(API + '/logs') && request.method !== 'OPTIONS'
@@ -326,7 +347,7 @@ export async function createServer({ store, artifacts, secret, bootstrapSecret, 
       if (!allowed) fail(403, 'origin_denied');
       let response;
       if (request.method === 'OPTIONS') response = new Response(null, { status: 204 });
-      else if (!url.pathname.startsWith(API + '/')) response = staticResponse ? await staticResponse(request) : new Response('Build the dashboard with npm run build', { status: 503 });
+      else if (!url.pathname.startsWith(API + '/')) response = staticResponse ? await staticResponse(request) : new Response('Build the dashboard with npm run server:build', { status: 503 });
       else {
         const result = await dispatch(request, state, url);
         response = result instanceof Response ? result : Response.json({ success: true, data: result });
@@ -346,5 +367,14 @@ export async function createServer({ store, artifacts, secret, bootstrapSecret, 
       return Response.json({ success: false, error: { code: error.code || (request.signal.aborted ? 'cancelled' : 'server_error'), message: known ? error.message : 'Request failed; check server configuration and diagnostics' } },
         { status: error.status || (request.signal.aborted ? 499 : 500), headers: { 'cache-control': 'no-store', ...(origin && allowed ? { 'access-control-allow-origin': origin, vary: 'Origin' } : {}) } });
     }
+  }
+  // Owner helper for the hosting process (Electron, CLI): same effect as POST /auth/pairing without HTTP auth.
+  handle.createPairing = async origin => {
+    let valid = false;
+    try { valid = typeof origin === 'string' && /^https?:$/.test(new URL(origin).protocol) && new URL(origin).origin === origin; } catch { valid = false; }
+    if (!valid) fail(400, 'invalid_origin', 'Use scheme://host[:port] without a path');
+    if (!await store.read()) fail(409, 'setup_required');
+    return pairing(origin);
   };
+  return handle;
 }
