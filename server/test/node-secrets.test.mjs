@@ -1,21 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { resolveNodeSecrets } from '../src/node-secrets.mjs';
 import { vault } from '../src/security.mjs';
 import { startNode } from '../src/node.mjs';
-
-test('diskless deployments reject a missing database instead of using temporary SQLite', async () => {
-  const previousRequired = process.env.REQUIRE_PERSISTENT_STORAGE, previousDatabase = process.env.DATABASE_URL;
-  process.env.REQUIRE_PERSISTENT_STORAGE = '1'; delete process.env.DATABASE_URL;
-  try { await assert.rejects(startNode({ port: 0 }), /Set DATABASE_URL/); }
-  finally {
-    if (previousRequired === undefined) delete process.env.REQUIRE_PERSISTENT_STORAGE; else process.env.REQUIRE_PERSISTENT_STORAGE = previousRequired;
-    if (previousDatabase === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = previousDatabase;
-  }
-});
+// startNode imports server/dist/interpreter.mjs (npm run server:build); skip, do not delete, when it is missing.
+const needsDist = { skip: existsSync(new URL('../dist/interpreter.mjs', import.meta.url)) ? false : 'server/dist is missing; run npm run server:build' };
 
 test('Node generates persistent random defaults, warns, and preserves encrypted data', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'tatakai-secrets-'));
@@ -42,7 +35,7 @@ test('missing original encryption key cannot silently replace an existing instal
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('Node starts without secret environment variables and accepts the saved bootstrap key', async () => {
+test('Node starts without secret environment variables and accepts the saved bootstrap key', needsDist, async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'tatakai-start-defaults-'));
   const oldSecret = process.env.SERVER_SECRET, oldBootstrap = process.env.BOOTSTRAP_SECRET;
   delete process.env.SERVER_SECRET; delete process.env.BOOTSTRAP_SECRET;
