@@ -141,6 +141,13 @@ jobs:
           # Headroom for the minify pass, which OOMs the default heap on large bundles.
           NODE_OPTIONS: --max-old-space-size=8192
 
+      # Integrated extension server (server/, contract 13): esbuild + Vite produce
+      # server/dist (interpreter.mjs, node-extension-worker.cjs, quickjs.wasm, ui/).
+      # electron-builder ships server/src + server/dist; without dist the Home
+      # Server answers 503 on /server/ and /api/server/*.
+      - name: Build extension server
+        run: npm run server:build
+
       # Render the Tatakai-branded NSIS installer graphics (Windows installer UI)
       # from brand tokens with sharp (already a dep) → build/*.bmp. Referenced by
       # the nsis block in package.json; generated here so the binary BMPs stay out

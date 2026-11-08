@@ -4,7 +4,7 @@ Rama de integración: `feat/integrated-server` (desde `main` @ `b13f5b9`). Cada 
 
 Commits base de la rama (en orden):
 
-1. `server: verbatim import of TatakaiServer-own d18c88e` — copia literal (CR eliminados) de `src/**` (sin `worker.mjs`, `d1-artifacts.mjs`, `postgres-storage.mjs`, `interpreter-worker.ts`), `ui/**`, `test/**` (sin `d1-artifacts.test.mjs`), `scripts/{build,dev}.mjs`, `Dockerfile`, `Dockerfile.dockerignore` → `server/.dockerignore`, `README.md`, `LICENSE`, `THIRD_PARTY.md`. **Todavía no compila ni corre**: importa `../shared/tatakai/...` (copia que NO se trae) y `build.mjs` construye el worker de Cloudflare. Arreglarlo es trabajo de w1/w2/w3 (§4).
+1. `server: verbatim import of TatakaiServer-own d18c88e` — copia literal (CR eliminados) de `src/**` (sin `worker.mjs`, `d1-artifacts.mjs`, `postgres-storage.mjs`, `interpreter-worker.ts`), `ui/**`, `test/**` (sin `d1-artifacts.test.mjs`), `scripts/{build,dev}.mjs`, `Dockerfile`, `Dockerfile.dockerignore` → `server/.dockerignore` (el integrador lo renombró a `server/Dockerfile.dockerignore`, que es el nombre que BuildKit lee con `-f server/Dockerfile`), `README.md`, `LICENSE`, `THIRD_PARTY.md`. **Todavía no compila ni corre**: importa `../shared/tatakai/...` (copia que NO se trae) y `build.mjs` construye el worker de Cloudflare. Arreglarlo es trabajo de w1/w2/w3 (§4).
 2. `build: add integrated server deps and server:* scripts to root package.json` — §3.12.
 3. `i18n: add extensionServerHost and extensionServerClient keys (en, es, ja)` — §3.11.
 4. Este documento.
@@ -23,7 +23,7 @@ Por qué: el fork quitó el submódulo en la sincronización 6.4.2; `desktop/run
 
 ## 1. Decisiones (vinculantes)
 
-**D1 — Estructura.** Directorio nuevo `server/` en la raíz: `server/src`, `server/ui`, `server/test`, `server/scripts`, `server/Dockerfile`, `server/.dockerignore`, `server/README.md`, `server/LICENSE`, `server/THIRD_PARTY.md`. `protocolVersion` sigue en `1` y la API `/api/server/v1` sigue siendo compatible (solo cambios aditivos, salvo el payload de pairing de D4).
+**D1 — Estructura.** Directorio nuevo `server/` en la raíz: `server/src`, `server/ui`, `server/test`, `server/scripts`, `server/Dockerfile`, `server/Dockerfile.dockerignore`, `server/README.md`, `server/LICENSE`, `server/THIRD_PARTY.md`. `protocolVersion` sigue en `1` y la API `/api/server/v1` sigue siendo compatible (solo cambios aditivos, salvo el payload de pairing de D4).
 
 **D2 — Un solo lockfile.** Las dependencias de runtime del servidor van al `package.json` raíz (no hay `server/package.json`). Scripts raíz: `server:build`, `server:start`, `server:dev`, `server:test` (§3.12). La configuración de electron-builder (`files` debe incluir `server/src/**` y `server/dist/**`; `asarUnpack` para lo que necesite archivos reales: `server/dist/quickjs.wasm`, `server/dist/node-extension-worker.cjs`) la toca **solo el integrador**.
 
@@ -294,3 +294,16 @@ Lecturas libres para todos: el resto del repo y `/media/octavio/DATOS/Gitbutler 
 ## 9. Estado de `node_modules` (importante)
 
 `node_modules` del checkout principal es una **instalación de Windows** (p. ej. `@esbuild/win32-x64`, `@rollup/rollup-win32-*`, `@swc/core-win32-x64-msvc`, `electron/dist/*.dll`) y además está desfasada respecto al lockfile (`npm ls` marca `vite 5.4.21` frente a `^8.3.5`, `electron 40` frente a `^42`, `zod 3` frente a `^4`, tiptap 2 frente a 3; faltan `quickjs-emscripten`, `@jitl/*`, `linkedom`). Por eso las dependencias del servidor se añadieron con `npm install --package-lock-only --ignore-scripts` (solo `package.json` + lockfile; `node_modules` intacto): reinstalar en Linux sobre ese directorio rompería el entorno de Windows del usuario y cambiaría la baseline de `tsc`. Consecuencia: en esta máquina Linux `esbuild` / Vite nativos no corren con ese `node_modules`, así que `server:build` no se puede ejecutar ahí sin una instalación Linux separada (p. ej. `npm ci --ignore-scripts` en un worktree propio, que sí descarga los binarios de Linux). Los workers validan con `node --test` lo que no dependa de `dist` y con `tsc` / `node --check`; el build completo se verifica en la integración.
+
+## 10. Integración (estado tras fusionar w1–w6)
+
+Fusionadas con `--no-ff` en `feat/integrated-server`, en orden, sin conflictos. Cableado compartido y ajustes del integrador:
+
+- `package.json`: `build.files` += `server/src/**/*`, `server/dist/**/*`; `build.asarUnpack` += `server/dist/quickjs.wasm`, `server/dist/node-extension-worker.cjs`; `electron:build` ejecuta `npm run server:build` antes del build de Vite; script nuevo `test:extension-server-client` (`node --test tests/extension-server-client.node-test.mjs`). CI (`.github/workflows/build.yml`, job de escritorio) añade el paso "Build extension server" antes de electron-builder.
+- `.gitignore`: `server/dist/`, `server/data/` (DATA_DIR por defecto del modo autónomo, con `node-secrets.json`) y `server/node_modules/`.
+- `server/.dockerignore` → `server/Dockerfile.dockerignore` (BuildKit solo lee el ignore de la raíz del contexto o el que lleva el nombre del Dockerfile). `server/THIRD_PARTY.md` reescrito sin `shared/tatakai`.
+- `desktop/window/deep-link.cjs`: conserva `%` en las rutas `extensionserver/…` (antes se eliminaba y `server=http%3A%2F%2F…` llegaba roto en Electron).
+- `hostGuard.ts`: rechaza URLs con credenciales (`user:pass@`), igual que `HostGuard.kt`.
+- Desviaciones aceptadas: `extension-server:open-dashboard` abre `http://<bindHost o 127.0.0.1>:<puerto>/server/` (en modo `lan` el servidor solo escucha en la IP de la LAN); el preload expone los métodos en los tres objetos puente; `extId` en Android nativo es `server:<serverId>/<fila>` (sin repetir el `serverId` que ya trae `providerKey`); `build.mjs` fija `base` / `outDir` del panel aunque `server/ui/vite.config.ts` ya usa los mismos valores.
+- Verificado aquí (sin build completo): `node --test "server/test/*.test.mjs"` 25 ok / 25 omitidos (necesitan `server/dist`); los dos tests de escritorio de `persistence.test.mjs` pasan con un `dist` de prueba; humo del Home Server con `dist` de prueba (`/`, `/home`, `/assets/*` → UI legacy; `/server` 301; `/server/`, `/server/assets/*` → panel; `/api/server/v1/health` 200; `getExtensionServerPairing` → deepLink canónico; `/auth/pair` 200 viewer; `/sources` sin token 401); `tsc` igual a la baseline (143, mismas líneas); `check-i18n` e `i18n-extract --check` ok; `node --test contracts/test` 12/13 (el fallo de `fixtures/extensions packed/*.kai` ya existía en `9f10a14`).
+- Pendiente para el agente de build: `npm run server:build` + `server:test` con `node_modules` de Linux (§9), `electron:build`, `bash gradlew :core:extension-server:testDebugUnitTest :core:extensions-quickjs:testDebugUnitTest :feature:link:testDebugUnitTest :feature:details:testDebugUnitTest :app:assembleDebug`, el APK clásico, y pruebas en dispositivo (riesgos en `KNOWN-ISSUES.md`).

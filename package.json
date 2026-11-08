@@ -31,7 +31,7 @@
     "electron:dev": "npm run translate:build:dev && concurrently \"vite\" \"wait-on http://localhost:8090 && cross-env ELECTRON_DEVTOOLS=1 electron desktop/main.cjs\"",
     "assets:installer": "node scripts/generate-installer-assets.cjs",
     "assets:cloudflared": "node scripts/fetch-cloudflared.cjs",
-    "electron:build": "npm run translate:build && npm run assets:installer && npm run assets:cloudflared && cross-env ELECTRON_BUILD=true NODE_OPTIONS=--max-old-space-size=6144 vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config.npmRebuild=false --config.electronDist=node_modules/electron/dist",
+    "electron:build": "npm run translate:build && npm run assets:installer && npm run assets:cloudflared && npm run server:build && cross-env ELECTRON_BUILD=true NODE_OPTIONS=--max-old-space-size=6144 vite build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config.npmRebuild=false --config.electronDist=node_modules/electron/dist",
     "assets:generate": "node scripts/generate-assets.cjs",
     "mobile:dev": "npm run build:native && npx cap open android",
     "mobile:ios": "npm run build:native && npx cap open ios",
@@ -48,7 +48,8 @@
     "server:build": "node server/scripts/build.mjs",
     "server:start": "node server/src/node.mjs",
     "server:dev": "node server/scripts/dev.mjs",
-    "server:test": "node --test \"server/test/*.test.mjs\""
+    "server:test": "node --test \"server/test/*.test.mjs\"",
+    "test:extension-server-client": "node --test tests/extension-server-client.node-test.mjs"
   },
   "dependencies": {
     "@biwills/kittentts": "^1.0.0",
@@ -245,7 +246,9 @@
       "package.json",
       "src/core/player/subtitle-core.js",
       "src/core/download/candidate-scorer.cjs",
-      "src/core/download/candidate-evaluator.cjs"
+      "src/core/download/candidate-evaluator.cjs",
+      "server/src/**/*",
+      "server/dist/**/*"
     ],
     "extraResources": [
       {
@@ -276,7 +279,9 @@
       "desktop/runtime/compatibility/expand-runtime.ps1",
       "**/node_modules/@ffmpeg-installer/**",
       "**/node_modules/ffmpeg-static/**",
-      "**/*.node"
+      "**/*.node",
+      "server/dist/quickjs.wasm",
+      "server/dist/node-extension-worker.cjs"
     ],
     "publish": [
       {

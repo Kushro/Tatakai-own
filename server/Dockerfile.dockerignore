@@ -1,6 +1,7 @@
 # Context is the REPOSITORY ROOT (docker build -f server/Dockerfile .).
-# Docker only reads an ignore file at the context root or next to the Dockerfile
-# as server/Dockerfile.dockerignore; keep this list in one of those places.
+# BuildKit reads this file because it is named after the Dockerfile
+# (server/Dockerfile -> server/Dockerfile.dockerignore); the root .dockerignore,
+# if any, is ignored for this build.
 # Allow-list: everything is excluded except what server/Dockerfile copies.
 *
 !package.json

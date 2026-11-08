@@ -32,9 +32,24 @@ infrastructure; everything else is taken. Package version is `6.4.2-own`
 
 ## Discarded items and why
 
+> **Update (after 7.0.0): the extension server is back, inside this repo.** The
+> fork's own copy (TatakaiServer-own) was folded into `server/` (contract:
+> `docs/redesign/13-integrated-server-contract.md`). There is no submodule and no
+> `shared/tatakai` copy: `server/src/interpreter.ts` and the dashboard import the
+> app sources in place, and the standalone server requires
+> `desktop/runtime/compatibility` directly. The `server:*` scripts are back in the
+> root `package.json` (single lockfile), electron-builder ships `server/src/**` and
+> `server/dist/**`, and `desktop/runtime/home-server` embeds it from
+> `<appRoot>/server/src/desktop.mjs` (dashboard at `/server/`, API at
+> `/api/server/v1`, legacy remote UI back at `/`). The 503 fallback remains only
+> for builds where `npm run server:build` was not run. Serverless adapters
+> (Workers, D1, Postgres, Vercel, Render, Heroku) were dropped; standalone Node and
+> `server/Dockerfile` remain. Pairing uses `tatakai://extensionserver/connect`
+> deep links, never a hosted tatakai.me page.
+
 | Item | Why |
 |---|---|
-| `tatakai-server` submodule, `.gitmodules`, `server:*` scripts, packaging checks | External repo owned by upstream; fork does not run their server. `desktop/runtime/home-server` now degrades gracefully when the embedded extension server is absent (legacy home server still starts, extension-server routes answer 503). `src/core/extensions/server/client.ts` got a local `readApiResponse` instead of importing from the submodule, so connecting to a user-run Tatakai server still works. |
+| `tatakai-server` submodule, `.gitmodules`, `server:*` scripts, packaging checks | External repo owned by upstream; fork does not run their server. **Superseded after 7.0.0:** the server code now lives in this repository under `server/` (see the note below). `desktop/runtime/home-server` now degrades gracefully when the embedded extension server is absent (legacy home server still starts, extension-server routes answer 503). `src/core/extensions/server/client.ts` got a local `readApiResponse` instead of importing from the submodule, so connecting to a user-run Tatakai server still works. |
 | `hoko.tatakai.me` cloud proxy | Routes video URLs through upstream infra. |
 | `scripts/write-client-env.mjs` + test | Hard-codes `db.tatakai.me`, `api.tatakai.me` defaults for client builds. |
 | `src/hooks/media/useCustomTracker.ts` behaviour | Posted the Supabase JWT to TatakaiAPI `/sync/extension-progress` and read tokens from `profiles` (moved to an owner-only table). Now a no-op with the same signature. |

@@ -21,7 +21,7 @@ test('host guard: https anywhere, http only on the local network', () => {
     'http://10.0.0.5', 'http://172.16.0.1', 'http://172.31.255.255', 'http://192.168.1.20:8090', 'http://169.254.10.1', 'http://[fe80::1]',
     'http://100.64.0.1', 'http://100.127.255.254', 'http://[fd7a:115c:a1e0::1]:8090', 'http://[fc00::1]', 'http://mipc.local:8090']) assert.equal(isAllowedServerUrl(url), true, url);
   for (const url of ['http://example.com', 'http://8.8.8.8', 'http://172.32.0.1', 'http://172.15.0.1', 'http://100.128.0.1', 'http://100.63.0.1', 'http://mipc',
-    'http://[2001:db8::1]', 'http://local', 'ftp://192.168.1.2', 'tatakai://extensionserver/connect', 'not a url', '']) assert.equal(isAllowedServerUrl(url), false, url);
+    'http://[2001:db8::1]', 'http://local', 'http://user:pass@192.168.1.2', 'https://user@example.com', 'ftp://192.168.1.2', 'tatakai://extensionserver/connect', 'not a url', '']) assert.equal(isAllowedServerUrl(url), false, url);
   assert.throws(() => assertAllowedServerUrl('http://example.com'), /insecure_host/);
 });
 
