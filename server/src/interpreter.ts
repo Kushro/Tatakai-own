@@ -1,7 +1,7 @@
 import { getQuickJS } from 'quickjs-emscripten';
-import { evaluateSora, type ScriptVMHost } from '../shared/tatakai/src/core/extensions/sora/vm';
-import { evaluateMangayomi } from '../shared/tatakai/src/core/extensions/mangayomi/vm';
-import { createMangayomiDom } from '../shared/tatakai/src/core/extensions/mangayomi/dom';
+import { evaluateSora, type ScriptVMHost } from '../../src/core/extensions/sora/vm';
+import { evaluateMangayomi } from '../../src/core/extensions/mangayomi/vm';
+import { createMangayomiDom } from '../../src/core/extensions/mangayomi/dom';
 import { limitedText, fail } from './security.mjs';
 import { transform } from 'sucrase';
 
