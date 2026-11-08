@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -73,6 +75,8 @@ class ExtensionRepositoryImpl(
     private val stats: SourceStatsStore? = null,
     private val logStore: ExtensionLogStore = ExtensionLogStore(),
     private val clock: () -> Long = System::currentTimeMillis,
+    /** docs/redesign/13 §3.10: linked PC extension servers (and any other non-`.kai` provider), ranked together with the extensions. */
+    private val external: List<ExternalCandidateSource> = emptyList(),
 ) : ExtensionRepository {
     private val scope = CoroutineScope(SupervisorJob() + io)
     private val state = MutableStateFlow<List<InstalledExtension>>(emptyList())
@@ -102,6 +106,9 @@ class ExtensionRepositoryImpl(
     private data class StoredState(val enabled: Boolean, val installedAtMs: Long?, val sha256: String?)
 
     override val installed: StateFlow<List<InstalledExtension>> = state.asStateFlow()
+
+    override val externalSourcesAvailable: Flow<Boolean> =
+        if (external.isEmpty()) flowOf(false) else combine(external.map { it.available }) { flags -> flags.any { it } }
 
     init {
         scope.launch {
@@ -227,6 +234,37 @@ class ExtensionRepositoryImpl(
 
     override suspend fun resolveCandidates(media: Media, episode: Int): List<RankedSource> {
         ready.await()
+        // External providers (extension servers) run in parallel with the installed extensions; each bounds its own time.
+        val (local, ext) = coroutineScope {
+            val remote = async(io) { externalCandidates(media, episode) }
+            localCandidates(media, episode) to remote.await()
+        }
+        val (localRaw, localIds) = local
+        val raw = localRaw + ext
+        if (raw.isEmpty()) return emptyList()
+        val enabledIds = localIds + ext.map { it.extId }
+        val withReliability = raw.map { c ->
+            val r = stats?.let { s -> runCatchingNonCancel { s.reliability(c.extId, c.label) } }
+            if (r == null) c else c.copy(reliability = r)
+        }
+        val prefs: SourcePrefs = settings?.settings?.value?.sourcePrefs ?: SourcePrefs()
+        val ranked = rank(withReliability, prefs) { it in enabledIds }
+        val picked = HistoryEntry.animeIdOf(media.ref.anilistId, media.ref.malId)?.let { mediaId ->
+            stats?.let { s -> runCatchingNonCancel { s.pickedSource(mediaId, episode) } }
+        }
+        return ranked.mapIndexed { i, (candidate, score) ->
+            RankedSource(
+                candidate = candidate,
+                score = score,
+                extEnabled = candidate.extId in enabledIds,
+                recommended = i == 0,
+                picked = picked != null && sourceKey(candidate) == picked,
+            )
+        }
+    }
+
+    /** Raw candidates of the installed, runnable extensions (cached, see [candidateCache]) and their ids. */
+    private suspend fun localCandidates(media: Media, episode: Int): Pair<List<SourceCandidate>, Set<String>> {
         var cacheKey = ""
         val snapshot: List<Pair<ExtensionManifest, List<String>>> = lock.withLock {
             val runnable = records.values.filter { it.runnable }
@@ -235,7 +273,7 @@ class ExtensionRepositoryImpl(
             runnable.map { it.manifest to Candidates.candidateRoutes(it.manifest, it.torrentAll) }
                 .filter { it.second.isNotEmpty() }
         }
-        if (snapshot.isEmpty()) return emptyList()
+        if (snapshot.isEmpty()) return emptyList<SourceCandidate>() to emptySet()
         val enabledIds = snapshot.map { it.first.id }.toSet()
         val cached = synchronized(candidateCache) {
             candidateCache[cacheKey]?.takeIf { clock() - it.first < CANDIDATE_CACHE_TTL_MS }?.second
@@ -255,24 +293,15 @@ class ExtensionRepositoryImpl(
                 }
             }
         }
-        if (raw.isEmpty()) return emptyList()
-        val withReliability = raw.map { c ->
-            val r = stats?.let { s -> runCatchingNonCancel { s.reliability(c.extId, c.label) } }
-            if (r == null) c else c.copy(reliability = r)
-        }
-        val prefs: SourcePrefs = settings?.settings?.value?.sourcePrefs ?: SourcePrefs()
-        val ranked = rank(withReliability, prefs) { it in enabledIds }
-        val picked = HistoryEntry.animeIdOf(media.ref.anilistId, media.ref.malId)?.let { mediaId ->
-            stats?.let { s -> runCatchingNonCancel { s.pickedSource(mediaId, episode) } }
-        }
-        return ranked.mapIndexed { i, (candidate, score) ->
-            RankedSource(
-                candidate = candidate,
-                score = score,
-                extEnabled = candidate.extId in enabledIds,
-                recommended = i == 0,
-                picked = picked != null && sourceKey(candidate) == picked,
-            )
+        return raw to enabledIds
+    }
+
+    /** Candidates of every [external] source; a failing source contributes nothing (it never hides the extensions). */
+    private suspend fun externalCandidates(media: Media, episode: Int): List<SourceCandidate> {
+        if (external.isEmpty()) return emptyList()
+        return coroutineScope {
+            external.map { source -> async(io) { runCatchingNonCancel { source.candidates(media, episode) }.orEmpty() } }
+                .awaitAll().flatten()
         }
     }
 

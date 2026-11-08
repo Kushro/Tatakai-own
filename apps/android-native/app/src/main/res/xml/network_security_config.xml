@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Cleartext HTTP only for the on-device torrent streaming server (core/torrent LoopbackStreamServer,
-  http://127.0.0.1:<port>/<token>/...). Without this, OkHttp / Media3 refuse the loopback URL on API 28+.
-  Everything else keeps the platform default (cleartext blocked, system CAs).
+  Cleartext HTTP is permitted at the platform level (docs/redesign/13 D6 / §3.10). Two app components need it:
+  - the on-device torrent streaming server (core/torrent LoopbackStreamServer, http://127.0.0.1:<port>/<token>/...);
+  - the PC extension server on the local network (http://192.168.x.x:<port>, Tailscale 100.64/10, *.local ...).
+  The real policy for the extension server is the app-level guard `app.tatakai.next.extensionserver.HostGuard`, which allows http://
+  only for loopback / RFC1918 / link-local / CGNAT / IPv6 ULA / *.local hosts and requires https:// everywhere else, on every request
+  (media URLs included). Extensions keep their own NetworkPolicy (manifest domains). System CAs only; no user CAs.
+  See docs/redesign/KNOWN-ISSUES.md.
 -->
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>
