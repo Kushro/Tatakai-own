@@ -1,5 +1,5 @@
 import { fail, cleanHeaders, stripCredentials, limitedText, limitedBytes, digest } from './security.mjs';
-export function createProxy({ vault, network, platform, cache }) {
+export function createProxy({ vault, network, cache, allowPublic = true }) {
   async function mint(entry, base, sessionId, lifetime = 6 * 60 * 60 * 1000) {
     if (typeof entry.url !== 'string' || entry.url.length > 16384) fail(413, 'media_url_too_large');
     const ticket = await vault.seal({ ...entry, sessionId, expires: Date.now() + lifetime });
@@ -8,7 +8,7 @@ export function createProxy({ vault, network, platform, cache }) {
   async function serve(request, ticket, base, state) {
     const entry = await vault.open(ticket);
     if (entry.expires < Date.now()) fail(410, 'media_expired', 'Resolve this source again to refresh playback');
-    const publicSession = !state.viewer && entry.sessionId === `public:${state.publicEpoch || state.id}`;
+    const publicSession = allowPublic && !state.viewer && entry.sessionId === `public:${state.publicEpoch || state.id}`;
     if (!publicSession && (!state.sessions[entry.sessionId] || state.sessions[entry.sessionId].expires < Date.now())) fail(401, 'device_revoked');
     const key = await digest(JSON.stringify([entry.url, Object.entries(cleanHeaders(entry.headers)).sort()]));
     if (request.method === 'GET' && !request.headers.has('range') && cache) {
@@ -20,16 +20,10 @@ export function createProxy({ vault, network, platform, cache }) {
     if (range) {
       if (!/^bytes=\d*-\d*$/.test(range)) fail(416, 'invalid_range');
       headers.range = range;
-      if (platform === 'vercel') {
-        const match = /^bytes=(\d+)-(\d*)$/.exec(range);
-        if (!match) fail(416, 'bounded_range_required');
-        const start = Number(match[1]), end = Math.min(Number(match[2] || start + 4_000_000 - 1), start + 4_000_000 - 1);
-        headers.range = `bytes=${start}-${end}`;
-      }
     }
     const connect = new AbortController();
     const timer = setTimeout(() => connect.abort(), 18000);
-    const signal = AbortSignal.any([request.signal, connect.signal, ...(platform === 'vercel' ? [AbortSignal.timeout(25000)] : [])]);
+    const signal = AbortSignal.any([request.signal, connect.signal]);
     let fetched;
     try { fetched = await network(entry.url, { headers, method: request.method, signal }); }
     finally { clearTimeout(timer); }
@@ -54,9 +48,6 @@ export function createProxy({ vault, network, platform, cache }) {
       const rewritten = text.split('\n').map(line => line.trim().startsWith('#') ? line.replace(/URI="([^"]+)"/g, (_, value) => `URI="${targets.get(value)}"`) : targets.get(line.trim()) || line).join('\n');
       out.delete('content-length'); out.set('content-type', 'application/vnd.apple.mpegurl');
       return new Response(rewritten, { status: response.status, headers: out });
-    }
-    if (platform === 'vercel' && (Number(out.get('content-length')) > 4_000_000 || !out.has('content-length'))) {
-      await response.body?.cancel(); fail(422, 'proxy_response_limit', 'This deployment requires HLS resources or bounded byte ranges under 4 MB');
     }
     const size = Number(out.get('content-length'));
     if (request.method === 'GET' && !range && response.status === 200 && size > 0 && size <= 512 * 1024 && state.settings.mediaCacheMb && cache && /^(image\/|text\/vtt|application\/(octet-stream|x-subrip)|video\/mp2t)/i.test(out.get('content-type') || '')) {

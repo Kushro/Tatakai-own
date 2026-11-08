@@ -1,7 +1,7 @@
 import { base64, unbase64 } from './security.mjs';
 
 /** Private, bounded cache. Only metadata is held in the CAS document; bodies
- * live encrypted in the host's artifact store and survive serverless cold starts. */
+ * live encrypted in the host's artifact store and survive process restarts. */
 export function createMediaCache({ store, artifacts, vault }) {
   return {
     async get(key, state) {
