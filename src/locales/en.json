@@ -7180,7 +7180,13 @@
       "insecureHost": "Blocked: {{host}} is not on your local network, so it must use https://.",
       "unreachable": "Could not reach the server. Check that the PC is on, Tatakai is open and both devices share the network.",
       "wrongPassword": "Wrong password.",
-      "incompatible": "This server uses an incompatible protocol version. Update Tatakai on the PC."
+      "incompatible": "This server uses an incompatible protocol version. Update Tatakai on the PC.",
+      "invalidUrl": "Enter the server address only, for example http://192.168.1.20:8090, without a path or password.",
+      "pairingRequired": "This PC only accepts paired devices. Generate a pairing code in Tatakai on the PC and paste the link here.",
+      "revoked": "Access to this server expired or was revoked on the PC. Pair this device again.",
+      "throttled": "Too many attempts. Wait a minute and try again.",
+      "setupRequired": "This server has not been set up yet. Finish its setup on the PC first.",
+      "requestFailed": "The server could not complete the request (HTTP {{status}})."
     },
     "benefitsTitle": "Why link your phone to your PC?",
     "prosTitle": "Advantages",
@@ -7209,6 +7215,29 @@
     "comingSoonTitle": "Coming soon",
     "comingSoon": {
       "desktopNext": "Server mode for the Tatakai Next desktop app, optional and configurable."
-    }
+    },
+    "pair": "Pair this device",
+    "pairWith": "Pair with {{host}}?",
+    "pasteLinkHint": "On the PC open Settings → Home Server → Link phone, then copy the link or scan its QR code with your camera. You can also paste just the code if the address is filled in below.",
+    "trustWarning": "This server will receive your source searches and stream media through its proxy. Connect only to your own PC or a server you trust.",
+    "linkRefreshed": "This link was already opened. Paste the pairing link again or enter the address and password.",
+    "reconnect": "Reconnect",
+    "reconnectHint": "Enter the viewer password, or paste a new pairing link, to reconnect.",
+    "test": "Test",
+    "testOk": "{{name}} answers correctly.",
+    "serverName": "Name on this device",
+    "removed": "Server removed from this device.",
+    "statusChecking": "Checking",
+    "statusDisabled": "Disabled",
+    "statusIncompatible": "Incompatible",
+    "statusUnknown": "Unknown",
+    "runningFor": "Running for {{time}}",
+    "refreshStatus": "Refresh {{name}} status",
+    "manage": "Manage servers",
+    "statusDescription": "PCs and servers linked to this device. Status refreshes every minute.",
+    "emptyStatus": "Link this device to Tatakai on your Windows or Linux PC to use its extensions here.",
+    "downloadTitle": "Extension server built in",
+    "downloadDescription": "Tatakai for Windows and Linux already includes the extension server: nothing extra to install. Open Settings → Home Server on the PC and link your phone with a QR code to use the PC’s Aniyomi, Mihon and CloudStream sources on Android.",
+    "downloadStandalone": "For a VPS or homelab, the same server runs without the desktop app from the server/ folder of the repository (Node or Docker)."
   }
 }
