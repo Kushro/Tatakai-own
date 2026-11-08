@@ -217,6 +217,9 @@ contextBridge.exposeInMainWorld('electron', {
     homeServerUpsertUser: (user) => ipcRenderer.invoke('home-server:upsert-user', user),
     homeServerListConsent: () => ipcRenderer.invoke('home-server:list-consent'),
     homeServerDecideConsent: (payload) => ipcRenderer.invoke('home-server:decide-consent', payload),
+    extensionServerPairing: (opts) => ipcRenderer.invoke('extension-server:pairing', opts || {}),
+    extensionServerInfo: () => ipcRenderer.invoke('extension-server:info'),
+    extensionServerOpenDashboard: () => ipcRenderer.invoke('extension-server:open-dashboard'),
     homeServer: {
         getStatus: () => ipcRenderer.invoke('home-server:get-status'),
         getConfig: () => ipcRenderer.invoke('home-server:get-config'),
@@ -228,6 +231,9 @@ contextBridge.exposeInMainWorld('electron', {
         upsertUser: (user) => ipcRenderer.invoke('home-server:upsert-user', user),
         listConsent: () => ipcRenderer.invoke('home-server:list-consent'),
         decideConsent: (payload) => ipcRenderer.invoke('home-server:decide-consent', payload),
+        extensionPairing: (opts) => ipcRenderer.invoke('extension-server:pairing', opts || {}),
+        extensionInfo: () => ipcRenderer.invoke('extension-server:info'),
+        openExtensionDashboard: () => ipcRenderer.invoke('extension-server:open-dashboard'),
     },
     onHomeServerStatus: (callback) => {
         const handler = (_event, data) => callback(data);
@@ -422,6 +428,9 @@ contextBridge.exposeInMainWorld('tatakaiRuntime', {
     homeServerUpsertUser: (user) => ipcRenderer.invoke('home-server:upsert-user', user),
     homeServerListConsent: () => ipcRenderer.invoke('home-server:list-consent'),
     homeServerDecideConsent: (payload) => ipcRenderer.invoke('home-server:decide-consent', payload),
+    extensionServerPairing: (opts) => ipcRenderer.invoke('extension-server:pairing', opts || {}),
+    extensionServerInfo: () => ipcRenderer.invoke('extension-server:info'),
+    extensionServerOpenDashboard: () => ipcRenderer.invoke('extension-server:open-dashboard'),
     homeServer: {
         getStatus: () => ipcRenderer.invoke('home-server:get-status'),
         getConfig: () => ipcRenderer.invoke('home-server:get-config'),
@@ -433,6 +442,9 @@ contextBridge.exposeInMainWorld('tatakaiRuntime', {
         upsertUser: (user) => ipcRenderer.invoke('home-server:upsert-user', user),
         listConsent: () => ipcRenderer.invoke('home-server:list-consent'),
         decideConsent: (payload) => ipcRenderer.invoke('home-server:decide-consent', payload),
+        extensionPairing: (opts) => ipcRenderer.invoke('extension-server:pairing', opts || {}),
+        extensionInfo: () => ipcRenderer.invoke('extension-server:info'),
+        openExtensionDashboard: () => ipcRenderer.invoke('extension-server:open-dashboard'),
     },
     onHomeServerStatus: (callback) => {
         const handler = (_event, data) => callback(data);
@@ -464,6 +476,9 @@ contextBridge.exposeInMainWorld('tatakaiRuntime', {
     homeServerUpsertUser: (user) => ipcRenderer.invoke('home-server:upsert-user', user),
     homeServerListConsent: () => ipcRenderer.invoke('home-server:list-consent'),
     homeServerDecideConsent: (payload) => ipcRenderer.invoke('home-server:decide-consent', payload),
+    extensionServerPairing: (opts) => ipcRenderer.invoke('extension-server:pairing', opts || {}),
+    extensionServerInfo: () => ipcRenderer.invoke('extension-server:info'),
+    extensionServerOpenDashboard: () => ipcRenderer.invoke('extension-server:open-dashboard'),
     homeServer: {
         getStatus: () => ipcRenderer.invoke('home-server:get-status'),
         getConfig: () => ipcRenderer.invoke('home-server:get-config'),
@@ -475,6 +490,9 @@ contextBridge.exposeInMainWorld('tatakaiRuntime', {
         upsertUser: (user) => ipcRenderer.invoke('home-server:upsert-user', user),
         listConsent: () => ipcRenderer.invoke('home-server:list-consent'),
         decideConsent: (payload) => ipcRenderer.invoke('home-server:decide-consent', payload),
+        extensionPairing: (opts) => ipcRenderer.invoke('extension-server:pairing', opts || {}),
+        extensionInfo: () => ipcRenderer.invoke('extension-server:info'),
+        openExtensionDashboard: () => ipcRenderer.invoke('extension-server:open-dashboard'),
     },
 
     // Cleanup
