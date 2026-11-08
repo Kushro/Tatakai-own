@@ -56,3 +56,6 @@ include(":core:torrent")
 include(":core:player-mpv")
 include(":feature:torrents")
 include(":feature:you")
+
+// integrated extension server client (docs/redesign/13-integrated-server-contract.md §3.10)
+include(":core:extension-server")

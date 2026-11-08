@@ -26,6 +26,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- PC extension server pairing link (docs/redesign/13 §3.7 / §3.10): tatakai://extensionserver/connect?server=…&code=… -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="extensionserver"
+                    android:pathPrefix="/connect"
+                    android:scheme="tatakai" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

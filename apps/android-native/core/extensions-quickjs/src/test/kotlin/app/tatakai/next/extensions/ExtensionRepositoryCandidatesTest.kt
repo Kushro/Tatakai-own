@@ -6,9 +6,12 @@ import app.tatakai.next.model.ExtLogLevel
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
+import app.tatakai.next.model.Quality
 import app.tatakai.next.model.SettingsRepository
+import app.tatakai.next.model.SourceCandidate
 import app.tatakai.next.model.SourceKind
 import app.tatakai.next.model.SourceStatsStore
+import app.tatakai.next.model.WebInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -152,6 +155,48 @@ class ExtensionRepositoryCandidatesTest {
             repo.setEnabled("x.toko", false)
             assertTrue(repo.resolveCandidates(media, 5).isEmpty())
             assertFalse(repo.installed.value.single().enabled)
+        } finally {
+            root.deleteRecursively() // temp dir created above
+        }
+    }
+
+    /** docs/redesign/13 §3.10: extension-server candidates are ranked with the extensions; a failing source hides nothing. */
+    @Test
+    fun externalCandidatesAreMergedAndAFailingSourceIsIgnored() = runBlocking {
+        val root = Files.createTempDirectory("tatakai-ext-external").toFile()
+        try {
+            val server = object : ExternalCandidateSource {
+                override suspend fun candidates(media: Media, episode: Int) = listOf(
+                    SourceCandidate(
+                        extId = "server:srv-1/a", extName = "Aniyomi X · Desk", kind = SourceKind.WEB, label = "Main",
+                        quality = Quality.P1080, container = "HLS",
+                        web = WebInfo(url = "http://192.168.1.2:8787/api/server/v1/media/t"),
+                    ),
+                )
+            }
+            val broken = object : ExternalCandidateSource {
+                override suspend fun candidates(media: Media, episode: Int): List<SourceCandidate> = error("server down")
+            }
+            val repo = ExtensionRepositoryImpl(
+                rootDir = File(root, "installed"),
+                openUri = { File(it).inputStream() },
+                host = ExtensionHost(engine, { NoHost }),
+                io = Dispatchers.Unconfined,
+                settings = Settings(),
+                stats = Stats(),
+                external = listOf(server, broken),
+            )
+            // No installed extension: the server alone still yields a source.
+            val onlyServer = repo.resolveCandidates(media, 5)
+            assertEquals(listOf("server:srv-1/a"), onlyServer.map { it.candidate.extId })
+            assertTrue(onlyServer.single().extEnabled)
+
+            repo.installFromUri(kai(root).path).getOrThrow()
+            val all = repo.resolveCandidates(media, 5)
+            assertEquals(3, all.size)
+            assertEquals(setOf("x.toko", "server:srv-1/a"), all.map { it.candidate.extId }.toSet())
+            assertTrue(all.all { it.extEnabled })
+            assertTrue(all.zipWithNext().all { (a, b) -> a.score >= b.score })
         } finally {
             root.deleteRecursively() // temp dir created above
         }
