@@ -44,7 +44,11 @@
     "mobile:build:ios:unsigned": "npm run build:native && npx cap sync ios && xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO clean build",
     "altstore:generate": "node scripts/generate-altstore-source.mjs",
     "build:native": "cross-env NODE_ENV=production NODE_OPTIONS=--max-old-space-size=6144 vite build --mode native && node scripts/bundle-report.mjs --check-native",
-    "build:report": "node scripts/bundle-report.mjs"
+    "build:report": "node scripts/bundle-report.mjs",
+    "server:build": "node server/scripts/build.mjs",
+    "server:start": "node server/src/node.mjs",
+    "server:dev": "node server/scripts/dev.mjs",
+    "server:test": "node --test \"server/test/*.test.mjs\""
   },
   "dependencies": {
     "@biwills/kittentts": "^1.0.0",
@@ -74,6 +78,7 @@
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "@hookform/resolvers": "^3.10.0",
     "@huggingface/transformers": "^4.3.1",
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-aspect-ratio": "^1.1.7",
@@ -164,6 +169,7 @@
     "semver": "^7.8.5",
     "sharp": "^0.35.5",
     "sonner": "^1.7.4",
+    "sucrase": "^3.35.1",
     "supabase": "^2.72.3",
     "tailwind-merge": "^2.6.1",
     "tailwindcss-animate": "^1.0.7",
@@ -193,6 +199,7 @@
     "cross-env": "^7.0.3",
     "electron": "^42.11.16",
     "electron-builder": "^26.4.0",
+    "esbuild": "^0.25.0",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
