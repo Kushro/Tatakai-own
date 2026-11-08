@@ -45,6 +45,12 @@ sealed interface Route : NavKey {
 
     /** Library opened on a given tab (You › Historial). */
     @Serializable data class LibraryTab(val tab: app.tatakai.next.feature.library.LibraryTab) : Route
+
+    /**
+     * PC extension server connect / manage screen (docs/redesign/13 §3.10), reached from Linked device and from the
+     * `tatakai://extensionserver/connect` deep link (the link itself waits in PendingServerLink, never in the back stack).
+     */
+    @Serializable data object ExtensionServers : Route
 }
 
 /** Compact (bottom bar, 4 items): Inicio · Buscar · Biblioteca · Tú. Torrents is a tab inside Library (11 §3.1, 12 §0). */
@@ -65,8 +71,8 @@ fun Route.topLevel(): Route = topLevel(wide = false)
 
 /**
  * The top-level destination that owns this route, used to highlight the nav item (12 §3.15).
- * Compact: Torrents -> Library; Extensions / Link / Linked / Settings / SettingsSection -> You.
- * Wide: every rail destination is its own (Torrents(*) -> Torrents(), Link -> Linked, SettingsSection / You -> Settings).
+ * Compact: Torrents -> Library; Extensions / Link / Linked / ExtensionServers / Settings / SettingsSection -> You.
+ * Wide: every rail destination is its own (Torrents(*) -> Torrents(), Link / ExtensionServers -> Linked, SettingsSection / You -> Settings).
  * Routes without an owner (Details, Player) return themselves; the shell then highlights the entry below them in the back stack.
  */
 fun Route.topLevel(wide: Boolean): Route = when (this) {
@@ -74,7 +80,7 @@ fun Route.topLevel(wide: Boolean): Route = when (this) {
     is Route.LibraryTab -> Route.Library
     is Route.Torrents -> if (wide) Route.Torrents() else Route.Library
     Route.Extensions -> if (wide) Route.Extensions else Route.You
-    Route.Link, Route.Linked -> if (wide) Route.Linked else Route.You
+    Route.Link, Route.Linked, Route.ExtensionServers -> if (wide) Route.Linked else Route.You
     Route.Settings, is Route.SettingsSection -> if (wide) Route.Settings else Route.You
     Route.You -> if (wide) Route.Settings else Route.You
     else -> this

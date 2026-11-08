@@ -6,4 +6,6 @@ import org.koin.dsl.module
 
 val linkFeatureModule = module {
     viewModel { LinkViewModel(link = get(), deviceName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android") }
+    // docs/redesign/13 §3.10: PC extension server connect screen
+    viewModel { ExtensionServersViewModel(repository = get(), pending = get()) }
 }
