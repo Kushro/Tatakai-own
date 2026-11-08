@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import './style.css';
 import { readApiResponse } from '../src/api-response.mjs';
+import { fmt, formatCountdown, host, t } from './i18n';
 
 /* -------------------------------------------------------------------------- */
 /*                                    Types                                   */
@@ -27,6 +28,8 @@ interface HealthInfo {
   adminPasswordRequired: boolean;
   accessPasswordRequired: boolean;
   capabilities: Capability[];
+  pairingRequired?: boolean;
+  dashboardPath?: string;
 }
 
 interface ServerConfig {
@@ -52,6 +55,12 @@ interface ExtensionItem {
   enabled: boolean;
   priority: number;
   languages: string[];
+}
+
+interface PairingInfo {
+  code: string;
+  deepLink: string;
+  expiresAt: number;
 }
 
 interface DeviceItem {
@@ -231,6 +240,39 @@ const Icon = {
 /*                             UI Helper Primitives                           */
 /* -------------------------------------------------------------------------- */
 
+/** D8: tells the user what linking a phone to this PC gives and costs (texts from extensionServerHost.*). */
+function LinkInfoPanel() {
+  const groups = [
+    { key: 'pros', title: host.prosTitle, items: Object.values(host.pros), tone: 'text-emerald-500', mark: '+' },
+    { key: 'cons', title: host.consTitle, items: Object.values(host.cons), tone: 'text-amber-500', mark: '−' },
+    { key: 'extras', title: host.extrasTitle, items: Object.values(host.extras), tone: 'text-sky-500', mark: '•' },
+  ];
+  return (
+    <section className="rounded-xl border border-border/80 bg-card p-5 shadow-xs" aria-labelledby="link-info-title">
+      <h2 id="link-info-title" className="text-sm font-semibold">{host.benefitsTitle}</h2>
+      <div className="mt-4 grid grid-cols-1 gap-5 md:grid-cols-3">
+        {groups.map(group => (
+          <div key={group.key}>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{group.title}</h3>
+            <ul className="mt-2 space-y-1.5">
+              {group.items.map(item => (
+                <li key={item} className="flex gap-2 text-xs leading-relaxed">
+                  <span aria-hidden="true" className={`shrink-0 font-semibold ${group.tone}`}>{group.mark}</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 rounded-lg border border-dashed border-border/80 bg-muted/20 px-3.5 py-2.5 text-xs">
+        <span className="font-semibold">{host.comingSoonTitle}:</span>{' '}
+        <span className="text-muted-foreground">{host.comingSoon.desktopNext}</span>
+      </div>
+    </section>
+  );
+}
+
 function Field({
   label,
   hint,
@@ -365,7 +407,8 @@ function App() {
   const [catalogPreview, setCatalogPreview] = useState<{ repoName: string; data: unknown } | null>(null);
 
   // Pairing & Clipboard state
-  const [pair, setPair] = useState('');
+  const [pair, setPair] = useState<PairingInfo | null>(null);
+  const [pairNow, setPairNow] = useState(() => Date.now());
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // Native runtime state
@@ -399,6 +442,14 @@ function App() {
     void poll();
     return () => { cancelled = true; controller.abort(); clearTimeout(timer); };
   }, [token, activeTab, logsPaused]);
+
+  // Pairing countdown
+  useEffect(() => {
+    if (!pair) return;
+    setPairNow(Date.now());
+    const timer = window.setInterval(() => setPairNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [pair]);
 
   // Proxy toggle state synced with config
   const [proxyEnabled, setProxyEnabled] = useState(false);
@@ -498,6 +549,15 @@ function App() {
     setToken(value);
   }
 
+  async function createPairing() {
+    await action(async () => {
+      const result = await api('/auth/pairing', 'POST', {});
+      const deepLink = String(result.deepLink || result.url || '');
+      if (!deepLink.startsWith('tatakai://')) throw Error('Unexpected pairing response');
+      setPair({ code: String(result.code || ''), deepLink, expiresAt: Date.now() + (Number(result.expiresIn) || 300) * 1000 });
+    }, t.pairingNotice);
+  }
+
   async function copyText(key: string, value: string) {
     try {
       await navigator.clipboard.writeText(value);
@@ -523,6 +583,9 @@ function App() {
       setError(e instanceof Error ? e.message : 'Could not load preferences');
     }
   }
+
+  const pairSecondsLeft = pair ? Math.max(0, Math.round((pair.expiresAt - pairNow) / 1000)) : 0;
+  const pairExpired = Boolean(pair) && pairSecondsLeft <= 0;
 
   const supportsNative = Boolean(health && ['node', 'desktop'].includes(health.platform));
   const isKaiSelected = selectedPkgName.toLowerCase().endsWith('.kai');
@@ -617,7 +680,7 @@ function App() {
               {(health.setupRequired || !health.adminPasswordRequired) && (
                 <Field
                   label="Deployment bootstrap secret"
-                  hint="Provided by your host environment or startup logs."
+                  hint={health.platform === 'desktop' ? t.bootstrapHintDesktop : 'Provided by your host environment or startup logs.'}
                 >
                   <Input name="bootstrap" type="password" required autoComplete="off" className="font-mono text-xs" />
                 </Field>
@@ -739,11 +802,7 @@ function App() {
               className="h-8 gap-1.5 text-xs"
               onClick={() => {
                 setActiveTab('devices');
-                if (!pair) {
-                  void action(async () => {
-                    setPair((await api('/auth/pairing', 'POST', {})).url);
-                  }, 'Pairing link expires in five minutes');
-                }
+                if (!pair || pairExpired) void createPairing();
               }}
             >
               <Icon.Qr />
@@ -1760,14 +1819,12 @@ function App() {
                 <div className="lg:col-span-5">
                   <div className="rounded-xl border border-border/80 bg-card p-5 shadow-xs space-y-5">
                     <div>
-                      <h2 className="text-sm font-semibold">Link a Tatakai App</h2>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        Connect Tatakai web, mobile or desktop using your server URL or a one-time pairing QR code.
-                      </p>
+                      <h2 className="text-sm font-semibold">{host.linkPhone}</h2>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{host.linkPhoneDescription}</p>
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs font-medium text-foreground/90">Server Origin</Label>
+                      <Label className="text-xs font-medium text-foreground/90">{t.serverOrigin}</Label>
                       <div className="flex items-center gap-2">
                         <Input readOnly value={location.origin} className="font-mono text-xs bg-muted/30" />
                         <Button
@@ -1777,43 +1834,57 @@ function App() {
                           onClick={() => void copyText('origin', location.origin)}
                         >
                           {copiedKey === 'origin' ? <Icon.Check /> : <Icon.Copy />}
-                          {copiedKey === 'origin' ? 'Copied' : 'Copy'}
+                          {copiedKey === 'origin' ? t.copied : t.copy}
                         </Button>
                       </div>
                     </div>
 
-                    <p className="text-xs text-muted-foreground">In Tatakai, open Settings → Extension Hub → Extension Servers and set the extension API to the Server Origin above.</p>
-                    <Button asChild variant="outline" className="w-full"><a href={`${location.protocol === 'http:' ? 'http://localhost:8090' : 'https://tatakai.me'}/extensionserver/${encodeURIComponent(location.origin)}`} target="_blank" rel="noreferrer">Set extension API in Tatakai</a></Button>
+                    <p className="text-xs text-muted-foreground">{host.sameNetworkHint}</p>
 
-                    <Button
-                      disabled={busy}
-                      className="w-full gap-2"
-                      onClick={() =>
-                        void action(async () => {
-                          setPair((await api('/auth/pairing', 'POST', {})).url);
-                        }, 'Pairing link expires in five minutes')
-                      }
-                    >
+                    <Button disabled={busy} className="w-full gap-2" onClick={() => void createPairing()}>
                       <Icon.Qr />
-                      {pair ? 'Regenerate Pairing QR' : 'Generate Pairing QR'}
+                      {pair ? (pairExpired ? host.generateCode : t.regeneratePairing) : t.generatePairing}
                     </Button>
 
                     {pair && (
                       <div className="flex flex-col items-center rounded-xl border border-border/80 bg-muted/20 p-6 text-center">
-                        <div className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-xs">
-                          <QRCodeSVG value={pair} size={176} />
-                        </div>
-                        <p className="mt-4 text-xs font-medium">Valid for 5 minutes</p>
-                        <a
-                          href={pair}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-1 max-w-full truncate font-mono text-[11px] text-muted-foreground underline hover:text-foreground"
-                        >
-                          {pair}
-                        </a>
+                        {pairExpired ? (
+                          <p className="text-xs font-medium text-destructive">{host.expired}</p>
+                        ) : (
+                          <>
+                            <div className="rounded-xl border border-zinc-200 bg-white p-3.5 shadow-xs" role="img" aria-label={t.qrLabel}>
+                              <QRCodeSVG value={pair.deepLink} size={176} />
+                            </div>
+                            {pair.code && (
+                              <div className="mt-4 flex flex-col items-center gap-1">
+                                <span className="text-[11px] uppercase tracking-widest text-muted-foreground">{host.pairingCode}</span>
+                                <span className="select-all font-mono text-lg font-semibold tracking-wider break-all">{pair.code}</span>
+                              </div>
+                            )}
+                            <p className="mt-2 text-xs font-medium tabular-nums">
+                              {fmt(host.expiresIn, { time: formatCountdown(pairSecondsLeft) })}
+                            </p>
+                            <div className="mt-3 flex flex-wrap justify-center gap-2">
+                              {pair.code && (
+                                <Button type="button" size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => void copyText('pair-code', pair.code)}>
+                                  {copiedKey === 'pair-code' ? <Icon.Check /> : <Icon.Copy />}
+                                  {copiedKey === 'pair-code' ? t.codeCopied : t.copyCode}
+                                </Button>
+                              )}
+                              <Button type="button" size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => void copyText('pair-link', pair.deepLink)}>
+                                {copiedKey === 'pair-link' ? <Icon.Check /> : <Icon.Copy />}
+                                {copiedKey === 'pair-link' ? host.linkCopied : host.copyLink}
+                              </Button>
+                            </div>
+                            <p className="mt-3 max-w-full select-all break-all font-mono text-[11px] text-muted-foreground" aria-label={t.deepLinkLabel}>
+                              {pair.deepLink}
+                            </p>
+                          </>
+                        )}
                       </div>
                     )}
+
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">{t.advancedHint}</p>
                   </div>
                 </div>
 
@@ -1822,7 +1893,7 @@ function App() {
                   <div className="rounded-xl border border-border/80 bg-card shadow-xs overflow-hidden">
                     <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
                       <div>
-                        <h2 className="text-sm font-semibold">Authorized Sessions</h2>
+                        <h2 className="text-sm font-semibold">{host.devicesTitle}</h2>
                         <p className="text-xs text-muted-foreground">Devices holding valid access tokens.</p>
                       </div>
                       <span className="font-mono text-xs text-muted-foreground tabular-nums">
@@ -1832,7 +1903,7 @@ function App() {
 
                     {devices.length === 0 ? (
                       <p className="px-5 py-12 text-center text-xs text-muted-foreground">
-                        No active device sessions.
+                        {host.noDevices}
                       </p>
                     ) : (
                       <div className="divide-y divide-border/60">
@@ -1867,16 +1938,21 @@ function App() {
                                     sessionStorage.removeItem('tatakai-server-owner');
                                     setToken('');
                                   }
-                                }, 'Device revoked')
+                                }, host.deviceRevoked)
                               }
                             >
-                              Revoke
+                              {host.revokeDevice}
                             </Button>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
+                </div>
+
+                {/* Why link the phone (D8) */}
+                <div className="lg:col-span-12">
+                  <LinkInfoPanel />
                 </div>
               </div>
             )}
