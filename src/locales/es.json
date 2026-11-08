@@ -7089,5 +7089,126 @@
     "statusNotConfigured": "Sin configurar",
     "statusIdle": "Sin problemas registrados",
     "allDisabled": "Todas las fuentes están desactivadas, así que no se puede cargar el catálogo. Activa al menos una."
+  },
+  "extensionServerHost": {
+    "title": "Servidor de extensiones",
+    "description": "Comparte las extensiones Aniyomi, Mihon, CloudStream y .kai instaladas en esta PC con tu teléfono, la app web y tu TV.",
+    "statusRunning": "En ejecución",
+    "statusStopped": "Detenido",
+    "statusUnavailable": "El servidor de extensiones no está compilado. Ejecuta npm run server:build y reinicia Tatakai.",
+    "serverName": "Nombre del servidor",
+    "sourceCount": "Fuentes disponibles: {{count}}",
+    "ecosystems": "Ecosistemas: {{list}}",
+    "lanAddress": "Dirección en la red local",
+    "remoteAddress": "Dirección HTTPS remota (túnel)",
+    "noRemoteAddress": "Para usarlo fuera de casa, activa el túnel HTTPS o usa Tailscale.",
+    "openDashboard": "Abrir panel del servidor",
+    "copySetupSecret": "Copiar secreto de configuración",
+    "setupSecretCopied": "Secreto de configuración copiado",
+    "setupSecretHint": "Pégalo una vez en el panel del servidor para crear la contraseña del propietario.",
+    "linkPhone": "Vincular teléfono",
+    "linkPhoneDescription": "Escanea este código QR con Tatakai en tu teléfono (Ajustes > Servidores de extensiones) o abre el enlace en el teléfono.",
+    "pairingCode": "Código",
+    "expiresIn": "Caduca en {{time}}",
+    "expired": "Este código caducó. Genera uno nuevo.",
+    "generateCode": "Generar código nuevo",
+    "copyLink": "Copiar enlace",
+    "linkCopied": "Enlace copiado",
+    "pairingFailed": "No se pudo crear el código de emparejamiento: {{error}}",
+    "devicesTitle": "Dispositivos vinculados",
+    "noDevices": "Todavía no hay dispositivos vinculados.",
+    "revokeDevice": "Revocar",
+    "deviceRevoked": "Dispositivo revocado",
+    "sameNetworkHint": "El teléfono debe estar en la misma red Wi-Fi que esta PC, salvo que uses el túnel HTTPS o Tailscale.",
+    "benefitsTitle": "¿Por qué vincular el teléfono con tu PC?",
+    "prosTitle": "Ventajas",
+    "pros": {
+      "otherEcosystems": "Usa en el teléfono las fuentes de Aniyomi, Mihon y CloudStream, que solo corren en la PC.",
+      "installOnce": "Instala y configura las extensiones una sola vez para todos tus dispositivos.",
+      "pcScrapes": "La PC hace el scraping y el bypass de Cloudflare con su propio navegador.",
+      "sharedCache": "Caché compartida y resultados progresivos: las fuentes aparecen en cuanto cada una responde.",
+      "battery": "Menos batería y CPU en el teléfono."
+    },
+    "consTitle": "Desventajas",
+    "cons": {
+      "pcOn": "La PC tiene que estar encendida y con Tatakai abierto.",
+      "tunnel": "Fuera de casa necesitas el túnel HTTPS (o Tailscale).",
+      "videoProxy": "El video pasa por el proxy de la PC; fuera de casa usa la subida de tu conexión.",
+      "lanPort": "Expone un puerto en tu red local.",
+      "latency": "Buscar fuentes tiene un poco más de latencia."
+    },
+    "extrasTitle": "Extras",
+    "extras": {
+      "qr": "Emparejamiento con QR de un solo uso que caduca en 5 minutos.",
+      "revocable": "Tokens de dispositivo que puedes revocar desde la PC cuando quieras.",
+      "fallback": "Si la PC no responde, la app sigue usando sus extensiones locales.",
+      "viewerPassword": "Contraseña de viewer opcional."
+    },
+    "comingSoonTitle": "Próximamente",
+    "comingSoon": {
+      "desktopNext": "Modo servidor para Tatakai Next de escritorio, opcional y configurable."
+    }
+  },
+  "extensionServerClient": {
+    "title": "Conectar con tu PC",
+    "description": "Vincula este dispositivo con Tatakai abierto en tu PC con Windows o Linux para usar sus extensiones desde aquí.",
+    "scanQr": "Escanear código QR",
+    "pasteLink": "Pegar enlace de emparejamiento",
+    "pasteLinkPlaceholder": "tatakai://extensionserver/connect?server=…&code=…",
+    "manualTitle": "O escribe la dirección y la contraseña",
+    "serverUrl": "Dirección del servidor",
+    "serverUrlPlaceholder": "http://192.168.1.20:8090",
+    "password": "Contraseña de viewer (opcional)",
+    "connect": "Conectar",
+    "connecting": "Conectando…",
+    "connected": "Conectado a {{name}}",
+    "lanOnlyHttp": "http:// sin cifrar solo se permite con direcciones de tu propia red: 192.168.x.x, 10.x.x.x, 172.16–31.x.x, Tailscale (100.64.x.x), link-local y nombres .local. Cualquier otra dirección debe usar https://.",
+    "awayFromHome": "Fuera de casa, usa la dirección del túnel HTTPS que muestra tu PC, o Tailscale.",
+    "serversTitle": "Servidores vinculados",
+    "noServers": "Todavía no hay servidores vinculados.",
+    "enable": "Activar",
+    "disable": "Desactivar",
+    "remove": "Quitar",
+    "removeConfirm": "¿Quitar {{name}} de este dispositivo?",
+    "online": "En línea",
+    "offline": "Sin conexión",
+    "offlineFallback": "Tu PC no responde. Tatakai sigue usando las extensiones locales de este dispositivo.",
+    "sourceGroup": "Desde {{name}}",
+    "errors": {
+      "invalidLink": "Este enlace de emparejamiento no es válido.",
+      "expiredLink": "Este código de emparejamiento caducó o ya se usó. Genera uno nuevo en tu PC.",
+      "insecureHost": "Bloqueado: {{host}} no está en tu red local, así que debe usar https://.",
+      "unreachable": "No se pudo conectar con el servidor. Comprueba que la PC esté encendida, Tatakai abierto y que ambos dispositivos compartan la red.",
+      "wrongPassword": "Contraseña incorrecta.",
+      "incompatible": "Este servidor usa una versión de protocolo incompatible. Actualiza Tatakai en la PC."
+    },
+    "benefitsTitle": "¿Por qué vincular el teléfono con tu PC?",
+    "prosTitle": "Ventajas",
+    "pros": {
+      "otherEcosystems": "Usa en el teléfono las fuentes de Aniyomi, Mihon y CloudStream, que solo corren en la PC.",
+      "installOnce": "Instala y configura las extensiones una sola vez para todos tus dispositivos.",
+      "pcScrapes": "La PC hace el scraping y el bypass de Cloudflare con su propio navegador.",
+      "sharedCache": "Caché compartida y resultados progresivos: las fuentes aparecen en cuanto cada una responde.",
+      "battery": "Menos batería y CPU en el teléfono."
+    },
+    "consTitle": "Desventajas",
+    "cons": {
+      "pcOn": "La PC tiene que estar encendida y con Tatakai abierto.",
+      "tunnel": "Fuera de casa necesitas el túnel HTTPS (o Tailscale).",
+      "videoProxy": "El video pasa por el proxy de la PC; fuera de casa usa la subida de tu conexión.",
+      "lanPort": "Expone un puerto en tu red local.",
+      "latency": "Buscar fuentes tiene un poco más de latencia."
+    },
+    "extrasTitle": "Extras",
+    "extras": {
+      "qr": "Emparejamiento con QR de un solo uso que caduca en 5 minutos.",
+      "revocable": "Tokens de dispositivo que puedes revocar desde la PC cuando quieras.",
+      "fallback": "Si la PC no responde, la app sigue usando sus extensiones locales.",
+      "viewerPassword": "Contraseña de viewer opcional."
+    },
+    "comingSoonTitle": "Próximamente",
+    "comingSoon": {
+      "desktopNext": "Modo servidor para Tatakai Next de escritorio, opcional y configurable."
+    }
   }
 }
