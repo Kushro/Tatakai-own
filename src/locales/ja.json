@@ -7089,5 +7089,126 @@
     "statusNotConfigured": "Not configured",
     "statusIdle": "No problems reported",
     "allDisabled": "All sources are disabled, so catalog data cannot load. Enable at least one."
+  },
+  "extensionServerHost": {
+    "title": "拡張機能サーバー",
+    "description": "このPCのAniyomi・Mihon・CloudStreamとインストール済みの.kai拡張機能を、スマホ・Webアプリ・TVと共有します。",
+    "statusRunning": "実行中",
+    "statusStopped": "停止中",
+    "statusUnavailable": "拡張機能サーバーがビルドされていません。npm run server:build を実行してTatakaiを再起動してください。",
+    "serverName": "サーバー名",
+    "sourceCount": "利用可能なソース: {{count}}",
+    "ecosystems": "エコシステム: {{list}}",
+    "lanAddress": "ローカルネットワークのアドレス",
+    "remoteAddress": "リモートHTTPSアドレス（トンネル）",
+    "noRemoteAddress": "外出先で使うには、HTTPSトンネルを有効にするかTailscaleを使ってください。",
+    "openDashboard": "サーバーのダッシュボードを開く",
+    "copySetupSecret": "セットアップ用シークレットをコピー",
+    "setupSecretCopied": "セットアップ用シークレットをコピーしました",
+    "setupSecretHint": "サーバーのダッシュボードに一度だけ貼り付けて、オーナーのパスワードを作成します。",
+    "linkPhone": "スマホを連携",
+    "linkPhoneDescription": "スマホのTatakai（設定 > 拡張機能サーバー）でこのQRコードを読み取るか、スマホでリンクを開いてください。",
+    "pairingCode": "コード",
+    "expiresIn": "有効期限: {{time}}",
+    "expired": "このコードは期限切れです。新しいコードを生成してください。",
+    "generateCode": "新しいコードを生成",
+    "copyLink": "リンクをコピー",
+    "linkCopied": "リンクをコピーしました",
+    "pairingFailed": "ペアリングコードを作成できませんでした: {{error}}",
+    "devicesTitle": "連携済みの端末",
+    "noDevices": "連携済みの端末はまだありません。",
+    "revokeDevice": "取り消す",
+    "deviceRevoked": "端末を取り消しました",
+    "sameNetworkHint": "HTTPSトンネルやTailscaleを使わない場合、スマホはこのPCと同じWi-Fiに接続している必要があります。",
+    "benefitsTitle": "スマホをPCと連携する理由",
+    "prosTitle": "メリット",
+    "pros": {
+      "otherEcosystems": "PCでしか動かないAniyomi・Mihon・CloudStreamのソースをスマホで使えます。",
+      "installOnce": "拡張機能のインストールと設定は一度だけで、すべての端末に反映されます。",
+      "pcScrapes": "スクレイピングとCloudflareの回避はPCが自分のブラウザで行います。",
+      "sharedCache": "キャッシュを共有し、各ソースの結果は届いた順に表示されます。",
+      "battery": "スマホのバッテリーとCPUの消費が減ります。"
+    },
+    "consTitle": "デメリット",
+    "cons": {
+      "pcOn": "PCの電源を入れ、Tatakaiを起動しておく必要があります。",
+      "tunnel": "外出先ではHTTPSトンネル（またはTailscale）が必要です。",
+      "videoProxy": "動画はPCのプロキシを経由するため、外出先ではPCの上り回線を使います。",
+      "lanPort": "ローカルネットワークにポートを公開します。",
+      "latency": "ソースの検索に少し時間がかかります。"
+    },
+    "extrasTitle": "その他",
+    "extras": {
+      "qr": "5分で失効する使い捨てのQRコードでペアリング。",
+      "revocable": "端末トークンはいつでもPCから取り消せます。",
+      "fallback": "PCが応答しない場合は、アプリ内の拡張機能をそのまま使います。",
+      "viewerPassword": "閲覧用パスワード（任意）。"
+    },
+    "comingSoonTitle": "近日公開",
+    "comingSoon": {
+      "desktopNext": "デスクトップ版Tatakai Next向けのサーバーモード（任意・設定可能）。"
+    }
+  },
+  "extensionServerClient": {
+    "title": "PCに接続",
+    "description": "この端末をWindowsまたはLinuxのPCで動いているTatakaiと連携し、PCの拡張機能をここで使います。",
+    "scanQr": "QRコードを読み取る",
+    "pasteLink": "ペアリングリンクを貼り付け",
+    "pasteLinkPlaceholder": "tatakai://extensionserver/connect?server=…&code=…",
+    "manualTitle": "またはアドレスとパスワードを入力",
+    "serverUrl": "サーバーのアドレス",
+    "serverUrlPlaceholder": "http://192.168.1.20:8090",
+    "password": "閲覧用パスワード（任意）",
+    "connect": "接続",
+    "connecting": "接続中…",
+    "connected": "{{name}} に接続しました",
+    "lanOnlyHttp": "暗号化されていない http:// は、自宅ネットワーク内のアドレス（192.168.x.x、10.x.x.x、172.16〜31.x.x、Tailscaleの100.64.x.x、リンクローカル、.local名）でのみ使えます。それ以外は https:// が必要です。",
+    "awayFromHome": "外出先では、PCに表示されるHTTPSトンネルのアドレスかTailscaleを使ってください。",
+    "serversTitle": "連携済みのサーバー",
+    "noServers": "連携済みのサーバーはまだありません。",
+    "enable": "有効にする",
+    "disable": "無効にする",
+    "remove": "削除",
+    "removeConfirm": "この端末から {{name}} を削除しますか？",
+    "online": "オンライン",
+    "offline": "オフライン",
+    "offlineFallback": "PCが応答しません。この端末内の拡張機能を引き続き使います。",
+    "sourceGroup": "{{name}} から",
+    "errors": {
+      "invalidLink": "このペアリングリンクは無効です。",
+      "expiredLink": "このペアリングコードは期限切れか、すでに使用されています。PCで新しいコードを生成してください。",
+      "insecureHost": "ブロックしました: {{host}} はローカルネットワーク外のため https:// が必要です。",
+      "unreachable": "サーバーに接続できません。PCの電源が入っていて、Tatakaiが起動し、両方の端末が同じネットワークにあるか確認してください。",
+      "wrongPassword": "パスワードが違います。",
+      "incompatible": "このサーバーは互換性のないプロトコルバージョンを使っています。PCのTatakaiを更新してください。"
+    },
+    "benefitsTitle": "スマホをPCと連携する理由",
+    "prosTitle": "メリット",
+    "pros": {
+      "otherEcosystems": "PCでしか動かないAniyomi・Mihon・CloudStreamのソースをスマホで使えます。",
+      "installOnce": "拡張機能のインストールと設定は一度だけで、すべての端末に反映されます。",
+      "pcScrapes": "スクレイピングとCloudflareの回避はPCが自分のブラウザで行います。",
+      "sharedCache": "キャッシュを共有し、各ソースの結果は届いた順に表示されます。",
+      "battery": "スマホのバッテリーとCPUの消費が減ります。"
+    },
+    "consTitle": "デメリット",
+    "cons": {
+      "pcOn": "PCの電源を入れ、Tatakaiを起動しておく必要があります。",
+      "tunnel": "外出先ではHTTPSトンネル（またはTailscale）が必要です。",
+      "videoProxy": "動画はPCのプロキシを経由するため、外出先ではPCの上り回線を使います。",
+      "lanPort": "ローカルネットワークにポートを公開します。",
+      "latency": "ソースの検索に少し時間がかかります。"
+    },
+    "extrasTitle": "その他",
+    "extras": {
+      "qr": "5分で失効する使い捨てのQRコードでペアリング。",
+      "revocable": "端末トークンはいつでもPCから取り消せます。",
+      "fallback": "PCが応答しない場合は、アプリ内の拡張機能をそのまま使います。",
+      "viewerPassword": "閲覧用パスワード（任意）。"
+    },
+    "comingSoonTitle": "近日公開",
+    "comingSoon": {
+      "desktopNext": "デスクトップ版Tatakai Next向けのサーバーモード（任意・設定可能）。"
+    }
   }
 }
