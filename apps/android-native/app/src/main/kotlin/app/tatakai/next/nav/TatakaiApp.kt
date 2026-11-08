@@ -102,6 +102,7 @@ import app.tatakai.next.feature.extensions.ExtensionsScreen
 import app.tatakai.next.feature.home.HomeScreen
 import app.tatakai.next.feature.library.LibraryScreen
 import app.tatakai.next.feature.library.LibraryTab
+import app.tatakai.next.feature.link.ExtensionServersScreen
 import app.tatakai.next.feature.link.LinkedDeviceScreen
 import app.tatakai.next.feature.player.PlayerScreen
 import app.tatakai.next.feature.search.SearchScreen
@@ -130,7 +131,7 @@ import app.tatakai.next.ui.R as UiR
  * the app-wide CompositionLocals (LocalReduceMotion, LocalAppSnackbar) + adaptive shell + Navigation3 back stack (12 §3.15, §4 b.1).
  */
 @Composable
-fun TatakaiApp(torrentLinks: MutableStateFlow<TorrentLink?>? = null) {
+fun TatakaiApp(torrentLinks: MutableStateFlow<TorrentLink?>? = null, serverLinks: MutableStateFlow<Boolean>? = null) {
     val settingsRepo = koinInject<SettingsRepository>()
     val settings by settingsRepo.settings.collectAsStateWithLifecycle()
     val dark = when (settings.themeMode) {
@@ -154,7 +155,7 @@ fun TatakaiApp(torrentLinks: MutableStateFlow<TorrentLink?>? = null) {
             LocalReduceMotion provides reduceMotion,
             LocalAppSnackbar provides snackbar,
         ) {
-            AppShell(snackbar, torrentLinks)
+            AppShell(snackbar, torrentLinks, serverLinks)
         }
     }
 }
@@ -195,7 +196,11 @@ private fun PerAppLanguage(settings: AppSettings, repo: SettingsRepository) {
 }
 
 @Composable
-private fun AppShell(snackbar: AppSnackbarController, torrentLinks: MutableStateFlow<TorrentLink?>? = null) {
+private fun AppShell(
+    snackbar: AppSnackbarController,
+    torrentLinks: MutableStateFlow<TorrentLink?>? = null,
+    serverLinks: MutableStateFlow<Boolean>? = null,
+) {
     val backStack = rememberNavBackStack(Route.Home)
     val current = backStack.lastOrNull() as? Route
 
@@ -207,6 +212,19 @@ private fun AppShell(snackbar: AppSnackbarController, torrentLinks: MutableState
                     val target = Route.Torrents(link.section, link.torrentId)
                     if (backStack.lastOrNull() != target) backStack.add(target)
                     torrentLinks.value = null
+                }
+            }
+        }
+    }
+
+    // tatakai://extensionserver/connect (docs/redesign/13 §3.10): MainActivity left the link in PendingServerLink; open the screen,
+    // which asks the user before pairing.
+    if (serverLinks != null) {
+        LaunchedEffect(serverLinks) {
+            serverLinks.collect { open ->
+                if (open) {
+                    if (backStack.lastOrNull() != Route.ExtensionServers) backStack.add(Route.ExtensionServers)
+                    serverLinks.value = false
                 }
             }
         }
@@ -445,8 +463,13 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                 )
             }
             entry<Route.Extensions> { ExtensionsScreen(onBack = ::back) }
-            entry<Route.Link> { LinkedDeviceScreen(onBack = ::back, onPlay = ::play) }
-            entry<Route.Linked> { LinkedDeviceScreen(onBack = ::back, onPlay = ::play) }
+            entry<Route.Link> {
+                LinkedDeviceScreen(onBack = ::back, onPlay = ::play, onOpenExtensionServers = { push(Route.ExtensionServers) })
+            }
+            entry<Route.Linked> {
+                LinkedDeviceScreen(onBack = ::back, onPlay = ::play, onOpenExtensionServers = { push(Route.ExtensionServers) })
+            }
+            entry<Route.ExtensionServers> { ExtensionServersScreen(onBack = ::back) }
             entry<Route.Torrents> { key ->
                 TorrentsScreen(
                     section = key.section,

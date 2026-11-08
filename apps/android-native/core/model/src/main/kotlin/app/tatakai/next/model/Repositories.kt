@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 
 // android wave (docs/redesign/12 §3.6): every member added to an EXISTING interface has a default body so the fakes in the
 // feature tests keep compiling; the real implementations (owners in 12 §2) override them.
@@ -93,6 +94,13 @@ interface ExtensionRepository {
 
     /** Lazy Home rows from `custom/home` of extensions with custom sources. */
     suspend fun customHomeRows(): List<ExtensionHomeRow> = emptyList()
+
+    // --- integrated extension server (docs/redesign/13 §3.10) ---
+    /**
+     * True while a source that is not an installed extension (an enabled, linked PC extension server) takes part in
+     * [resolveCandidates], so screens do not show "no source installed" when only the PC provides sources.
+     */
+    val externalSourcesAvailable: Flow<Boolean> get() = flowOf(false)
 }
 
 interface LinkRepository {
