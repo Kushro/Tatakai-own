@@ -1,9 +1,20 @@
+# Context is the REPOSITORY ROOT (docker build -f server/Dockerfile .).
+# Docker only reads an ignore file at the context root or next to the Dockerfile
+# as server/Dockerfile.dockerignore; keep this list in one of those places.
+# Allow-list: everything is excluded except what server/Dockerfile copies.
+*
+!package.json
+!package-lock.json
+!server
+!src/core/extensions
+!src/components/ui
+!src/lib
+!src/locales
+!desktop/runtime/compatibility
+!shared/aniyomi
 **/node_modules
-**/dist
 **/.env*
 **/.dev.vars
-**/.wrangler
-**/data
-.git
-.cache
-dist_electron
+server/dist
+server/data
+server/**/data

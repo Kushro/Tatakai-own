@@ -1,228 +1,229 @@
 # Tatakai Extension Server
 
-[![Server checks](https://github.com/Snozxyx/TatakaiServer/actions/workflows/ci.yml/badge.svg)](https://github.com/Snozxyx/TatakaiServer/actions/workflows/ci.yml)
-
-**Your sources, connected.** Install extensions once and use their anime, manga
-and novel sources from Tatakai web, desktop and mobile.
-
-```text
-Sources → Extension runtime → Built-in media proxy → Tatakai
-```
-
-[![Set extension API](https://img.shields.io/badge/Tatakai-Set_extension_API-e84a7f)](https://tatakai.me/connect-server)
-[![Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FSnozxyx%2FTatakaiServer&project-name=tatakai-extension-server&env=SERVER_SECRET,BOOTSTRAP_SECRET,DATABASE_URL,BLOB_READ_WRITE_TOKEN,PUBLIC_URL)
-[![Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2FSnozxyx%2FTatakaiServer)
-[![Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https%3A%2F%2Fgithub.com%2FSnozxyx%2FTatakaiServer)
-[![Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https%3A%2F%2Fgithub.com%2FSnozxyx%2FTatakaiServer)
-
-The buttons use [Snozxyx/TatakaiServer](https://github.com/Snozxyx/TatakaiServer)
-and open each provider's configuration flow. Render leaves plan selection to you;
-Cloudflare defaults to Workers + D1 without an R2 subscription. Templates cannot
-bypass provider account verification or billing rules. Users choose their storage
-and optional upgrades. Heroku still provisions a paid database; Vercel requires
-user-configured storage.
-
-## Start locally
-
-Requires **Node.js 22.16+**. This repository is independently buildable; its shared
-adapters and UI primitives are included in `shared/tatakai` (see `THIRD_PARTY.md`).
-
-```powershell
-git clone https://github.com/Snozxyx/TatakaiServer.git
-cd TatakaiServer
-npm ci
-npm run build
-npm start
-```
-
-Open [the dashboard](http://localhost:8787). The startup banner prints dashboard,
-API, health and connection URLs. No `.env` is required locally. Missing
-`SERVER_SECRET` and `BOOTSTRAP_SECRET` values are generated once in
-`data/node-secrets.json`, with a warning. Copy **bootstrapSecret** from this file
-into initial setup. Keep it private and back it up with the database/artifacts.
-The same encryption key must survive restarts; an installation previously using
-an external key still needs its original key.
-
-Setup: owner password → server name/viewer password → install extensions →
-preferences → test a source → connect Tatakai. Admin/viewer passwords are separate
-and optional. An owner without an admin password signs in with the setup key;
-management is never anonymous. The encryption secret is separate from passwords.
-
-To configure explicitly, copy `.env.example` to `.env` and replace placeholders.
-`npm start` and `npm run dev` load it; environment variables take precedence.
-
-## Set the extension API in Tatakai
-
-1. Open **Settings → Extension Hub → Extension Servers**.
-2. Set the extension API to the server **origin**, e.g. `http://localhost:8787`
-   or `https://sources.example.com`. Tatakai adds `/api/server/v1` itself.
-3. Enter the **viewer** password, or leave it blank for public access.
-4. Confirm. Multiple servers can coexist with local extensions.
-
-
-For public servers, use [the connection page](https://tatakai.me/connect-server)
-or a share link with the full server origin URL-encoded:
+**Your sources, connected.** Install extensions once on your PC (or a home
+server) and use their anime, manga and novel sources from the Tatakai app on
+your phone, web and other devices.
 
 ```text
-https://tatakai.me/extensionserver/https%3A%2F%2Fsources.example.com
+Sources → Extension runtime → Built-in media proxy → Tatakai clients
 ```
 
-Optional `?pass=VIEWER_PASSWORD` pre-fills the confirmation form and is removed
-from the address bar. Prefer **Devices & Pairing → Generate Pairing QR** for a
-single-use five-minute link without a password. Never share an admin password or
-deployment secret. The dashboard also has **Set extension API in Tatakai**.
+This directory is part of the Tatakai repository (it used to be the separate
+`TatakaiServer` repo / `tatakai-server` submodule). There is no
+`server/package.json`: dependencies live in the root `package.json` and the
+single root lockfile, and the server bundles the app's own code in place
+(`src/core/extensions/**`, `src/components/ui/**`,
+`desktop/runtime/compatibility/**`, `shared/aniyomi/**`). Nothing is copied.
 
-`tatakai.me` requires an **HTTPS** server. Test HTTP localhost using local Tatakai,
-or use an HTTPS reverse proxy/deployment. Add custom Tatakai website origins in
-Advanced settings. Authenticated clients use revocable bearer device tokens.
+It runs in two ways:
 
-## Development
+| Mode | Entry | Who uses it |
+| --- | --- | --- |
+| **Embedded in Electron** (main mode) | `server/src/desktop.mjs` | Tatakai desktop for Windows / Linux, on the Home Server port |
+| **Standalone Node** | `server/src/node.mjs` (or the Docker image) | VPS / homelab |
 
-```powershell
-npm run dev
+Serverless adapters (Cloudflare Workers, D1, Postgres/Neon, Vercel, Render,
+Heroku) were removed. The API stays `/api/server/v1` with `protocolVersion: 1`.
+
+## Layout
+
+```text
+server/
+  src/        runtime (core API, extensions, proxy, storage, Node/desktop hosts)
+  ui/         dashboard (React + Vite + Tailwind), served under /server/
+  test/       node --test suites
+  scripts/    build.mjs, dev.mjs
+  dist/       build output (git-ignored)
+    interpreter.mjs            QuickJS adapters (Sora / Mangayomi / Seanime / Tatakai scripts)
+    node-extension-worker.cjs  worker bootstrap for trusted Node bundles (Toko)
+    quickjs.wasm
+    ui/                        dashboard, base /server/
 ```
 
-This builds the runtime and starts both API **8787** and dashboard
-[localhost:5173](http://localhost:5173), with UI hot reload. Keep this command
-running. `PORT` changes the API port; `DEV_UI_PORT` changes the dashboard port.
-Restart after server code/environment changes. Stop any older dashboard-only
-Vite command with Ctrl+C first; the updated command fixes its missing-API proxy.
+## Build
 
-## Deploy
+Requires **Node.js 22.16+** (`node:sqlite`) and a `node_modules` installed for
+the current OS from the root lockfile. From the repository root:
 
-### Vercel
-
-Use the button to import **Snozxyx/TatakaiServer**. Leave **Root Directory** at
-the repository root and choose framework **Other**. The package's `vercel.json` builds the dashboard and
-routes `/api/server/*` to its function.
-
-Provide `SERVER_SECRET` (32+ random characters), `BOOTSTRAP_SECRET`, `PUBLIC_URL`
-(your HTTPS origin), a **Neon Postgres** `DATABASE_URL` and a private Vercel Blob
-store's `BLOB_READ_WRITE_TOKEN`. Apply `migrations/0001_state.sql` to Postgres
-before setup. Keep storage and secrets attached across redeployments.
-
-This adapter runs compatible HTTP addons/interpreted scripts, not trusted Node
-bundles such as Toko. Proxy responses are deliberately bounded to independently
-requested HLS resources and validated Range requests up to **4 MiB/25 seconds**,
-within the configured function duration. Long/large responses fail explicitly;
-function duration includes streaming. See [monorepo configuration](https://vercel.com/docs/monorepos)
-and [function limits](https://vercel.com/docs/functions/limitations).
-
-### Cloudflare Workers
-
-Use the button with **Snozxyx/TatakaiServer**. Root `wrangler.jsonc` builds the
-server and declares `DB` (D1), static assets, required secrets and observability.
-It does not provision R2 or select a paid Workers plan. Provide `SERVER_SECRET` and
-`BOOTSTRAP_SECRET` in the deployment flow. After resource provisioning, apply the
-D1 schema **from the repository root**, then open the Workers HTTPS URL:
-
-```powershell
-npx wrangler d1 migrations apply DB --remote --config wrangler.jsonc
+```sh
+npm ci --ignore-scripts      # or your normal npm install
+npm run server:build         # node server/scripts/build.mjs
+npm run server:test          # node --test "server/test/*.test.mjs"
 ```
 
-D1 stores configuration, logs, extension artifacts and encrypted cache bodies.
-Artifacts are chunked below D1 row limits and written transactionally (up to
-4 MiB per artifact). Apply both SQL migrations. Serverless memory is not durable
-storage. HTTP addons and bounded scripts are supported; native
-Java/browser/torrent adapters are unavailable. For manual CLI deployment,
-set both secrets, provision the declared resources and apply migrations. See [Cloudflare's deployment flow](https://developers.cloudflare.com/workers/platform/deploy-buttons/).
+`server:build` wipes and recreates `server/dist`. esbuild resolves packages
+from `<repo>/node_modules` and maps `@` to `<repo>/src`; the dashboard is built
+with Vite using `server/ui/vite.config.ts` and `base: '/server/'`.
 
-R2 is optional: use `wrangler.r2.jsonc` if you choose to enable it. Existing R2
-deployments should retain that binding/configuration until their artifacts are
-migrated; changing storage does not copy existing artifacts automatically.
+The Java compatibility runtime (Aniyomi / Mihon / CloudStream) is **not** part
+of `dist`. Both hosts load it from `desktop/runtime/compatibility/` in place,
+and `aniyomi.cjs` checks its bootstrap sources against
+`aniyomi-compiled.json` at `<repo>/desktop/runtime/compatibility/aniyomi-java/**`
+and `<repo>/shared/aniyomi/**`. Keep that layout wherever the server runs (the
+Docker image keeps it).
 
-### Heroku
+## Embedded in Tatakai desktop (Windows / Linux)
 
-The button uses root `app.json`, `heroku.yml` and `Dockerfile`, configuring
-a container web process, generated secrets and a **paid Postgres add-on**.
-Set `PUBLIC_URL` to your app's HTTPS origin. Copy `BOOTSTRAP_SECRET` from Config
-Vars into initial setup.
+`desktop/runtime/home-server/index.cjs` imports `<appRoot>/server/src/desktop.mjs`
+and calls:
 
-When `DATABASE_URL` exists, Node stores both state and artifacts in Postgres,
-creating tables on startup. Dyno files are not durable state. The template uses
-Heroku's documented `PGSSLMODE=no-verify`: the database connection is encrypted
-but its certificate is not verified. For another provider, use its verified TLS
-settings. Keep environment secrets stable. See [container setup](https://devcenter.heroku.com/articles/build-docker-images-heroku-yml)
-and [Postgres settings](https://devcenter.heroku.com/articles/connecting-heroku-postgres).
-
-### Render
-
-The button uses root `render.yaml`: **no preset compute plan**, no paid disk or automatically
-created database, generated secrets and health checks. Supply a Postgres
-`DATABASE_URL` of your choice (for example, an external free-tier database).
-State, artifacts, logs and cache are stored there. The service refuses to fall
-back to temporary local files if the database URL is missing.
-
-Automatic upstream redeploys are disabled. Public URLs use `RENDER_EXTERNAL_URL`;
-set `PUBLIC_URL` for a custom domain. Select **Free** in Render's configuration
-if you want free compute; Render may otherwise preselect its own paid default.
-Retrieve `BOOTSTRAP_SECRET` from Environment
-for setup. Users handle provider account checks, billing prompts and optional
-upgrades themselves. Free services can sleep and cannot attach persistent disks;
-see [Render's free-service limits](https://render.com/docs/free) and
-[deployment-button flow](https://render.com/docs/deploy-to-render).
-
-### Docker / self-hosted Node
-
-Build from the **repository root**:
-
-```powershell
-docker build -t tatakai-server .
-docker run --rm -p 8787:8787 -v tatakai-data:/data -e PUBLIC_URL=http://localhost:8787 tatakai-server
+```js
+const runtime = await createDesktopServer({ app, legacyStore, adapters });
+// runtime = { bootstrap, handle(req, res, base), close(), createPairing(origin), info() }
 ```
 
-Use HTTPS for public connections. Containers use `HOST=0.0.0.0`; standalone Node
-defaults to `127.0.0.1`. Optional Java/browser adapters need extra runtime packages;
-base images do not install them.
+- `adapters` come from `desktop/ipc/ipc-home-server.cjs`: `compatibilityBroker()`
+  (read lazily, because the broker starts with the extension runtime),
+  `isLocalMediaUrl(url)`, `listExtensions()` and `invokeExtension(...)`. The
+  desktop server publishes the Electron compatibility broker (Aniyomi, Mihon,
+  CloudStream) and the installed `.kai` extensions as sources, next to the
+  interpreted extensions installed in the dashboard.
+- State lives in `<userData>/extension-server/` (`server.sqlite`, `artifacts/`,
+  `secrets.json`). A legacy Home Server password is migrated once (a backup is
+  written to `home-server.before-migration.json`). With nothing to migrate, the
+  server is configured on first run as `Tatakai (<hostname>)` so the PC can pair
+  immediately; owner access uses the **setup secret** (`bootstrap`, shown in
+  Electron as "Copy setup secret").
+- The desktop server runs with `requireDeviceToken`: no anonymous LAN access.
+  Phones pair with a one-time code, or sign in with the optional viewer password.
+- If `server/dist` is missing, `createDesktopServer` rejects with
+  `Error('extension server not built')` and Electron answers
+  `503 extension_server_unavailable` on `/server/*` and `/api/server/*`. The
+  rest of the Home Server keeps working.
+- `info()` returns `{ name, sourceCount, ecosystems }` for the Electron settings
+  screen. `createPairing(origin)` returns `{ code, expiresIn, deepLink }`.
 
-## Dashboard and live logs
+Routes on the Home Server port:
 
-- **Sources:** installation, updates, enable/disable, preferences, repositories.
-- **Playground:** source tests before connecting clients.
-- **Devices & Pairing:** connection URL/QR and viewer-token revocation.
-- **System & Settings:** passwords, origins, timeout/concurrency, languages/order,
-  cache limits and configuration export/import.
-- **Live Logs:** owner-only, refreshes every two seconds while open, with
-  pause/resume, empty and error states. Last **200** structured request/source
-  events persist across restarts/cold starts. Passwords, tokens, request bodies,
-  query strings, upstream URLs and provider credentials are excluded. This is
-  activity logging, not raw provider console output or shell access.
+| Path | Served by |
+| --- | --- |
+| `/`, `/home`, `/ui/*`, anything else | legacy remote UI (unchanged) |
+| `/api/home/*` | legacy Home Server API (unchanged) |
+| `/server` → `301 /server/`; `/server/*` | extension server dashboard (SPA fallback for paths without an extension) |
+| `/api/server/v1/*` (including `/media/*`) | extension server API |
+
+Packaging (electron-builder, root `package.json`): `files` must include
+`server/src/**/*` and `server/dist/**/*`; `asarUnpack` must include
+`server/dist/quickjs.wasm` and `server/dist/node-extension-worker.cjs`; run
+`npm run server:build` before electron-builder.
+
+## Linking a phone
+
+The owner creates a one-time pairing code (five minutes, single use) from
+Electron settings or the dashboard. The QR code and the "copy link" button both
+carry the same **deep link**:
+
+```text
+tatakai://extensionserver/connect?server=<encodeURIComponent(origin)>&code=<encodeURIComponent(code)>
+```
+
+`origin` is the address the phone can reach: the PC's LAN address
+(`http://192.168.x.y:<port>`), its Tailscale address, or the HTTPS tunnel URL
+when away from home. Clients accept plain `http://` only for loopback, private
+(RFC1918), link-local, CGNAT / Tailscale (`100.64.0.0/10`, `fc00::/7`) and
+`*.local` hosts; anything else must be HTTPS. Pairing returns a revocable device
+token (Devices in the dashboard). Clients can also connect with the server URL
+and the viewer password.
+
+What you gain: Aniyomi, Mihon and CloudStream sources (PC only) on the phone;
+extensions installed and configured once for every device; scraping and
+Cloudflare bypass done by the PC's browser; shared cache and progressive
+results; less battery and CPU used on the phone. What it costs: the PC must be
+on with Tatakai open; away from home you need the HTTPS tunnel (or Tailscale);
+video goes through the PC's proxy (its upload bandwidth when you are away); a
+port is open on your LAN; source lookups have a little more latency. If the PC
+does not answer, the apps keep using their local extensions.
+
+## Standalone Node (VPS / homelab)
+
+```sh
+npm run server:build
+npm run server:start         # node server/src/node.mjs
+```
+
+Open `http://localhost:8787/server/` (`GET /` redirects there). The startup
+banner prints the dashboard, API and health URLs.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PORT` | `8787` | listen port |
+| `HOST` | `127.0.0.1` | bind address (`0.0.0.0` to accept LAN / container traffic) |
+| `DATA_DIR` | `<repo>/server/data` | SQLite state, artifacts, `node-secrets.json` |
+| `PUBLIC_URL` | `http://localhost:<PORT>` | origin used for minted media URLs (set it behind a reverse proxy) |
+| `SERVER_SECRET` | generated | encryption key (32+ chars); generated once into `node-secrets.json` if unset |
+| `BOOTSTRAP_SECRET` | generated | setup key; generated once into `node-secrets.json` if unset |
+| `ENABLE_NATIVE_EXTENSIONS` | off | `1` loads the Java compatibility broker (Aniyomi / Mihon / CloudStream); it downloads its pinned runtime into `DATA_DIR/compatibility` when you prepare it in the dashboard |
+| `ENABLE_BROWSER_RUNTIME` | off | `1` enables the headless Playwright bridge for browser-dependent sources (needs `npx playwright install chromium`) |
+| `REQUIRE_PERSISTENT_STORAGE` | off | `1` refuses to start without an explicit `DATA_DIR` |
+
+`server/.env` is loaded if present (`process.loadEnvFile`); real environment
+variables win. `DATABASE_URL` is rejected: the Postgres adapter is gone.
+
+First run: copy `bootstrapSecret` from `DATA_DIR/node-secrets.json` into the
+dashboard setup. Keep that file private and back it up with the data directory:
+the encryption key must survive restarts. In standalone mode, a server without a
+viewer password is public (as before); set one for anything reachable from the
+internet, and use HTTPS for public connections.
+
+### Development
+
+```sh
+npm run server:dev
+```
+
+Builds the runtime, starts the API on `PORT` (8787) and serves the dashboard
+with hot reload at `http://localhost:5173/server/` (`DEV_UI_PORT`). Vite proxies
+`/api` to the API.
+
+### Docker (Linux)
+
+The image builds from the **repository root** (it needs the root lockfile and
+the app sources the server bundles):
+
+```sh
+docker build -f server/Dockerfile -t tatakai-server .
+docker run --rm -p 8787:8787 -v tatakai-data:/data \
+  -e PUBLIC_URL=http://192.168.1.10:8787 tatakai-server
+```
+
+The build stage runs `npm ci --ignore-scripts` and `npm run server:build`; the
+runtime stage installs production dependencies only and copies `server/src`,
+`server/dist`, `desktop/runtime/compatibility` and `shared/aniyomi`. It runs as
+`node` with `HOST=0.0.0.0`, `DATA_DIR=/data` (volume) and a health check on
+`/api/server/v1/health`. Java and Playwright browsers are not installed;
+add them in a derived image if you enable those adapters.
 
 ## Capability matrix
 
-| Capability | Node / desktop | Render / Heroku Node | Vercel | Workers |
-| --- | --- | --- | --- | --- |
-| Stremio HTTP addons | Yes | Yes | Yes | Yes |
-| Compatible Tatakai/Seanime/Sora/Mangayomi scripts | Bounded interpreter | Bounded interpreter | Bounded interpreter | Bounded interpreter |
-| Trusted Node bundles (e.g. Toko) | Owner opt-in | Owner opt-in | No | No |
-| Mihon/CloudStream/Aniyomi | Optional Java runtime | Extra runtime installation | No | No |
-| Browser-dependent sources | Desktop / optional Playwright | Extra browser installation | No | No |
-| Kodi | No execution adapter | No execution adapter | No | No |
-| HLS, images, subtitles, Range/HEAD proxy | Yes | Yes | Bounded | Host limits apply |
-| Library/downloads/household/consent/torrent/sharing | Desktop compatibility layer | No | No | No |
+| Capability | Desktop (Electron) | Standalone Node / Docker |
+| --- | --- | --- |
+| Stremio HTTP addons | Yes | Yes |
+| Tatakai / Seanime / Sora / Mangayomi scripts | Bounded QuickJS interpreter | Bounded QuickJS interpreter |
+| Trusted Node bundles (e.g. Toko) | Owner opt-in (worker thread) | Owner opt-in (worker thread) |
+| Installed `.kai` extensions of the app | Yes (via Electron) | No |
+| Aniyomi / Mihon / CloudStream | Electron compatibility broker | `ENABLE_NATIVE_EXTENSIONS=1` (downloads its Java runtime) |
+| Browser-dependent sources / Cloudflare | Electron browser bridge | `ENABLE_BROWSER_RUNTIME=1` (headless Playwright, no interactive sign-in) |
+| Kodi | No execution adapter | No execution adapter |
+| HLS, images, subtitles, Range/HEAD proxy | Yes | Yes |
+| Anonymous access without viewer password | No (pairing or viewer password) | Yes (set a viewer password) |
+| Pairing deep link / QR | Yes | Yes |
 
-Actual support depends on each extension's APIs and provider availability;
-ecosystem names are not universal compatibility claims. Themes/renderer UI remain
-client features. Native code is owner-trusted software with host file/network
-access, not a security sandbox.
+Actual support depends on each extension's APIs and provider availability.
+Native code is owner-trusted software with host file and network access; a
+worker thread contains crashes and timeouts but is not a security sandbox.
 
-## Validation
+## Dashboard
 
-```powershell
-npm test
-npm run build
-```
+- **Sources:** install, update, enable/disable, preferences, repositories.
+- **Playground:** test a source before connecting clients.
+- **Devices & Pairing:** one-time pairing QR / deep link and device-token revocation.
+- **System & Settings:** passwords, allowed origins, timeout/concurrency,
+  languages/order, cache limits, configuration export/import.
+- **Live Logs:** owner-only structured request/source events (the last 200
+  persist). Passwords, tokens, request bodies, query strings, upstream URLs and
+  provider credentials are never logged. No telemetry is sent anywhere.
 
-Tests cover API/auth separation, setup/revocation/redaction, persistence/CAS,
-invalid packages/update rollback, URL protection, proxy/cache, progressive results
-and provider priority. Shared-core platform tests do not constitute hosted
-deployment tests. Local Workerd/D1/R2 and representative script/Toko executions
-were exercised during development. Vercel, Heroku, Render and Docker still need
-deployment verification in actual provider accounts.
+## Coming soon
 
-## Used from TatakaiV6
-
-This service is a Git submodule at `tatakai-server/` in the main Tatakai checkout.
-Clone Tatakai with `git clone --recurse-submodules`, or run
-`git submodule update --init --recursive` in an existing checkout. The website
-connects through the API; the service can also be deployed independently.
+Server mode for Tatakai Next desktop (`apps/desktop-native`), optional and
+configurable.
