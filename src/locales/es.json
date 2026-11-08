@@ -7180,7 +7180,13 @@
       "insecureHost": "Bloqueado: {{host}} no está en tu red local, así que debe usar https://.",
       "unreachable": "No se pudo conectar con el servidor. Comprueba que la PC esté encendida, Tatakai abierto y que ambos dispositivos compartan la red.",
       "wrongPassword": "Contraseña incorrecta.",
-      "incompatible": "Este servidor usa una versión de protocolo incompatible. Actualiza Tatakai en la PC."
+      "incompatible": "Este servidor usa una versión de protocolo incompatible. Actualiza Tatakai en la PC.",
+      "invalidUrl": "Escribe solo la dirección del servidor, por ejemplo http://192.168.1.20:8090, sin ruta ni contraseña.",
+      "pairingRequired": "Esta PC solo acepta dispositivos emparejados. Genera un código de emparejamiento en Tatakai en la PC y pega aquí el enlace.",
+      "revoked": "El acceso a este servidor caducó o se revocó desde la PC. Vuelve a emparejar este dispositivo.",
+      "throttled": "Demasiados intentos. Espera un minuto y vuelve a intentarlo.",
+      "setupRequired": "Este servidor todavía no está configurado. Termina su configuración en la PC primero.",
+      "requestFailed": "El servidor no pudo completar la solicitud (HTTP {{status}})."
     },
     "benefitsTitle": "¿Por qué vincular el teléfono con tu PC?",
     "prosTitle": "Ventajas",
@@ -7209,6 +7215,29 @@
     "comingSoonTitle": "Próximamente",
     "comingSoon": {
       "desktopNext": "Modo servidor para Tatakai Next de escritorio, opcional y configurable."
-    }
+    },
+    "pair": "Emparejar este dispositivo",
+    "pairWith": "¿Emparejar con {{host}}?",
+    "pasteLinkHint": "En la PC abre Ajustes → Home Server → Vincular teléfono y copia el enlace o escanea su código QR con la cámara. También puedes pegar solo el código si la dirección está escrita abajo.",
+    "trustWarning": "Este servidor recibirá tus búsquedas de fuentes y transmitirá el video a través de su proxy. Conéctate solo a tu propia PC o a un servidor de confianza.",
+    "linkRefreshed": "Este enlace ya se abrió. Vuelve a pegar el enlace de emparejamiento o escribe la dirección y la contraseña.",
+    "reconnect": "Reconectar",
+    "reconnectHint": "Escribe la contraseña de viewer, o pega un enlace de emparejamiento nuevo, para reconectar.",
+    "test": "Probar",
+    "testOk": "{{name}} responde correctamente.",
+    "serverName": "Nombre en este dispositivo",
+    "removed": "Servidor quitado de este dispositivo.",
+    "statusChecking": "Comprobando",
+    "statusDisabled": "Desactivado",
+    "statusIncompatible": "Incompatible",
+    "statusUnknown": "Desconocido",
+    "runningFor": "En marcha desde hace {{time}}",
+    "refreshStatus": "Actualizar el estado de {{name}}",
+    "manage": "Gestionar servidores",
+    "statusDescription": "PCs y servidores vinculados a este dispositivo. El estado se actualiza cada minuto.",
+    "emptyStatus": "Vincula este dispositivo con Tatakai en tu PC con Windows o Linux para usar sus extensiones aquí.",
+    "downloadTitle": "Servidor de extensiones incluido",
+    "downloadDescription": "Tatakai para Windows y Linux ya incluye el servidor de extensiones: no hay que instalar nada más. Abre Ajustes → Home Server en la PC y vincula tu teléfono con un código QR para usar en Android las fuentes Aniyomi, Mihon y CloudStream de la PC.",
+    "downloadStandalone": "Para un VPS o un homelab, el mismo servidor funciona sin la app de escritorio desde la carpeta server/ del repositorio (Node o Docker)."
   }
 }

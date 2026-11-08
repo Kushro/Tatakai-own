@@ -7180,7 +7180,13 @@
       "insecureHost": "ブロックしました: {{host}} はローカルネットワーク外のため https:// が必要です。",
       "unreachable": "サーバーに接続できません。PCの電源が入っていて、Tatakaiが起動し、両方の端末が同じネットワークにあるか確認してください。",
       "wrongPassword": "パスワードが違います。",
-      "incompatible": "このサーバーは互換性のないプロトコルバージョンを使っています。PCのTatakaiを更新してください。"
+      "incompatible": "このサーバーは互換性のないプロトコルバージョンを使っています。PCのTatakaiを更新してください。",
+      "invalidUrl": "サーバーのアドレスだけを入力してください（例: http://192.168.1.20:8090）。パスやパスワードは含めません。",
+      "pairingRequired": "このPCはペアリング済みのデバイスのみ受け付けます。PCのTatakaiでペアリングコードを生成し、そのリンクをここに貼り付けてください。",
+      "revoked": "このサーバーへのアクセスは期限切れか、PCで取り消されました。もう一度ペアリングしてください。",
+      "throttled": "試行回数が多すぎます。1分待ってからもう一度お試しください。",
+      "setupRequired": "このサーバーはまだ設定されていません。先にPCで設定を完了してください。",
+      "requestFailed": "サーバーがリクエストを完了できませんでした（HTTP {{status}}）。"
     },
     "benefitsTitle": "スマホをPCと連携する理由",
     "prosTitle": "メリット",
@@ -7209,6 +7215,29 @@
     "comingSoonTitle": "近日公開",
     "comingSoon": {
       "desktopNext": "デスクトップ版Tatakai Next向けのサーバーモード（任意・設定可能）。"
-    }
+    },
+    "pair": "このデバイスをペアリング",
+    "pairWith": "{{host}} とペアリングしますか？",
+    "pasteLinkHint": "PCで 設定 → ホームサーバー → スマートフォンをリンク を開き、リンクをコピーするかQRコードをカメラで読み取ってください。下にアドレスを入力済みなら、コードだけを貼り付けることもできます。",
+    "trustWarning": "このサーバーはソース検索を受け取り、プロキシ経由でメディアを配信します。自分のPCか信頼できるサーバーにだけ接続してください。",
+    "linkRefreshed": "このリンクはすでに開かれています。ペアリングリンクをもう一度貼り付けるか、アドレスとパスワードを入力してください。",
+    "reconnect": "再接続",
+    "reconnectHint": "再接続するには、viewerパスワードを入力するか新しいペアリングリンクを貼り付けてください。",
+    "test": "テスト",
+    "testOk": "{{name}} は正常に応答しています。",
+    "serverName": "このデバイスでの名前",
+    "removed": "このデバイスからサーバーを削除しました。",
+    "statusChecking": "確認中",
+    "statusDisabled": "無効",
+    "statusIncompatible": "非互換",
+    "statusUnknown": "不明",
+    "runningFor": "稼働時間 {{time}}",
+    "refreshStatus": "{{name}} の状態を更新",
+    "manage": "サーバーを管理",
+    "statusDescription": "このデバイスにリンクされたPCとサーバー。状態は1分ごとに更新されます。",
+    "emptyStatus": "WindowsまたはLinuxのPCのTatakaiとこのデバイスをリンクすると、その拡張機能をここで使えます。",
+    "downloadTitle": "拡張機能サーバー内蔵",
+    "downloadDescription": "Windows・Linux版Tatakaiには拡張機能サーバーが含まれているため、追加のインストールは不要です。PCで 設定 → ホームサーバー を開き、QRコードでスマートフォンをリンクすると、PCのAniyomi・Mihon・CloudStreamのソースをAndroidで使えます。",
+    "downloadStandalone": "VPSやホームラボでは、リポジトリの server/ フォルダーから同じサーバーをデスクトップアプリなしで実行できます（NodeまたはDocker）。"
   }
 }
