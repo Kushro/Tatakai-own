@@ -23,7 +23,11 @@ export async function nodeInterpreter(options) {
   const bounded = { ...options, signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(25000)]) : AbortSignal.timeout(25000) };
   await acquire(bounded.signal);
   try {
-    bootstrap ||= readFile(new URL('../dist/node-extension-worker.cjs', import.meta.url), 'utf8');
+    // Built by server/scripts/build.mjs; a failed read is not cached so a later build is picked up.
+    bootstrap ||= readFile(new URL('../dist/node-extension-worker.cjs', import.meta.url), 'utf8').catch(error => {
+      bootstrap = undefined;
+      throw error.code === 'ENOENT' ? Object.assign(Error('extension server not built'), { status: 503, code: 'extension_server_not_built' }) : error;
+    });
     return await execute({ ...bounded, bootstrap: await bootstrap });
   }
   finally { if (waiting.length) waiting.shift().resolve(); else active--; }
