@@ -222,6 +222,15 @@
     <string name="settings_onboarding_welcome_body">Watch anime with your extensions, keep your lists on AniList or MyAnimeList and continue on your PC. Everything here can be changed later in Settings.</string>
     <string name="settings_onboarding_appearance_title">Language and theme</string>
     <string name="settings_onboarding_appearance_body">Pick how Tatakai looks.</string>
+    <string name="settings_onboarding_playback_title">Playback</string>
+    <string name="settings_onboarding_playback_body">Choose the player and which sources Tatakai picks first. The rest is in Settings › Player.</string>
+    <string name="settings_onboarding_permissions_title">Permissions</string>
+    <string name="settings_onboarding_permissions_body">Tatakai only asks for what it uses. Everything here is optional.</string>
+    <string name="settings_onboarding_notifications">Notifications</string>
+    <string name="settings_onboarding_notifications_hint">Show torrent downloads running in the background and the playback controls.</string>
+    <string name="settings_onboarding_notifications_allow">Allow</string>
+    <string name="settings_onboarding_notifications_granted">Allowed</string>
+    <string name="settings_onboarding_notifications_denied">Not allowed. You can turn them on later in the Android settings for Tatakai.</string>
     <string name="settings_onboarding_lists_title">Your lists</string>
     <string name="settings_onboarding_lists_body">Optional: link AniList or MyAnimeList to bring your lists, progress and favorites. Without an account they stay on this phone.</string>
     <string name="settings_onboarding_link_title">Your PC</string>

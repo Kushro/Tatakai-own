@@ -120,7 +120,7 @@ class AccountsViewModel(
         lists.pendingChanges,
         lists.lastSyncedAt,
         lists.conflicts().catch { emit(emptyList()) },
-        combine(local, control?.firstSyncPending ?: flowOf(emptySet())) { l, p -> l to p },
+        combine(local, control?.firstSyncPending ?: flowOf(emptySet<ListProvider>())) { l, p -> l to p },
     ) { accounts, pending, synced, conflicts, (l, firstPending) ->
         AccountsUiState(
             accounts = accounts,
