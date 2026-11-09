@@ -419,7 +419,7 @@ internal fun LazyListScope.hubSections(
 }
 
 @Composable
-private fun SectionHead(title: String, hint: String) {
+internal fun SectionHead(title: String, hint: String) {
     Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
         Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
