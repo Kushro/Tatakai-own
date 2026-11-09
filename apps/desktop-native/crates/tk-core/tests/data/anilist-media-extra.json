@@ -1,0 +1,56 @@
+{
+  "data": {
+    "Media": {
+      "id": 154587,
+      "idMal": 52991,
+      "isAdult": false,
+      "format": "TV",
+      "source": "MANGA",
+      "season": "FALL",
+      "seasonYear": 2023,
+      "duration": 24,
+      "title": { "romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End", "native": "葬送のフリーレン" },
+      "startDate": { "year": 2023, "month": 9, "day": 29 },
+      "endDate": { "year": 2024, "month": 3, "day": null },
+      "studios": { "edges": [
+        { "isMain": true, "node": { "name": "MADHOUSE" } },
+        { "isMain": false, "node": { "name": "Aniplex" } },
+        { "isMain": false, "node": { "name": "Dentsu" } }
+      ] },
+      "countryOfOrigin": "JP",
+      "meanScore": 90,
+      "popularity": 400000,
+      "favourites": 50000,
+      "synonyms": ["Frieren at the Funeral", "Frieren at the Funeral", " "],
+      "tags": [
+        { "name": "Elf", "rank": 96, "isMediaSpoiler": false },
+        { "name": "Time Skip", "rank": 80, "isMediaSpoiler": true },
+        { "name": "Travel", "rank": 140, "isMediaSpoiler": false }
+      ],
+      "trailer": { "id": "qgQ1Ss1m0hY", "site": "YouTube", "thumbnail": "https://i.ytimg.com/vi/qgQ1Ss1m0hY/hqdefault.jpg" },
+      "nextAiringEpisode": null,
+      "relations": { "edges": [
+        { "relationType": "SOURCE", "node": { "id": 118586, "idMal": 126287, "type": "MANGA", "format": "MANGA", "title": { "romaji": "Sousou no Frieren" }, "coverImage": { "large": "https://example.invalid/m.jpg" } } },
+        { "relationType": "SIDE_STORY", "node": { "id": 170068, "type": "ANIME", "format": "ONA", "title": { "romaji": "Sousou no Frieren: Marumaru no Mahou" } } },
+        { "relationType": "OTHER", "node": { "id": 0 } }
+      ] },
+      "characters": { "edges": [
+        { "role": "MAIN", "node": { "id": 176754, "name": { "full": "Frieren" }, "image": { "medium": "https://example.invalid/c.png" } },
+          "voiceActors": [ { "id": 95185, "name": { "full": "Atsumi Tanezaki" }, "image": { "medium": "https://example.invalid/va.png" }, "languageV2": "Japanese" } ] },
+        { "role": "SUPPORTING", "node": { "id": 176755, "name": { "full": "Fern" }, "image": null }, "voiceActors": [] }
+      ] },
+      "staff": { "edges": [
+        { "role": "Director", "node": { "id": 101, "name": { "full": "Keiichirou Saitou" }, "image": { "medium": null } } },
+        { "role": "Original Creator", "node": { "id": null, "name": { "full": "Nobody" } } }
+      ] },
+      "recommendations": { "nodes": [
+        { "mediaRecommendation": { "id": 21, "type": "ANIME", "format": "TV", "title": { "romaji": "ONE PIECE" } } },
+        { "mediaRecommendation": null }
+      ] },
+      "externalLinks": [
+        { "site": "Crunchyroll", "url": "https://www.crunchyroll.com/series/GG5H5XQX4/frieren-beyond-journeys-end" },
+        { "site": "Broken", "url": "javascript:alert(1)" }
+      ]
+    }
+  }
+}
