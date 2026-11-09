@@ -3,6 +3,7 @@ package app.tatakai.next.feature.settings
 import app.tatakai.next.data.PROP_ANILIST_CLIENT_ID
 import app.tatakai.next.data.PROP_MAL_CLIENT_ID
 import app.tatakai.next.model.ListProvider
+import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
@@ -20,6 +21,7 @@ val settingsModule = module {
             lists = getOrNull(),
             link = getOrNull(),
             reset = getOrNull(),
+            images = CoilImageCache(androidContext()),
         )
     }
     // parity wave A (15 §3.3-3.4, worker q): Listas y cuentas (OAuth redirect from PendingOAuthRedirect), Acerca de / Datos actions,

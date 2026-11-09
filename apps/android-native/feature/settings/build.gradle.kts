@@ -28,3 +28,9 @@ dependencies {
     implementation(projects.core.data)
     implementation(libs.androidx.core.ktx)
 }
+
+dependencies {
+    // parity wave A closure (worker q, checklist system.clear-cache): "Limpiar caché" also clears Coil's image disk cache through
+    // SingletonImageLoader (coil-compose is already in the catalog and used by core/ui, home, details, search).
+    implementation(libs.coil.compose)
+}

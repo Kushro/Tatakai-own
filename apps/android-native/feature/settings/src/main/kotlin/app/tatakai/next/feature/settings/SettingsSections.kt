@@ -559,7 +559,7 @@ internal fun DataSection(state: SettingsUiState, vm: SettingsViewModel) {
         }
     }
     if (confirmClear) {
-        val bytes = (state.storage as? LoadState.Ok)?.value?.cache?.bytes
+        val bytes = (state.storage as? LoadState.Ok)?.value?.clearableBytes
         AlertDialog(
             onDismissRequest = { confirmClear = false },
             icon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
@@ -592,7 +592,8 @@ internal fun DataSection(state: SettingsUiState, vm: SettingsViewModel) {
 /** Storage bar (prototype `.storage__bar`): metadata cache, torrents, free space; figures in the mono font. */
 @Composable
 private fun StorageBreakdown(info: StorageInfo) {
-    val cache = info.cache?.bytes ?: 0L
+    // metadata table + image disk cache (both go with "Limpiar caché"), shown as one slice and two legend rows
+    val cache = info.clearableBytes ?: 0L
     val torrents = info.torrents?.usedBytes ?: 0L
     val free = info.torrents?.freeBytes ?: 0L
     val total = (cache + torrents + free).coerceAtLeast(1L)
@@ -607,6 +608,7 @@ private fun StorageBreakdown(info: StorageInfo) {
     }
     Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         LegendRow(cacheColor, stringResource(R.string.settings_data_cache), info.cache?.let { formatBytes(it.bytes) })
+        LegendRow(cacheColor, stringResource(R.string.settings_data_images), info.imageBytes?.let { formatBytes(it) })
         LegendRow(torrentColor, stringResource(R.string.settings_data_torrents), info.torrents?.let { formatBytes(it.usedBytes) })
         LegendRow(freeColor, stringResource(R.string.settings_data_free), info.torrents?.let { formatBytes(it.freeBytes) })
         info.torrents?.location?.let { location ->
