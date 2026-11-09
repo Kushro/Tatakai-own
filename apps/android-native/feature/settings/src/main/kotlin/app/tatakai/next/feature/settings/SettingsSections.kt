@@ -283,7 +283,7 @@ internal fun PlayerSection(state: SettingsUiState, vm: SettingsViewModel, onOpen
     }
 }
 
-private fun PlayerEngine.hintRes(): Int = when (this) {
+internal fun PlayerEngine.hintRes(): Int = when (this) {
     PlayerEngine.MEDIA3 -> R.string.settings_engine_media3_hint
     PlayerEngine.MPV -> R.string.settings_engine_mpv_hint
     PlayerEngine.EXTERNAL -> R.string.settings_engine_external_hint
@@ -306,7 +306,7 @@ private fun presetHintRes(id: String): Int = when (id) {
 }
 
 /** ISO 639-1 codes shown as upper-case codes (technical, not translated). */
-private fun langOptions(codes: List<String>): List<SegmentedOption<String>> =
+internal fun langOptions(codes: List<String>): List<SegmentedOption<String>> =
     codes.map { SegmentedOption(it, it.uppercase(Locale.ROOT)) }
 
 @Composable
