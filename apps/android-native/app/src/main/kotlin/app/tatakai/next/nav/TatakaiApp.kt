@@ -111,6 +111,7 @@ import app.tatakai.next.feature.downloads.DownloadsScreen
 import app.tatakai.next.feature.extensions.ExtensionsScreen
 import app.tatakai.next.feature.extensions.ProviderItemScreen
 import app.tatakai.next.feature.extensions.ProviderScreen
+import app.tatakai.next.feature.extensions.rememberProviderResume
 import app.tatakai.next.feature.home.CalendarScreen
 import app.tatakai.next.feature.home.ForYouScreen
 import app.tatakai.next.feature.home.HomeScreen
@@ -503,6 +504,10 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onOpenNotifications = { push(Route.Notifications) },
                     onOpenProvider = { ext, source -> push(Route.Provider(ext, source)) },
                     onOpenProviderItem = { ext, source, item -> push(Route.ProviderItem(ext, source, item)) },
+                    onResumeProviderItem = rememberProviderResume(
+                        onPlay = ::play,
+                        onOpenItem = { ext, source, item -> push(Route.ProviderItem(ext, source, item)) },
+                    ),
                 )
             }
             // parity wave B (16 §3.1, worker r): calendar and "Para ti" sub-screens of Home.

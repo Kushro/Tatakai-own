@@ -10,10 +10,10 @@ Everything else tk-server uses (`axum`, `tower-http`, `argon2`, `tokio`, `tokio-
 
 ## Integrator patch outside tk-server (no new dependency)
 
-`patches/tk-core-net-outbound.patch` (apply from the repo root with `git apply`) adds to `tk-core/src/net.rs`, which k
-does not own: `Policy::route_outbound` (true only in `Policy::extension_fetch()`), the `Outbound` trait, `Clearance`,
+Applied by the integrator of the wave B closure (2026-11-09; the patch file was removed afterwards). It added to
+`tk-core/src/net.rs`, which k does not own: `Policy::route_outbound` (true only in `Policy::extension_fetch()`), the `Outbound` trait, `Clearance`,
 `OutboundFuture`, `OutboundSlot`, `set_extension_outbound`, `is_cloudflare_challenge`, `SafeHttp::with_outbound`, and
 the proxy / clearance / single FlareSolverr retry inside `SafeHttp::send`, with tests. `tk-ext` needs no change: its
 `SafeHttp` is built from `Policy::extension_fetch()`, so every extension `fetch` (host.rs `SafeHttp`, runtime.rs
 `do_fetch`) follows the route the app installs. `tk_server::upstream::ExtOutbound` and `tk-app/src/live/server.rs`
-(`apply_extension_route`) use the new items and only compile once the patch is applied.
+(`apply_extension_route`) use the new items.

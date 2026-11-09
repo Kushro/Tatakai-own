@@ -3396,7 +3396,7 @@
   },
   {
     "wave": "B",
-    "status": "stub",
+    "status": "verified",
     "id": "ext.custom-providers.continue",
     "area": "j",
     "android": "t",
@@ -3404,8 +3404,8 @@
     "classic": "src/components/extensions/ExtensionContinue.tsx",
     "next": null,
     "accept": "Con progreso guardado en un título de proveedor, \"Continuar viendo\" de Inicio también lo muestra y pulsarlo retoma el episodio en el reproductor",
-    "found": "desktop: apps/desktop-native/crates/tk-app/src/live/ext_catalog.rs (provider_history in the local history), apps/desktop-native/crates/tk-app/src/live/home.rs (continue_vms); android: apps/android-native/feature/home/src/main/kotlin/app/tatakai/next/feature/home/HomeScreen.kt (ContinueWatchingRow -> onOpenProviderItem), apps/android-native/feature/home/src/main/kotlin/app/tatakai/next/feature/home/HomeDiscover.kt (parseProviderHistoryId)",
-    "note": "Auditoría F4 ola B (2026-11-09): Android (t / r): la tarjeta de Continuar viendo de un título ext: abre Route.ProviderItem (ficha del proveedor) en vez de retomar el episodio en el reproductor; hace falta otro toque en \"Continuar\". Escritorio verificado."
+    "found": "desktop: apps/desktop-native/crates/tk-app/src/live/ext_catalog.rs (provider_history in the local history), apps/desktop-native/crates/tk-app/src/live/home.rs (continue_vms); android: apps/android-native/feature/home/src/main/kotlin/app/tatakai/next/feature/home/HomeScreen.kt (ContinueWatchingRow -> onResumeProviderItem, fallback onOpenProviderItem), apps/android-native/feature/home/src/main/kotlin/app/tatakai/next/feature/home/HomeDiscover.kt (parseProviderHistoryId), apps/android-native/feature/extensions/src/main/kotlin/app/tatakai/next/feature/extensions/ProviderResume.kt (ProviderResumer, rememberProviderResume), apps/android-native/app/src/main/kotlin/app/tatakai/next/nav/TatakaiApp.kt (Route.Home onResumeProviderItem)",
+    "note": "Auditoría F4 ola B (2026-11-09): Android (t / r): la tarjeta de Continuar viendo de un título ext: abre Route.ProviderItem (ficha del proveedor) en vez de retomar el episodio en el reproductor; hace falta otro toque en \"Continuar\". Escritorio verificado. · Cierre ola B (2026-11-09, t + integrador): Android: la tarjeta de Continuar viendo de un título ext: llama a rememberProviderResume (feature/extensions ProviderResume.kt: lee la ficha del proveedor, retoma el episodio en su posición o pasa al siguiente) cableado en HomeScreen onResumeProviderItem y TatakaiApp; si no lo encuentra abre Route.ProviderItem. Escritorio y Android verificados."
   },
   {
     "id": "ext.custom-providers.read",
@@ -3718,7 +3718,7 @@
   },
   {
     "wave": "B",
-    "status": "stub",
+    "status": "verified",
     "id": "server.api.extensions",
     "area": "k",
     "android": "t",
@@ -3726,8 +3726,8 @@
     "classic": "server/src/extensions.mjs",
     "next": null,
     "accept": "GET /api/server/v1/extensions devuelve las extensiones .kai de la PC con nombre, versión, tipo y fuentes, y el teléfono las muestra en la pantalla del servidor emparejado",
-    "found": "desktop: apps/desktop-native/crates/tk-server/src/routes.rs (GET /extensions); android: apps/android-native/core/extension-server/src/main/kotlin/app/tatakai/next/extensionserver/ExtensionServerClient.kt (GET /extensions), apps/android-native/core/extension-server/src/main/kotlin/app/tatakai/next/extensionserver/ExtensionServerRepository.kt (extensions(id); no screen calls it)",
-    "note": "Auditoría F4 ola B (2026-11-09): Android (t): ExtensionServerClient.extensions (GET /extensions) y ExtensionServerRepository.extensions(id) existen pero ninguna pantalla los llama: la pantalla de servidores (feature/link ExtensionServersScreen / ViewModel) no lista las extensiones de la PC. Escritorio verificado."
+    "found": "desktop: apps/desktop-native/crates/tk-server/src/routes.rs (GET /extensions); android: apps/android-native/core/extension-server/src/main/kotlin/app/tatakai/next/extensionserver/ExtensionServerClient.kt (GET /extensions), apps/android-native/core/extension-server/src/main/kotlin/app/tatakai/next/extensionserver/ExtensionServerRepository.kt (extensions(id)), apps/android-native/feature/extensions/src/main/kotlin/app/tatakai/next/feature/extensions/ServerExtensionsViewModel.kt, apps/android-native/feature/extensions/src/main/kotlin/app/tatakai/next/feature/extensions/ServerExtensionsSection.kt",
+    "note": "Auditoría F4 ola B (2026-11-09): Android (t): ExtensionServerClient.extensions (GET /extensions) y ExtensionServerRepository.extensions(id) existen pero ninguna pantalla los llama: la pantalla de servidores (feature/link ExtensionServersScreen / ViewModel) no lista las extensiones de la PC. Escritorio verificado. · Cierre ola B (2026-11-09, t): Android: Extensiones › \"Extensiones de tu PC\" (feature/extensions ServerExtensionsSection.kt / ServerExtensionsViewModel.kt) llama a ExtensionServerRepository.extensions(id) por cada servidor activo y muestra nombre, versión, ecosistema, tipos y estado; está en feature/extensions y no en feature/link ExtensionServersScreen. Escritorio y Android verificados."
   },
   {
     "id": "server.pairing",
@@ -3805,10 +3805,10 @@
     "classic": "src/components/settings/FlareSolverrSettings.tsx",
     "next": null,
     "accept": "Con una URL de FlareSolverr configurada, las peticiones bloqueadas por Cloudflare pasan por él y \"Probar\" responde ok",
-    "status": "stub",
+    "status": "verified",
     "audit": "Falta",
-    "note": "Android: fuera (servidor: desktop k). · Auditoría F4 ola B (2026-11-09): Escritorio (k): FlareSolverr solo reintenta las peticiones del Upstream de tk-server (proxy de medios e instalador); las peticiones de las extensiones (tk-ext SafeHttp) bloqueadas por Cloudflare nunca pasan por él. \"Probar\" (flaresolverr_test, data-flaresolverr) sí funciona. Android: fuera.",
-    "found": "desktop: apps/desktop-native/crates/tk-server/src/upstream.rs (FlareSolverr retry), apps/desktop-native/crates/tk-app/src/live/server.rs (flaresolverr_test), apps/desktop-native/crates/tk-ui/src/screens/settings/server.rs (data-flaresolverr)"
+    "note": "Android: fuera (servidor: desktop k). · Auditoría F4 ola B (2026-11-09): Escritorio (k): FlareSolverr solo reintenta las peticiones del Upstream de tk-server (proxy de medios e instalador); las peticiones de las extensiones (tk-ext SafeHttp) bloqueadas por Cloudflare nunca pasan por él. \"Probar\" (flaresolverr_test, data-flaresolverr) sí funciona. Android: fuera. · Cierre ola B (2026-11-09, k): un desafío de Cloudflare en una petición de extensión se resuelve una vez por FlareSolverr (60 s) y se reintenta con la cookie de clearance y su User-Agent (caché por host, 10 min). \"Probar\" sigue en flaresolverr_test. Escritorio verificado.",
+    "found": "desktop: apps/desktop-native/crates/tk-server/src/upstream.rs (FlareSolverr retry, ClearanceCache, ExtOutbound::solve), apps/desktop-native/crates/tk-core/src/net.rs (is_cloudflare_challenge, one solve + retry in SafeHttp::send, clearance cookie / UA), apps/desktop-native/crates/tk-app/src/live/server.rs (flaresolverr_test, apply_extension_route), apps/desktop-native/crates/tk-ui/src/screens/settings/server.rs (data-flaresolverr)"
   },
   {
     "id": "server.proxy",
@@ -3819,10 +3819,10 @@
     "classic": "src/components/settings/ProxySettingsPanel.tsx",
     "next": null,
     "accept": "Se puede configurar un proxy HTTP/SOCKS para extensiones y reproducción con botón Probar",
-    "status": "stub",
+    "status": "verified",
     "audit": "Falta",
-    "note": "Android: fuera (servidor: desktop k). · Auditoría F4 ola B (2026-11-09): Escritorio (k): el proxy saliente HTTP / SOCKS solo se aplica al Upstream de tk-server (proxy de medios e instalador) y, con local_proxy, a la reproducción vía el proxy loopback; las peticiones de las extensiones (tk-ext SafeHttp en host.rs / runtime.rs do_fetch) no pasan por él. Android: fuera.",
-    "found": "desktop: apps/desktop-native/crates/tk-server/src/upstream.rs (reqwest::Proxy::all), apps/desktop-native/crates/tk-ui/src/screens/settings/server.rs (outbound_proxy + Test, data-proxy), apps/desktop-native/crates/tk-ui/src/model/server.rs (proxy_url_ok)"
+    "note": "Android: fuera (servidor: desktop k). · Auditoría F4 ola B (2026-11-09): Escritorio (k): el proxy saliente HTTP / SOCKS solo se aplica al Upstream de tk-server (proxy de medios e instalador) y, con local_proxy, a la reproducción vía el proxy loopback; las peticiones de las extensiones (tk-ext SafeHttp en host.rs / runtime.rs do_fetch) no pasan por él. Android: fuera. · Cierre ola B (2026-11-09, k): las peticiones de las extensiones (tk-ext SafeHttp de host.rs con Policy::extension_fetch, también runtime.rs do_fetch) pasan por el proxy saliente HTTP / SOCKS instalado con tk_core::net::set_extension_outbound; el SSRF se sigue validando en cada salto antes del proxy. Escritorio verificado.",
+    "found": "desktop: apps/desktop-native/crates/tk-server/src/upstream.rs (reqwest::Proxy::all, ExtOutbound, extension_route), apps/desktop-native/crates/tk-core/src/net.rs (Policy::extension_fetch route_outbound, SafeHttp::send through the proxy), apps/desktop-native/crates/tk-app/src/live/server.rs (apply_extension_route on start / settings), apps/desktop-native/crates/tk-ui/src/screens/settings/server.rs (outbound_proxy + Test, data-proxy), apps/desktop-native/crates/tk-ui/src/model/server.rs (proxy_url_ok)"
   },
   {
     "id": "server.cors-proxy-local",
@@ -4589,7 +4589,7 @@
   },
   {
     "wave": "B",
-    "status": "stub",
+    "status": "verified",
     "id": "settings.privacy.mature-content",
     "area": "b",
     "android": "r",
@@ -4597,8 +4597,8 @@
     "classic": "src/components/settings/panels/PrivacyPanel.tsx",
     "next": null,
     "accept": "Ajustes ofrece Contenido maduro con tres modos (mostrar, difuminar en resultados, avisar antes); Inicio, Buscar, la ficha y Manga lo respetan (details.adult-gate y manga.adult-gate leen este ajuste)",
-    "note": "Única parte de Privacidad del clásico que no dependía del perfil propio (el resto está out, social.settings.privacy). Dueño b porque afecta a Inicio y descubrir; l y s lo leen · Auditoría F4 ola B (2026-11-09): Android (r): matureContent solo lo leen Inicio (MatureGate) y Manga; Buscar no difumina los resultados 18+ en BLUR y la ficha (feature/details DetailsViewModel.updateAdultGate) ignora el modo (siempre pide confirmación, también con SHOW). Escritorio verificado.",
-    "found": "desktop: apps/desktop-native/crates/tk-ui/src/model/home.rs (MatureContentVm, adult_in_rows / blur_adult), apps/desktop-native/crates/tk-ui/src/screens/settings/home.rs (data-mature), apps/desktop-native/crates/tk-ui/src/screens/search.rs (data-blurred), apps/desktop-native/crates/tk-ui/src/screens/details.rs (gate), apps/desktop-native/crates/tk-ui/src/screens/manga/{home,details,mod}.rs; android: apps/android-native/feature/home/src/main/kotlin/app/tatakai/next/feature/home/MatureContent.kt (MatureGate, Home rows), apps/android-native/feature/manga/src/main/kotlin/app/tatakai/next/feature/manga/MangaHomeScreen.kt / MangaDetailsScreen.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/DiscoverSettingsExtras.kt (selector)"
+    "note": "Única parte de Privacidad del clásico que no dependía del perfil propio (el resto está out, social.settings.privacy). Dueño b porque afecta a Inicio y descubrir; l y s lo leen · Auditoría F4 ola B (2026-11-09): Android (r): matureContent solo lo leen Inicio (MatureGate) y Manga; Buscar no difumina los resultados 18+ en BLUR y la ficha (feature/details DetailsViewModel.updateAdultGate) ignora el modo (siempre pide confirmación, también con SHOW). Escritorio verificado. · Cierre ola B (2026-11-09, r): Android: la ficha sigue matureContent (feature/details DetailsMature.kt adultPresentation: SHOW sin gate, BLUR banner y portada difuminados hasta tocar, WARN AdultGate una vez por título) y Buscar difumina las portadas 18+ en BLUR hasta el primer toque (feature/search SearchMature.kt searchCoverBlurred). Escritorio y Android verificados.",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/model/home.rs (MatureContentVm, adult_in_rows / blur_adult), apps/desktop-native/crates/tk-ui/src/screens/settings/home.rs (data-mature), apps/desktop-native/crates/tk-ui/src/screens/search.rs (data-blurred), apps/desktop-native/crates/tk-ui/src/screens/details.rs (gate), apps/desktop-native/crates/tk-ui/src/screens/manga/{home,details,mod}.rs; android: apps/android-native/feature/home/src/main/kotlin/app/tatakai/next/feature/home/MatureContent.kt (MatureGate, Home rows), apps/android-native/feature/manga/src/main/kotlin/app/tatakai/next/feature/manga/MangaHomeScreen.kt / MangaDetailsScreen.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/DiscoverSettingsExtras.kt (selector), apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsMature.kt (adultPresentation), apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsViewModel.kt (updateAdultGate, revealCover), apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchMature.kt (searchCoverBlurred), apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchScreen.kt (ResultsList blur)"
   },
   {
     "id": "settings.display.language",
