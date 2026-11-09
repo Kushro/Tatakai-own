@@ -718,6 +718,31 @@ mod tests {
     }
 
     #[test]
+    fn fact_rows_skip_missing_data() {
+        let full = MediaFactsVm {
+            format: Some("TV".into()),
+            source: Some("MANGA".into()),
+            season: Some("fall".into()),
+            season_year: Some(2023),
+            duration_min: Some(24),
+            start_date: Some("2023-09-29".into()),
+            end_date: Some("2024-03-22".into()),
+            country: Some("JP".into()),
+            mean_score: Some(90),
+            popularity: Some(400_000),
+            favourites: Some(50_000),
+            ..MediaFactsVm::default()
+        };
+        let rows = fact_rows(&full, Some(28), Some("Finished"));
+        assert_eq!(rows.len(), 11);
+        assert!(rows.iter().any(|(_, v)| v == "2023-09-29 – 2024-03-22"));
+        assert!(rows.iter().any(|(_, v)| v == "400,000"));
+        assert!(fact_rows(&MediaFactsVm::default(), None, None).is_empty());
+        let same_day = MediaFactsVm { start_date: Some("2020-01-01".into()), end_date: Some("2020-01-01".into()), ..MediaFactsVm::default() };
+        assert_eq!(fact_rows(&same_day, None, None)[0].1, "2020-01-01");
+    }
+
+    #[test]
     fn digits_are_grouped() {
         assert_eq!(group_digits(0), "0");
         assert_eq!(group_digits(999), "999");
