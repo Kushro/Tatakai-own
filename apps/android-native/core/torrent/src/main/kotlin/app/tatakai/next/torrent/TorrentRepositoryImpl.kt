@@ -11,6 +11,8 @@ import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.StreamSource
 import app.tatakai.next.model.torrent.AfterWatch
+import app.tatakai.next.model.torrent.EpisodeAlignment
+import app.tatakai.next.model.torrent.TorrentSessionEntry
 import app.tatakai.next.model.torrent.ProtocolStatus
 import app.tatakai.next.model.torrent.StorageLocation
 import app.tatakai.next.model.torrent.TORRENT_METADATA_TIMEOUT_SECS
@@ -42,7 +44,16 @@ import app.tatakai.next.torrent.engine.isSelected
 import app.tatakai.next.torrent.engine.toModel
 import app.tatakai.next.torrent.engine.toModelState
 import app.tatakai.next.torrent.engine.wantedProgress
+import app.tatakai.next.torrent.debrid.DebridRepositoryImpl
 import app.tatakai.next.torrent.policy.AfterWatchAction
+import app.tatakai.next.torrent.policy.AlignFile
+import app.tatakai.next.torrent.policy.CacheItem
+import app.tatakai.next.torrent.policy.PRELOAD_AT
+import app.tatakai.next.torrent.policy.alignedEpisodes
+import app.tatakai.next.torrent.policy.alignedIndex
+import app.tatakai.next.torrent.policy.applySchedule
+import app.tatakai.next.torrent.policy.cacheEvictions
+import app.tatakai.next.torrent.policy.preloadTarget
 import app.tatakai.next.torrent.policy.DeviceConditions
 import app.tatakai.next.torrent.policy.RunFacts
 import app.tatakai.next.torrent.policy.afterWatchAction
@@ -52,6 +63,7 @@ import app.tatakai.next.torrent.policy.downloadedRanges
 import app.tatakai.next.torrent.policy.shouldRun
 import app.tatakai.next.torrent.policy.uploadLimitBytes
 import app.tatakai.next.torrent.store.LabelStore
+import app.tatakai.next.torrent.store.SessionHistoryStore
 import app.tatakai.next.torrent.store.StoredTorrent
 import app.tatakai.next.torrent.stream.LoopbackStreamServer
 import app.tatakai.next.torrent.stream.StreamHandle
@@ -96,7 +108,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import android.net.Uri
 import org.libtorrent4j.AddTorrentParams
+import org.libtorrent4j.AnnounceEntry
 import org.libtorrent4j.Priority
 import org.libtorrent4j.TorrentFlags
 import org.libtorrent4j.TorrentHandle
@@ -120,6 +134,8 @@ import org.libtorrent4j.alerts.TorrentAlert
 internal class TorrentRepositoryImpl(
     context: Context,
     private val settingsRepository: SettingsRepository,
+    /** parity wave A (worker q, sources.debrid.*): a torrent cached on a linked debrid service plays as HTTPS, without libtorrent. */
+    private val debrid: DebridRepositoryImpl? = null,
 ) : TorrentRepository, StreamProvider {
 
     private val app = context.applicationContext
@@ -129,6 +145,8 @@ internal class TorrentRepositoryImpl(
         get() = (app.getExternalFilesDir("torrents") ?: File(app.filesDir, "torrent-downloads")).also { it.mkdirs() }
 
     private val labels = LabelStore(File(stateDir, "labels.json"))
+    private val history = SessionHistoryStore(File(stateDir, "history.json"))
+    @Volatile private var scheduleActive = false
     private val session = LibtorrentSession(stateDir, ::onAlert)
     private val server = LoopbackStreamServer(this)
     private val network = NetworkMonitor(app)
@@ -166,7 +184,10 @@ internal class TorrentRepositoryImpl(
         combine(labels.torrents, live) { stored, liveInfo -> buildLibrary(stored, liveInfo) }
             .stateIn(scope, SharingStarted.Eagerly, buildLibrary(labels.torrents.value, emptyMap()))
 
-    private val settings: TorrentSettings get() = settingsRepository.settings.value.torrent.sanitized()
+    /** The sanitized settings with the bandwidth schedule applied for the current minute (torrent.bandwidth-schedule). */
+    private val settings: TorrentSettings get() = applySchedule(settingsRepository.settings.value.torrent.sanitized(), minuteOfDay())
+
+    private fun minuteOfDay(): Int = java.time.LocalTime.now().let { it.hour * 60 + it.minute }
 
     init {
         network.register()
@@ -201,6 +222,11 @@ internal class TorrentRepositoryImpl(
                 playingId = id
                 val existing = labels[id]
                 if (existing?.movedUri != null) throw AppException(AppError.Unknown("torrent:moved:$id"))
+                // parity wave A (sources.debrid.*): nothing local yet and a linked debrid service has it -> direct HTTPS stream
+                val local = (if (session.isRunning) session.find(id) else null) != null || (existing?.progress ?: 0.0) > 0.0
+                if (fileIndex == null && !local) {
+                    debridPlayback(id, magnet, media, episode)?.let { return@withContext Result.success(it) }
+                }
                 val s = settings
                 val rt = runtime(id)
                 rt.endJob?.cancel()
@@ -224,6 +250,7 @@ internal class TorrentRepositoryImpl(
                 onMetadataKnown(id, handle, info)
                 val files = info.engineFiles()
                 val index = fileIndex?.takeIf { i -> files.any { it.index == i } }
+                    ?: alignedFor(labels[id]?.alignment, files, episode)
                     ?: pickFile(files, episode, titlesOf(media))
                     ?: throw AppException(AppError.Unknown("torrent:no_file:$id"))
                 val file = files.first { it.index == index }
@@ -245,6 +272,7 @@ internal class TorrentRepositoryImpl(
                     extensionId = PROVIDER_ID,
                 )
                 val batch = files.count { isVideoPath(it.path) } > 1
+                recordHistory(id, info.name(), labels[id]?.label, episode, origin = labels[id]?.origin ?: "play")
                 Result.success(
                     TorrentPlayback(
                         args = PlayerArgs(media = media.ref, title = media.title, episode = episode, torrentId = id, fileIndex = index),
@@ -318,6 +346,7 @@ internal class TorrentRepositoryImpl(
                 ),
             )
             val handle = addOrGet(id, magnet)
+            recordHistory(id, labels[id]?.name.orEmpty(), labels[id]?.label, episode, origin = "download")
             val titles = titlesOf(media)
             scope.launch { finishBackgroundAdd(id, handle, titles, episode) }
             startServiceIfNeeded()
@@ -346,7 +375,9 @@ internal class TorrentRepositoryImpl(
         val progress = handle.fileProgress(TorrentHandle.PIECE_GRANULARITY)
         val priorities = handle.filePriorities()
         val rt = runtimes[id]
-        info.engineFiles().map { f ->
+        val all = info.engineFiles()
+        val aligned = labels[id]?.alignment?.let { a -> alignedEpisodes(alignFiles(all), a) }
+        all.map { f ->
             val done = progress.getOrElse(f.index) { 0L }
             TorrentFile(
                 index = f.index,
@@ -357,7 +388,7 @@ internal class TorrentRepositoryImpl(
                 progress = if (f.size <= 0) 1.0 else (done.toDouble() / f.size).coerceIn(0.0, 1.0),
                 selected = priorities.getOrNull(f.index)?.isSelected() == true,
                 streams = rt?.streams?.get(f.index)?.get() ?: 0,
-                episode = episodeOf(f.name),
+                episode = aligned?.get(f.index) ?: episodeOf(f.name),
             )
         }
     }
@@ -381,6 +412,8 @@ internal class TorrentRepositoryImpl(
         val stored = labels[id]
         runtimes.remove(id)?.endJob?.cancel()
         val handle = if (session.isRunning) session.find(id) else null
+        val finalStatus = handle?.let { h -> runCatching { h.status(true) }.getOrNull() }
+        history.markRemoved(id, nowUnix(), finalStatus?.totalWantedDone(), finalStatus?.allTimeUpload())
         if (handle != null) {
             session.remove(handle, deleteFiles)
         } else if (deleteFiles && stored != null) {
@@ -388,6 +421,7 @@ internal class TorrentRepositoryImpl(
         }
         if (deleteFiles) stored?.movedUri?.let(storage::deleteDocument)
         session.resumeFile(id).delete()
+        torrentFile(id).delete()
         labels.remove(id)
         _events.tryEmit(TorrentEvent.Removed(id))
         tickSafely()
@@ -486,6 +520,196 @@ internal class TorrentRepositoryImpl(
             freeBytes = storage.allocatableBytes(downloadDir),
             location = settings.storageLocation,
         )
+    }
+
+    // ------------------------------------------------------------------------------------------------------------------------
+    // parity wave A (15 §3.9, worker q): manual add, alignment, session history, re-announce
+    // ------------------------------------------------------------------------------------------------------------------------
+
+    override suspend fun addManual(source: String, media: Media?, alignment: EpisodeAlignment?, persist: Boolean): Result<TorrentId> =
+        withContext(Dispatchers.IO) {
+            try {
+                val raw = source.trim()
+                val fromFile = raw.startsWith("content://") || raw.startsWith("file://")
+                val id: String
+                val magnet: String
+                var fileParams: AddTorrentParams? = null
+                if (fromFile) {
+                    val bytes = readTorrentBytes(raw)
+                    val ti = try {
+                        TorrentInfo(bytes)
+                    } catch (e: Exception) {
+                        throw AppException(AppError.Unknown("torrent:invalid_file"), e)
+                    }
+                    id = ti.infoHash().toHex().lowercase(Locale.ROOT)
+                    magnet = magnetFor(id)
+                    stateDir.mkdirs()
+                    torrentFile(id).writeBytes(bytes)
+                    fileParams = AddTorrentParams().also { it.setTorrentInfo(ti) }
+                } else {
+                    val resolved = resolveSource(raw)
+                    id = resolved.first
+                    magnet = resolved.second
+                }
+                val existing = labels[id]
+                if (existing?.movedUri != null) throw AppException(AppError.Unknown("torrent:moved:$id"))
+                val origin = if (raw.lowercase(Locale.ROOT).startsWith("magnet:")) "magnet" else "manual"
+                labels.upsert(
+                    (existing ?: StoredTorrent(id = id, magnet = magnet, addedUnix = nowUnix())).copy(
+                        label = media?.let { labelFor(it, null, existing?.label) } ?: existing?.label,
+                        persist = persist || existing?.persist == true,
+                        background = persist || existing?.background == true,
+                        wholeTorrent = persist || existing?.wholeTorrent == true,
+                        alignment = alignment ?: existing?.alignment,
+                        origin = existing?.origin?.takeIf { existing.addedUnix > 0 && it != "play" } ?: origin,
+                        userPaused = false,
+                        completed = false,
+                    ),
+                )
+                val handle = fileParams?.let { addWithParams(id, it) } ?: addOrGet(id, magnet)
+                // a .torrent carries its metadata: no METADATA_RECEIVED alert will come
+                handle.torrentFile()?.let { onMetadataKnown(id, handle, it) }
+                recordHistory(id, labels[id]?.name.orEmpty(), labels[id]?.label, null, origin)
+                startServiceIfNeeded()
+                tickSafely()
+                Result.success(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e.asAppException())
+            }
+        }
+
+    override suspend fun setAlignment(id: TorrentId, media: Media?, alignment: EpisodeAlignment?): Result<Unit> = withContext(Dispatchers.IO) {
+        val updated = labels.update(id) { t ->
+            t.copy(alignment = alignment, label = media?.let { m -> labelFor(m, t.label?.episode, t.label) } ?: t.label)
+        }
+        if (updated == null) Result.failure(AppException(AppError.Unknown("torrent:missing:$id"))) else Result.success(Unit)
+    }
+
+    override fun sessionHistory(limit: Int): Flow<List<TorrentSessionEntry>> = history.entries.map { it.take(limit.coerceAtLeast(0)) }
+
+    override suspend fun clearSessionHistory() = withContext(Dispatchers.IO) { history.clear() }
+
+    override suspend fun reannounce(id: TorrentId): Unit = withContext(Dispatchers.IO) {
+        ensureStarted()
+        val handle = session.find(id) ?: throw AppException(AppError.Unknown("torrent:missing:$id"))
+        runCatching { addCustomTrackers(handle, settings.trackers) }
+        runCatching { handle.forceReannounce() }
+        runCatching { handle.forceDHTAnnounce() }
+        Unit
+    }
+
+    private suspend fun debridPlayback(id: String, magnet: String, media: Media, episode: Int): TorrentPlayback? {
+        val d = debrid ?: return null
+        if (d.accounts.value.isEmpty()) return null
+        val stream = try {
+            d.instantStream(id, magnet, episode)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        recordHistory(id, media.title, labelFor(media, episode, labels[id]?.label), episode, origin = "play")
+        return TorrentPlayback(
+            args = PlayerArgs(media = media.ref, title = media.title, episode = episode),
+            stream = stream,
+            torrentId = id,
+            fileIndex = -1,
+            fileName = stream.url.substringBefore('?').substringAfterLast('/'),
+            batch = false,
+        )
+    }
+
+    private fun recordHistory(id: String, name: String, label: TorrentLabel?, episode: Int?, origin: String) {
+        history.record(
+            TorrentSessionEntry(
+                id = id,
+                name = name.ifBlank { label?.title ?: id },
+                mediaId = label?.mediaId?.takeIf { it.isNotBlank() },
+                series = label?.title,
+                episode = episode ?: label?.episode,
+                addedUnix = nowUnix(),
+                origin = origin,
+            ),
+        )
+    }
+
+    private fun alignFiles(files: List<EngineFile>): List<AlignFile> =
+        files.filter { isVideoPath(it.path) }.map { AlignFile(it.index, it.path, episodeOf(it.name)) }
+
+    private fun alignedFor(alignment: EpisodeAlignment?, files: List<EngineFile>, episode: Int): Int? =
+        alignment?.let { alignedIndex(alignFiles(files), it, episode) }
+
+    private fun addCustomTrackers(handle: TorrentHandle, trackers: List<String>) {
+        if (trackers.isEmpty()) return
+        val have = handle.trackers().map { it.url() }.toSet()
+        trackers.filter { it !in have }.forEach { handle.addTracker(AnnounceEntry(it)) }
+    }
+
+    /** torrent.preload-next: once the streamed file is 80 % downloaded, queue the next episode's file at low priority. */
+    private fun maybePreload(t: StoredTorrent, handle: TorrentHandle, info: TorrentInfo, rt: Runtime) {
+        val videos = info.engineFiles().filter { isVideoPath(it.path) }
+        if (videos.size < 2) return
+        val aligned = t.alignment?.let { a -> alignedEpisodes(alignFiles(videos), a) }
+        val list = videos.map { AlignFile(it.index, it.path, aligned?.get(it.index) ?: episodeOf(it.name)) }
+        val progress = handle.fileProgress(TorrentHandle.PIECE_GRANULARITY)
+        for ((index, count) in rt.streams) {
+            if (count.get() <= 0) continue
+            val file = videos.firstOrNull { it.index == index } ?: continue
+            val fraction = if (file.size <= 0) 1.0 else progress.getOrElse(index) { 0L }.toDouble() / file.size
+            if (fraction < PRELOAD_AT) continue
+            val next = preloadTarget(list, index) ?: continue
+            if (!rt.preloaded.add(next)) continue
+            if (!handle.filePriority(next).isSelected()) handle.filePriority(next, Priority.LOW)
+            labels.update(t.id) { it.copy(selected = (it.selected + next).distinct()) }
+        }
+    }
+
+    /** torrent.cache-limit: streamed (not kept) torrents beyond `cacheLimitMib` are removed with their files, oldest first. */
+    private fun enforceCacheLimit(s: TorrentSettings, liveMap: Map<String, LiveInfo>) {
+        val items = labels.torrents.value.values
+            .filter { !it.persist && !it.background && !it.seed && it.movedUri == null }
+            .map { t ->
+                val size = liveMap[t.id]?.sizeBytes ?: t.sizeBytes
+                val progress = liveMap[t.id]?.progress ?: t.progress
+                val rt = runtimes[t.id]
+                CacheItem(t.id, t.addedUnix, (size * progress).toLong(), inUse = (rt?.openStreams() ?: 0) > 0 || rt?.playing == true)
+            }
+        cacheEvictions(items, s.cacheLimitMib.toLong() * 1024 * 1024).forEach { id -> scope.launch { remove(id, deleteFiles = true) } }
+    }
+
+    private suspend fun addWithParams(id: String, params: AddTorrentParams): TorrentHandle {
+        ensureStarted()
+        session.find(id)?.let { return it }
+        prepareParams(params, settings, paused = false)
+        val handle = session.add(params)
+        _events.tryEmit(TorrentEvent.Added(id))
+        return handle
+    }
+
+    private fun torrentFile(id: String): File = File(stateDir, "$id.torrent")
+
+    private fun torrentFileParams(id: String): AddTorrentParams? {
+        val file = torrentFile(id).takeIf { it.isFile } ?: return null
+        return runCatching { AddTorrentParams().also { it.setTorrentInfo(TorrentInfo(file.readBytes())) } }.getOrNull()
+    }
+
+    private fun readTorrentBytes(uri: String): ByteArray {
+        val input = app.contentResolver.openInputStream(Uri.parse(uri)) ?: throw AppException(AppError.Unknown("torrent:invalid_file"))
+        return input.use { stream ->
+            val out = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(16 * 1024)
+            var total = 0L
+            while (true) {
+                val n = stream.read(buf)
+                if (n < 0) break
+                total += n
+                if (total > MAX_TORRENT_FILE_BYTES) throw AppException(AppError.Unknown("torrent:invalid_file"))
+                out.write(buf, 0, n)
+            }
+            out.toByteArray()
+        }
     }
 
     // ------------------------------------------------------------------------------------------------------------------------
@@ -649,7 +873,7 @@ internal class TorrentRepositoryImpl(
         for (t in labels.torrents.value.values) {
             if (t.movedUri != null || session.find(t.id) != null) continue
             try {
-                val params = session.readResume(t.id) ?: AddTorrentParams.parseMagnetUri(t.magnet ?: magnetFor(t.id))
+                val params = session.readResume(t.id) ?: torrentFileParams(t.id) ?: AddTorrentParams.parseMagnetUri(t.magnet ?: magnetFor(t.id))
                 prepareParams(params, s, paused = true)
                 val handle = session.add(params)
                 handle.torrentFile()?.let { applySelection(handle, it, t) }
@@ -690,7 +914,10 @@ internal class TorrentRepositoryImpl(
             val net = network.state.value
             runCatching { session.applySettings(s, uploadLimitBytes(s, net.metered), lsdAllowed = !net.metered) }
             labels.torrents.value.keys.forEach { id ->
-                session.find(id)?.let { h -> runCatching { h.swig().set_max_connections(s.maxPeers) } }
+                session.find(id)?.let { h ->
+                    runCatching { h.swig().set_max_connections(s.maxPeers) }
+                    runCatching { addCustomTrackers(h, s.trackers) }
+                }
             }
             tickSafely()
         } else {
@@ -755,6 +982,12 @@ internal class TorrentRepositoryImpl(
         }
         tickCount++
         val s = settings
+        val inWindow = s.schedule?.contains(minuteOfDay()) == true
+        if (inWindow != scheduleActive) {
+            // crossing a bandwidth-schedule boundary: apply the other limits to the running session
+            scheduleActive = inWindow
+            scope.launch { onSettingsChanged() }
+        }
         val cond = conditions()
         val liveMap = HashMap<String, LiveInfo>()
         var downBps = 0L
@@ -782,6 +1015,9 @@ internal class TorrentRepositoryImpl(
             val streaming = (rt?.openStreams() ?: 0) > 0
             val playing = rt?.playing == true
             if (streaming && streamingTitle == null) streamingTitle = t.label?.title ?: info?.name()
+            if (streaming && s.preloadNext && info != null && rt != null && tickCount % PRELOAD_EVERY_TICKS == 0L) {
+                runCatching { maybePreload(t, handle, info, rt) }
+            }
             val run = shouldRun(
                 RunFacts(
                     streaming = streaming,
@@ -816,6 +1052,7 @@ internal class TorrentRepositoryImpl(
         }
         live.value = liveMap
         if (tickCount % PERSIST_EVERY_TICKS == 0L) persistProgress()
+        if (s.cacheLimitMib > 0 && tickCount % PERSIST_EVERY_TICKS == 0L) enforceCacheLimit(s, liveMap)
 
         val anyStreaming = runtimes.values.any { it.openStreams() > 0 }
         val anyPlaying = runtimes.values.any { it.playing }
@@ -965,6 +1202,11 @@ internal class TorrentRepositoryImpl(
         if (params.getSavePath().isNullOrBlank()) params.setSavePath(downloadDir.absolutePath)
         params.setFlags(LibtorrentSession.addFlags(params.getFlags(), paused = paused, pex = s.pex, dontDownloadByDefault = true))
         params.setMaxConnections(s.maxPeers)
+        // parity wave A (torrent.custom-trackers): the user's trackers are announced on every new torrent
+        if (s.trackers.isNotEmpty()) {
+            val current = runCatching { params.getTrackers() }.getOrNull().orEmpty()
+            params.setTrackers((current + s.trackers).distinct())
+        }
     }
 
     /** Re-applies the stored file selection (all files for whole-torrent downloads). */
@@ -1214,6 +1456,8 @@ internal class TorrentRepositoryImpl(
         @Volatile var playing: Boolean = false
         @Volatile var userResumed: Boolean = false
         @Volatile var endJob: Job? = null
+        /** Files already queued by the next-episode preload. */
+        val preloaded: MutableSet<Int> = ConcurrentHashMap.newKeySet()
 
         fun openStreams(): Int = streams.values.sumOf { it.get().coerceAtLeast(0) }
     }
@@ -1235,6 +1479,8 @@ internal class TorrentRepositoryImpl(
         private const val DEADLINE_STEP_MS = 150
         private const val PERSIST_EVERY_TICKS = 30L
         private const val RESUME_EVERY_TICKS = 60L
+        private const val PRELOAD_EVERY_TICKS = 5L
+        private const val MAX_TORRENT_FILE_BYTES = 10L * 1024 * 1024
         private val HEX40 = Regex("[0-9a-f]{40}")
 
         private fun magnetFor(id: String): String = "magnet:?xt=urn:btih:$id"
