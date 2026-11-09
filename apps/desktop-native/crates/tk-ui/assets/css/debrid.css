@@ -16,6 +16,8 @@
 .tk-debrid__name { display: flex; align-items: center; gap: var(--tk-space-8); margin-inline-end: auto; color: var(--md-sys-color-primary); }
 .tk-debrid__name .tk-panel__title { margin: 0; color: var(--md-sys-color-on-surface); }
 .tk-debrid__priority { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-medium-size); }
+.tk-debrid__move { display: inline-flex; align-items: center; gap: var(--tk-space-4); }
+.tk-debrid__order-hint { margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
 .tk-debrid__account { display: flex; flex-direction: column; gap: var(--tk-space-4); font-size: var(--md-sys-typescale-body-medium-size); }
 .tk-debrid__user { color: var(--md-sys-color-on-surface); font-weight: var(--md-sys-typescale-label-large-weight); }
 .tk-debrid__premium { color: var(--md-sys-color-on-surface-variant); }
