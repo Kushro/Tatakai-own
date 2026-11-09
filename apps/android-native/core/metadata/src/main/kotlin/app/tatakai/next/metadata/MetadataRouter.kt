@@ -1,5 +1,6 @@
 package app.tatakai.next.metadata
 
+import app.tatakai.next.model.AiringEpisode
 import app.tatakai.next.model.Episode
 import app.tatakai.next.model.FeedKind
 import app.tatakai.next.model.FeedPage
@@ -7,7 +8,12 @@ import app.tatakai.next.model.ImageMatch
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
+import app.tatakai.next.model.ProviderStatus
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -29,9 +35,49 @@ class MetadataRouter(
 
     data class Routed<T>(val value: T, val provider: String)
 
+    /**
+     * Parity wave B (16 §3.1, worker r, checklist settings.metadata.provider-status): last outcome of every provider called in this
+     * process (`enabled` is filled at read time by [statusSnapshot] / `MetadataRepositoryImpl.providerStatus`).
+     */
+    private val _status = MutableStateFlow<Map<String, ProviderStatus>>(emptyMap())
+    val status: StateFlow<Map<String, ProviderStatus>> = _status.asStateFlow()
+
+    /** Ids of the enabled providers, best first (the user's `providerPriority`). */
+    fun enabledIds(): List<String> = priority()
+
+    /** One row per known provider id: enabled flag from the priority, last result and cooldown from this router. */
+    fun statusSnapshot(ids: List<String>): List<ProviderStatus> {
+        val enabled = priority()
+        val now = clock()
+        val known = _status.value
+        return ids.map { id ->
+            val s = known[id] ?: ProviderStatus(id = id, enabled = false)
+            s.copy(enabled = id in enabled, cooldownUntilMs = downUntil[id]?.takeIf { it > now })
+        }
+    }
+
     fun isCoolingDown(id: String): Boolean = (downUntil[id] ?: 0L) > clock()
 
-    fun resetHealth() = downUntil.clear()
+    fun resetHealth() {
+        downUntil.clear()
+        _status.update { m -> m.mapValues { it.value.copy(cooldownUntilMs = null) } }
+    }
+
+    private fun recordOk(id: String) {
+        downUntil.remove(id)
+        val now = clock()
+        _status.update { m -> m + (id to (m[id] ?: ProviderStatus(id, true)).copy(lastOkAtMs = now, lastError = null, cooldownUntilMs = null)) }
+    }
+
+    private fun recordError(id: String, e: Exception) {
+        val until = if (e is ProviderException && e.tripsCooldown) clock() + cooldownMs else null
+        if (until != null) downUntil[id] = until
+        val msg = when (e) {
+            is ProviderException -> if (e.status == 0) "offline" else "HTTP ${e.status}"
+            else -> e.message?.take(120) ?: e::class.simpleName.orEmpty()
+        }
+        _status.update { m -> m + (id to (m[id] ?: ProviderStatus(id, true)).copy(lastError = msg, cooldownUntilMs = until)) }
+    }
 
     suspend fun feed(kind: MediaKind, feed: FeedKind, page: Int): Routed<FeedPage> =
         route(Capability.FEED, kind, { it.items.isEmpty() }) { it.feed(kind, feed, page) }
@@ -39,8 +85,33 @@ class MetadataRouter(
     suspend fun search(kind: MediaKind, query: String, page: Int): Routed<FeedPage> =
         route(Capability.SEARCH, kind, { it.items.isEmpty() }) { it.search(kind, query, page) }
 
-    suspend fun media(kind: MediaKind, ref: MediaRef): Routed<Media?> =
-        route(Capability.MEDIA, kind, { it == null }) { it.media(kind, ref) }
+    /**
+     * The first enabled provider that knows the title answers; then (parity wave B, checklist settings.metadata.extra-providers) the
+     * other enabled MEDIA providers fill what it lacks (score, synopsis, cover, banner, episodes, genres, alternative titles), in priority
+     * order, using the MAL id the first answer carried (MAL / Shikimori / Tenrai map by `idMal`). Failures of the fillers never fail
+     * the call (they only update the provider status / cooldown).
+     */
+    suspend fun media(kind: MediaKind, ref: MediaRef): Routed<Media?> {
+        val first = route(Capability.MEDIA, kind, { it == null }) { it.media(kind, ref) }
+        var value = first.value ?: return first
+        if (!value.hasGaps()) return first
+        val malRef = ref.copy(malId = value.ref.malId ?: ref.malId, anilistId = value.ref.anilistId ?: ref.anilistId)
+        if (malRef.malId == null && malRef.anilistId == null) return first
+        val fillers = candidates(Capability.MEDIA, kind, includeCoolingDown = false).filter { it.id != first.provider }
+        for (p in fillers.take(MAX_FILLERS)) {
+            try {
+                val extra = p.media(kind, malRef)
+                recordOk(p.id)
+                if (extra != null) value = fillGaps(value, extra)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                recordError(p.id, e)
+            }
+            if (!value.hasGaps()) break
+        }
+        return Routed(value, first.provider)
+    }
 
     suspend fun episodes(ref: MediaRef): Routed<List<Episode>> =
         route(Capability.EPISODES, MediaKind.ANIME, { it.isEmpty() }) { it.episodes(ref) }
@@ -54,6 +125,12 @@ class MetadataRouter(
      */
     suspend fun <T> discover(kind: MediaKind = MediaKind.ANIME, isEmpty: (T) -> Boolean, call: suspend (DiscoverProvider) -> T): Routed<T> =
         route(Capability.DISCOVER, kind, isEmpty) { p -> call(p as DiscoverProvider) }
+
+    /** Parity wave B (16 §3.1, worker r): AniList airing schedule through the enabled DISCOVER providers that implement [AiringProvider]. */
+    suspend fun airingSchedule(fromEpochSec: Long, toEpochSec: Long, page: Int): Routed<Pair<List<AiringEpisode>, Boolean>> =
+        route(Capability.DISCOVER, MediaKind.ANIME, { it.first.isEmpty() }) { p ->
+            (p as? AiringProvider)?.airingSchedule(fromEpochSec, toEpochSec, page) ?: (emptyList<AiringEpisode>() to false)
+        }
 
     val supportsImageSearch: Boolean get() = imageSearch != null
 
@@ -81,7 +158,7 @@ class MetadataRouter(
         for (p in list) {
             try {
                 val value = call(p)
-                downUntil.remove(p.id)
+                recordOk(p.id)
                 if (isEmpty(value)) {
                     if (empty == null) empty = Routed(value, p.id)
                     continue
@@ -90,7 +167,7 @@ class MetadataRouter(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (e is ProviderException && e.tripsCooldown) downUntil[p.id] = clock() + cooldownMs
+                recordError(p.id, e)
                 errors += p.id to e
             }
         }
@@ -100,5 +177,29 @@ class MetadataRouter(
 
     companion object {
         const val DEFAULT_COOLDOWN_MS = 60_000L
+        private const val MAX_FILLERS = 3
+
+        internal fun Media.hasGaps(): Boolean =
+            score == null || synopsis.isNullOrBlank() || cover == null || episodes == null || genres.isEmpty()
+
+        /** [base] keeps everything it has; [extra] only fills nulls / empties (titles: missing keys). */
+        internal fun fillGaps(base: Media, extra: Media): Media = base.copy(
+            ref = base.ref.copy(
+                anilistId = base.ref.anilistId ?: extra.ref.anilistId,
+                malId = base.ref.malId ?: extra.ref.malId,
+                kitsuId = base.ref.kitsuId ?: extra.ref.kitsuId,
+            ),
+            titles = extra.titles + base.titles,
+            cover = base.cover ?: extra.cover,
+            banner = base.banner ?: extra.banner,
+            color = base.color ?: extra.color,
+            synopsis = base.synopsis?.takeIf { it.isNotBlank() } ?: extra.synopsis,
+            genres = base.genres.ifEmpty { extra.genres },
+            episodes = base.episodes ?: extra.episodes,
+            status = base.status ?: extra.status,
+            season = base.season ?: extra.season,
+            year = base.year ?: extra.year,
+            score = base.score ?: extra.score,
+        )
     }
 }
