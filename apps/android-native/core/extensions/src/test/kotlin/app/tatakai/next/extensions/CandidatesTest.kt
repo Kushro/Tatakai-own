@@ -37,7 +37,12 @@ class CandidatesTest {
             ]}""",
             ),
         )
-        assertEquals(3, c.size)
+        assertEquals(4, c.size)
+        // parity wave B (16 §3.3): the embed page is listed (last, in body order) and marked for the sniffer.
+        assertEquals("embed", c[3].label)
+        assertTrue(c[3].isEmbed)
+        assertEquals("EMBED", c[3].container)
+        assertNull(c[3].toStream())
         assertEquals(Triple("Alpha", SourceKind.WEB, Quality.P1080), Triple(c[0].label, c[0].kind, c[0].quality))
         assertEquals(listOf("es", "en"), c[0].subs)
         assertEquals(listOf("ja"), c[0].dubs)
@@ -56,6 +61,7 @@ class CandidatesTest {
         assertEquals("Toko", c[2].extName)
         assertTrue(c[2].subs.isEmpty() && c[2].dubs.isEmpty() && c[2].web!!.latencyMs == null)
         assertTrue(c.all { it.reliability == INITIAL_RELIABILITY && it.torrent == null })
+        assertTrue(c.take(3).none { it.isEmbed })
     }
 
     @Test
