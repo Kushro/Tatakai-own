@@ -5,7 +5,7 @@ No new dependencies needed beyond the frozen catalog. Wiring contract for `:app`
 - Koin modules: `networkModule, metadataModule, databaseModule, linkModule, dataModule` (parity wave A, 2026-11-09 amendment: the hosted-backend module is
   gone; `:core:data` depends on `:core:link` for `LinkHistoryRemote`).
 - Koin properties: `TATAKAI_ANILIST_CLIENT_ID`, `TATAKAI_MAL_CLIENT_ID` (from BuildConfig, optional), optional `tatakai.appVersion`.
-  `TATAKAI_SUPABASE_*` no longer exist.
+  The hosted-backend BuildConfig keys no longer exist.
 - WorkManager: `HistorySyncWorker` uses `KoinComponent`, so Koin must be started before WorkManager runs (default initializer is fine);
   do not disable the default WorkManager initializer.
 - `:core:metadata` pulls `koin-core` (already in the catalog) for `metadataModule`.

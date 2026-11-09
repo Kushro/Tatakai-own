@@ -128,7 +128,12 @@ pub struct Settings {
     pub system: SystemPrefs,
     /// AniList / MAL list behaviour (worker g, `model/lists.rs`).
     pub lists: ListPrefsVm,
+    /// Title language of cards, rows and Details (worker c, Settings > Appearance): one of [`TITLE_LANGUAGES`].
+    pub title_language: String,
 }
+
+/// Values of `Settings::title_language`; the first one is the default.
+pub const TITLE_LANGUAGES: [&str; 3] = ["english", "romaji", "native"];
 
 impl Default for Settings {
     fn default() -> Self {
@@ -149,6 +154,7 @@ impl Default for Settings {
             flow: PlayerFlowPrefs::default(),
             system: SystemPrefs::default(),
             lists: ListPrefsVm::default(),
+            title_language: TITLE_LANGUAGES[0].to_owned(),
         }
     }
 }
@@ -390,6 +396,9 @@ impl Settings {
         self.flow = self.flow.sanitized();
         self.system = self.system.sanitized();
         self.lists = self.lists.sanitized();
+        if !TITLE_LANGUAGES.contains(&self.title_language.as_str()) {
+            self.title_language = TITLE_LANGUAGES[0].to_owned();
+        }
         self
     }
 }
@@ -443,6 +452,8 @@ pub enum SettingsAction {
     SetSystem(SystemPrefs),
     /// Worker g.
     SetLists(ListPrefsVm),
+    /// Worker c. Ignored unless it is one of [`TITLE_LANGUAGES`].
+    SetTitleLanguage(String),
 }
 
 pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
@@ -487,6 +498,11 @@ pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
         SettingsAction::SetFlow(p) => n.flow = p.sanitized(),
         SettingsAction::SetSystem(p) => n.system = p.sanitized(),
         SettingsAction::SetLists(p) => n.lists = p.sanitized(),
+        SettingsAction::SetTitleLanguage(l) => {
+            if TITLE_LANGUAGES.contains(&l.as_str()) {
+                n.title_language = l;
+            }
+        }
     }
     n
 }

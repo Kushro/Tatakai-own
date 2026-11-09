@@ -345,6 +345,17 @@ impl LocalStore {
     pub fn cache_purge(&self, now: i64) -> Result<usize, StoreError> {
         self.with(|c| c.execute("DELETE FROM cache WHERE expires_at <= ?1", [now]))
     }
+
+    /// `(rows, bytes of the stored values)` of the metadata cache (Settings > Data, wave A worker f).
+    pub fn cache_stats(&self) -> Result<(u64, u64), StoreError> {
+        self.with(|c| {
+            c.query_row(
+                "SELECT COUNT(*), COALESCE(SUM(LENGTH(value)), 0) FROM cache",
+                [],
+                |r| Ok((r.get::<_, i64>(0)? as u64, r.get::<_, i64>(1)? as u64)),
+            )
+        })
+    }
 }
 
 // ---- sources (wave 1 C; contract in docs/redesign/08) ---------------------------------------------

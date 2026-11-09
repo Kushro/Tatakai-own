@@ -35,7 +35,7 @@ private val appModule = module {
 
 /**
  * Koin starts here, before WorkManager's default initializer runs (HistorySyncWorker is a KoinComponent), so the
- * default initializer must stay enabled. parity wave A, 2026-11-09 amendment: there is no own login and no Supabase; the only
+ * default initializer must stay enabled. parity wave A, 2026-11-09 amendment: there is no own login and no hosted backend; the only
  * injected configuration is the pair of optional OAuth client ids (BuildConfig, never from committed files).
  */
 class TatakaiApplication : Application() {

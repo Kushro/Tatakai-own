@@ -79,6 +79,7 @@ impl LiveBackend {
     pub fn new(paths: &AppPaths, _cfg: &AppConfig, ui: UiThread) -> anyhow::Result<Self> {
         let settings_file = paths.ui_settings_file();
         let settings = settings_store::load(&settings_file);
+        set_title_language(&settings.title_language);
         let store = Arc::new(LocalStore::open(&paths.db_file())?);
         let client = reqwest::Client::builder().user_agent("TatakaiNext/0.1").timeout(Duration::from_secs(20)).build()?;
         let router = Arc::new(MetadataRouter::with_defaults(client, settings.provider_priority.clone()));
@@ -213,7 +214,21 @@ fn media_id(r: &MediaRef) -> String {
     }
 }
 
+/// `Settings::title_language` (Settings > Appearance, wave A worker c), mirrored here so every card mapper picks the
+/// same title without reading the settings file per row. Set at start and on every `save_settings`.
+static TITLE_LANGUAGE: std::sync::RwLock<String> = std::sync::RwLock::new(String::new());
+
+fn set_title_language(lang: &str) {
+    if let Ok(mut l) = TITLE_LANGUAGE.write() {
+        *l = lang.to_owned();
+    }
+}
+
 fn to_vm(m: &Media) -> MediaVm {
+    let title = match TITLE_LANGUAGE.read() {
+        Ok(l) if !l.is_empty() => details::display_title(m, &l),
+        _ => m.title.clone(),
+    };
     let mut parts = Vec::new();
     if let Some(y) = m.year {
         parts.push(y.to_string());
@@ -223,7 +238,7 @@ fn to_vm(m: &Media) -> MediaVm {
     }
     MediaVm {
         id: media_id(&m.media_ref),
-        title: m.title.clone(),
+        title,
         cover: m.cover.clone(),
         color: m.color.clone(),
         subtitle: parts.join(" - "),
@@ -394,6 +409,7 @@ impl Backend for LiveBackend {
     }
     async fn save_settings(&self, settings: &Settings) -> UiResult<()> {
         self.router.set_priority(settings.provider_priority.clone());
+        set_title_language(&settings.title_language);
         settings_store::save(&self.settings_file, settings).map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))
     }
 
@@ -631,6 +647,18 @@ impl Backend for LiveBackend {
     }
     async fn storage_usage(&self) -> UiResult<StorageUsageVm> {
         system::storage_usage(self).await
+    }
+    async fn metadata_cache_usage(&self) -> UiResult<(u64, u64)> {
+        system::metadata_cache(self).await
+    }
+    async fn clear_metadata_cache(&self) -> UiResult<u64> {
+        system::clear_metadata_cache(self).await
+    }
+    async fn clear_watch_history(&self) -> UiResult<u32> {
+        system::clear_watch_history(self).await
+    }
+    async fn history_last_sync_unix(&self) -> UiResult<Option<i64>> {
+        system::history_last_sync(self).await
     }
     async fn clear_cache(&self) -> UiResult<u64> {
         system::clear_cache(self).await

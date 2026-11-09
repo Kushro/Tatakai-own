@@ -78,5 +78,4 @@
     <string name="list_remove">Remove from list</string>
     <string name="list_favorite">Favorite</string>
     <string name="list_queued_offline">Saved. It will sync when you are back online.</string>
-    <string name="ui_wave_a_placeholder">This part is being built.</string>
 </resources>

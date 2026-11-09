@@ -345,6 +345,9 @@ fn Shell() -> Element {
     let mut nav_state = ui.nav;
     let mut shortcut_seen = use_signal(|| 0_u64);
     let shell_status = crate::components::title_bar::use_shell_status();
+    // Wave A: Discord presence while browsing / viewing (worker e) and magnets handed over by a second launch (worker i).
+    crate::screens::player::presence::use_route_presence(route.clone());
+    crate::screens::torrents::library::use_pending_magnet_watch();
 
     // Ctrl+B / Ctrl+K are global; everything else is handled by the screen that owns it.
     use_effect(move || {

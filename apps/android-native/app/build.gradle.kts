@@ -1,4 +1,4 @@
-// :app (m3e/android-shell). parity wave A, 2026-11-09 amendment (plan 14 §0.1 #9): the Supabase BuildConfig injection (E8) and the
+// :app (m3e/android-shell). parity wave A, 2026-11-09 amendment (plan 14 §0.1 #9): the hosted-backend BuildConfig injection (E8) and the
 // `checkTatakaiConfig` task are gone with the own login. The only injected values are the optional OAuth client ids of the list providers.
 import java.util.Properties
 

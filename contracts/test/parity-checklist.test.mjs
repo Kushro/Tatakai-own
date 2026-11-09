@@ -20,6 +20,9 @@ const REQUIRED = ['id', 'wave', 'area', 'android', 'title', 'classic', 'next', '
 // `found` is written only by the auditor (F4): the Next path where it found (or looked for) the feature.
 const OPTIONAL = ['audit', 'platform', 'note', 'found'];
 const AUDITED = new Set(['verified', 'stub', 'missing']);
+// Planned work: still to build (`todo`), built by a wave and merged by its integrator (`done`), or audited (F4).
+// The plan assertions below accept any of these, so integrating a wave does not break them.
+const PLANNED = new Set(['todo', 'done', ...AUDITED]);
 const ID_RE = /^[a-z0-9]+(-[a-z0-9]+)*(\.[a-z0-9]+(-[a-z0-9]+)*)+$/;
 // Plan §0.1.11 (2026-11-09): Android torrents + debrid moved from r (wave B) to q (wave A).
 const TORRENT_ID_RE = /^(torrent\.|sources\.debrid\.|player\.torrent)/;
@@ -81,8 +84,8 @@ test('parity checklist: every classic and next path exists; out entries carry a 
 
 test('parity checklist: coverage of the plan (every owner has work, both audit bugs and the audit stubs are listed)', () => {
   const todoByArea = {};
-  for (const x of list) if (x.status === 'todo') todoByArea[x.area] = (todoByArea[x.area] ?? 0) + 1;
-  for (const w of WAVES) for (const o of DESKTOP_OWNERS[w]) assert.ok((todoByArea[o] ?? 0) > 0, `owner ${o} has no todo entries`);
+  for (const x of list) if (PLANNED.has(x.status)) todoByArea[x.area] = (todoByArea[x.area] ?? 0) + 1;
+  for (const w of WAVES) for (const o of DESKTOP_OWNERS[w]) assert.ok((todoByArea[o] ?? 0) > 0, `owner ${o} has no planned entries`);
   const byId = new Map(list.map((x) => [x.id, x]));
   for (const id of ['player.subs.preferred-lang', 'sources.remembered-vs-prefs']) {
     assert.ok(byId.has(id), `missing audit bug ${id}`);
@@ -93,7 +96,7 @@ test('parity checklist: coverage of the plan (every owner has work, both audit b
     'details.list-button-mount', 'link.send-to-device', 'player.screenshot', 'system.clear-cache', 'system.open-folder', 'system.export-history',
     'system.open-logs', 'system.update-check', 'system.licenses']) {
     assert.ok(byId.has(id), `missing audit stub ${id}`);
-    assert.equal(byId.get(id).status, 'todo', `${id} must start as todo`);
+    assert.ok(PLANNED.has(byId.get(id).status), `${id} must be planned work (todo, done or audited), got ${byId.get(id).status}`);
   }
   // plan §7 exclusions are explicit
   for (const id of ['manga.yomi', 'social.wrapped', 'social.community.feed', 'system.admin', 'system.tv-mode', 'library.playlists', 'library.tierlists',
@@ -125,40 +128,40 @@ test('parity checklist: plan §0.1 amendments (2026-11-09) are applied', () => {
     assert.ok(!/supabase/i.test(`${x.title} ${x.accept} ${x.next ?? ''}`), `${x.id}: a live entry still depends on Supabase (plan §0.1.9)`);
   }
   // §0.1.9 replacements: AniList / MAL identity (g/q) and resume history synced over Tatakai Link (f desktop route, q Android client)
-  expect('account.identity', (x) => x.wave === 'A' && x.area === 'g' && x.android === 'q' && x.status === 'todo', 'identity = AniList/MAL, wave A g/q');
-  expect('account.supabase-removal', (x) => x.wave === 'A' && x.area === 'f' && x.android === 'q' && x.status === 'todo', 'Supabase removal is f/q in wave A');
-  expect('history.local-resume', (x) => x.wave === 'A' && x.area === 'f' && x.status === 'todo', 'local resume position, wave A');
-  expect('history.link-sync.route', (x) => x.wave === 'A' && x.area === 'f' && x.platform === 'desktop' && x.android === null && x.status === 'todo', 'tk-link route is desktop-only, f');
-  expect('history.link-sync.client', (x) => x.wave === 'A' && x.android === 'q' && x.platform === 'android' && x.status === 'todo', 'Link history client is Android q');
-  expect('history.link-sync.merge', (x) => x.wave === 'A' && x.status === 'todo', 'merge rule in wave A');
-  expect('history.link-sync.status', (x) => x.wave === 'A' && x.status === 'todo', 'sync status UI in wave A');
+  expect('account.identity', (x) => x.wave === 'A' && x.area === 'g' && x.android === 'q' && PLANNED.has(x.status), 'identity = AniList/MAL, wave A g/q');
+  expect('account.supabase-removal', (x) => x.wave === 'A' && x.area === 'f' && x.android === 'q' && PLANNED.has(x.status), 'Supabase removal is f/q in wave A');
+  expect('history.local-resume', (x) => x.wave === 'A' && x.area === 'f' && PLANNED.has(x.status), 'local resume position, wave A');
+  expect('history.link-sync.route', (x) => x.wave === 'A' && x.area === 'f' && x.platform === 'desktop' && x.android === null && PLANNED.has(x.status), 'tk-link route is desktop-only, f');
+  expect('history.link-sync.client', (x) => x.wave === 'A' && x.android === 'q' && x.platform === 'android' && PLANNED.has(x.status), 'Link history client is Android q');
+  expect('history.link-sync.merge', (x) => x.wave === 'A' && PLANNED.has(x.status), 'merge rule in wave A');
+  expect('history.link-sync.status', (x) => x.wave === 'A' && PLANNED.has(x.status), 'sync status UI in wave A');
   for (const id of ['lists.anilist.oauth', 'lists.mal.oauth', 'lists.token-refresh', 'lists.disconnect', 'account.oauth.errors']) {
-    expect(id, (x) => x.wave === 'A' && x.area === 'g' && x.android === 'q' && x.status === 'todo', 'AniList/MAL OAuth is g/q in wave A');
+    expect(id, (x) => x.wave === 'A' && x.area === 'g' && x.android === 'q' && PLANNED.has(x.status), 'AniList/MAL OAuth is g/q in wave A');
   }
   // §0.1.11: into wave A
-  expect('account.setup-wizard', (x) => x.wave === 'A' && x.area === 'f' && x.status === 'todo', 'first-run wizard is f, wave A');
-  expect('system.reset-app', (x) => x.wave === 'A' && x.area === 'f' && x.status === 'todo', 'reset app is f, wave A');
+  expect('account.setup-wizard', (x) => x.wave === 'A' && x.area === 'f' && PLANNED.has(x.status), 'first-run wizard is f, wave A');
+  expect('system.reset-app', (x) => x.wave === 'A' && x.area === 'f' && PLANNED.has(x.status), 'reset app is f, wave A');
   for (const id of ['torrent.magnet-link-handler', 'torrent.session-history', 'torrent.trackers.status']) {
-    expect(id, (x) => x.wave === 'A' && x.area === 'i' && x.android === 'q' && x.status === 'todo', 'system magnet items are i/q, wave A');
+    expect(id, (x) => x.wave === 'A' && x.area === 'i' && x.android === 'q' && PLANNED.has(x.status), 'system magnet items are i/q, wave A');
   }
-  assert.ok(list.some((x) => x.wave === 'A' && x.android === 'q' && TORRENT_ID_RE.test(x.id) && x.status === 'todo'), 'q must own todo torrent/debrid ids in wave A');
+  assert.ok(list.some((x) => x.wave === 'A' && x.android === 'q' && TORRENT_ID_RE.test(x.id) && PLANNED.has(x.status)), 'q must own todo torrent/debrid ids in wave A');
   assert.ok(!list.some((x) => x.wave === 'A' && x.android === 'r'), 'no wave A entry may still name r (wave B) as Android owner');
   // §0.1.10: social is AniList-only, still n / t in wave B
   for (const id of ['social.profile.page', 'social.profile.public', 'social.follow', 'social.follow.lists', 'social.notifications.list',
     'social.notifications.badge', 'social.activity.feed', 'social.activity.interact', 'details.reviews']) {
-    expect(id, (x) => x.wave === 'B' && x.area === 'n' && x.android === 't' && x.status === 'todo' && /AniList/.test(`${x.title} ${x.accept}`), 'AniList-only social, n/t wave B');
+    expect(id, (x) => x.wave === 'B' && x.area === 'n' && x.android === 't' && PLANNED.has(x.status) && /AniList/.test(`${x.title} ${x.accept}`), 'AniList-only social, n/t wave B');
   }
-  expect('details.comments-mount', (x) => x.status === 'todo' && /AniList/.test(x.title) && !/[Cc]omentarios/.test(x.title), 'details mount point is repurposed for AniList activity/reviews');
+  expect('details.comments-mount', (x) => PLANNED.has(x.status) && /AniList/.test(x.title) && !/[Cc]omentarios/.test(x.title), 'details mount point is repurposed for AniList activity/reviews');
   // §0.1.12: background playback with Media3 and libmpv
-  expect('player.android.background', (x) => x.android === 'p' && x.status === 'todo' && /libmpv/.test(x.accept) && /Media3/.test(x.accept), 'background playback covers Media3 and libmpv');
+  expect('player.android.background', (x) => x.android === 'p' && PLANNED.has(x.status) && /libmpv/.test(x.accept) && /Media3/.test(x.accept), 'background playback covers Media3 and libmpv');
   // §0.1.13: wave B additions
-  expect('sources.embed-sniffer', (x) => x.wave === 'B' && x.area === 'k' && x.android === 'r' && x.status === 'todo', 'embed sniffer is k/r, wave B');
+  expect('sources.embed-sniffer', (x) => x.wave === 'B' && x.area === 'k' && x.android === 'r' && PLANNED.has(x.status), 'embed sniffer is k/r, wave B');
   for (const id of ['metadata.providers.mal', 'metadata.providers.shikimori', 'metadata.providers.tenrai', 'settings.metadata.extra-providers']) {
-    expect(id, (x) => x.wave === 'B' && x.area === 'b' && x.status === 'todo', 'extra metadata providers are b, wave B');
+    expect(id, (x) => x.wave === 'B' && x.area === 'b' && PLANNED.has(x.status), 'extra metadata providers are b, wave B');
   }
-  expect('novel.tts.kitten', (x) => x.wave === 'B' && x.area === 'm' && x.status === 'todo' && x.platform === 'desktop', 'KittenTTS is optional, m, desktop-only');
+  expect('novel.tts.kitten', (x) => x.wave === 'B' && x.area === 'm' && PLANNED.has(x.status) && x.platform === 'desktop', 'KittenTTS is optional, m, desktop-only');
   // accepted defaults
-  expect('system.secrets-store', (x) => x.wave === 'A' && x.area === 'f' && x.status === 'todo', 'secrets store is f, wave A');
+  expect('system.secrets-store', (x) => x.wave === 'A' && x.area === 'f' && PLANNED.has(x.status), 'secrets store is f, wave A');
   expect('system.update-check', (x) => /Kushro\/Tatakai-own/.test(x.accept), 'update feed is GitHub Releases of Kushro/Tatakai-own');
-  for (const id of ['home.recs.atlas', 'player.android.upscaling-shaders']) expect(id, (x) => x.status === 'todo', 'kept in the plan');
+  for (const id of ['home.recs.atlas', 'player.android.upscaling-shaders']) expect(id, (x) => PLANNED.has(x.status), 'kept in the plan');
 });

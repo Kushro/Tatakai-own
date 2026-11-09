@@ -19,7 +19,6 @@
   "player.error.no_player": "No se pudo iniciar el reproductor de video. Revisa el registro en la carpeta logs del directorio de datos de la app.",
   "player.shaders_missing": "Faltan los shaders de escalado. Ejecuta packaging\\fetch-deps.ps1 y reinicia.",
   "player.fullscreen": "Pantalla completa",
-  "player.shortcuts": "Espacio: reproducir/pausar. Izquierda/Derecha: 5 s. F: pantalla completa. Ctrl+1 a Ctrl+6: escalado.",
   "preset.title": "Preajuste de escalado",
   "preset.off": "Desactivado",
   "preset.anime4k-a": "Anime4K A",

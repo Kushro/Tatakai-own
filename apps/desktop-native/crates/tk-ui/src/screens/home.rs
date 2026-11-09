@@ -243,6 +243,7 @@ fn SectionRow(section: SectionVm, #[props(default)] lazy: bool) -> Element {
         None => t(&section.title_key),
     };
     let is_ext = ext_name.is_some();
+    let feed = section.title_key.strip_prefix("feed.").unwrap_or(&section.title_key).to_owned();
     let items = retried().unwrap_or_else(|| section.items.clone());
     let busy = !seen() || retrying();
 
@@ -304,7 +305,7 @@ fn SectionRow(section: SectionVm, #[props(default)] lazy: bool) -> Element {
                         variant: ButtonVariant::Text,
                         size: ButtonSize::Sm,
                         onclick: move |_| {
-                            navigator.push(Route::SearchPage {});
+                            navigator.push(Route::BrowsePage { feed: feed.clone() });
                         },
                     }
                 }

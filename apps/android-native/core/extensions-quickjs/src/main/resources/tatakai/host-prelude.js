@@ -6,7 +6,7 @@
 //   __host_random(n) -> b64                    __host_html(op, handle, arg) -> json  __host_args() -> json string
 // and, ONLY for a bundle with permitted browserDomains (docs/redesign/12 §3.7): the global string __host_browser_domains (JSON array)
 // and __host_browser(op, id, arg) -> Promise<json envelope {ok, value | error}>.
-// There is no fs, no sockets, no eval of remote code and no access to the app database or the Supabase session.
+// There is no fs, no sockets, no eval of remote code and no access to the app database or any account session.
 (function (g) {
   'use strict';
 
