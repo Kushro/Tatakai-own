@@ -1132,7 +1132,7 @@ async fn probe(id: &'static str) -> (&'static str, Option<Result<(), String>>) {
                 .await
                 .map(|_| ()),
             "mangaupdates" => MangaUpdates::new(client().clone())
-                .search(MediaKind::Manga, "one piece", 1)
+                .search("one piece")
                 .await
                 .map(|_| ()),
             _ => Err(ProviderError::Unsupported),

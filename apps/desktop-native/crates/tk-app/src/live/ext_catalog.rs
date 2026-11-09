@@ -743,6 +743,13 @@ pub async fn provider_manga_details(b: &LiveBackend, id: &str) -> UiResult<Manga
         ratings: Vec::new(),
         adult: false,
         resume: None,
+        tags: Vec::new(),
+        characters: Vec::new(),
+        recommendations: Vec::new(),
+        relations: Vec::new(),
+        facts: Vec::new(),
+        synonyms: Vec::new(),
+        source_ids: Vec::new(),
     })
 }
 
