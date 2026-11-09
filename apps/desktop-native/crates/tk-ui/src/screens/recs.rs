@@ -188,7 +188,7 @@ fn ForYou() -> Element {
             let cards = visible(&all, &hidden.read());
             rsx! {
                 div { class: "tk-recs__grid", "data-results": "{cards.len()}",
-                    for r in cards {
+                    for r in cards.iter().cloned() {
                         RecCard { key: "{r.media.id}", rec: r.clone(), hidden }
                     }
                 }

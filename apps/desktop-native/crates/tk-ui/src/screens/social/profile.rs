@@ -315,7 +315,7 @@ fn Favorites(items: Vec<crate::backend::MediaVm>) -> Element {
     }
     rsx! {
         div { class: "tk-grid", "data-favorites": "{items.len()}",
-            for m in items {
+            for m in items.iter().cloned() {
                 {
                     let target = media_route(&m.id);
                     rsx! {
@@ -400,7 +400,7 @@ fn OwnLists() -> Element {
                     } else {
                         rsx! {
                             div { class: "tk-grid", "data-list-entries": "{shown.len()}",
-                                for e in shown {
+                                for e in shown.iter().cloned() {
                                     {
                                         let target = media_route(&e.media.id);
                                         let sub = match e.episodes_total {
@@ -496,7 +496,7 @@ fn FollowSheet(user_id: u64, edge: String, on_close: EventHandler<()>) -> Elemen
                     }
                 } else {
                     ul { class: "tk-social-follows__list",
-                        for u in list {
+                        for u in list.iter().cloned() {
                             {
                                 let name = u.name.clone();
                                 rsx! {

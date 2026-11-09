@@ -207,7 +207,7 @@ fn ReviewsBlock(media_id: String) -> Element {
                 EmptyState { icon: "star".to_string(), title: t("reviews.empty.title"), body: t("reviews.empty.body") }
             } else {
                 ul { class: "tk-social-reviews__list",
-                    for r in list {
+                    for r in list.iter().cloned() {
                         ReviewCard { key: "{r.id}", review: r.clone() }
                     }
                 }

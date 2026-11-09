@@ -273,7 +273,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
         },
         Some(Ok(lines)) => rsx! {
             ul { class: "tk-dlset__sim", role: "list", "data-simulated": "{lines.len()}",
-                for (title, eps) in lines {
+                for (title, eps) in lines.iter().cloned() {
                     li { key: "{title}",
                         span { class: "tk-dlset__sim-title", "{title}" }
                         span { class: "tk-dlset__sim-eps",
@@ -465,10 +465,13 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                                 icon: "trash".to_string(),
                                 label: t("common.remove"),
                                 size: IconButtonSize::Sm,
-                                onclick: move |_| {
-                                    let mut p = ui.settings.peek().downloads.clone();
-                                    p.library_dirs.retain(|x| *x != d);
-                                    set(p);
+                                onclick: {
+                                    let d = d.clone();
+                                    move |_| {
+                                        let mut p = ui.settings.peek().downloads.clone();
+                                        p.library_dirs.retain(|x| *x != d);
+                                        set(p);
+                                    }
                                 },
                             }
                         }
