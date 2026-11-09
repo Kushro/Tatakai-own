@@ -78,6 +78,8 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
     let backend = services.backend.clone();
     let prefs = ui.settings.read().downloads.clone();
     let set = move |p: DownloadPrefs| commit_saved.call(SettingsAction::SetDownloads(p.sanitized()));
+    // The saved prefs as a value (no read guard may be alive while `set` writes the settings signal).
+    let cur = move || ui.settings.peek().downloads.clone();
 
     // Re-read when the folder / cap change: the backend applies the prefs on save, hence the short wait.
     let mut storage = use_resource({
@@ -161,7 +163,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                         oninput: move |v: String| dir_draft.set(Some(v)),
                         onsubmit: move |_| {
                             if let Some(d) = dir_draft() {
-                                set(DownloadPrefs { dir: d, ..ui.settings.peek().downloads.clone() });
+                                set(DownloadPrefs { dir: d, ..cur() });
                                 dir_draft.set(None);
                             }
                         },
@@ -173,7 +175,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                         disabled: dir_draft().is_none(),
                         onclick: move |_| {
                             if let Some(d) = dir_draft() {
-                                set(DownloadPrefs { dir: d, ..ui.settings.peek().downloads.clone() });
+                                set(DownloadPrefs { dir: d, ..cur() });
                                 dir_draft.set(None);
                             }
                         },
@@ -194,7 +196,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                         disabled: prefs.dir.is_empty(),
                         onclick: move |_| {
                             dir_draft.set(None);
-                            set(DownloadPrefs { dir: String::new(), ..ui.settings.peek().downloads.clone() });
+                            set(DownloadPrefs { dir: String::new(), ..cur() });
                         },
                     }
                     IconButton {
@@ -211,7 +213,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                         onchange: move |e| {
                             if let Some(f) = e.files().first() {
                                 dir_draft.set(None);
-                                set(DownloadPrefs { dir: f.path().to_string_lossy().into_owned(), ..ui.settings.peek().downloads.clone() });
+                                set(DownloadPrefs { dir: f.path().to_string_lossy().into_owned(), ..cur() });
                             }
                         },
                     }
@@ -297,7 +299,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                 small: true,
                 on_select: move |id: String| {
                     if let Ok(n) = id.parse::<u8>() {
-                        set(DownloadPrefs { concurrent: n, ..ui.settings.peek().downloads.clone() });
+                        set(DownloadPrefs { concurrent: n, ..cur() });
                     }
                 },
             }
@@ -313,7 +315,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                     oninput: move |v: String| speed_draft.set(Some(v)),
                     onsubmit: move |_| {
                         if let Some(n) = speed_draft().as_deref().and_then(parse_number) {
-                            set(DownloadPrefs { speed_limit_kib: n, ..ui.settings.peek().downloads.clone() });
+                            set(DownloadPrefs { speed_limit_kib: n, ..cur() });
                             speed_draft.set(None);
                         }
                     },
@@ -325,7 +327,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                     disabled: speed_draft().is_none() || speed_bad,
                     onclick: move |_| {
                         if let Some(n) = speed_draft().as_deref().and_then(parse_number) {
-                            set(DownloadPrefs { speed_limit_kib: n, ..ui.settings.peek().downloads.clone() });
+                            set(DownloadPrefs { speed_limit_kib: n, ..cur() });
                             speed_draft.set(None);
                         }
                     },
@@ -343,7 +345,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                     oninput: move |v: String| limit_draft.set(Some(v)),
                     onsubmit: move |_| {
                         if let Some(n) = limit_draft().as_deref().and_then(parse_number) {
-                            set(DownloadPrefs { storage_limit_gib: n, ..ui.settings.peek().downloads.clone() });
+                            set(DownloadPrefs { storage_limit_gib: n, ..cur() });
                             limit_draft.set(None);
                         }
                     },
@@ -355,7 +357,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                     disabled: limit_draft().is_none() || limit_bad,
                     onclick: move |_| {
                         if let Some(n) = limit_draft().as_deref().and_then(parse_number) {
-                            set(DownloadPrefs { storage_limit_gib: n, ..ui.settings.peek().downloads.clone() });
+                            set(DownloadPrefs { storage_limit_gib: n, ..cur() });
                             limit_draft.set(None);
                         }
                     },
@@ -371,7 +373,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                 small: true,
                 on_select: move |id: String| {
                     if let Ok(n) = id.parse::<u16>() {
-                        set(DownloadPrefs { delete_watched_days: n, ..ui.settings.peek().downloads.clone() });
+                        set(DownloadPrefs { delete_watched_days: n, ..cur() });
                     }
                 },
             }
@@ -385,7 +387,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                     small: true,
                     on_select: move |id: String| {
                         let server = Some(id).filter(|s| s != "auto");
-                        set(DownloadPrefs { preferred_server: server, ..ui.settings.peek().downloads.clone() });
+                        set(DownloadPrefs { preferred_server: server, ..cur() });
                     },
                 }
             }
@@ -397,7 +399,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                     selected: prefs.preferred_audio.clone(),
                     label: t("settings.downloads.audio"),
                     small: true,
-                    on_select: move |id: String| set(DownloadPrefs { preferred_audio: id, ..ui.settings.peek().downloads.clone() }),
+                    on_select: move |id: String| set(DownloadPrefs { preferred_audio: id, ..cur() }),
                 }
             }
         }
@@ -407,7 +409,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                 Switch {
                     checked: prefs.auto_new_episodes,
                     label: t("settings.downloads.auto"),
-                    on_toggle: move |v: bool| set(DownloadPrefs { auto_new_episodes: v, ..ui.settings.peek().downloads.clone() }),
+                    on_toggle: move |v: bool| set(DownloadPrefs { auto_new_episodes: v, ..cur() }),
                 }
             }
         }
@@ -418,7 +420,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                     selected: prefs.auto_profile.id().to_owned(),
                     label: t("settings.downloads.profile"),
                     on_select: move |id: String| {
-                        set(DownloadPrefs { auto_profile: AutoProfileVm::from_id(&id), ..ui.settings.peek().downloads.clone() });
+                        set(DownloadPrefs { auto_profile: AutoProfileVm::from_id(&id), ..cur() });
                     },
                 }
             }
@@ -431,7 +433,7 @@ pub fn DownloadsSection(commit_saved: Callback<SettingsAction>) -> Element {
                 small: true,
                 on_select: move |id: String| {
                     if let Ok(m) = id.parse::<u16>() {
-                        set(DownloadPrefs { auto_check_minutes: m, ..ui.settings.peek().downloads.clone() });
+                        set(DownloadPrefs { auto_check_minutes: m, ..cur() });
                     }
                 },
             }

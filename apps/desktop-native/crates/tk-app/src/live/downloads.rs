@@ -1197,8 +1197,9 @@ mod tests {
         // A preferred server wins over everything else.
         let srv = DownloadPrefs { preferred_server: Some("b".into()), ..DownloadPrefs::default() };
         assert_eq!(order_candidates(list.clone(), &core(), all, &srv, None, false)[0].label, "Beta");
-        // Data saver: the 720p source is within the cap.
-        assert_eq!(order_candidates(list.clone(), &core(), all, &prefs, Some(720), false)[0].label, "Beta");
+        // Data saver: between equal sources the 720p one is within the cap.
+        let same_audio = vec![cand("a", "Alpha", Quality::P1080, &["ja"], false), cand("g", "Gamma", Quality::P720, &["ja"], false)];
+        assert_eq!(order_candidates(same_audio, &core(), all, &prefs, Some(720), false)[0].label, "Gamma");
         // Embeds only when allowed, and after direct streams.
         let with_embed = order_candidates(list.clone(), &core(), all, &prefs, None, true);
         assert_eq!(with_embed.last().map(|c| c.label.as_str()), Some("Embed"));
