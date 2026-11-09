@@ -142,18 +142,27 @@ pub fn era_of(year: u16) -> String {
 }
 
 fn top_tags(tags: &[(String, u8)]) -> impl Iterator<Item = &(String, u8)> {
-    tags.iter().filter(|(_, r)| *r >= MIN_TAG_RANK).take(TAGS_PER_TITLE)
+    tags.iter()
+        .filter(|(_, r)| *r >= MIN_TAG_RANK)
+        .take(TAGS_PER_TITLE)
 }
 
 /// Normalise a weight map by its maximum and sort it (highest first, then by name for stable output).
 fn normalised(map: HashMap<String, f32>) -> Vec<(String, f32)> {
     let max = map.values().copied().fold(0.0_f32, f32::max);
     let mut v: Vec<(String, f32)> = if max > 0.0 {
-        map.into_iter().map(|(k, w)| (k, (w / max).clamp(0.0, 1.0))).filter(|(_, w)| *w > 0.0).collect()
+        map.into_iter()
+            .map(|(k, w)| (k, (w / max).clamp(0.0, 1.0)))
+            .filter(|(_, w)| *w > 0.0)
+            .collect()
     } else {
         Vec::new()
     };
-    v.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.0.cmp(&b.0)));
+    v.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
     v
 }
 
@@ -214,14 +223,22 @@ pub fn score(p: &TasteProfile, c: &Candidate) -> (f32, Vec<Reason>) {
     let mut reasons: Vec<Reason> = Vec::new();
     let mut consider = |kind: ReasonKind, value: &str, w: f32| {
         if w >= REASON_MIN_WEIGHT {
-            reasons.push(Reason { kind, value: value.to_owned(), weight: w });
+            reasons.push(Reason {
+                kind,
+                value: value.to_owned(),
+                weight: w,
+            });
         }
     };
 
     let genre = if c.genres.is_empty() {
         0.0
     } else {
-        let ws: Vec<f32> = c.genres.iter().map(|g| TasteProfile::weight(&p.genres, g)).collect();
+        let ws: Vec<f32> = c
+            .genres
+            .iter()
+            .map(|g| TasteProfile::weight(&p.genres, g))
+            .collect();
         for (g, w) in c.genres.iter().zip(&ws) {
             consider(ReasonKind::Genre, g, *w);
         }
@@ -243,24 +260,41 @@ pub fn score(p: &TasteProfile, c: &Candidate) -> (f32, Vec<Reason>) {
         }
         (sum / tags.len().min(3) as f32).min(1.0)
     };
-    let studio = c.studios.iter().map(|s| (s, TasteProfile::weight(&p.studios, s))).fold(0.0_f32, |acc, (s, w)| {
-        consider(ReasonKind::Studio, s, w);
-        acc.max(w)
-    });
+    let studio = c
+        .studios
+        .iter()
+        .map(|s| (s, TasteProfile::weight(&p.studios, s)))
+        .fold(0.0_f32, |acc, (s, w)| {
+            consider(ReasonKind::Studio, s, w);
+            acc.max(w)
+        });
     let era = c.year.map(era_of).map_or(0.0, |e| {
         let w = TasteProfile::weight(&p.eras, &e);
         consider(ReasonKind::Era, &e, w * 0.9);
         w
     });
-    let quality = c.mean_score.map_or(0.5, |s| (s.min(100) as f32 / 100.0).clamp(0.0, 1.0));
+    let quality = c
+        .mean_score
+        .map_or(0.5, |s| (s.min(100) as f32 / 100.0).clamp(0.0, 1.0));
     if let Some(s) = c.mean_score.filter(|s| *s >= 80) {
-        reasons.push(Reason { kind: ReasonKind::Score, value: s.to_string(), weight: 0.3 });
+        reasons.push(Reason {
+            kind: ReasonKind::Score,
+            value: s.to_string(),
+            weight: 0.3,
+        });
     }
 
-    let total = GENRE_WEIGHT * genre + TAG_WEIGHT * tag + STUDIO_WEIGHT * studio + ERA_WEIGHT * era + QUALITY_WEIGHT * quality;
+    let total = GENRE_WEIGHT * genre
+        + TAG_WEIGHT * tag
+        + STUDIO_WEIGHT * studio
+        + ERA_WEIGHT * era
+        + QUALITY_WEIGHT * quality;
     // Kind order breaks ties so the same input always yields the same explanation.
     reasons.sort_by(|a, b| {
-        b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal).then_with(|| a.value.cmp(&b.value))
+        b.weight
+            .partial_cmp(&a.weight)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.value.cmp(&b.value))
     });
     let mut seen_kinds: HashMap<ReasonKind, u8> = HashMap::new();
     reasons.retain(|r| {
@@ -290,10 +324,19 @@ pub fn rank(p: &TasteProfile, candidates: &[Candidate], excluded: &HashSet<u32>)
         .filter(|(_, c)| c.anilist_id != 0 && !excluded.contains(&c.anilist_id) && ids.insert(c.anilist_id))
         .map(|(index, c)| {
             let (score, reasons) = score(p, c);
-            Ranked { index, score, reasons }
+            Ranked {
+                index,
+                score,
+                reasons,
+            }
         })
         .collect();
-    out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal).then(a.index.cmp(&b.index)));
+    out.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.index.cmp(&b.index))
+    });
     out
 }
 
@@ -352,7 +395,9 @@ fn principal(cov: &[f32], d: usize, against: Option<&[f32]>) -> Vec<f32> {
 
 /// `(min, max)` of the values.
 fn span(vals: impl Iterator<Item = f32>) -> (f32, f32) {
-    vals.fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), v| (lo.min(v), hi.max(v)))
+    vals.fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), v| {
+        (lo.min(v), hi.max(v))
+    })
 }
 
 /// 2-D projection of titles by their genres (see the module doc). Same input, same output.
@@ -382,18 +427,30 @@ pub fn atlas(items: &[Vec<String>]) -> Vec<AtlasPoint> {
         })
         .collect();
     let cluster_of = |gs: &Vec<String>| -> String {
-        gs.iter().min_by_key(|g| index.get(g.as_str()).copied().unwrap_or(usize::MAX)).cloned().unwrap_or_default()
+        gs.iter()
+            .min_by_key(|g| index.get(g.as_str()).copied().unwrap_or(usize::MAX))
+            .cloned()
+            .unwrap_or_default()
     };
     if d < 2 {
         // Nothing to project: spread the titles on a line, in input order.
         return items
             .iter()
             .enumerate()
-            .map(|(i, gs)| AtlasPoint { x: if n > 1 { i as f32 / (n - 1) as f32 } else { 0.5 }, y: 0.5, cluster: cluster_of(gs) })
+            .map(|(i, gs)| AtlasPoint {
+                x: if n > 1 { i as f32 / (n - 1) as f32 } else { 0.5 },
+                y: 0.5,
+                cluster: cluster_of(gs),
+            })
             .collect();
     }
-    let mean: Vec<f32> = (0..d).map(|j| rows.iter().map(|r| r[j]).sum::<f32>() / n as f32).collect();
-    let centred: Vec<Vec<f32>> = rows.iter().map(|r| r.iter().zip(&mean).map(|(x, m)| x - m).collect()).collect();
+    let mean: Vec<f32> = (0..d)
+        .map(|j| rows.iter().map(|r| r[j]).sum::<f32>() / n as f32)
+        .collect();
+    let centred: Vec<Vec<f32>> = rows
+        .iter()
+        .map(|r| r.iter().zip(&mean).map(|(x, m)| x - m).collect())
+        .collect();
     let mut cov = vec![0.0_f32; d * d];
     for r in &centred {
         for i in 0..d {
@@ -407,10 +464,20 @@ pub fn atlas(items: &[Vec<String>]) -> Vec<AtlasPoint> {
     let raw: Vec<(f32, f32)> = centred.iter().map(|r| (dot(r, &pc1), dot(r, &pc2))).collect();
     let (x0, x1) = span(raw.iter().map(|p| p.0));
     let (y0, y1) = span(raw.iter().map(|p| p.1));
-    let scale = |v: f32, lo: f32, hi: f32| if hi - lo > f32::EPSILON { ((v - lo) / (hi - lo)).clamp(0.0, 1.0) } else { 0.5 };
+    let scale = |v: f32, lo: f32, hi: f32| {
+        if hi - lo > f32::EPSILON {
+            ((v - lo) / (hi - lo)).clamp(0.0, 1.0)
+        } else {
+            0.5
+        }
+    };
     raw.iter()
         .zip(items)
-        .map(|((x, y), gs)| AtlasPoint { x: scale(*x, x0, x1), y: scale(*y, y0, y1), cluster: cluster_of(gs) })
+        .map(|((x, y), gs)| AtlasPoint {
+            x: scale(*x, x0, x1),
+            y: scale(*y, y0, y1),
+            cluster: cluster_of(gs),
+        })
         .collect()
 }
 
@@ -482,7 +549,10 @@ mod tests {
         assert!((0.0..=1.0).contains(&good));
         assert!(!reasons.is_empty() && reasons.len() <= MAX_REASONS);
         assert_eq!(reasons[0].token(), "genre:Action");
-        assert_eq!(Reason::parse_token("studio:MAPPA"), Some((ReasonKind::Studio, "MAPPA".into())));
+        assert_eq!(
+            Reason::parse_token("studio:MAPPA"),
+            Some((ReasonKind::Studio, "MAPPA".into()))
+        );
         assert_eq!(Reason::parse_token("bogus:x"), None);
         assert_eq!(Reason::parse_token("genre:"), None);
     }
@@ -490,7 +560,12 @@ mod tests {
     #[test]
     fn rank_drops_excluded_and_duplicates() {
         let p = TasteProfile::build(&[seen(1, &["Action"], "MAPPA", 2019, 1.0)]);
-        let cands = vec![cand(5, &["Romance"], "X", 2000, 50), cand(6, &["Action"], "MAPPA", 2019, 80), cand(6, &["Action"], "MAPPA", 2019, 80), cand(7, &["Action"], "Y", 2019, 70)];
+        let cands = vec![
+            cand(5, &["Romance"], "X", 2000, 50),
+            cand(6, &["Action"], "MAPPA", 2019, 80),
+            cand(6, &["Action"], "MAPPA", 2019, 80),
+            cand(7, &["Action"], "Y", 2019, 70),
+        ];
         let excluded: HashSet<u32> = [7].into_iter().collect();
         let r = rank(&p, &cands, &excluded);
         let ids: Vec<u32> = r.iter().map(|x| cands[x.index].anilist_id).collect();
@@ -514,7 +589,10 @@ mod tests {
         ];
         let pts = atlas(&items);
         assert_eq!(pts.len(), items.len());
-        assert!(pts.iter().all(|p| (0.0..=1.0).contains(&p.x) && (0.0..=1.0).contains(&p.y)));
+        assert!(
+            pts.iter()
+                .all(|p| (0.0..=1.0).contains(&p.x) && (0.0..=1.0).contains(&p.y))
+        );
         assert_eq!(pts[1].cluster, "Action");
         assert_eq!(pts[3].cluster, "Romance");
         assert_eq!(pts[4].cluster, "");

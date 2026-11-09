@@ -45,7 +45,9 @@ pub fn absolute(path: &str) -> Option<String> {
 }
 
 fn strings(v: &Value) -> Vec<String> {
-    v.as_array().map(|a| a.iter().filter_map(opt_str).collect()).unwrap_or_default()
+    v.as_array()
+        .map(|a| a.iter().filter_map(opt_str).collect())
+        .unwrap_or_default()
 }
 
 /// `/animes/{id}` -> [`Media`].
@@ -61,10 +63,17 @@ pub fn map_shikimori_anime(a: &Value) -> Option<Media> {
     if let Some(t) = strings(&a["japanese"]).into_iter().next() {
         titles.insert("native".to_owned(), t);
     }
-    let title = titles.get("english").or_else(|| titles.get("romaji")).cloned().unwrap_or_default();
+    let title = titles
+        .get("english")
+        .or_else(|| titles.get("romaji"))
+        .cloned()
+        .unwrap_or_default();
     let year = opt_str(&a["aired_on"]).and_then(|d| d.get(..4).and_then(|y| y.parse::<i32>().ok()));
     Some(Media {
-        media_ref: MediaRef { mal_id: Some(id), ..MediaRef::default() },
+        media_ref: MediaRef {
+            mal_id: Some(id),
+            ..MediaRef::default()
+        },
         kind: MediaKind::Anime,
         title,
         titles,
@@ -72,7 +81,10 @@ pub fn map_shikimori_anime(a: &Value) -> Option<Media> {
         banner: None,
         color: None,
         synopsis: None,
-        genres: a["genres"].as_array().map(|g| g.iter().filter_map(|x| opt_str(&x["name"])).collect()).unwrap_or_default(),
+        genres: a["genres"]
+            .as_array()
+            .map(|g| g.iter().filter_map(|x| opt_str(&x["name"])).collect())
+            .unwrap_or_default(),
         episodes: opt_u32(&a["episodes"]),
         status: a["status"].as_str().and_then(status),
         season: None,
@@ -93,7 +105,12 @@ pub fn map_shikimori_facts(a: &Value, shots: &Value) -> ExternalFacts {
     push_unique(&mut titles, opt_str(&a["russian"]));
     let screenshots = shots
         .as_array()
-        .map(|s| s.iter().filter_map(|x| x["original"].as_str().and_then(absolute)).take(MAX_SCREENSHOTS).collect())
+        .map(|s| {
+            s.iter()
+                .filter_map(|x| x["original"].as_str().and_then(absolute))
+                .take(MAX_SCREENSHOTS)
+                .collect()
+        })
         .unwrap_or_default();
     ExternalFacts {
         provider: "shikimori",
@@ -112,11 +129,19 @@ pub struct Shikimori {
 
 impl Shikimori {
     pub fn new(client: reqwest::Client) -> Self {
-        Self { client, host: SHIKIMORI_HOST.to_owned() }
+        Self {
+            client,
+            host: SHIKIMORI_HOST.to_owned(),
+        }
     }
 
     async fn get(&self, path: &str) -> Result<Option<Value>, ProviderError> {
-        let resp = self.client.get(format!("{}/api{path}", self.host)).header("Accept", "application/json").send().await?;
+        let resp = self
+            .client
+            .get(format!("{}/api{path}", self.host))
+            .header("Accept", "application/json")
+            .send()
+            .await?;
         let code = resp.status().as_u16();
         if code == 404 {
             return Ok(None);
@@ -124,13 +149,18 @@ impl Shikimori {
         if !(200..300).contains(&code) {
             return Err(status_err("shikimori", code));
         }
-        resp.json::<Value>().await.map(Some).map_err(|e| ProviderError::Parse(e.without_url().to_string()))
+        resp.json::<Value>()
+            .await
+            .map(Some)
+            .map_err(|e| ProviderError::Parse(e.without_url().to_string()))
     }
 
     /// Alternative titles, score and screenshots of a MAL id (`None` = unknown id). A failing screenshot call only
     /// leaves the screenshots empty.
     pub async fn facts(&self, mal_id: u32) -> Result<Option<ExternalFacts>, ProviderError> {
-        let Some(anime) = self.get(&format!("/animes/{mal_id}")).await? else { return Ok(None) };
+        let Some(anime) = self.get(&format!("/animes/{mal_id}")).await? else {
+            return Ok(None);
+        };
         let shots = match self.get(&format!("/animes/{mal_id}/screenshots")).await {
             Ok(Some(v)) => v,
             Ok(None) => Value::Null,
@@ -156,12 +186,19 @@ impl MetadataProvider for Shikimori {
         if k != MediaKind::Anime {
             return Err(ProviderError::Unsupported);
         }
-        let Some(id) = r.mal_id.filter(|i| *i > 0) else { return Ok(None) };
-        Ok(self.get(&format!("/animes/{id}")).await?.as_ref().and_then(map_shikimori_anime).map(|mut m| {
-            m.media_ref.anilist_id = r.anilist_id;
-            m.media_ref.kitsu_id = r.kitsu_id;
-            m
-        }))
+        let Some(id) = r.mal_id.filter(|i| *i > 0) else {
+            return Ok(None);
+        };
+        Ok(self
+            .get(&format!("/animes/{id}"))
+            .await?
+            .as_ref()
+            .and_then(map_shikimori_anime)
+            .map(|mut m| {
+                m.media_ref.anilist_id = r.anilist_id;
+                m.media_ref.kitsu_id = r.kitsu_id;
+                m
+            }))
     }
 }
 
@@ -183,14 +220,34 @@ mod tests {
     fn maps_anime_and_facts() {
         let m = map_shikimori_anime(&anime()).unwrap();
         assert_eq!(m.media_ref.mal_id, Some(21));
-        assert_eq!(m.cover.as_deref(), Some("https://shikimori.io/system/animes/original/21.jpg?1"));
-        assert_eq!((m.year, m.score, m.status.as_deref()), (Some(1999), Some(87), Some("RELEASING")));
+        assert_eq!(
+            m.cover.as_deref(),
+            Some("https://shikimori.io/system/animes/original/21.jpg?1")
+        );
+        assert_eq!(
+            (m.year, m.score, m.status.as_deref()),
+            (Some(1999), Some(87), Some("RELEASING"))
+        );
         assert_eq!(m.synopsis, None);
         let shots = json!([{ "original": "/system/screenshots/original/a.jpg" }, { "original": "" }]);
         let f = map_shikimori_facts(&anime(), &shots);
-        assert_eq!(f.titles, vec!["One Piece".to_owned(), "ONE PIECE".to_owned(), "Большой куш".to_owned(), "Ван-Пис".to_owned()]);
-        assert_eq!(f.screenshots, vec!["https://shikimori.io/system/screenshots/original/a.jpg".to_owned()]);
-        assert_eq!((f.score, f.episodes, f.provider), (Some(87), Some(1180), "shikimori"));
+        assert_eq!(
+            f.titles,
+            vec![
+                "One Piece".to_owned(),
+                "ONE PIECE".to_owned(),
+                "Большой куш".to_owned(),
+                "Ван-Пис".to_owned()
+            ]
+        );
+        assert_eq!(
+            f.screenshots,
+            vec!["https://shikimori.io/system/screenshots/original/a.jpg".to_owned()]
+        );
+        assert_eq!(
+            (f.score, f.episodes, f.provider),
+            (Some(87), Some(1180), "shikimori")
+        );
     }
 
     #[test]

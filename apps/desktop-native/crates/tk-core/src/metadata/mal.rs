@@ -19,7 +19,8 @@ use crate::model::{FeedKind, FeedPage, Media, MediaKind, MediaRef};
 pub const MAL_API_BASE: &str = "https://api.myanimelist.net/v2";
 const DETAIL_FIELDS: &str = "id,title,main_picture,alternative_titles,synopsis,mean,rank,popularity,num_list_users,\
 num_episodes,status,genres,start_season,media_type,nsfw,num_chapters";
-const LIST_FIELDS: &str = "id,title,main_picture,alternative_titles,mean,num_episodes,status,genres,start_season,media_type,nsfw";
+const LIST_FIELDS: &str =
+    "id,title,main_picture,alternative_titles,mean,num_episodes,status,genres,start_season,media_type,nsfw";
 const PAGE_SIZE: u32 = 24;
 
 /// What an external catalogue adds to a title on Details (`metadata.providers.*`): only the fields the provider
@@ -41,7 +42,10 @@ pub struct ExternalFacts {
 }
 
 pub(crate) fn opt_str(v: &Value) -> Option<String> {
-    v.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned)
+    v.as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
 }
 
 pub(crate) fn opt_u32(v: &Value) -> Option<u32> {
@@ -50,7 +54,9 @@ pub(crate) fn opt_u32(v: &Value) -> Option<u32> {
 
 /// `8.72` (number or string) -> `87`.
 pub(crate) fn score_100(v: &Value) -> Option<u32> {
-    let f = v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse::<f64>().ok()))?;
+    let f = v
+        .as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse::<f64>().ok()))?;
     (f > 0.0).then(|| (f * 10.0).round().clamp(0.0, 100.0) as u32)
 }
 
@@ -65,7 +71,13 @@ pub(crate) fn push_unique(out: &mut Vec<String>, t: Option<String>) {
 
 /// HTTP status -> provider error (shared by the three REST providers of this wave).
 pub(crate) fn status_err(provider: &str, status: u16) -> ProviderError {
-    if status == 429 { ProviderError::RateLimited { provider: provider.to_owned() } } else { ProviderError::Http(status) }
+    if status == 429 {
+        ProviderError::RateLimited {
+            provider: provider.to_owned(),
+        }
+    } else {
+        ProviderError::Http(status)
+    }
 }
 
 /// MAL v2 status -> AniList spelling (`RELEASING`, ...), which the rest of the app shows.
@@ -96,13 +108,22 @@ pub fn map_mal_node(n: &Value, kind: MediaKind) -> Option<Media> {
     if let Some(t) = opt_str(&n["alternative_titles"]["ja"]) {
         titles.insert("native".to_owned(), t);
     }
-    let title = titles.get("english").or_else(|| titles.get("romaji")).cloned().unwrap_or_default();
+    let title = titles
+        .get("english")
+        .or_else(|| titles.get("romaji"))
+        .cloned()
+        .unwrap_or_default();
     let (season, year) = (
         opt_str(&n["start_season"]["season"]).map(|s| s.to_ascii_uppercase()),
-        n["start_season"]["year"].as_i64().and_then(|y| i32::try_from(y).ok()),
+        n["start_season"]["year"]
+            .as_i64()
+            .and_then(|y| i32::try_from(y).ok()),
     );
     Some(Media {
-        media_ref: MediaRef { mal_id: Some(id), ..MediaRef::default() },
+        media_ref: MediaRef {
+            mal_id: Some(id),
+            ..MediaRef::default()
+        },
         kind,
         title,
         titles,
@@ -110,7 +131,10 @@ pub fn map_mal_node(n: &Value, kind: MediaKind) -> Option<Media> {
         banner: None,
         color: None,
         synopsis: opt_str(&n["synopsis"]),
-        genres: n["genres"].as_array().map(|a| a.iter().filter_map(|g| opt_str(&g["name"])).collect()).unwrap_or_default(),
+        genres: n["genres"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|g| opt_str(&g["name"])).collect())
+            .unwrap_or_default(),
         episodes: opt_u32(&n["num_episodes"]).or_else(|| opt_u32(&n["num_chapters"])),
         status: n["status"].as_str().and_then(status),
         season,
@@ -125,7 +149,11 @@ pub fn map_mal_facts(n: &Value) -> ExternalFacts {
     let mut titles = Vec::new();
     push_unique(&mut titles, opt_str(&n["alternative_titles"]["en"]));
     push_unique(&mut titles, opt_str(&n["alternative_titles"]["ja"]));
-    for s in n["alternative_titles"]["synonyms"].as_array().into_iter().flatten() {
+    for s in n["alternative_titles"]["synonyms"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
         push_unique(&mut titles, opt_str(s));
     }
     ExternalFacts {
@@ -148,7 +176,10 @@ pub struct Mal {
 
 impl Mal {
     pub fn new(client: reqwest::Client) -> Self {
-        let client_id = option_env!("TATAKAI_MAL_CLIENT_ID").map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
+        let client_id = option_env!("TATAKAI_MAL_CLIENT_ID")
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
         Self { client, client_id }
     }
 
@@ -158,7 +189,9 @@ impl Mal {
     }
 
     async fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Option<Value>, ProviderError> {
-        let Some(id) = self.client_id.as_deref() else { return Err(ProviderError::Unsupported) };
+        let Some(id) = self.client_id.as_deref() else {
+            return Err(ProviderError::Unsupported);
+        };
         let resp = self
             .client
             .get(format!("{MAL_API_BASE}{path}"))
@@ -174,16 +207,30 @@ impl Mal {
         if !(200..300).contains(&code) {
             return Err(status_err("mal", code));
         }
-        resp.json::<Value>().await.map(Some).map_err(|e| ProviderError::Parse(e.without_url().to_string()))
+        resp.json::<Value>()
+            .await
+            .map(Some)
+            .map_err(|e| ProviderError::Parse(e.without_url().to_string()))
     }
 
     fn path(kind: MediaKind) -> &'static str {
-        if kind == MediaKind::Manga { "manga" } else { "anime" }
+        if kind == MediaKind::Manga {
+            "manga"
+        } else {
+            "anime"
+        }
     }
 
     /// Score, rank, popularity and synopsis of a MAL title (`None` = MAL does not know the id).
     pub async fn facts(&self, mal_id: u32) -> Result<Option<ExternalFacts>, ProviderError> {
-        Ok(self.get(&format!("/anime/{mal_id}"), &[("fields", DETAIL_FIELDS.to_owned())]).await?.as_ref().map(map_mal_facts))
+        Ok(self
+            .get(
+                &format!("/anime/{mal_id}"),
+                &[("fields", DETAIL_FIELDS.to_owned())],
+            )
+            .await?
+            .as_ref()
+            .map(map_mal_facts))
     }
 
     fn list(res: &Value, kind: MediaKind, page: u32) -> FeedPage {
@@ -197,7 +244,11 @@ impl Mal {
                     .collect()
             })
             .unwrap_or_default();
-        FeedPage { items, page, has_next: res["paging"]["next"].is_string() }
+        FeedPage {
+            items,
+            page,
+            has_next: res["paging"]["next"].is_string(),
+        }
     }
 }
 
@@ -219,7 +270,13 @@ impl MetadataProvider for Mal {
             (MediaKind::Anime, FeedKind::Upcoming) => "upcoming",
             (MediaKind::Manga, FeedKind::Trending | FeedKind::Airing | FeedKind::Seasonal) => "bypopularity",
             // recently completed / manga upcoming: not offered by MAL v2; an empty page lets the next provider answer.
-            _ => return Ok(FeedPage { items: Vec::new(), page, has_next: false }),
+            _ => {
+                return Ok(FeedPage {
+                    items: Vec::new(),
+                    page,
+                    has_next: false,
+                });
+            }
         };
         let query = [
             ("ranking_type", ranking.to_owned()),
@@ -227,7 +284,10 @@ impl MetadataProvider for Mal {
             ("offset", ((page - 1) * PAGE_SIZE).to_string()),
             ("fields", LIST_FIELDS.to_owned()),
         ];
-        let res = self.get(&format!("/{}/ranking", Self::path(k)), &query).await?.unwrap_or(Value::Null);
+        let res = self
+            .get(&format!("/{}/ranking", Self::path(k)), &query)
+            .await?
+            .unwrap_or(Value::Null);
         Ok(Self::list(&res, k, page))
     }
 
@@ -236,7 +296,11 @@ impl MetadataProvider for Mal {
         let q = q.trim();
         // MAL rejects queries shorter than 3 characters.
         if q.chars().count() < 3 {
-            return Ok(FeedPage { items: Vec::new(), page, has_next: false });
+            return Ok(FeedPage {
+                items: Vec::new(),
+                page,
+                has_next: false,
+            });
         }
         let query = [
             ("q", q.chars().take(64).collect::<String>()),
@@ -244,12 +308,17 @@ impl MetadataProvider for Mal {
             ("offset", ((page - 1) * PAGE_SIZE).to_string()),
             ("fields", LIST_FIELDS.to_owned()),
         ];
-        let res = self.get(&format!("/{}", Self::path(k)), &query).await?.unwrap_or(Value::Null);
+        let res = self
+            .get(&format!("/{}", Self::path(k)), &query)
+            .await?
+            .unwrap_or(Value::Null);
         Ok(Self::list(&res, k, page))
     }
 
     async fn media(&self, k: MediaKind, r: &MediaRef) -> Result<Option<Media>, ProviderError> {
-        let Some(id) = r.mal_id.filter(|i| *i > 0) else { return Ok(None) };
+        let Some(id) = r.mal_id.filter(|i| *i > 0) else {
+            return Ok(None);
+        };
         let fields = [("fields", DETAIL_FIELDS.to_owned())];
         let raw = self.get(&format!("/{}/{id}", Self::path(k)), &fields).await?;
         Ok(raw.as_ref().and_then(|n| map_mal_node(n, k)).map(|mut m| {
@@ -293,24 +362,44 @@ mod tests {
     #[test]
     fn maps_facts() {
         let f = map_mal_facts(&node());
-        assert_eq!((f.score, f.rank, f.popularity_rank, f.members), (Some(87), Some(62), Some(17), Some(2_744_446)));
+        assert_eq!(
+            (f.score, f.rank, f.popularity_rank, f.members),
+            (Some(87), Some(62), Some(17), Some(2_744_446))
+        );
         assert_eq!(f.synopsis.as_deref(), Some("Pirates."));
-        assert_eq!(f.titles, vec!["One Piece".to_owned(), "ONE PIECE".to_owned(), "OP".to_owned()]);
+        assert_eq!(
+            f.titles,
+            vec!["One Piece".to_owned(), "ONE PIECE".to_owned(), "OP".to_owned()]
+        );
     }
 
     #[test]
     fn helpers() {
         assert_eq!(score_100(&json!("8.72")), Some(87));
         assert_eq!(score_100(&json!(0.0)), None);
-        assert_eq!(status_err("mal", 429), ProviderError::RateLimited { provider: "mal".into() });
+        assert_eq!(
+            status_err("mal", 429),
+            ProviderError::RateLimited {
+                provider: "mal".into()
+            }
+        );
         assert_eq!(status_err("mal", 500), ProviderError::Http(500));
     }
 
     #[tokio::test]
     async fn without_a_client_id_nothing_is_asked() {
-        let m = Mal { client: reqwest::Client::new(), client_id: None };
-        let r = MediaRef { mal_id: Some(1), ..MediaRef::default() };
-        assert_eq!(m.media(MediaKind::Anime, &r).await, Err(ProviderError::Unsupported));
+        let m = Mal {
+            client: reqwest::Client::new(),
+            client_id: None,
+        };
+        let r = MediaRef {
+            mal_id: Some(1),
+            ..MediaRef::default()
+        };
+        assert_eq!(
+            m.media(MediaKind::Anime, &r).await,
+            Err(ProviderError::Unsupported)
+        );
         assert_eq!(m.facts(1).await, Err(ProviderError::Unsupported));
     }
 }

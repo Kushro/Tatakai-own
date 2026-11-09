@@ -59,7 +59,18 @@ fn status(s: &str) -> Option<String> {
 pub fn weekday_of(day: &str) -> Option<u8> {
     let d = day.trim().to_ascii_lowercase();
     let d = d.strip_suffix('s').unwrap_or(&d);
-    ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].iter().position(|x| *x == d).map(|i| i as u8)
+    [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    ]
+    .iter()
+    .position(|x| *x == d)
+    .map(|i| i as u8)
 }
 
 /// `"23:30"` -> `(23, 30)`.
@@ -82,7 +93,11 @@ pub fn map_jikan_entry(e: &Value, kind: MediaKind) -> Option<Media> {
     if let Some(t) = opt_str(&e["title_japanese"]) {
         titles.insert("native".to_owned(), t);
     }
-    let title = titles.get("english").or_else(|| titles.get("romaji")).cloned().unwrap_or_default();
+    let title = titles
+        .get("english")
+        .or_else(|| titles.get("romaji"))
+        .cloned()
+        .unwrap_or_default();
     let img = &e["images"];
     let year = e["year"]
         .as_i64()
@@ -90,7 +105,10 @@ pub fn map_jikan_entry(e: &Value, kind: MediaKind) -> Option<Media> {
         .or_else(|| e["published"]["prop"]["from"]["year"].as_i64())
         .and_then(|y| i32::try_from(y).ok());
     Some(Media {
-        media_ref: MediaRef { mal_id: Some(id), ..MediaRef::default() },
+        media_ref: MediaRef {
+            mal_id: Some(id),
+            ..MediaRef::default()
+        },
         kind,
         title,
         titles,
@@ -100,7 +118,10 @@ pub fn map_jikan_entry(e: &Value, kind: MediaKind) -> Option<Media> {
         banner: None,
         color: None,
         synopsis: opt_str(&e["synopsis"]),
-        genres: e["genres"].as_array().map(|a| a.iter().filter_map(|g| opt_str(&g["name"])).collect()).unwrap_or_default(),
+        genres: e["genres"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|g| opt_str(&g["name"])).collect())
+            .unwrap_or_default(),
         episodes: opt_u32(&e["episodes"]).or_else(|| opt_u32(&e["chapters"])),
         status: e["status"].as_str().and_then(status),
         season: opt_str(&e["season"]).map(|s| s.to_ascii_uppercase()),
@@ -143,7 +164,11 @@ fn map_list(doc: &Value, kind: MediaKind, page: u32) -> FeedPage {
                 .collect()
         })
         .unwrap_or_default();
-    FeedPage { items, page, has_next: doc["pagination"]["has_next_page"].as_bool().unwrap_or(false) }
+    FeedPage {
+        items,
+        page,
+        has_next: doc["pagination"]["has_next_page"].as_bool().unwrap_or(false),
+    }
 }
 
 /// `/anime/{id}/episodes` page -> episodes (`mal_id` is the episode number).
@@ -198,7 +223,11 @@ pub struct Tenrai {
 
 impl Tenrai {
     pub fn new(client: reqwest::Client) -> Self {
-        Self { client, base: TENRAI_API_BASE.to_owned(), blocked_until: Mutex::new(None) }
+        Self {
+            client,
+            base: TENRAI_API_BASE.to_owned(),
+            blocked_until: Mutex::new(None),
+        }
     }
 
     /// Point the provider at another server (tests).
@@ -208,14 +237,25 @@ impl Tenrai {
     }
 
     fn blocked(&self) -> bool {
-        self.blocked_until.lock().map(|b| b.is_some_and(|t| Instant::now() < t)).unwrap_or(false)
+        self.blocked_until
+            .lock()
+            .map(|b| b.is_some_and(|t| Instant::now() < t))
+            .unwrap_or(false)
     }
 
     async fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Option<Value>, ProviderError> {
         if self.blocked() {
-            return Err(ProviderError::RateLimited { provider: "tenrai".into() });
+            return Err(ProviderError::RateLimited {
+                provider: "tenrai".into(),
+            });
         }
-        let resp = self.client.get(format!("{}{path}", self.base)).header("Accept", "application/json").query(query).send().await?;
+        let resp = self
+            .client
+            .get(format!("{}{path}", self.base))
+            .header("Accept", "application/json")
+            .query(query)
+            .send()
+            .await?;
         let code = resp.status().as_u16();
         if code == 429 {
             let wait = resp
@@ -234,26 +274,47 @@ impl Tenrai {
         if !(200..300).contains(&code) {
             return Err(status_err("tenrai", code));
         }
-        resp.json::<Value>().await.map(Some).map_err(|e| ProviderError::Parse(e.without_url().to_string()))
+        resp.json::<Value>()
+            .await
+            .map(Some)
+            .map_err(|e| ProviderError::Parse(e.without_url().to_string()))
     }
 
     /// Synopsis, score, rank and alternative titles of a MAL id (`None` = unknown id).
     pub async fn facts(&self, mal_id: u32) -> Result<Option<ExternalFacts>, ProviderError> {
-        Ok(self.get(&format!("/anime/{mal_id}/full"), &[]).await?.map(|d| map_jikan_facts(&d["data"])))
+        Ok(self
+            .get(&format!("/anime/{mal_id}/full"), &[])
+            .await?
+            .map(|d| map_jikan_facts(&d["data"])))
     }
 
     /// One page of the weekly broadcast schedule (`day` = `monday`.. or `None` for every day), SFW only.
-    pub async fn schedules(&self, day: Option<&str>, page: u32) -> Result<(Vec<Broadcast>, bool), ProviderError> {
-        let mut q = vec![("sfw", "true".to_owned()), ("page", page.max(1).to_string()), ("limit", "25".to_owned())];
+    pub async fn schedules(
+        &self,
+        day: Option<&str>,
+        page: u32,
+    ) -> Result<(Vec<Broadcast>, bool), ProviderError> {
+        let mut q = vec![
+            ("sfw", "true".to_owned()),
+            ("page", page.max(1).to_string()),
+            ("limit", "25".to_owned()),
+        ];
         if let Some(d) = day {
             q.push(("filter", d.to_owned()));
         }
         let doc = self.get("/schedules", &q).await?.unwrap_or(Value::Null);
-        Ok((map_schedules(&doc), doc["pagination"]["has_next_page"].as_bool().unwrap_or(false)))
+        Ok((
+            map_schedules(&doc),
+            doc["pagination"]["has_next_page"].as_bool().unwrap_or(false),
+        ))
     }
 
     fn path(kind: MediaKind) -> &'static str {
-        if kind == MediaKind::Manga { "manga" } else { "anime" }
+        if kind == MediaKind::Manga {
+            "manga"
+        } else {
+            "anime"
+        }
     }
 }
 
@@ -268,7 +329,11 @@ impl MetadataProvider for Tenrai {
 
     async fn feed(&self, k: MediaKind, f: FeedKind, page: u32) -> Result<FeedPage, ProviderError> {
         let page = page.max(1);
-        let base = vec![("sfw", "true".to_owned()), ("page", page.to_string()), ("limit", PAGE_SIZE.to_string())];
+        let base = vec![
+            ("sfw", "true".to_owned()),
+            ("page", page.to_string()),
+            ("limit", PAGE_SIZE.to_string()),
+        ];
         let with = |extra: &[(&'static str, &str)]| {
             let mut q = base.clone();
             q.extend(extra.iter().map(|(a, b)| (*a, (*b).to_owned())));
@@ -279,11 +344,15 @@ impl MetadataProvider for Tenrai {
             FeedKind::Popular => ("/top/anime".to_owned(), with(&[("filter", "bypopularity")])),
             FeedKind::TopRated => ("/top/anime".to_owned(), with(&[])),
             FeedKind::Upcoming => ("/top/anime".to_owned(), with(&[("filter", "upcoming")])),
-            FeedKind::Airing => ("/anime".to_owned(), with(&[("status", "airing"), ("order_by", "members"), ("sort", "desc")])),
+            FeedKind::Airing => (
+                "/anime".to_owned(),
+                with(&[("status", "airing"), ("order_by", "members"), ("sort", "desc")]),
+            ),
             FeedKind::Seasonal => ("/seasons/now".to_owned(), with(&[])),
-            FeedKind::RecentlyCompleted => {
-                ("/anime".to_owned(), with(&[("status", "complete"), ("order_by", "end_date"), ("sort", "desc")]))
-            }
+            FeedKind::RecentlyCompleted => (
+                "/anime".to_owned(),
+                with(&[("status", "complete"), ("order_by", "end_date"), ("sort", "desc")]),
+            ),
         };
         let doc = self.get(&path, &q).await?.unwrap_or(Value::Null);
         Ok(map_list(&doc, k, page))
@@ -293,7 +362,11 @@ impl MetadataProvider for Tenrai {
         let page = page.max(1);
         let q = q.trim();
         if q.is_empty() {
-            return Ok(FeedPage { items: Vec::new(), page, has_next: false });
+            return Ok(FeedPage {
+                items: Vec::new(),
+                page,
+                has_next: false,
+            });
         }
         let query = [
             ("q", q.chars().take(100).collect::<String>()),
@@ -301,25 +374,40 @@ impl MetadataProvider for Tenrai {
             ("page", page.to_string()),
             ("limit", PAGE_SIZE.to_string()),
         ];
-        let doc = self.get(&format!("/{}", Self::path(k)), &query).await?.unwrap_or(Value::Null);
+        let doc = self
+            .get(&format!("/{}", Self::path(k)), &query)
+            .await?
+            .unwrap_or(Value::Null);
         Ok(map_list(&doc, k, page))
     }
 
     async fn media(&self, k: MediaKind, r: &MediaRef) -> Result<Option<Media>, ProviderError> {
-        let Some(id) = r.mal_id.filter(|i| *i > 0) else { return Ok(None) };
+        let Some(id) = r.mal_id.filter(|i| *i > 0) else {
+            return Ok(None);
+        };
         let doc = self.get(&format!("/{}/{id}/full", Self::path(k)), &[]).await?;
-        Ok(doc.as_ref().and_then(|d| map_jikan_entry(&d["data"], k)).map(|mut m| {
-            m.media_ref.anilist_id = r.anilist_id;
-            m.media_ref.kitsu_id = r.kitsu_id;
-            m
-        }))
+        Ok(doc
+            .as_ref()
+            .and_then(|d| map_jikan_entry(&d["data"], k))
+            .map(|mut m| {
+                m.media_ref.anilist_id = r.anilist_id;
+                m.media_ref.kitsu_id = r.kitsu_id;
+                m
+            }))
     }
 
     async fn episodes(&self, r: &MediaRef) -> Result<Vec<Episode>, ProviderError> {
-        let Some(id) = r.mal_id.filter(|i| *i > 0) else { return Ok(Vec::new()) };
+        let Some(id) = r.mal_id.filter(|i| *i > 0) else {
+            return Ok(Vec::new());
+        };
         let mut out: Vec<Episode> = Vec::new();
         for page in 1..=EPISODE_PAGES {
-            let Some(doc) = self.get(&format!("/anime/{id}/episodes"), &[("page", page.to_string())]).await? else { break };
+            let Some(doc) = self
+                .get(&format!("/anime/{id}/episodes"), &[("page", page.to_string())])
+                .await?
+            else {
+                break;
+            };
             out.extend(map_jikan_episodes(&doc));
             if !doc["pagination"]["has_next_page"].as_bool().unwrap_or(false) {
                 break;
@@ -350,15 +438,31 @@ mod tests {
     #[test]
     fn maps_entries() {
         let m = map_jikan_entry(&entry(), MediaKind::Anime).unwrap();
-        assert_eq!(m.media_ref, MediaRef { mal_id: Some(21), ..MediaRef::default() });
+        assert_eq!(
+            m.media_ref,
+            MediaRef {
+                mal_id: Some(21),
+                ..MediaRef::default()
+            }
+        );
         assert_eq!(m.title, "One Piece English");
         assert_eq!(m.cover.as_deref(), Some("l.jpg"));
-        assert_eq!((m.status.as_deref(), m.year, m.season.as_deref()), (Some("RELEASING"), Some(1999), Some("FALL")));
+        assert_eq!(
+            (m.status.as_deref(), m.year, m.season.as_deref()),
+            (Some("RELEASING"), Some(1999), Some("FALL"))
+        );
         assert_eq!(m.score, Some(87));
         assert_eq!(m.source_provider, "tenrai");
         let f = map_jikan_facts(&entry());
         assert_eq!((f.rank, f.score, f.members), (Some(62), Some(87), Some(10)));
-        assert_eq!(f.titles, vec!["One Piece English".to_owned(), "ONE PIECE".to_owned(), "OP".to_owned()]);
+        assert_eq!(
+            f.titles,
+            vec![
+                "One Piece English".to_owned(),
+                "ONE PIECE".to_owned(),
+                "OP".to_owned()
+            ]
+        );
     }
 
     #[test]
@@ -372,7 +476,10 @@ mod tests {
     fn maps_schedules_and_episodes() {
         let s = map_schedules(&json!({ "data": [entry(), { "mal_id": 5, "broadcast": { "day": null } }] }));
         assert_eq!(s.len(), 1);
-        assert_eq!((s[0].weekday, s[0].hour, s[0].minute, s[0].timezone.as_str()), (6, 23, 15, "Asia/Tokyo"));
+        assert_eq!(
+            (s[0].weekday, s[0].hour, s[0].minute, s[0].timezone.as_str()),
+            (6, 23, 15, "Asia/Tokyo")
+        );
         let e = map_jikan_episodes(&json!({ "data": [
             { "mal_id": 1, "title": "Romance Dawn", "aired": "1999-10-20T00:00:00+00:00", "filler": false },
             { "mal_id": 2, "title": null, "title_romanji": "Ore wa", "filler": true }
@@ -395,8 +502,16 @@ mod tests {
     async fn refuses_calls_while_retry_after_runs() {
         let t = Tenrai::new(reqwest::Client::new()).with_base("http://127.0.0.1:9");
         *t.blocked_until.lock().unwrap() = Some(Instant::now() + Duration::from_secs(30));
-        let r = MediaRef { mal_id: Some(1), ..MediaRef::default() };
-        assert_eq!(t.media(MediaKind::Anime, &r).await, Err(ProviderError::RateLimited { provider: "tenrai".into() }));
+        let r = MediaRef {
+            mal_id: Some(1),
+            ..MediaRef::default()
+        };
+        assert_eq!(
+            t.media(MediaKind::Anime, &r).await,
+            Err(ProviderError::RateLimited {
+                provider: "tenrai".into()
+            })
+        );
         // without a MAL id nothing is asked at all
         assert_eq!(t.media(MediaKind::Anime, &MediaRef::anilist(1)).await, Ok(None));
     }
