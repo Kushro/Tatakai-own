@@ -1,1 +1,55 @@
-/* lists.css - wave A, worker g (list button, library status tabs, accounts section). Registered in app.rs APP_CSS by the contract; tokens only (no color literals). */
+/* lists.css - wave A, worker g (list button, favourite heart, conflicts sheet, accounts section). Registered in app.rs APP_CSS by the contract; tokens only (no color literals). */
+
+/* ListButton + heart */
+.tk-listbtn { display: inline-flex; align-items: center; gap: var(--tk-space-4); position: relative; }
+.tk-listbtn[aria-busy="true"] { cursor: progress; }
+.tk-listbtn__row { display: flex; align-items: center; gap: var(--tk-space-8); padding: var(--tk-space-4) var(--tk-space-12); min-width: 260px; }
+.tk-listbtn__label { flex: 1; font-size: var(--md-sys-typescale-label-medium-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-listbtn__value { min-width: 56px; text-align: center; font-variant-numeric: tabular-nums; font-size: var(--md-sys-typescale-body-medium-size); color: var(--md-sys-color-on-surface); }
+.tk-listbtn__range { flex: 2; accent-color: var(--md-sys-color-primary); }
+.tk-listbtn__hint { margin: 0; padding: var(--tk-space-4) var(--tk-space-12); max-width: 280px; font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-listbtn__pending { display: inline-flex; color: var(--md-sys-color-tertiary); }
+.tk-fav { display: inline-flex; }
+.tk-fav[data-favorite="true"] .tk-iconbtn { color: var(--md-sys-color-error); }
+.tk-charfav { display: flex; flex-direction: column; align-items: flex-start; gap: var(--tk-space-4); }
+.tk-charfav__hint { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-4); font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); }
+
+/* Conflicts sheet */
+.tk-conflicts { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-conflict__all { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); }
+.tk-conflict__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-conflict { padding: var(--tk-space-12); border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container); display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-conflict__title { font-size: var(--md-sys-typescale-title-small-size); color: var(--md-sys-color-on-surface); }
+.tk-conflict__sides { display: grid; grid-template-columns: 1fr 1fr; gap: var(--tk-space-8); }
+.tk-conflict__side { padding: var(--tk-space-8); border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-high); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-conflict__who { font-size: var(--md-sys-typescale-label-small-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-conflict__status { color: var(--md-sys-color-primary); font-size: var(--md-sys-typescale-label-medium-size); }
+.tk-conflict__actions { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); }
+
+/* Settings > Accounts */
+.tk-accounts { display: flex; flex-direction: column; gap: var(--tk-space-8); margin-bottom: var(--tk-space-12); }
+.tk-account { display: flex; align-items: center; gap: var(--tk-space-12); padding: var(--tk-space-12); border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container); }
+.tk-account[data-connected="true"] { background: var(--md-sys-color-secondary-container); }
+.tk-account__avatar { width: 48px; height: 48px; flex: none; border-radius: var(--md-sys-shape-corner-full); overflow: hidden; display: grid; place-items: center; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-surface); font-size: var(--md-sys-typescale-title-small-size); }
+.tk-account__avatar img { width: 100%; height: 100%; object-fit: cover; }
+.tk-account__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--tk-space-2); }
+.tk-account__service { font-size: var(--md-sys-typescale-label-medium-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-account__user { font-size: var(--md-sys-typescale-title-medium-size); color: var(--md-sys-color-on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-account__meta { font-size: var(--md-sys-typescale-body-small-size); }
+.tk-account__reason { color: var(--md-sys-color-on-surface-variant); }
+.tk-account__error { font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-error); }
+.tk-account__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--tk-space-8); }
+.tk-accounts__file { cursor: pointer; display: inline-flex; align-items: center; gap: var(--tk-space-8); }
+.tk-accounts__file[aria-disabled="true"] { opacity: 0.38; pointer-events: none; }
+.tk-accounts__errors { margin: 0 0 var(--tk-space-8); padding-left: var(--tk-space-20); font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-error); }
+.tk-accounts__history { margin-top: var(--tk-space-12); }
+
+/* First sync sheet */
+.tk-firstsync { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-firstsync__opt { display: flex; flex-direction: column; align-items: flex-start; gap: var(--tk-space-2); text-align: start; padding: var(--tk-space-12); border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface); cursor: pointer; transition: background var(--md-sys-motion-effects-fast-duration) var(--md-sys-motion-effects-fast-easing); }
+.tk-firstsync__opt:hover:not(:disabled) { background: var(--md-sys-color-surface-container-high); }
+.tk-firstsync__opt:disabled { opacity: 0.38; cursor: progress; }
+.tk-firstsync__label { font-size: var(--md-sys-typescale-title-small-size); }
+.tk-firstsync__hint { font-size: var(--md-sys-typescale-body-small-size); }
+
+[data-reduce-motion="true"] .tk-firstsync__opt { transition: none; }
