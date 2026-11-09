@@ -55,6 +55,24 @@ data class ServerSource(
     val languages: List<String> = emptyList(),
 )
 
+/**
+ * parity wave B (16 §3.4, worker t; checklist server.api.extensions): one extension installed on the PC (`GET /extensions`). The native
+ * server (desktop tk-server) answers `{ id, name, version, type, sources: [...] }`; the Node server `{ id, manifestId, ecosystem, name,
+ * version, enabled, kind }`. Every field is optional on the wire.
+ */
+@Serializable
+data class ServerExtension(
+    val id: String,
+    val name: String = "",
+    val version: String = "",
+    val type: String = "",
+    val ecosystem: String = "",
+    val kind: String = "",
+    val enabled: Boolean = true,
+    /** Source ids (or descriptors reduced to their id) the extension exposes. */
+    val sources: List<JsonElement> = emptyList(),
+)
+
 /** Per-provider progress line of `/resolve`. */
 @Serializable
 data class ResolveStatus(

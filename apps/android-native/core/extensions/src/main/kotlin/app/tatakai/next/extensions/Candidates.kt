@@ -2,6 +2,7 @@
 package app.tatakai.next.extensions
 
 import app.tatakai.next.model.Container
+import app.tatakai.next.model.EMBED_CONTAINER_LABEL
 import app.tatakai.next.model.INITIAL_RELIABILITY
 import app.tatakai.next.model.Quality
 import app.tatakai.next.model.ReleaseTags
@@ -22,8 +23,9 @@ import kotlinx.serialization.json.longOrNull
 import kotlin.math.roundToLong
 
 // Port of apps/desktop-native/crates/tk-ext/src/candidates.rs (docs/redesign/10 §6, 12 §3.6 / §4 e): route bodies -> SourceCandidate.
-// Every selector field is optional in the extension output; nothing here throws; an entry that cannot be listed at all (embed page,
-// torrent without a hash) is skipped. Torrent entries also accept Toko's field names (torrentTitle, magnetLink, releaseGroup, fileSize,
+// Every selector field is optional in the extension output; nothing here throws; an entry that cannot be listed at all (torrent
+// without a hash, a web entry without URL) is skipped. parity wave B (16 §3.3, worker t): an `embed` page is listed as a web candidate
+// with `WebInfo.embed = true` and `container = EMBED_CONTAINER_LABEL` (played through the EmbedSniffer). Torrent entries also accept Toko's field names (torrentTitle, magnetLink, releaseGroup, fileSize,
 // isBest): the release name is parsed with :core:release parseRelease into SourceCandidate.tags.
 
 object Candidates {
@@ -138,7 +140,8 @@ object Candidates {
             )
         }
         if (url.isEmpty()) return null
-        val container = webContainer(s, url) ?: return null
+        val embed = isEmbedEntry(s, url)
+        val container = if (embed) null else (webContainer(s, url) ?: return null)
         val label = text(s["server"]) ?: provider
         return SourceCandidate(
             extId = extId,
@@ -146,7 +149,7 @@ object Candidates {
             kind = SourceKind.WEB,
             label = label,
             quality = quality,
-            container = containerLabel(container),
+            container = container?.let(::containerLabel) ?: EMBED_CONTAINER_LABEL,
             subs = subs,
             dubs = dubs,
             reliability = INITIAL_RELIABILITY,
@@ -157,10 +160,19 @@ object Candidates {
                 latencyMs = (s["latencyMs"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it >= 0 }
                     ?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt(),
                 subtitles = subtitles,
+                embed = embed,
             ),
             torrent = null,
             tags = ReleaseTags(),
         )
+    }
+
+    /** `type` / `sourceType` == `embed` (or `isEmbed: true`) with an http(s) page URL: needs the sniffer before it can play. */
+    internal fun isEmbedEntry(s: JsonObject, url: String): Boolean {
+        val declared = (s.string("type") ?: s.string("sourceType") ?: "").asciiLower()
+        val flagged = declared == "embed" || (declared.isEmpty() && s.bool("isEmbed") == true)
+        val lower = url.asciiLower()
+        return flagged && (lower.startsWith("https://") || lower.startsWith("http://"))
     }
 
     // ---- field helpers (desktop candidates.rs / host.rs) -----------------------------------------------------------------------
@@ -243,7 +255,7 @@ object Candidates {
     }
 
     /** A v1 info-hash as 40 lowercase hex chars: hex is kept, base32 (32 chars, RFC 4648) is converted; anything else is null. */
-    internal fun hexInfoHash(h: String): String? {
+    fun hexInfoHash(h: String): String? {
         val t = h.trim()
         if (t.length == 40 && t.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) return t.asciiLower()
         if (t.length != 32) return null

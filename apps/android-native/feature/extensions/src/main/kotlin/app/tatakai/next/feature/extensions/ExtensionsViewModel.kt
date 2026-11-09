@@ -105,6 +105,28 @@ class ExtensionsViewModel(private val repo: ExtensionRepository) : ViewModel() {
         }
     }
 
+    /** parity wave B (16 §3.4, ext.install-url): a `.kai` URL or the `manifest.json` next to one; same inline outcome as [install]. */
+    fun installFromUrl(url: String) {
+        if (transient.value.installing) return
+        transient.value = Transient(installing = true)
+        viewModelScope.launch {
+            val result = try {
+                repo.installFromUrl(url.trim())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            transient.value = Transient(
+                message = result.fold(
+                    onSuccess = { InstallMessage.Installed(it.name) },
+                    onFailure = { InstallMessage.Failed(it.reason()) },
+                ),
+            )
+            result.getOrNull()?.let { loadDetail(it) }
+        }
+    }
+
     fun setEnabled(id: String, enabled: Boolean) {
         viewModelScope.launch { repo.setEnabled(id, enabled) }
     }

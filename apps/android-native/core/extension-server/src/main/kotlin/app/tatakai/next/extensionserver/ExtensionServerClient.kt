@@ -63,6 +63,10 @@ class ExtensionServerClient(
     suspend fun sources(conn: ExtensionServerConnection): List<ServerSource> =
         call(conn.url, "/sources", conn.token, null, ListSerializer(ServerSource.serializer()))
 
+    /** parity wave B (checklist server.api.extensions): the PC's extensions. A server that only lets the owner list them answers 403. */
+    suspend fun extensions(conn: ExtensionServerConnection): List<ServerExtension> =
+        call(conn.url, "/extensions", conn.token, null, ListSerializer(ServerExtension.serializer()))
+
     suspend fun invoke(conn: ExtensionServerConnection, sourceId: String, op: String, args: JsonObject): JsonElement =
         call(
             conn.url, "/invoke", conn.token,

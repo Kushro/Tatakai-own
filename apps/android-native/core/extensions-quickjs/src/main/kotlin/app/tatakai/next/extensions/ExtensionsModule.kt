@@ -8,6 +8,7 @@ import app.tatakai.next.model.AppDataWiper
 import app.tatakai.next.model.EmbedSniffer
 import app.tatakai.next.model.ExtLogLevel
 import app.tatakai.next.model.ExtensionRepository
+import app.tatakai.next.model.SecretStore
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SourceStatsStore
 import app.tatakai.next.model.StremioAddonRepository
@@ -56,10 +57,11 @@ val extensionsModule: Module = module {
     single<StremioAddonRepository> { get<StremioAddonRepositoryImpl>() }
     single { StremioCandidateSource(repository = get(), client = get(named("extensions-http"))) } bind ExternalCandidateSource::class
     single(named("stremio-wiper")) { AppDataWiper { get<StremioAddonRepositoryImpl>().wipe() } } bind AppDataWiper::class
-    single<ExtensionRepository> {
+    single {
         val context: Context = androidContext()
+        val root = File(context.filesDir, "extensions").also { it.mkdirs() }
         ExtensionRepositoryImpl(
-            rootDir = File(context.filesDir, "extensions").also { it.mkdirs() },
+            rootDir = root,
             openUri = { uri ->
                 val parsed = Uri.parse(uri)
                 when (parsed.scheme) {
@@ -72,8 +74,17 @@ val extensionsModule: Module = module {
             settings = get<SettingsRepository>(),
             stats = get<SourceStatsStore>(),
             logStore = get(),
-            // docs/redesign/13 §3.10: linked PC extension servers (:core:extension-server binds ExternalCandidateSource).
+            // docs/redesign/13 §3.10: linked PC extension servers (:core:extension-server binds ExternalCandidateSource) + Stremio addons.
             external = getAll<ExternalCandidateSource>(),
+            // parity wave B (16 §3.4, worker t): URL installs / repositories over the extensions' own client, SECRET preferences,
+            // embed pages of custom/watch through the sniffer, custom sources of the PC servers (ExternalCustomSources).
+            http = get(named("extensions-http")),
+            secrets = getOrNull<SecretStore>(),
+            downloadDir = File(context.cacheDir, "extension-downloads"),
+            embedSniffer = { getOrNull<EmbedSniffer>() },
+            externalCustom = getAll<ExternalCustomSources>(),
         )
     }
+    single<ExtensionRepository> { get<ExtensionRepositoryImpl>() }
+    single(named("extension-catalog-wiper")) { AppDataWiper { get<ExtensionRepositoryImpl>().wipeCatalog() } } bind AppDataWiper::class
 }

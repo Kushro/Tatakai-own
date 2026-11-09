@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.extensions
 
+import app.tatakai.next.model.ExtensionPrefType
+import app.tatakai.next.model.ExtensionPreference
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -52,6 +54,8 @@ data class ExtensionManifest(
     val priority: Int,
     /** android wave (12 §3.7): raw manifest `browserDomains`; parsing is worker e's (ManifestParser). Filter with [BrowserPolicy.browserDomains]. */
     val browserDomains: List<String> = emptyList(),
+    /** parity wave B (16 §3.4, worker t, checklist ext.preferences): manifest `preferences[]` (alias `settings[]`); empty = no form. */
+    val preferences: List<ExtensionPreference> = emptyList(),
 ) {
     /** Namespace of the legacy mount: `apiServer.namespace`, falling back to the id. */
     val namespace: String get() = apiServer?.namespace?.takeIf { it.isNotBlank() } ?: id
@@ -115,6 +119,7 @@ object ManifestParser {
             customSources = customSources,
             priority = priority,
             browserDomains = obj["browserDomains"]?.takeUnless { it is JsonNull }?.let { stringList(it, "browserDomains") } ?: emptyList(),
+            preferences = PreferenceParser.parse(obj["preferences"] ?: obj["settings"]),
         )
     }
 
@@ -152,7 +157,9 @@ object ManifestParser {
             val o = item as? JsonObject ?: throw ManifestException("customSources", "customSources[] must be objects")
             fun str(k: String) = (o[k] as? JsonPrimitive)?.contentOrNull
             val kind = str("kind")
-            if (kind != "read" && kind != "watch") throw ManifestException("customSources", "customSources[].kind must be 'read' or 'watch'")
+            if (kind != "read" && kind != "watch" && kind != "novel") {
+                throw ManifestException("customSources", "customSources[].kind must be 'read', 'watch' or 'novel'")
+            }
             CustomSourceDescriptor(
                 id = str("id") ?: throw ManifestException("customSources", "customSources[].id is required"),
                 kind = kind,
@@ -161,5 +168,57 @@ object ManifestParser {
                 description = str("description"),
             )
         }
+    }
+}
+
+/**
+ * parity wave B (16 §3.4, worker t, checklist ext.preferences): tolerant parser of manifest `preferences[]` / `settings[]`. Each entry
+ * is `{ key | name | id, title | label, type: text|string|secret|password|toggle|boolean|bool|select|enum, description?, options?, default? }`;
+ * `options` may be strings or `{ value, label }`. Invalid entries are skipped (never an install error: preferences are optional).
+ */
+object PreferenceParser {
+    private val KEY = Regex("^[A-Za-z0-9_.-]{1,64}$")
+    const val MAX_PREFERENCES = 32
+
+    fun parse(el: JsonElement?): List<ExtensionPreference> {
+        val arr = when (el) {
+            is JsonArray -> el
+            is JsonObject -> el["fields"] as? JsonArray ?: return emptyList()
+            else -> return emptyList()
+        }
+        val out = ArrayList<ExtensionPreference>()
+        for (item in arr) {
+            val o = item as? JsonObject ?: continue
+            fun str(k: String) = (o[k] as? JsonPrimitive)?.takeUnless { it is JsonNull }?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+            val key = (str("key") ?: str("name") ?: str("id"))?.takeIf { KEY.matches(it) } ?: continue
+            if (out.any { it.key == key }) continue
+            val options = (o["options"] as? JsonArray).orEmpty().mapNotNull { opt ->
+                when (opt) {
+                    is JsonPrimitive -> opt.contentOrNull?.takeIf { it.isNotBlank() }
+                    is JsonObject -> (opt["value"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+                    else -> null
+                }
+            }.distinct()
+            val type = when (str("type")?.lowercase()) {
+                "secret", "password", "apikey", "api_key", "token" -> ExtensionPrefType.SECRET
+                "toggle", "boolean", "bool", "switch", "checkbox" -> ExtensionPrefType.TOGGLE
+                "select", "enum", "choice", "list" -> if (options.isEmpty()) ExtensionPrefType.TEXT else ExtensionPrefType.SELECT
+                else -> if (options.isNotEmpty()) ExtensionPrefType.SELECT else ExtensionPrefType.TEXT
+            }
+            val default = when (val d = o["default"]) {
+                is JsonPrimitive -> d.takeUnless { it is JsonNull }?.contentOrNull
+                else -> null
+            }
+            out += ExtensionPreference(
+                key = key,
+                title = str("title") ?: str("label") ?: key,
+                type = type,
+                description = str("description") ?: str("hint"),
+                options = options,
+                default = if (type == ExtensionPrefType.SECRET) null else default,
+            )
+            if (out.size >= MAX_PREFERENCES) break
+        }
+        return out
     }
 }

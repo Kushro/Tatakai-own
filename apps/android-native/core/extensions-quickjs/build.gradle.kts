@@ -16,4 +16,6 @@ dependencies {
     implementation(libs.koin.android)
     // android wave (12-android-wave-contract.md): ranking of candidates (worker a's :core:release)
     implementation(projects.core.release)
+    // parity wave B (16 §3.4, worker t): repository / Stremio parsers tested against a fake HTTP server (catalog entry, no new dependency).
+    testImplementation(libs.mockwebserver3)
 }

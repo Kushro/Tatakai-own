@@ -1,0 +1,7 @@
+{"data":{"Page":{"pageInfo":{"currentPage":1,"hasNextPage":false},"notifications":[
+ {"id":1,"type":"AIRING","episode":12,"contexts":["Episode "," of "," aired."],"createdAt":1730000000,"media":{"id":154587,"type":"ANIME","title":{"userPreferred":"Sousou no Frieren"},"coverImage":{"large":null}}},
+ {"id":2,"type":"FOLLOWING","context":" started following you.","createdAt":1730000001,"user":{"id":7,"name":"Friend","avatar":{"large":null},"siteUrl":"https://anilist.co/user/Friend"}},
+ {"id":3,"type":"ACTIVITY_LIKE","context":" liked your activity.","createdAt":1730000002,"activityId":901,"user":{"id":7,"name":"Friend","avatar":{"large":null},"siteUrl":"https://anilist.co/user/Friend"}},
+ {"id":4,"type":"MEDIA_DELETION","context":" was deleted from the site","createdAt":1730000003,"deletedMediaTitle":"Old Show"},
+ {"id":5,"type":"SOMETHING_NEW","context":" did something.","createdAt":1730000004,"user":{"id":8,"name":"Other","avatar":{"large":null},"siteUrl":"https://anilist.co/user/Other"}}
+]}}}

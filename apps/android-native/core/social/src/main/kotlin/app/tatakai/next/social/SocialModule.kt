@@ -12,8 +12,8 @@ import java.io.File
 
 /**
  * Koin bindings of the AniList social layer (docs/redesign/16-parity-wave-b-contract-android.md §3.8). Requires `androidContext()`,
- * dataModule (ListsRepository, SettingsRepository), networkModule (OkHttpClient). Worker t adds here the
- * `SocialNotificationsWorker.schedule / cancel` reaction to `AppSettings.socialNotifications` and to the linked AniList account.
+ * dataModule (ListsRepository, SettingsRepository), networkModule (OkHttpClient). [SocialScheduler] (eager) schedules / cancels
+ * [SocialNotificationsWorker] following `AppSettings.socialNotifications` and the linked AniList account.
  */
 val socialModule: Module = module {
     single {
@@ -23,7 +23,10 @@ val socialModule: Module = module {
             lists = get(),
             cacheDir = File(androidContext().cacheDir, SocialRepositoryImpl.CACHE_DIR),
             notificationsEnabled = { settings.settings.value.socialNotifications },
+            texts = AndroidSocialTexts(androidContext()),
         )
     } bind AppDataWiper::class
     single<SocialRepository> { get<SocialRepositoryImpl>() }
+    single<SocialActivityLookup> { get<SocialRepositoryImpl>() }
+    single(createdAtStart = true) { SocialScheduler(androidContext(), get(), get()) }
 }
