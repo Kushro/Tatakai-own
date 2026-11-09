@@ -3,6 +3,7 @@ package app.tatakai.next.metadata
 import app.tatakai.next.model.Episode
 import app.tatakai.next.model.FeedKind
 import app.tatakai.next.model.FeedPage
+import app.tatakai.next.model.ImageMatch
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
@@ -21,6 +22,8 @@ class MetadataRouter(
     private val priority: () -> List<String>,
     private val clock: () -> Long = System::currentTimeMillis,
     private val cooldownMs: Long = DEFAULT_COOLDOWN_MS,
+    /** Parity wave A: trace.moe scene search (not a metadata provider: no priority, no cool-down). */
+    private val imageSearch: TraceMoeClient? = null,
 ) {
     private val downUntil = ConcurrentHashMap<String, Long>()
 
@@ -42,10 +45,26 @@ class MetadataRouter(
     suspend fun episodes(ref: MediaRef): Routed<List<Episode>> =
         route(Capability.EPISODES, MediaKind.ANIME, { it.isEmpty() }) { it.episodes(ref) }
 
+    // --- parity wave A (docs/redesign/15 §3.1, worker o) ---
+
+    /**
+     * Routes a [DiscoverProvider] call (advanced search, details extras, characters, trending windows) through the enabled providers
+     * with [Capability.DISCOVER] in priority order. Throws [NoMetadataProviderException] with no errors when none is enabled (callers
+     * treat that as "not available"), with the errors when every one failed.
+     */
+    suspend fun <T> discover(kind: MediaKind = MediaKind.ANIME, isEmpty: (T) -> Boolean, call: suspend (DiscoverProvider) -> T): Routed<T> =
+        route(Capability.DISCOVER, kind, isEmpty) { p -> call(p as DiscoverProvider) }
+
+    val supportsImageSearch: Boolean get() = imageSearch != null
+
+    suspend fun searchByImage(image: ByteArray, mimeType: String): List<ImageMatch> =
+        imageSearch?.search(image, mimeType) ?: throw NoMetadataProviderException(Capability.DISCOVER, emptyList())
+
     private fun candidates(cap: Capability, kind: MediaKind, includeCoolingDown: Boolean): List<MetadataProvider> =
         priority().mapNotNull { id -> providers.firstOrNull { it.id == id } }
             .distinctBy { it.id }
             .filter { cap in it.capabilities && kind in it.kinds }
+            .filter { cap != Capability.DISCOVER || it is DiscoverProvider }
             .filter { includeCoolingDown || !isCoolingDown(it.id) }
 
     private suspend fun <T> route(

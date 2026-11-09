@@ -1,0 +1,32 @@
+{
+  "$comment": "POST https://graphql.anilist.co  Media(id: 154587).characters(page: 1, perPage: 25, sort: [ROLE, RELEVANCE, ID]) with the per-language voice actor aliases of AniListQueries.CHARACTERS (vaJa, vaEn, vaEs, vaPt, vaKo). Trimmed by hand to two edges.",
+  "data": {
+    "Media": {
+      "id": 154587,
+      "characters": {
+        "pageInfo": { "currentPage": 1, "hasNextPage": true },
+        "edges": [
+          {
+            "role": "MAIN",
+            "node": { "id": 176754, "name": { "full": "Frieren", "native": "フリーレン" }, "image": { "large": "https://s4.anilist.co/file/anilistcdn/character/large/b176754.png", "medium": null } },
+            "vaJa": [ { "id": 95185, "name": { "full": "Atsumi Tanezaki", "native": "種﨑敦美" }, "image": { "large": "https://s4.anilist.co/file/anilistcdn/staff/large/n95185.png", "medium": null } } ],
+            "vaEn": [ { "id": 106622, "name": { "full": "Mallorie Rodak", "native": null }, "image": { "large": null, "medium": "https://s4.anilist.co/file/anilistcdn/staff/medium/n106622.png" } } ],
+            "vaEs": [ { "id": 140021, "name": { "full": "Mariana Ortiz", "native": null }, "image": { "large": null, "medium": null } } ],
+            "vaPt": [],
+            "vaKo": []
+          },
+          {
+            "role": "SUPPORTING",
+            "node": { "id": 182234, "name": { "full": "Himmel", "native": "ヒンメル" }, "image": { "large": null, "medium": "https://s4.anilist.co/file/anilistcdn/character/medium/b182234.png" } },
+            "vaJa": [ { "id": 95011, "name": { "full": "Nobuhiko Okamoto", "native": "岡本信彦" }, "image": { "large": null, "medium": null } } ],
+            "vaEn": [],
+            "vaEs": [],
+            "vaPt": [],
+            "vaKo": []
+          },
+          { "role": "BACKGROUND", "node": null }
+        ]
+      }
+    }
+  }
+}

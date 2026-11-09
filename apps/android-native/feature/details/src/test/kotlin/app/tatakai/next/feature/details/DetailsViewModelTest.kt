@@ -4,6 +4,11 @@ import app.cash.turbine.test
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.Container
+import app.tatakai.next.model.MediaRelation
+import app.tatakai.next.model.MediaDetails
+import app.tatakai.next.model.CharactersPage
+import app.tatakai.next.model.CharacterRef
+import app.tatakai.next.model.CharacterEdge
 import app.tatakai.next.model.DiscoveredPc
 import app.tatakai.next.model.Episode
 import app.tatakai.next.model.ExtensionCompat
@@ -91,8 +96,21 @@ class DetailsViewModelTest {
         durationSec = 1400, completed = completed, watchedAt = Instant.ofEpochSecond(at), anilistId = 7, malId = null,
     )
 
-    private class FakeMetadata(val media: Media?, val episodes: List<Episode>, val related: List<Media> = emptyList()) : MetadataRepository {
-        override suspend fun feed(kind: MediaKind, feed: FeedKind, page: Int) = FeedPage(related, page, false)
+    private class FakeMetadata(
+        val media: Media?,
+        val episodes: List<Episode>,
+        val related: List<MediaRelation> = emptyList(),
+        val mediaDetails: MediaDetails? = null,
+        val pages: Map<Int, CharactersPage> = emptyMap(),
+    ) : MetadataRepository {
+        val characterPages = mutableListOf<Int>()
+        override suspend fun feed(kind: MediaKind, feed: FeedKind, page: Int) = FeedPage(emptyList(), page, false)
+        override suspend fun relations(ref: MediaRef): List<MediaRelation> = related
+        override suspend fun details(ref: MediaRef): MediaDetails? = mediaDetails
+        override suspend fun characters(ref: MediaRef, page: Int): CharactersPage {
+            characterPages += page
+            return pages[page] ?: CharactersPage(emptyList(), page, false)
+        }
         override suspend fun search(kind: MediaKind, query: String, page: Int) = FeedPage(emptyList(), page, false)
         override suspend fun media(kind: MediaKind, ref: MediaRef) = media
         override suspend fun episodes(ref: MediaRef) = episodes
@@ -158,12 +176,14 @@ class DetailsViewModelTest {
         media: Media? = anime,
         torrents: FakeTorrents = FakeTorrents(),
         stats: FakeStats = FakeStats(),
-        related: List<Media> = emptyList(),
+        related: List<MediaRelation> = emptyList(),
+        metadata: FakeMetadata = FakeMetadata(media, (1..12).map { Episode(it, "Ep $it", null, null) }, related),
+        prefs: DetailsPrefs = InMemoryDetailsPrefs(),
     ) = DetailsViewModel(
         MediaKind.ANIME, ref,
-        FakeMetadata(media, (1..12).map { Episode(it, "Ep $it", null, null) }, related),
+        metadata,
         FakeHistory(MutableStateFlow(progress)), extensions, link,
-        settings = null, torrents = torrents, stats = stats,
+        settings = null, torrents = torrents, stats = stats, prefs = prefs,
     )
 
     @Test
@@ -337,12 +357,48 @@ class DetailsViewModelTest {
     }
 
     @Test
-    fun `related lists other titles sharing a genre`() = runTest {
-        val other = anime.copy(ref = MediaRef(anilistId = 8), title = "Eight")
-        val unrelated = anime.copy(ref = MediaRef(anilistId = 9), title = "Nine", genres = listOf("Romance"))
-        val vm = vm(related = listOf(anime, other, unrelated))
-        assertNull(vm.state.value.related)
+    fun `related tab loads the real AniList relations, story chain first`() = runTest {
+        val sequel = MediaRelation("SEQUEL", anime.copy(ref = MediaRef(anilistId = 8), title = "Eight"))
+        val adaptation = MediaRelation("ADAPTATION", anime.copy(ref = MediaRef(anilistId = 9), title = "Nine", kind = MediaKind.MANGA))
+        val vm = vm(related = listOf(adaptation, sequel))
+        assertNull(vm.state.value.relations)
         vm.loadRelated()
-        assertEquals(listOf(8), assertIs<LoadState.Ok<List<Media>>>(vm.state.value.related).value.map { it.ref.anilistId })
+        assertEquals(listOf("SEQUEL", "ADAPTATION"), assertIs<LoadState.Ok<List<MediaRelation>>>(vm.state.value.relations).value.map { it.relation })
+    }
+
+    @Test
+    fun `an adult title is gated until accepted and the choice is remembered`() = runTest {
+        val prefs = InMemoryDetailsPrefs()
+        val adultMeta = FakeMetadata(anime, emptyList(), mediaDetails = MediaDetails(ref = ref, isAdult = true))
+        val first = vm(metadata = adultMeta, prefs = prefs)
+        assertTrue(first.state.value.adultGate)
+        first.acceptAdult()
+        assertEquals(false, first.state.value.adultGate)
+        val again = vm(metadata = adultMeta, prefs = prefs)
+        assertEquals(false, again.state.value.adultGate)
+    }
+
+    @Test
+    fun `characters page in and stop when AniList has no next page`() = runTest {
+        val edge = { id: Int -> CharacterEdge(CharacterRef(id, "C$id"), role = "MAIN") }
+        val meta = FakeMetadata(
+            anime, emptyList(),
+            pages = mapOf(1 to CharactersPage(listOf(edge(1), edge(2)), 1, true), 2 to CharactersPage(listOf(edge(2), edge(3)), 2, false)),
+        )
+        val vm = vm(metadata = meta)
+        vm.loadCharacters()
+        vm.loadCharacters()
+        vm.loadCharacters()
+        val c = vm.state.value.characters!!
+        assertEquals(listOf(1, 2, 3), c.items.map { it.character.id })
+        assertEquals(false, c.hasNext)
+        assertEquals(listOf(1, 2), meta.characterPages)
+    }
+
+    @Test
+    fun `episode view mode is remembered`() = runTest {
+        val prefs = InMemoryDetailsPrefs()
+        vm(prefs = prefs).setEpisodeView(EpisodeView.COMPACT)
+        assertEquals(EpisodeView.COMPACT, vm(prefs = prefs).state.value.episodeView)
     }
 }

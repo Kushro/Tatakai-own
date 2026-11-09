@@ -1,0 +1,85 @@
+{
+  "$comment": "POST https://graphql.anilist.co  Media(id: 154587, type: ANIME) of the parity wave A DETAILS query (AniListQueries.DETAILS): facts, studios, tags, trailer, next airing, external links, relations (relationType version 2) and recommendations. Trimmed by hand; values follow AniList for Frieren (nextAiringEpisode set to exercise the countdown).",
+  "data": {
+    "Media": {
+      "id": 154587,
+      "idMal": 52991,
+      "format": "TV",
+      "source": "MANGA",
+      "duration": 24,
+      "countryOfOrigin": "JP",
+      "isAdult": false,
+      "synonyms": ["Frieren at the Funeral", "Frieren: Beyond Journey's End", "Frieren at the Funeral"],
+      "meanScore": 91,
+      "popularity": 512345,
+      "favourites": 61234,
+      "startDate": { "year": 2023, "month": 9, "day": 29 },
+      "endDate": { "year": 2024, "month": 3, "day": null },
+      "studios": {
+        "edges": [
+          { "isMain": false, "node": { "name": "Aniplex", "isAnimationStudio": false } },
+          { "isMain": true, "node": { "name": "Madhouse", "isAnimationStudio": true } },
+          { "isMain": false, "node": { "name": "TOHO animation", "isAnimationStudio": false } }
+        ]
+      },
+      "tags": [
+        { "name": "Travel", "rank": 87, "isMediaSpoiler": false, "isGeneralSpoiler": false, "category": "Setting-Universe" },
+        { "name": "Elf", "rank": 96, "isMediaSpoiler": false, "isGeneralSpoiler": false, "category": "Cast-Traits" },
+        { "name": "Time Skip", "rank": 70, "isMediaSpoiler": true, "isGeneralSpoiler": false, "category": "Theme-Other" }
+      ],
+      "trailer": { "id": "qgQqf2VKEKo", "site": "youtube", "thumbnail": "https://i.ytimg.com/vi/qgQqf2VKEKo/hqdefault.jpg" },
+      "nextAiringEpisode": { "episode": 5, "airingAt": 1767225600 },
+      "externalLinks": [
+        { "site": "Crunchyroll", "url": "https://www.crunchyroll.com/series/GG5H5XQX4/frieren-beyond-journeys-end", "type": "STREAMING" },
+        { "site": "Official Site", "url": "https://frieren-anime.jp/", "type": "INFO" },
+        { "site": "Broken", "url": "javascript:alert(1)", "type": "INFO" }
+      ],
+      "relations": {
+        "edges": [
+          {
+            "relationType": "SOURCE",
+            "node": {
+              "id": 118586, "idMal": 126287, "type": "MANGA", "status": "RELEASING", "season": null, "seasonYear": null, "episodes": null,
+              "title": { "romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End", "native": "葬送のフリーレン" },
+              "coverImage": { "extraLarge": "https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx118586.jpg", "large": null, "color": "#e4a15d" },
+              "bannerImage": null, "averageScore": 89, "isAdult": false, "genres": ["Adventure", "Drama", "Fantasy"], "description": "Manga."
+            }
+          },
+          {
+            "relationType": "SEQUEL",
+            "node": {
+              "id": 182255, "idMal": 59978, "type": "ANIME", "status": "NOT_YET_RELEASED", "season": "WINTER", "seasonYear": 2026, "episodes": null,
+              "title": { "romaji": "Sousou no Frieren 2nd Season", "english": null, "native": "葬送のフリーレン 第2期" },
+              "coverImage": { "extraLarge": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx182255.jpg", "large": null, "color": null },
+              "bannerImage": null, "averageScore": null, "isAdult": false, "genres": ["Adventure", "Drama", "Fantasy"], "description": null
+            }
+          },
+          {
+            "relationType": "SIDE_STORY",
+            "node": {
+              "id": 170068, "idMal": 56885, "type": "ANIME", "status": "FINISHED", "season": "FALL", "seasonYear": 2023, "episodes": 34,
+              "title": { "romaji": "Sousou no Frieren: ●● no Mahou", "english": null, "native": "葬送のフリーレン ～●●の魔法～" },
+              "coverImage": { "extraLarge": null, "large": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/medium/bx170068.jpg", "color": null },
+              "bannerImage": null, "averageScore": 75, "isAdult": false, "genres": ["Comedy"], "description": "Mini episodes."
+            }
+          },
+          { "relationType": "OTHER", "node": { "id": 0 } }
+        ]
+      },
+      "recommendations": {
+        "nodes": [
+          {
+            "rating": 812,
+            "mediaRecommendation": {
+              "id": 21, "idMal": 21, "type": "ANIME", "status": "RELEASING", "season": "FALL", "seasonYear": 1999, "episodes": null,
+              "title": { "romaji": "ONE PIECE", "english": "ONE PIECE", "native": "ONE PIECE" },
+              "coverImage": { "extraLarge": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx21.jpg", "large": null, "color": "#e4a15d" },
+              "bannerImage": null, "averageScore": 88, "isAdult": false, "genres": ["Action", "Adventure"], "description": null
+            }
+          },
+          { "rating": 3, "mediaRecommendation": null }
+        ]
+      }
+    }
+  }
+}

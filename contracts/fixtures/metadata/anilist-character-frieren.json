@@ -1,0 +1,48 @@
+{
+  "$comment": "POST https://graphql.anilist.co  Character(id: 176754) of AniListQueries.CHARACTER (anime appearances with per-language voice actors). Trimmed by hand; the description keeps AniList markdown and a ~!spoiler!~ block on purpose.",
+  "data": {
+    "Character": {
+      "id": 176754,
+      "name": { "full": "Frieren", "native": "フリーレン" },
+      "image": { "large": "https://s4.anilist.co/file/anilistcdn/character/large/b176754.png", "medium": null },
+      "description": "__Race:__ Elf\n\nA mage who was part of the hero [Himmel](https://anilist.co/character/182234)'s party. ~!She outlives them all.!~",
+      "age": "1000+",
+      "gender": "Female",
+      "bloodType": null,
+      "favourites": 45210,
+      "dateOfBirth": { "year": null, "month": null, "day": null },
+      "media": {
+        "edges": [
+          {
+            "characterRole": "MAIN",
+            "node": {
+              "id": 154587, "idMal": 52991, "type": "ANIME", "status": "FINISHED", "season": "FALL", "seasonYear": 2023, "episodes": 28,
+              "title": { "romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End", "native": "葬送のフリーレン" },
+              "coverImage": { "extraLarge": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx154587-n1fmjRv4JQUd.jpg", "large": null, "color": "#d6f1c9" },
+              "bannerImage": null, "averageScore": 91, "isAdult": false, "genres": ["Adventure", "Drama", "Fantasy"], "description": "The adventure is over."
+            },
+            "vaJa": [ { "id": 95185, "name": { "full": "Atsumi Tanezaki", "native": "種﨑敦美" }, "image": { "large": null, "medium": null } } ],
+            "vaEn": [ { "id": 106622, "name": { "full": "Mallorie Rodak", "native": null }, "image": { "large": null, "medium": null } } ],
+            "vaEs": [],
+            "vaPt": [],
+            "vaKo": []
+          },
+          {
+            "characterRole": "MAIN",
+            "node": {
+              "id": 170068, "idMal": 56885, "type": "ANIME", "status": "FINISHED", "season": "FALL", "seasonYear": 2023, "episodes": 34,
+              "title": { "romaji": "Sousou no Frieren: ●● no Mahou", "english": null, "native": null },
+              "coverImage": { "extraLarge": null, "large": null, "color": null },
+              "bannerImage": null, "averageScore": 75, "isAdult": false, "genres": ["Comedy"], "description": null
+            },
+            "vaJa": [ { "id": 95185, "name": { "full": "Atsumi Tanezaki", "native": "種﨑敦美" }, "image": { "large": null, "medium": null } } ],
+            "vaEn": [],
+            "vaEs": [],
+            "vaPt": [],
+            "vaKo": []
+          }
+        ]
+      }
+    }
+  }
+}

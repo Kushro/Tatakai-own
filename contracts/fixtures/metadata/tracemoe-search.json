@@ -1,0 +1,37 @@
+{
+  "$comment": "POST https://api.trace.moe/search?anilistInfo (multipart 'image'). Shape of the trace.moe v1 API: anilist info object, episode as number / string / array / null, from-to in seconds, similarity 0..1. Trimmed by hand to three results.",
+  "frameCount": 745506385,
+  "error": "",
+  "result": [
+    {
+      "anilist": { "id": 154587, "idMal": 52991, "title": { "native": "葬送のフリーレン", "romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End" }, "synonyms": [], "isAdult": false },
+      "filename": "[Ohys-Raws] Sousou no Frieren - 01.mp4",
+      "episode": 1,
+      "from": 663.17,
+      "to": 665.42,
+      "similarity": 0.9637,
+      "video": "https://api.trace.moe/video/154587/x.mp4?t=664&now=1700000000&token=abc",
+      "image": "https://api.trace.moe/image/154587/x.jpg?t=664&now=1700000000&token=abc"
+    },
+    {
+      "anilist": { "id": 170068, "idMal": 56885, "title": { "native": null, "romaji": "Sousou no Frieren: ●● no Mahou", "english": null }, "synonyms": [], "isAdult": false },
+      "filename": "mini.mp4",
+      "episode": "3|4",
+      "from": 12.0,
+      "to": 13.5,
+      "similarity": 0.81,
+      "video": null,
+      "image": null
+    },
+    {
+      "anilist": 21,
+      "filename": "One Piece 1000.mp4",
+      "episode": null,
+      "from": 0,
+      "to": 1,
+      "similarity": 0.42,
+      "video": "https://api.trace.moe/video/21/y.mp4",
+      "image": "https://api.trace.moe/image/21/y.jpg"
+    }
+  ]
+}
