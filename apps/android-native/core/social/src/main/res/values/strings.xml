@@ -7,4 +7,23 @@
         <item quantity="one">%1$d new AniList notification</item>
         <item quantity="other">%1$d new AniList notifications</item>
     </plurals>
+    <string name="social_notification_airing">Episode %1$s of %2$s aired.</string>
+    <string name="social_notification_following">%1$s started following you.</string>
+    <string name="social_notification_activity_message">%1$s sent you a message.</string>
+    <string name="social_notification_activity_mention">%1$s mentioned you in an activity.</string>
+    <string name="social_notification_activity_reply">%1$s replied to your activity.</string>
+    <string name="social_notification_activity_reply_subscribed">%1$s replied to an activity you follow.</string>
+    <string name="social_notification_activity_like">%1$s liked your activity.</string>
+    <string name="social_notification_activity_reply_like">%1$s liked your reply.</string>
+    <string name="social_notification_thread_comment_mention">%1$s mentioned you in a forum comment.</string>
+    <string name="social_notification_thread_comment_reply">%1$s replied to your forum comment.</string>
+    <string name="social_notification_thread_subscribed">%1$s commented in a thread you follow.</string>
+    <string name="social_notification_thread_like">%1$s liked your forum thread.</string>
+    <string name="social_notification_thread_comment_like">%1$s liked your forum comment.</string>
+    <string name="social_notification_related_media_addition">%1$s was added to AniList.</string>
+    <string name="social_notification_media_data_change">%1$s was updated on AniList.</string>
+    <string name="social_notification_media_merge">%1$s was merged with another entry.</string>
+    <string name="social_notification_media_deletion">%1$s was removed from AniList.</string>
+    <string name="social_notification_title">AniList</string>
+    <string name="social_notification_open">Open notifications</string>
 </resources>

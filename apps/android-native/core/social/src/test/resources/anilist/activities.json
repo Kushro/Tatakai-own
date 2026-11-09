@@ -1,0 +1,6 @@
+{"data":{"Page":{"pageInfo":{"currentPage":1,"hasNextPage":true},"activities":[
+ {"id":901,"status":"watched episode","progress":"5","createdAt":1730000000,"likeCount":4,"isLiked":true,"replyCount":2,"siteUrl":"https://anilist.co/activity/901","user":{"id":5001,"name":"Octa","avatar":{"large":"https://a/1.png"},"siteUrl":"https://anilist.co/user/Octa"},"media":{"id":154587,"idMal":52991,"type":"ANIME","title":{"userPreferred":"Sousou no Frieren"},"coverImage":{"large":"https://c/1.jpg"}}},
+ {"id":902,"text":"Hello &amp; welcome<br>to my feed","createdAt":1730000100,"likeCount":0,"isLiked":false,"replyCount":0,"siteUrl":"https://anilist.co/activity/902","user":{"id":7,"name":"Friend","avatar":{"large":null},"siteUrl":"https://anilist.co/user/Friend"}},
+ {"id":903,"message":"Nice list!","createdAt":1730000200,"likeCount":1,"isLiked":false,"replyCount":1,"siteUrl":"https://anilist.co/activity/903","messenger":{"id":7,"name":"Friend","avatar":{"large":null},"siteUrl":"https://anilist.co/user/Friend"},"recipient":{"id":5001,"name":"Octa","avatar":{"large":null},"siteUrl":"https://anilist.co/user/Octa"}},
+ {}
+]}}}

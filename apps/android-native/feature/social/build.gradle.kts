@@ -4,4 +4,8 @@ plugins { id("tatakai.android.feature") }
 
 dependencies {
     implementation(libs.coil.compose)
+    // parity wave B (worker t): SocialActivityLookup (thread screen), POST_NOTIFICATIONS request, ContextCompat.
+    implementation(projects.core.social)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.core.ktx)
 }
