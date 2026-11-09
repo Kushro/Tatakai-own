@@ -4,6 +4,7 @@ package app.tatakai.next.player
 import app.tatakai.next.model.RankedSource
 import app.tatakai.next.model.SourceKind
 import app.tatakai.next.model.SourceMode
+import app.tatakai.next.model.torrent.DebridRepository
 
 // android wave (docs/redesign/12 §4 d.2): source selection flow of the player, ported 1:1 from desktop
 // apps/desktop-native/crates/tk-ui/src/player_state.rs (FlowState). Pure: no Android, no clock, no network.
@@ -193,4 +194,22 @@ fun applyPick(sources: List<RankedSource>, requestedKey: String?, storedPick: St
     if (key != null) return sources.map { it.copy(picked = it.key == key) }
     // No usable pick: keep the repository's flag only when it marks exactly one row.
     return if (sources.count { it.picked } <= 1) sources else sources.map { it.copy(picked = false) }
+}
+
+/**
+ * parity wave A (15 §3.9): torrent candidates as seen by the linked debrid services. `DebridRepository.markCached` (worker q) fills
+ * `SourceCandidate.debrid`; its default is the identity, so without a debrid account (or without the repository bound) nothing changes.
+ * A failure of the lookup never blocks playback: the list is returned as it came.
+ */
+suspend fun markDebrid(sources: List<RankedSource>, debrid: DebridRepository?): List<RankedSource> {
+    if (debrid == null || sources.none { it.candidate.kind == SourceKind.TORRENT }) return sources
+    val marked = try {
+        debrid.markCached(sources.map { it.candidate })
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        return sources
+    }
+    if (marked.size != sources.size) return sources
+    return sources.mapIndexed { i, s -> s.copy(candidate = marked[i]) }
 }
