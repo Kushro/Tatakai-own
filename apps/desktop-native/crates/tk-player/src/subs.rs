@@ -15,6 +15,8 @@ pub struct SubStyle {
     pub back_alpha: u8,
     /// `sub-border-size` in px.
     pub border_px: f64,
+    /// `sub-border-color` as `#RRGGBB` (the outline; mpv's default is black).
+    pub border_color: String,
     /// `sub-pos` 0..=100 (100 = default bottom position).
     pub pos: u8,
     /// `sub-bold`
@@ -23,7 +25,7 @@ pub struct SubStyle {
 
 impl Default for SubStyle {
     fn default() -> Self {
-        Self { scale: 1.0, font: None, color: "#FFFFFF".to_owned(), back_alpha: 0, border_px: 2.0, pos: 100, bold: false }
+        Self { scale: 1.0, font: None, color: "#FFFFFF".to_owned(), back_alpha: 0, border_px: 2.0, border_color: "#000000".to_owned(), pos: 100, bold: false }
     }
 }
 
@@ -36,6 +38,7 @@ pub fn sub_options(style: &SubStyle) -> Vec<(&'static str, String)> {
         ("sub-color", style.color.clone()),
         ("sub-back-color", format!("#{alpha:02X}000000")),
         ("sub-border-size", format!("{:.1}", style.border_px.clamp(0.0, 5.0))),
+        ("sub-border-color", style.border_color.clone()),
         ("sub-pos", style.pos.min(100).to_string()),
         ("sub-bold", if style.bold { "yes" } else { "no" }.to_owned()),
     ];
@@ -62,5 +65,15 @@ mod tests {
         assert_eq!(get("sub-back-color"), Some("#FF000000"));
         assert_eq!(get("sub-font"), Some("Outfit"));
         assert_eq!(get("sub-bold"), Some("yes"));
+    }
+
+    #[test]
+    fn outline_colour_and_bounds() {
+        let opts = sub_options(&SubStyle { border_color: "#FF0000".into(), border_px: 9.0, scale: 7.0, pos: 250, ..SubStyle::default() });
+        let get = |k: &str| opts.iter().find(|(n, _)| *n == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("sub-border-color"), Some("#FF0000"));
+        assert_eq!(get("sub-border-size"), Some("5.0"));
+        assert_eq!(get("sub-scale"), Some("2.00"));
+        assert_eq!(get("sub-pos"), Some("100"));
     }
 }
