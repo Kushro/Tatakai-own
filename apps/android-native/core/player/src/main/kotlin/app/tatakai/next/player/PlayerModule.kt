@@ -47,7 +47,13 @@ val playerModule: Module = module {
     single { PlaybackControllerFactory(androidContext(), get(named("player-http"))) }
     // android wave (12 §3.2, §3.16): AniSkip intro / outro / recap marks for web AND torrent playback.
     single<SkipMarksRepository> { AniSkipRepository(get(named("player-http"))) }
+    // parity wave A (15 §3.2, worker p): private player preferences, subtitle fetch / translation / fonts.
+    single { PlayerPrefs(androidContext()) }
+    single { SubtitleTools(androidContext(), get(named(PLAYER_HTTP))) }
 }
+
+/** Koin qualifier of the player's own OkHttp client (no app interceptors reach CDNs). */
+const val PLAYER_HTTP = "player-http"
 
 /**
  * Integration hook: `:core:player` must not depend on `:core:data`, so the app binds

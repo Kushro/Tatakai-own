@@ -38,7 +38,15 @@ class PlayableSource(
  * One subtitle track. [groupIndex] is the engine's id (Media3 track group index, mpv `sid`). [ass] = SSA/ASS styling
  * (Media3 renders it simplified: the player shows the "simplified subtitles" notice).
  */
-data class SubtitleOption(val groupIndex: Int, val label: String, val language: String?, val selected: Boolean, val ass: Boolean = false)
+data class SubtitleOption(
+    val groupIndex: Int,
+    val label: String,
+    val language: String?,
+    val selected: Boolean,
+    val ass: Boolean = false,
+    /** parity wave A (worker p): index into [PlayableSource.subtitles] when this track is an external (sidecar) file, else null. */
+    val external: Int? = null,
+)
 
 /** One audio track ([id] = Media3 track group index, mpv `aid`). */
 data class AudioOption(val id: Int, val label: String, val language: String?, val selected: Boolean)
@@ -74,6 +82,15 @@ data class PlaybackState(
     val subtitleIsAss: Boolean = false,
     /** The engine renders ASS with full styling (mpv); false for Media3 (simplified). */
     val fullAss: Boolean = false,
+    // --- parity wave A (worker p) ---
+    /** Text of the primary subtitle the engine shows right now (mpv `sub-text`); null when unknown (Media3 exposes cues instead). */
+    val subText: String? = null,
+    /** Current subtitle delay ([PlayerSession.setSubtitleDelay]). */
+    val subtitleDelayMs: Long = 0,
+    /** [PlayerSession.setLoop] is on. */
+    val loop: Boolean = false,
+    /** mpv `secondary-sid` (a [SubtitleOption.groupIndex]); null = off. */
+    val secondarySubtitleId: Int? = null,
 )
 
 /**

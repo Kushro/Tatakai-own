@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.feature.player
 
+import android.net.Uri
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
@@ -9,6 +11,7 @@ import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.Container
+import app.tatakai.next.model.Episode
 import app.tatakai.next.model.ExtensionRepository
 import app.tatakai.next.model.HistoryEntry
 import app.tatakai.next.model.HistoryRepository
@@ -19,33 +22,52 @@ import app.tatakai.next.model.MetadataRepository
 import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.model.PlayerEngine
 import app.tatakai.next.model.RankedSource
+import app.tatakai.next.model.SecretKeys
+import app.tatakai.next.model.SecretStore
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SkipMarksRepository
 import app.tatakai.next.model.SourceKind
 import app.tatakai.next.model.SourceMode
 import app.tatakai.next.model.SourceStatsStore
+import app.tatakai.next.model.TranslationMode
+import app.tatakai.next.model.TranslationProvider
+import app.tatakai.next.model.torrent.DebridRepository
 import app.tatakai.next.model.torrent.TorrentPlayback
 import app.tatakai.next.model.torrent.TorrentRepository
 import app.tatakai.next.model.torrentUri
+import app.tatakai.next.player.ActivePlayback
 import app.tatakai.next.player.ExternalLaunch
 import app.tatakai.next.player.ExternalPlayer
 import app.tatakai.next.player.FailKind
 import app.tatakai.next.player.FailedSource
 import app.tatakai.next.player.FlowPhase
 import app.tatakai.next.player.HistoryFlush
+import app.tatakai.next.player.LanguageCodes
 import app.tatakai.next.player.Markers
-import app.tatakai.next.player.NEXT_COUNTDOWN_SECS
 import app.tatakai.next.player.PlayableSource
+import app.tatakai.next.player.PlaybackMetadata
 import app.tatakai.next.player.PlaybackControllerFactory
 import app.tatakai.next.player.PlaybackListener
 import app.tatakai.next.player.PlaybackState
 import app.tatakai.next.player.PlayerSession
+import app.tatakai.next.player.PickMismatch
+import app.tatakai.next.player.PlayerPrefs
 import app.tatakai.next.player.PlayerSessionFactory
 import app.tatakai.next.player.ProgressTracker
 import app.tatakai.next.player.RemotePlayback
+import app.tatakai.next.player.SleepOption
+import app.tatakai.next.player.SleepTimer
 import app.tatakai.next.player.SourceFlow
-import app.tatakai.next.player.applyPick
+import app.tatakai.next.player.SubtitleDelay
+import app.tatakai.next.player.SubtitleTools
+import app.tatakai.next.player.SubtitleTranslationSession
+import app.tatakai.next.player.TimedCue
+import app.tatakai.next.player.TranslationCache
+import app.tatakai.next.player.TranslationException
+import app.tatakai.next.player.TranslatorConfig
 import app.tatakai.next.player.magnetInfoHash
+import app.tatakai.next.player.markDebrid
+import app.tatakai.next.player.resolvePick
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -108,7 +130,41 @@ data class TorrentUi(
 /** Metered network confirmation (11 §4.1 step 2): X = the source's size when known. */
 data class MeteredPrompt(val sizeBytes: Long?, val hasWeb: Boolean)
 
-data class NextEpisodeUi(val episode: Int, val secondsLeft: Int, val sameTorrent: Boolean)
+/**
+ * The end-of-episode card. [secondsLeft] null = auto-next is off (checklist player.auto-next.toggle): the card only offers the button and
+ * never moves on by itself. [totalSecs] = `AppSettings.autoNextCountdownSecs` (3..30, player.auto-next.countdown).
+ */
+data class NextEpisodeUi(val episode: Int, val secondsLeft: Int?, val sameTorrent: Boolean, val totalSecs: Int = DEFAULT_COUNTDOWN_SECS)
+
+internal const val DEFAULT_COUNTDOWN_SECS = 10
+
+/** Sleep timer of the "More" sheet: [option] armed, [remainingMs] for the wall-clock options. */
+data class SleepUi(val option: SleepOption, val remainingMs: Long?)
+
+/** Episode list over the player (player.jump-to-episode). */
+data class EpisodesUi(val loading: Boolean = false, val items: List<Episode> = emptyList(), val error: AppError? = null, val loaded: Boolean = false)
+
+/** Subtitle translation state (player.subs.translate.*): [enabled] = the in-player toggle; [progress] = pre-translation (done, total). */
+data class TranslationUi(
+    val available: Boolean = false,
+    val enabled: Boolean = true,
+    val progress: Pair<Int, Int>? = null,
+    val error: String? = null,
+)
+
+/**
+ * Subtitles the screen draws itself (Media3 never renders text, mpv only when translating): [primary] parsed cues of the selected external
+ * track or of a loaded file (null = the engine's own cues), [secondary] the second track (Media3), [translated] original -> translated.
+ */
+data class ScreenSubtitles(
+    val primary: List<TimedCue>? = null,
+    val secondary: List<TimedCue>? = null,
+    val secondaryLabel: String? = null,
+    val translated: Map<String, String> = emptyMap(),
+)
+
+/** A subtitle file loaded with "Load file…" while the Media3 engine plays (the screen draws it). */
+data class CustomSubtitleUi(val name: String, val active: Boolean)
 
 data class ExternalUi(val launch: ExternalLaunch, val launched: Boolean = false, val failed: Boolean = false)
 
@@ -118,6 +174,19 @@ sealed interface PlayerNotice {
     data class NoFileNext(val episode: Int) : PlayerNotice
     data object IntroSkipped : PlayerNotice
     data object AssSimplified : PlayerNotice
+
+    // --- parity wave A (worker p) ---
+    data class ScreenshotSaved(val path: String) : PlayerNotice
+    data object ScreenshotFailed : PlayerNotice
+    data class SubtitleLoaded(val name: String) : PlayerNotice
+    data object SubtitleFailed : PlayerNotice
+    data object SleepFired : PlayerNotice
+
+    /** Bug sources.remembered-vs-prefs: the remembered source no longer fits the preferences and was dropped. */
+    data class StoredSourceIgnored(val reason: PickMismatch) : PlayerNotice
+    data class TranslationFailed(val message: String) : PlayerNotice
+    data class PretranslateDone(val failed: Int) : PlayerNotice
+    data object PretranslateUnavailable : PlayerNotice
 }
 
 data class PlayerUiState(
@@ -150,6 +219,17 @@ data class PlayerUiState(
     val canPickSource: Boolean = false,
     /** Not a Link (remote) session: episode navigation is available. */
     val remoteless: Boolean = true,
+    // --- parity wave A (worker p) ---
+    val hasPrevEpisode: Boolean = false,
+    val sleep: SleepUi? = null,
+    val loop: Boolean = false,
+    val episodes: EpisodesUi = EpisodesUi(),
+    val translation: TranslationUi = TranslationUi(),
+    val customSubtitle: CustomSubtitleUi? = null,
+    /** External tracks of the current stream (Media3 secondary subtitle choices). */
+    val externalSubtitles: List<app.tatakai.next.model.SubtitleTrack> = emptyList(),
+    /** Index into [externalSubtitles] of the Media3 secondary track; mpv uses `PlaybackState.secondarySubtitleId`. */
+    val secondaryExternal: Int? = null,
 )
 
 /**
@@ -176,18 +256,36 @@ class PlayerViewModel(
     private val stats: SourceStatsStore? = null,
     private val skipMarks: SkipMarksRepository? = null,
     private val mpvFactory: PlayerSessionFactory? = null,
+    // --- parity wave A (worker p) ---
+    private val prefs: PlayerPrefs? = null,
+    private val subtitleTools: SubtitleTools? = null,
+    private val secrets: SecretStore? = null,
+    private val debrid: DebridRepository? = null,
 ) : ViewModel() {
-    private val settings: AppSettings = settingsRepository?.settings?.value ?: AppSettings()
+    private val initialSettings: AppSettings = settingsRepository?.settings?.value ?: AppSettings()
     private val engine: PlayerEngine = when {
         args.remoteSessionId != null -> PlayerEngine.MEDIA3 // the PC's HLS needs the mTLS OkHttp client
-        settings.playerEngine == PlayerEngine.MPV && mpvFactory == null -> PlayerEngine.MEDIA3
-        else -> settings.playerEngine
+        initialSettings.playerEngine == PlayerEngine.MPV && mpvFactory == null -> PlayerEngine.MEDIA3
+        else -> initialSettings.playerEngine
     }
 
     private val _state = MutableStateFlow(
-        PlayerUiState(engine = engine, settings = settings, mode = settings.sourcePrefs.mode, remoteless = args.remoteSessionId == null),
+        PlayerUiState(
+            engine = engine,
+            settings = initialSettings,
+            mode = initialSettings.sourcePrefs.mode,
+            remoteless = args.remoteSessionId == null,
+            hasPrevEpisode = args.remoteSessionId == null && args.episode > 1,
+            translation = TranslationUi(available = initialSettings.subtitleTranslation.provider != TranslationProvider.NONE),
+        ),
     )
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
+
+    /** Live settings (Settings › Reproductor changes apply while playing: subtitle style, translation, countdown...). */
+    private val settings: AppSettings get() = _state.value.settings
+
+    private val _screenSubs = MutableStateFlow(ScreenSubtitles())
+    val screenSubs: StateFlow<ScreenSubtitles> = _screenSubs.asStateFlow()
 
     private val _notices = Channel<PlayerNotice>(Channel.BUFFERED)
     val notices: Flow<PlayerNotice> = _notices.receiveAsFlow()
@@ -218,8 +316,53 @@ class PlayerViewModel(
     private var lastDurationMs = 0L
     private val mediaId: String? = HistoryEntry.animeIdOf(args.media.anilistId, args.media.malId)
 
+    // --- parity wave A (worker p) ---
+    private var currentSource: PlayableSource? = null
+    private val sleepTimer = SleepTimer()
+    private var sleepJob: Job? = null
+    private var customCues: List<TimedCue>? = null
+    private var fetchedPrimaryFor: String? = null
+    private var secondaryDecidedLoad = -1
+    private var translationSession: SubtitleTranslationSession? = null
+    private var translationFor: SubtitleTranslationConfigKey? = null
+    private var liveJob: Job? = null
+    private var pendingLive: List<String>? = null
+    private var pretranslatedFor: String? = null
+    private var pretranslateJob: Job? = null
+    private var episodesJob: Job? = null
+    private var notificationText: Pair<String, String?>? = null
+
     init {
         start()
+        settingsRepository?.let { repo ->
+            viewModelScope.launch {
+                repo.settings.collect { s ->
+                    val prev = _state.value.settings
+                    _state.update {
+                        it.copy(settings = s, translation = it.translation.copy(available = s.subtitleTranslation.provider != TranslationProvider.NONE))
+                    }
+                    val sess = session ?: return@collect
+                    if (s.subtitleStyle != prev.subtitleStyle) sess.setSubtitleStyle(s.subtitleStyle)
+                    if (s.stableVolume != prev.stableVolume) sess.setStableVolume(s.stableVolume)
+                    if (s.subtitleTranslation != prev.subtitleTranslation) resetTranslation()
+                }
+            }
+        }
+        prefs?.let { p ->
+            viewModelScope.launch { p.subtitleExtras.collect { e -> session?.setSubtitleExtras(e) } }
+        }
+    }
+
+    /** Episode of this entry (episode list, screenshot names). */
+    val episodeNumber: Int get() = args.episode
+
+    /** Title used in screenshot file names. */
+    val titleForFiles: String get() = args.title
+
+    /** Media notification / lock screen text (PlaybackService): the screen passes the localised "Episode N" line. */
+    fun setNotificationText(title: String, subtitle: String?) {
+        notificationText = title to subtitle
+        ActivePlayback.setMetadata(PlaybackMetadata(title, subtitle, _state.value.poster ?: media?.cover))
     }
 
     // ---- start ------------------------------------------------------------------------------------------------------------------
@@ -247,6 +390,7 @@ class PlayerViewModel(
             _state.update {
                 it.copy(poster = m?.cover, hasNextEpisode = m?.episodes?.let { total -> args.episode < total } ?: true)
             }
+            notificationText?.let { (t, sub) -> ActivePlayback.setMetadata(PlaybackMetadata(t, sub, m?.cover)) }
             loadSkipMarks()
             val local = args.localUri
             val torrentId = args.torrentId
@@ -280,7 +424,15 @@ class PlayerViewModel(
             return
         }
         val stored = mediaId?.let { id -> runCatching { stats?.pickedSource(id, args.episode) }.getOrNull() }
-        val sources = applyPick(ranked, args.sourceKey, stored)
+        // 15 §3.9: torrent rows as the linked debrid services see them (identity without an account).
+        val marked = markDebrid(ranked, debrid)
+        // Bug sources.remembered-vs-prefs: this session's pick always wins; the remembered one only while it fits the preferences.
+        val pick = resolvePick(marked, args.sourceKey, stored, settings.sourcePrefs)
+        val sources = pick.sources
+        if (pick.storedDiscarded) {
+            mediaId?.let { id -> detached.launch { runCatching { stats?.clearPickedSource(id, args.episode) } } }
+            pick.mismatch?.let { _notices.trySend(PlayerNotice.StoredSourceIgnored(it)) }
+        }
         _state.update { it.copy(candidatesLoading = false, sources = sources, canPickSource = sources.isNotEmpty()) }
         if (sources.isEmpty()) {
             _state.update { it.copy(phase = PlayerPhase.NO_SOURCES) }
@@ -346,8 +498,28 @@ class PlayerViewModel(
                 }
                 handOff(PlayableSource.from(stream), attempt)
             }
-            SourceKind.TORRENT -> resolveTorrent(src, attempt)
+            SourceKind.TORRENT -> if (!resolveDebrid(src, attempt)) resolveTorrent(src, attempt)
         }
+    }
+
+    /**
+     * 15 §3.9: a torrent cached by a linked debrid service plays as its direct HTTPS stream (no libtorrent). Returns false when the
+     * normal torrent path must run (no service, not cached, or the service refused it).
+     */
+    private suspend fun resolveDebrid(src: RankedSource, attempt: Long): Boolean {
+        val repo = debrid ?: return false
+        val status = src.candidate.debrid?.takeIf { it.cached } ?: return false
+        val hash = src.candidate.torrent?.infoHash ?: src.candidate.torrentUri()?.let { magnetInfoHash(it) } ?: return false
+        val stream = try {
+            repo.resolve(status.service, hash, src.candidate.torrentUri(), null, args.episode).getOrNull()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        } ?: return false
+        if (attempt != flow?.attempt) return true
+        handOff(PlayableSource.from(stream), attempt)
+        return true
     }
 
     private suspend fun resolveTorrent(src: RankedSource, attempt: Long) {
@@ -509,7 +681,10 @@ class PlayerViewModel(
         val factory: PlayerSessionFactory = if (engine == PlayerEngine.MPV) mpvFactory ?: media3 else media3
         val s = factory.create(viewModelScope, listener(args.remoteSessionId), args.remoteSessionId != null)
         s.setSubtitleStyle(settings.subtitleStyle)
+        prefs?.subtitleExtras?.value?.let { s.setSubtitleExtras(it) }
         s.setPreferredLanguages(settings.sourcePrefs.subLang, settings.sourcePrefs.dubLang)
+        if (settings.stableVolume) s.setStableVolume(true)
+        if (_state.value.loop) s.setLoop(true)
         session = s
         _state.update { it.copy(session = s) }
         sessionJob = viewModelScope.launch { s.state.collect { onSessionState(it) } }
@@ -521,6 +696,12 @@ class PlayerViewModel(
         val resume = s.currentPositionMs().takeIf { loadsIssued > 0 && it > 0 } ?: args.startMs
         loadsIssued++
         autoSkippedIntro = false
+        currentSource = source
+        customCues = null
+        fetchedPrimaryFor = null
+        pretranslatedFor = null
+        _screenSubs.value = ScreenSubtitles()
+        _state.update { it.copy(customSubtitle = null, externalSubtitles = source.subtitles, secondaryExternal = null) }
         s.load(source, resume)
     }
 
@@ -564,7 +745,14 @@ class PlayerViewModel(
                 _notices.trySend(PlayerNotice.IntroSkipped)
             }
         }
-        if (st.ended && settings.autoNext && _state.value.hasNextEpisode && nextJob == null && !nextDismissed && args.remoteSessionId == null) {
+        onSubtitleTracks(st)
+        if (st.ended && !st.loop && sleepTimer.onEpisodeEnded()) {
+            onSleepFired()
+            return
+        }
+        if (st.ended && !st.loop && !sleepTimer.fired && _state.value.hasNextEpisode && nextJob == null && _state.value.next == null &&
+            !nextDismissed && args.remoteSessionId == null
+        ) {
             startNextCountdown()
         }
     }
@@ -681,11 +869,17 @@ class PlayerViewModel(
         s.seekTo((target * 1000).toLong())
     }
 
+    /** Auto-next on: count `autoNextCountdownSecs` (3..30) and move on; off: the card only offers the button (player.auto-next.*). */
     private fun startNextCountdown() {
         val sameTorrent = _state.value.torrent?.batch == true && playback != null
+        val total = settings.autoNextCountdownSecs.coerceIn(MIN_COUNTDOWN_SECS, MAX_COUNTDOWN_SECS)
+        if (!settings.autoNext) {
+            _state.update { it.copy(next = NextEpisodeUi(args.episode + 1, null, sameTorrent, total)) }
+            return
+        }
         nextJob = viewModelScope.launch {
-            for (left in NEXT_COUNTDOWN_SECS downTo 1) {
-                _state.update { it.copy(next = NextEpisodeUi(args.episode + 1, left, sameTorrent)) }
+            for (left in total downTo 1) {
+                _state.update { it.copy(next = NextEpisodeUi(args.episode + 1, left, sameTorrent, total)) }
                 delay(1_000)
             }
             playNext()
@@ -694,6 +888,7 @@ class PlayerViewModel(
 
     fun cancelNext() {
         nextJob?.cancel()
+        nextJob = null
         nextDismissed = true
         _state.update { it.copy(next = null) }
     }
@@ -714,12 +909,359 @@ class PlayerViewModel(
         _replace.trySend(nextArgs)
     }
 
+    // ---- parity wave A (worker p): episodes, sleep timer, loop, stable volume ----------------------------------------------------
+
+    /** "Previous episode" (button / J): N-1 through the normal source flow (its best source). */
+    fun playPrevious() {
+        if (!_state.value.hasPrevEpisode) return
+        playEpisode(args.episode - 1)
+    }
+
+    /** Jump to [episode] from the episode list over the player, without going back to Details. */
+    fun playEpisode(episode: Int) {
+        if (episode < 1 || episode == args.episode || args.remoteSessionId != null) return
+        nextJob?.cancel()
+        _state.update { it.copy(next = null) }
+        _replace.trySend(args.copy(episode = episode, startMs = 0, sourceKey = null, torrentId = null, fileIndex = null, localUri = null))
+    }
+
+    /** Loads the episode list once (Details' source: `MetadataRepository.episodes`, else 1..N from the media). */
+    fun loadEpisodes(force: Boolean = false) {
+        val cur = _state.value.episodes
+        if (!force && (cur.loading || cur.loaded)) return
+        episodesJob?.cancel()
+        _state.update { it.copy(episodes = EpisodesUi(loading = true)) }
+        episodesJob = viewModelScope.launch {
+            val result = try {
+                Result.success(metadata.episodes(args.media))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            val total = media?.episodes ?: 0
+            val list = result.getOrNull().orEmpty().ifEmpty { (1..total).map { Episode(it, null, null, null) } }
+            _state.update {
+                it.copy(
+                    episodes = if (list.isEmpty() && result.isFailure) {
+                        EpisodesUi(error = result.exceptionOrNull()?.asAppError(), loaded = false)
+                    } else {
+                        EpisodesUi(items = list.sortedBy { e -> e.number }, loaded = true)
+                    },
+                )
+            }
+        }
+    }
+
+    fun setSleepTimer(option: SleepOption) {
+        sleepTimer.set(option, SystemClock.elapsedRealtime())
+        sleepJob?.cancel()
+        sleepJob = null
+        publishSleep()
+        if (option.minutes != null) {
+            sleepJob = viewModelScope.launch {
+                while (isActive) {
+                    delay(1_000)
+                    if (sleepTimer.tick(SystemClock.elapsedRealtime())) {
+                        onSleepFired()
+                        break
+                    }
+                    publishSleep()
+                }
+            }
+        }
+    }
+
+    private fun publishSleep() {
+        val ui = if (sleepTimer.active) SleepUi(sleepTimer.option, sleepTimer.remainingMs(SystemClock.elapsedRealtime())) else null
+        _state.update { it.copy(sleep = ui) }
+    }
+
+    /** The timer ran out: pause and do not move on to the next episode (player.sleep-timer). */
+    private fun onSleepFired() {
+        session?.pause()
+        nextJob?.cancel()
+        nextJob = null
+        nextDismissed = true
+        _state.update { it.copy(next = null, sleep = null) }
+        _notices.trySend(PlayerNotice.SleepFired)
+    }
+
+    fun setLoop(loop: Boolean) {
+        session?.setLoop(loop)
+        _state.update { it.copy(loop = loop) }
+        if (loop) {
+            nextJob?.cancel()
+            nextJob = null
+            _state.update { it.copy(next = null) }
+        }
+    }
+
+    fun setStableVolume(enabled: Boolean) {
+        session?.setStableVolume(enabled)
+        val repo = settingsRepository ?: return
+        viewModelScope.launch { runCatching { repo.update { it.copy(stableVolume = enabled) } } }
+    }
+
+    // ---- parity wave A (worker p): subtitles ---------------------------------------------------------------------------------------
+
+    /** Track choice from the subtitles sheet (null = off). A loaded file under Media3 is dropped when another track is chosen. */
+    fun selectSubtitle(groupIndex: Int?) {
+        if (_state.value.customSubtitle != null) {
+            customCues = null
+            _state.update { it.copy(customSubtitle = null) }
+            _screenSubs.update { it.copy(primary = null) }
+        }
+        fetchedPrimaryFor = null
+        session?.selectSubtitle(groupIndex)
+    }
+
+    /** ±0.1 s (player.subs.offset); [direction] 0 resets. */
+    fun stepSubtitleDelay(direction: Int) {
+        val s = session ?: return
+        val cur = s.state.value.subtitleDelayMs
+        s.setSubtitleDelay(if (direction == 0) 0 else SubtitleDelay.step(cur, direction))
+    }
+
+    /** "Load file…" (SAF): mpv adds and selects it (`sub-add`); Media3 draws its parsed cues itself. */
+    fun loadSubtitleFile(uri: Uri) {
+        val tools = subtitleTools ?: return
+        viewModelScope.launch {
+            val (file, cues) = try {
+                tools.import(uri)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _notices.trySend(PlayerNotice.SubtitleFailed)
+                return@launch
+            }
+            val s = session ?: return@launch
+            if (!s.addSubtitleFile(file.absolutePath, file.name)) {
+                s.selectSubtitle(null)
+                _state.update { it.copy(customSubtitle = CustomSubtitleUi(file.name, active = true)) }
+                _screenSubs.update { it.copy(primary = cues) }
+            }
+            customCues = cues
+            pretranslatedFor = null
+            _notices.trySend(PlayerNotice.SubtitleLoaded(file.name))
+            maybePretranslate()
+        }
+    }
+
+    /** Second subtitle (player.subs.secondary): mpv [groupIndex] (`secondary-sid`); Media3 [external] = index into the stream's tracks. */
+    fun selectSecondary(groupIndex: Int?, external: Int?) {
+        val s = session ?: return
+        if (s.supportsSecondaryTracks) {
+            s.selectSecondarySubtitle(groupIndex)
+            return
+        }
+        _state.update { it.copy(secondaryExternal = external) }
+        if (external == null) {
+            _screenSubs.update { it.copy(secondary = null, secondaryLabel = null) }
+            return
+        }
+        val track = currentSource?.subtitles?.getOrNull(external) ?: return
+        val tools = subtitleTools ?: return
+        viewModelScope.launch {
+            val cues = runCatching { tools.fetch(track.url, currentSource?.headers.orEmpty(), track.format) }.getOrNull()
+            if (cues == null) {
+                _notices.trySend(PlayerNotice.SubtitleFailed)
+                _state.update { it.copy(secondaryExternal = null) }
+                return@launch
+            }
+            _screenSubs.update { it.copy(secondary = cues, secondaryLabel = track.label.ifBlank { track.lang }) }
+        }
+    }
+
+    /**
+     * Per engine update: (1) Media3 draws a selected external track from its parsed cues (exact ± delay, pre-translation); (2) the
+     * preferred secondary language (`AppSettings.secondarySubLang`) is selected once per load.
+     */
+    private fun onSubtitleTracks(st: PlaybackState) {
+        val s = session ?: return
+        val src = currentSource ?: return
+        if (!s.supportsSecondaryTracks && _state.value.customSubtitle == null) {
+            val selected = st.subtitles.firstOrNull { it.selected }
+            val ext = selected?.external?.let { src.subtitles.getOrNull(it) }
+            val key = ext?.url
+            if (key != fetchedPrimaryFor) {
+                fetchedPrimaryFor = key
+                if (ext == null) {
+                    _screenSubs.update { it.copy(primary = null) }
+                } else {
+                    val tools = subtitleTools
+                    if (tools != null) {
+                        viewModelScope.launch {
+                            val cues = runCatching { tools.fetch(ext.url, src.headers, ext.format) }.getOrNull()
+                            if (fetchedPrimaryFor == key) {
+                                _screenSubs.update { it.copy(primary = cues) }
+                                if (cues != null) maybePretranslate()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val want = settings.secondarySubLang
+        if (want != null && st.subtitles.isNotEmpty() && secondaryDecidedLoad != st.loadId) {
+            secondaryDecidedLoad = st.loadId
+            if (s.supportsSecondaryTracks) {
+                st.subtitles.firstOrNull { !it.selected && LanguageCodes.matches(it.language, it.label, want) }
+                    ?.let { s.selectSecondarySubtitle(it.groupIndex) }
+            } else {
+                val i = src.subtitles.indexOfFirst { LanguageCodes.matches(it.lang, it.label, want) }
+                if (i >= 0) selectSecondary(null, i)
+            }
+        }
+    }
+
+    // ---- parity wave A (worker p): translation -------------------------------------------------------------------------------------
+
+    fun setTranslationEnabled(enabled: Boolean) {
+        _state.update { it.copy(translation = it.translation.copy(enabled = enabled, error = null)) }
+        session?.setSubtitlesVisible(true)
+    }
+
+    /** Translation is configured and switched on in the player. */
+    fun translationActive(): Boolean = _state.value.translation.let { it.available && it.enabled }
+
+    private fun resetTranslation() {
+        translationSession = null
+        translationFor = null
+        pretranslatedFor = null
+        _screenSubs.update { it.copy(translated = emptyMap()) }
+    }
+
+    /** One translation session per (provider settings, key) and episode; the key comes from SecretStore, never from settings. */
+    private suspend fun translation(): SubtitleTranslationSession? {
+        val tools = subtitleTools ?: return null
+        val cfg = settings.subtitleTranslation
+        if (cfg.provider == TranslationProvider.NONE) return null
+        val key = runCatching { secrets?.get(SecretKeys.translationApiKey(cfg.provider.id)) }.getOrNull()
+        val id = SubtitleTranslationConfigKey(cfg, key?.hashCode())
+        translationSession?.takeIf { translationFor == id }?.let { return it }
+        val config = TranslatorConfig.from(cfg, key)
+        val translator = try {
+            tools.translator(config)
+        } catch (e: TranslationException) {
+            _state.update { it.copy(translation = it.translation.copy(error = e.message)) }
+            _notices.trySend(PlayerNotice.TranslationFailed(e.message.orEmpty()))
+            return null
+        }
+        val episodeKey = "${mediaId ?: args.title}:${args.episode}"
+        return SubtitleTranslationSession(translator, tools.translationCache, TranslationCache.scope(episodeKey, config)).also {
+            translationSession = it
+            translationFor = id
+        }
+    }
+
+    /**
+     * Live translation (player.subs.translate.live): the screen hands the lines it is about to draw; cached ones come back at once, the
+     * rest are translated (one request in flight, the newest lines win). Until then the original is shown.
+     */
+    fun translateLines(lines: List<String>) {
+        if (!translationActive() || lines.isEmpty()) return
+        val known = _screenSubs.value.translated
+        if (lines.all { it in known }) return
+        pendingLive = lines
+        if (liveJob?.isActive == true) return
+        liveJob = viewModelScope.launch {
+            while (true) {
+                val batch = pendingLive ?: break
+                pendingLive = null
+                val tr = translation() ?: break
+                val missing = batch.filter { it !in _screenSubs.value.translated }
+                if (missing.isEmpty()) continue
+                try {
+                    val out = tr.translateLive(missing)
+                    _screenSubs.update { it.copy(translated = it.translated + missing.zip(out)) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _state.update { it.copy(translation = it.translation.copy(error = e.message)) }
+                    break
+                }
+            }
+        }
+    }
+
+    /** mpv draws nothing while the screen shows its translated line (and everything again when translation is off). */
+    fun onTranslationDrawing(drawing: Boolean) {
+        session?.setSubtitlesVisible(!drawing)
+    }
+
+    /** Settings mode PRELOAD: translate the whole parsed track before playing (once per track). */
+    private fun maybePretranslate() {
+        if (settings.subtitleTranslation.mode == TranslationMode.PRELOAD && translationActive()) pretranslate()
+    }
+
+    /**
+     * "Pre-translate" (player.subs.translate.pretranslate): pauses, translates every line of the current track in batches with progress,
+     * then plays on. Needs the full text: a loaded file or an external track (embedded tracks only translate live).
+     */
+    fun pretranslate() {
+        if (pretranslateJob?.isActive == true) return
+        pretranslateJob = viewModelScope.launch {
+            val cues = cuesForPretranslation()
+            if (cues == null) {
+                _notices.trySend(PlayerNotice.PretranslateUnavailable)
+                return@launch
+            }
+            val id = cues.size.toString() + ":" + cues.firstOrNull()?.text.orEmpty()
+            if (pretranslatedFor == id) return@launch
+            val tr = translation() ?: return@launch
+            val s = session
+            val wasPlaying = s?.state?.value?.isPlaying == true
+            s?.pause()
+            val texts = cues.map { it.text }
+            val failed = try {
+                tr.pretranslate(texts) { done, total -> _state.update { it.copy(translation = it.translation.copy(progress = done to total)) } }
+            } catch (e: CancellationException) {
+                _state.update { it.copy(translation = it.translation.copy(progress = null)) }
+                throw e
+            }
+            val all = texts.distinct()
+            val cached = tr.cachedOnly(all)
+            _screenSubs.update { sub -> sub.copy(translated = sub.translated + all.zip(cached).mapNotNull { (o, t) -> t?.let { o to it } }) }
+            pretranslatedFor = id
+            _state.update { it.copy(translation = it.translation.copy(progress = null)) }
+            _notices.trySend(PlayerNotice.PretranslateDone(failed))
+            if (wasPlaying) s?.play()
+        }
+    }
+
+    /** "Skip" on the pre-translation overlay: play now, the rest is translated live. */
+    fun cancelPretranslate() {
+        pretranslateJob?.cancel()
+        _state.update { it.copy(translation = it.translation.copy(progress = null)) }
+        session?.play()
+    }
+
+    private suspend fun cuesForPretranslation(): List<TimedCue>? {
+        customCues?.let { return it }
+        _screenSubs.value.primary?.let { return it }
+        val src = currentSource ?: return null
+        val tools = subtitleTools ?: return null
+        val selected = session?.state?.value?.subtitles?.firstOrNull { it.selected } ?: return null
+        val track = selected.external?.let { src.subtitles.getOrNull(it) }
+            ?: src.subtitles.firstOrNull { LanguageCodes.matches(it.lang, it.label, selected.language ?: selected.label) }
+            ?: return null
+        return runCatching { tools.fetch(track.url, src.headers, track.format) }.getOrNull()
+    }
+
+    // ---- parity wave A (worker p): screenshots -------------------------------------------------------------------------------------
+
+    fun onScreenshot(path: String?) {
+        _notices.trySend(if (path != null) PlayerNotice.ScreenshotSaved(path) else PlayerNotice.ScreenshotFailed)
+    }
+
     /** Pause before leaving for the torrent client ("Open in the client"). */
     fun pauseForClient() {
         session?.pause()
     }
 
     override fun onCleared() {
+        sleepJob?.cancel()
         session?.release() // emits the final forced progress tick
         session = null
         val completed = lastDurationMs > 0 && lastPositionMs >= lastDurationMs * COMPLETED_FRACTION
@@ -733,8 +1275,13 @@ class PlayerViewModel(
         (e as? AppError.Unknown)?.msg?.takeIf { it.startsWith(NO_FILE_PREFIX) }?.removePrefix(NO_FILE_PREFIX)?.ifBlank { null }
 
     private companion object {
+        const val MIN_COUNTDOWN_SECS = 3
+        const val MAX_COUNTDOWN_SECS = 30
         const val SEEK_MARKS_POLL_MS = 2_500L
         const val COMPLETED_FRACTION = 0.9
         const val NO_FILE_PREFIX = "torrent:no_file:"
     }
 }
+
+/** Identity of a translation setup (the key itself is never kept, only whether / which one is set). */
+private data class SubtitleTranslationConfigKey(val settings: app.tatakai.next.model.SubtitleTranslation, val keyHash: Int?)
