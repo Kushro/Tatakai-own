@@ -7,8 +7,8 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use tk_ui::backend::{
-    AccountVm, Backend, DetailsVm, EpisodeVm, ExtLogVm, ExtensionVm, HomeVm, LibraryVm, LinkCapsVm, LinkStatusVm,
-    MediaVm, PlaybackVm, UiResult,
+    Backend, DetailsVm, EpisodeVm, ExtLogVm, ExtensionVm, HomeVm, LibraryVm, LinkCapsVm, LinkStatusVm, MediaVm,
+    PlaybackVm, UiResult,
 };
 use tk_ui::model::{ErrorKind, Pairing, Settings, UiError};
 
@@ -73,15 +73,6 @@ impl Backend for OfflineBackend {
     async fn save_settings(&self, settings: &Settings) -> UiResult<()> {
         settings_store::save(&self.settings_file, settings).map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))
     }
-    async fn account(&self) -> UiResult<AccountVm> {
-        Ok(AccountVm { email: None, configured: false })
-    }
-    async fn sign_in(&self, _email: &str, _password: &str) -> UiResult<AccountVm> {
-        not_wired("sign_in")
-    }
-    async fn sign_out(&self) -> UiResult<()> {
-        Ok(())
-    }
 
     async fn link_status(&self) -> UiResult<LinkStatusVm> {
         Ok(LinkStatusVm { running: false, port: crate::firewall::DEFAULT_PORT, devices: Vec::new(), error: None })
@@ -108,9 +99,6 @@ impl Backend for OfflineBackend {
     }
     async fn library(&self) -> UiResult<LibraryVm> {
         Ok(LibraryVm::default()) // no local store in this build: an empty library
-    }
-    async fn sync_now(&self) -> UiResult<()> {
-        Err(UiError::new(ErrorKind::Auth, "no account service in this build"))
     }
     async fn extension_logs(&self, _id: &str) -> UiResult<Vec<ExtLogVm>> {
         Ok(Vec::new())

@@ -7,12 +7,16 @@
 //! * `url` source: SSRF-safe loopback fetcher + HLS rewriting; FFmpeg only ever reads the loopback
 //! * sessions: on-demand fMP4 HLS, 512 MiB RAM window, heartbeat/idle, FFmpeg in a Windows Job Object
 //!
-//! Out of M0 by design: mDNS/TOFU, `/v1/settings`, events/handoff/control/sync/downloads, the phone source.
+//! Out of M0 by design: mDNS/TOFU, `/v1/settings`, events/handoff/control/downloads, the phone source.
+//!
+//! Wave A (plan 14 section 0.1 #9, worker **f**): `GET` / `POST /v1/history` sync the watch history (exact resume
+//! position) between the user's own devices, replacing the removed cloud history. See [`history`].
 
 pub mod api;
 pub mod devices;
 pub mod fetcher;
 pub mod firewall;
+pub mod history;
 pub mod identity;
 pub mod library;
 pub mod media;
@@ -57,6 +61,22 @@ pub trait LinkHost: Send + Sync + 'static {
     /// `network:domain:*` permissions of the installed extension `id`; `None` when it is not installed.
     fn extension_permissions(&self, _id: &str) -> Option<Vec<String>> {
         None
+    }
+    /// Watch-history rows with `watched_at > since_unix` (unix seconds; `0` = all), OLDEST first, at most
+    /// `limit` (the route asks `limit + 1` so [`history::page`] can flag truncation). Blocking (SQLite): the route
+    /// calls it from `spawn_blocking`. Default: no history (hosts without a store).
+    fn history_since(&self, _since_unix: i64, _limit: usize) -> Vec<tk_core::HistoryEntry> {
+        Vec::new()
+    }
+    /// Merge rows pushed by a phone into the local history (newest `watched_at` wins); returns how many were
+    /// stored. Blocking. Default: nothing stored.
+    fn history_merge(&self, _rows: Vec<tk_core::HistoryEntry>) -> usize {
+        0
+    }
+    /// Drop the whole local history (`DELETE /v1/history`, user-confirmed on the phone). Returns `false` when the
+    /// host cannot (no store): the route then answers `internal`. Default: `false`.
+    fn history_clear(&self) -> bool {
+        false
     }
 }
 

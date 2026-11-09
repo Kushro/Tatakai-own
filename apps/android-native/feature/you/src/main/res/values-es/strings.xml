@@ -2,8 +2,12 @@
 <resources>
     <string name="you_title">Tú</string>
     <string name="you_guest_name">Invitado</string>
-    <string name="you_guest">Sin cuenta · historial local</string>
-    <string name="you_sign_in">Iniciar sesión para sincronizar</string>
+    <string name="you_guest">Sin cuenta vinculada · listas e historial en este teléfono</string>
+    <string name="you_sign_in">Conectar AniList o MAL</string>
+    <string name="you_accounts">Listas y cuentas</string>
+    <string name="you_history_link">Historial sincronizado con %1$s %2$s</string>
+    <string name="you_history_link_never">Historial aún sin sincronizar con %1$s</string>
+    <string name="you_history_local">Historial solo en este teléfono · enlaza una PC para sincronizar</string>
     <string name="you_sync_now">Sincronizar ahora</string>
     <string name="you_syncing">Sincronizando…</string>
     <string name="you_synced">Historial sincronizado %1$s</string>

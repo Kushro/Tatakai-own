@@ -23,7 +23,7 @@ val extensionsModule: Module = module {
     single { ExtensionLogStore() }
     single<BrowserRuntime> { WebViewBrowserRuntime(androidContext(), get()) }
     single<JsEngine> { QuickJsEngine(browserRuntime = get()) }
-    // Deliberately a fresh client: nothing from the app's own network stack (auth headers, Supabase interceptors) may reach extensions.
+    // Deliberately a fresh client: nothing from the app's own network stack (auth headers, OAuth tokens) may reach extensions.
     single(named("extensions-http")) { OkHttpClient.Builder().build() }
     single {
         val client = get<OkHttpClient>(named("extensions-http"))

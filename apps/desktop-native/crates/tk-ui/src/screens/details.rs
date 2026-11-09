@@ -11,9 +11,9 @@ use crate::app::{Route, Services, Ui};
 use crate::backend::{DetailsVm, DeviceVm, EpisodeVm, LinkStatusVm, SourceVm};
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, Comments, ConfirmDialog, DownloadSeasonSheet, EmptyState, ErrorState,
-    FloatingToolbar, IconButton, IconButtonVariant, InfoChip, ListButton, LoadingIndicator, MediaCover, Pill, Segmented,
-    Sheet, SkeletonLines, SourcePicker, SourceSummary, SplitButton, ToolbarSeparator, Tone, use_snackbar,
+    Button, ButtonSize, ButtonVariant, ConfirmDialog, DownloadSeasonSheet, EmptyState, ErrorState,
+    FloatingToolbar, IconButton, IconButtonVariant, InfoChip, ListButton, LoadingIndicator, MediaCover, Pill, Reviews,
+    Segmented, Sheet, SkeletonLines, SourcePicker, SourceSummary, SplitButton, ToolbarSeparator, Tone, use_snackbar,
 };
 use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
@@ -480,8 +480,9 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                         "aria-labelledby": "tk-dtab-{tab().id()}",
                         {tab_body}
                     }
-                    // Wave B mount point (worker n): comments about the title (renders nothing until then).
-                    Comments { media_id: id.clone() }
+                    // Wave B mount point (worker n): AniList reviews + the user's AniList activity on this title
+                    // (renders nothing until then; plan 14 section 0.1 #10: no own comments backend).
+                    Reviews { media_id: id.clone() }
                 }
                 aside { class: "tk-details__side",
                     {sources_panel}

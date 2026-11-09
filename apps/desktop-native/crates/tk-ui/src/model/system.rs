@@ -1,6 +1,6 @@
 //! System integration preferences (wave A, worker **f**; docs/redesign/15-parity-wave-a-contract.md section 3):
-//! start with the system, tray icon, close to tray, update check. Embedded in `Settings::system`. Worker f owns
-//! this file (fields, bounds, tests); `model/mod.rs` stays frozen.
+//! start with the system, tray icon, close to tray, update check, first-run wizard done. Embedded in
+//! `Settings::system`. Worker f owns this file (fields, bounds, tests); `model/mod.rs` stays frozen.
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +20,10 @@ pub struct SystemPrefs {
     pub check_updates: bool,
     /// A version the user chose to skip ("Don't remind me"), as the release tag (`v0.2.0`).
     pub skipped_version: Option<String>,
+    /// The first-run wizard (`screens/setup.rs`, route `/setup`) was completed or skipped. False = the shell
+    /// redirects to the wizard once settings are loaded; "Reset app" clears it. Older `ui-settings.json` files load
+    /// as `false`, so existing installs see the wizard once (it is skippable in one click).
+    pub setup_done: bool,
 }
 
 impl Default for SystemPrefs {
@@ -31,6 +35,7 @@ impl Default for SystemPrefs {
             close_to_tray: false,
             check_updates: true,
             skipped_version: None,
+            setup_done: false,
         }
     }
 }

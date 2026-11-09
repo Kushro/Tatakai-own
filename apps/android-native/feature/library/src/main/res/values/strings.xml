@@ -8,7 +8,6 @@
     <!-- android wave (docs/redesign/12 §4 c): prototype screens.js S.library + torrents tab (11 §3.1) -->
     <string name="library_title">Library</string>
     <string name="library_local">Local on this device</string>
-    <string name="library_m1">AniList and MAL lists (Watching, Planned, Completed…) arrive in M1.</string>
     <string name="library_tab_continue">Continue</string>
     <string name="library_tab_history">History</string>
     <!-- parity wave A (15 §3.3, worker q): list tabs; the rest of the keys are q's (library_lists_*, library_favorites_*). -->

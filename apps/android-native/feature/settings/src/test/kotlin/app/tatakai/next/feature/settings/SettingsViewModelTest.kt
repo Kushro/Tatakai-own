@@ -1,12 +1,8 @@
 package app.tatakai.next.feature.settings
 
-import app.tatakai.next.model.AccountSuspendedException
-import app.tatakai.next.model.EmailNotConfirmedException
 import app.tatakai.next.model.AppSettings
-import app.tatakai.next.model.AuthRepository
 import app.tatakai.next.model.ContrastPref
 import app.tatakai.next.model.SettingsRepository
-import app.tatakai.next.model.UserSession
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.Episode
@@ -54,21 +50,11 @@ class SettingsViewModelTest {
         }
     }
 
-    private class FakeAuth(var signInResult: Result<Unit> = Result.success(Unit)) : AuthRepository {
-        override val session = MutableStateFlow<UserSession?>(null)
-        override suspend fun signIn(email: String, password: String): Result<Unit> {
-            signInResult.onSuccess { session.value = UserSession("u1", email) }
-            return signInResult
-        }
-        override suspend fun signOut() {
-            session.value = null
-        }
-    }
 
     @Test
     fun `appearance changes are written through the settings repository`() = runTest {
         val repo = FakeSettings()
-        val vm = SettingsViewModel(repo, FakeAuth())
+        val vm = SettingsViewModel(repo)
 
         vm.setPalette("sakura")
         vm.setAmoled(true)
@@ -86,7 +72,7 @@ class SettingsViewModelTest {
     @Test
     fun `provider priority moves and clamps`() = runTest {
         val repo = FakeSettings()
-        val vm = SettingsViewModel(repo, FakeAuth())
+        val vm = SettingsViewModel(repo)
 
         vm.moveProvider("kitsu", -1)
         assertEquals(listOf("anilist", "kitsu", "anizip"), repo.settings.value.providerPriority)
@@ -95,38 +81,7 @@ class SettingsViewModelTest {
         assertEquals(listOf("a", "b"), listOf("a", "b").moved("zzz", 1))
     }
 
-    @Test
-    fun `sign in success exposes the session and sign out clears it`() = runTest {
-        val auth = FakeAuth()
-        val vm = SettingsViewModel(FakeSettings(), auth)
 
-        vm.signIn(" me@x.test ", "pw")
-        assertEquals("me@x.test", vm.state.first { it.session != null }.session?.email)
-        assertNull(vm.state.value.signInError)
-
-        vm.signOut()
-        assertNull(vm.state.first { it.session == null }.session)
-    }
-
-    @Test
-    fun `sign in failures distinguish suspended and unconfirmed accounts`() = runTest {
-        val auth = FakeAuth(Result.failure(IllegalStateException("bad")))
-        val vm = SettingsViewModel(FakeSettings(), auth)
-
-        vm.signIn("a@b.c", "x")
-        assertEquals(SignInError.INVALID, vm.state.first { it.signInError != null }.signInError)
-
-        auth.signInResult = Result.failure(AccountSuspendedException())
-        vm.signIn("a@b.c", "x")
-        assertEquals(SignInError.SUSPENDED, vm.state.first { it.signInError == SignInError.SUSPENDED }.signInError)
-
-        auth.signInResult = Result.failure(EmailNotConfirmedException())
-        vm.signIn("a@b.c", "x")
-        assertEquals(
-            SignInError.EMAIL_NOT_CONFIRMED,
-            vm.state.first { it.signInError == SignInError.EMAIL_NOT_CONFIRMED }.signInError,
-        )
-    }
 
     private class FakeMetadata(var stats: MetadataCacheStats = MetadataCacheStats(entries = 12, bytes = 98_000_000)) : MetadataRepository {
         var cleared = false
@@ -146,7 +101,7 @@ class SettingsViewModelTest {
     @Test
     fun `wave settings are written through the repository`() = runTest {
         val repo = FakeSettings()
-        val vm = SettingsViewModel(repo, FakeAuth())
+        val vm = SettingsViewModel(repo)
 
         vm.setThemeMode(ThemeMode.DARK)
         vm.setLanguage(AppLanguage.ES)
@@ -184,7 +139,7 @@ class SettingsViewModelTest {
     @Test
     fun `ttl and subtitle style are clamped`() = runTest {
         val repo = FakeSettings()
-        val vm = SettingsViewModel(repo, FakeAuth())
+        val vm = SettingsViewModel(repo)
 
         vm.setMetadataTtl(1000)
         assertEquals(168, repo.settings.value.metadataCacheTtlHours)
@@ -200,7 +155,7 @@ class SettingsViewModelTest {
 
     @Test
     fun `switch changes announce settings saved`() = runTest {
-        val vm = SettingsViewModel(FakeSettings(), FakeAuth())
+        val vm = SettingsViewModel(FakeSettings())
         vm.events.test {
             vm.setAutoNext(false)
             assertEquals(SettingsEvent.Saved, awaitItem())
@@ -213,7 +168,7 @@ class SettingsViewModelTest {
     @Test
     fun `storage loads the cache figures and clearing the cache reports the freed bytes`() = runTest {
         val metadata = FakeMetadata()
-        val vm = SettingsViewModel(FakeSettings(), FakeAuth(), metadata = metadata)
+        val vm = SettingsViewModel(FakeSettings(), metadata = metadata)
 
         vm.refreshStorage()
         val ok = vm.state.first { it.storage is LoadState.Ok }.storage as LoadState.Ok
@@ -230,7 +185,7 @@ class SettingsViewModelTest {
     @Test
     fun `cache clear failure is reported`() = runTest {
         val metadata = FakeMetadata().apply { failClear = true }
-        val vm = SettingsViewModel(FakeSettings(), FakeAuth(), metadata = metadata)
+        val vm = SettingsViewModel(FakeSettings(), metadata = metadata)
         vm.events.test {
             vm.clearCache()
             assertEquals(SettingsEvent.Failed(AppError.Unknown("disk")), awaitItem())

@@ -5,8 +5,8 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
- * Local watch history, one row per episode (keys per contracts/supabase/m0-tables.md E9).
- * [syncedAtMs] is the [watchedAtMs] value last confirmed on the server; the row is dirty while it differs.
+ * Local watch history, one row per episode (legacy key convention of contracts/supabase/m0-tables.md E9, shared with Tatakai Link /v1/history).
+ * [syncedAtMs] is the [watchedAtMs] value last confirmed by the paired PC; the row is dirty while it differs.
  */
 @Entity(
     tableName = "history",

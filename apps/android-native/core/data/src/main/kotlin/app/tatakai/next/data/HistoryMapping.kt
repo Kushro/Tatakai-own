@@ -2,7 +2,7 @@ package app.tatakai.next.data
 
 import app.tatakai.next.database.HistoryRow
 import app.tatakai.next.model.HistoryEntry
-import app.tatakai.next.supabase.RemoteWatchRow
+import app.tatakai.next.link.LinkHistoryRow
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
@@ -46,28 +46,29 @@ internal fun HistoryRow.toEntry(): HistoryEntry = HistoryEntry(
     malId = malId,
 )
 
-internal fun HistoryRow.toRemote(): RemoteWatchRow = RemoteWatchRow(
+/** Row -> Tatakai Link `HistoryEntry` (camelCase JSON of tk-core; desktop contract §3.8). */
+internal fun HistoryRow.toRemote(): LinkHistoryRow = LinkHistoryRow(
     animeId = animeId,
-    animeName = title.ifBlank { "Unknown Anime" },
-    animePoster = poster ?: "",
+    title = title.ifBlank { "Unknown Anime" },
+    poster = poster?.takeIf { it.isNotEmpty() },
     episodeId = episodeId,
-    episodeNumber = episode,
-    progressSeconds = progressSec,
-    durationSeconds = durationSec,
+    episode = episode,
+    progressSec = progressSec,
+    durationSec = durationSec,
     completed = completed,
     watchedAt = Instant.ofEpochMilli(watchedAtMs).toIsoMillis(),
-    malId = malId,
     anilistId = anilistId,
+    malId = malId,
 )
 
-internal fun RemoteWatchRow.toRow(): HistoryRow = HistoryRow(
+internal fun LinkHistoryRow.toRow(): HistoryRow = HistoryRow(
     episodeId = episodeId,
     animeId = animeId,
-    title = animeName,
-    poster = animePoster?.takeIf { it.isNotEmpty() },
-    episode = episodeNumber,
-    progressSec = progressSeconds,
-    durationSec = durationSeconds?.takeIf { it > 0 },
+    title = title,
+    poster = poster?.takeIf { it.isNotEmpty() },
+    episode = episode,
+    progressSec = progressSec,
+    durationSec = durationSec?.takeIf { it > 0 },
     completed = completed,
     watchedAtMs = parseInstant(watchedAt).toEpochMilli(),
     anilistId = anilistId,

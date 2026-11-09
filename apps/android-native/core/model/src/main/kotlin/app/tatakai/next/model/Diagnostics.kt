@@ -44,9 +44,9 @@ interface LogRepository {
 data class UpdateInfo(val version: String, val url: String, val notes: String?, val publishedAtMs: Long?)
 
 /**
- * "Aviso de versión nueva" (Settings › Acerca de): compares the installed `versionName` with the newest release of the feed
- * configured by worker q (GitHub Releases API of the repository; only that host, nothing is sent about the device). At most one
- * request per 24 h unless [check] is forced; honours `AppSettings.updateCheck`.
+ * "Aviso de versión nueva" (Settings › Acerca de): compares the installed `versionName` with the newest GitHub Release of
+ * `Kushro/Tatakai-own` (`api.github.com/repos/Kushro/Tatakai-own/releases/latest`; only that host, nothing is sent about the device).
+ * At most one request per 24 h unless [check] is forced; honours `AppSettings.updateCheck`. Only a notice: no in-app install.
  */
 interface UpdateRepository {
     /** Last known newer release; null = up to date or never checked. */
@@ -54,4 +54,45 @@ interface UpdateRepository {
 
     /** Returns the newer release, or null when up to date. */
     suspend fun check(force: Boolean = false): Result<UpdateInfo?>
+}
+
+// --- 2026-11-09 amendment (plan 14 §0.1): secrets out of plain settings; "restablecer la app" ------------------------------------------
+
+/**
+ * Keys of [SecretStore]. The list-provider tokens are the only identity of the app (no own login); the debrid and translation keys
+ * used to be settings fields and now live here. Everything is per-install and never leaves the device except to its own service.
+ */
+object SecretKeys {
+    /** JSON of the OAuth token set (access, refresh, expiry) of a list provider: `ListProvider.id`. Owner: worker q. */
+    fun listToken(providerId: String): String = "list.$providerId.token"
+
+    /** API key of a debrid service: `DebridService.id`. Owner: worker q. */
+    fun debridApiKey(serviceId: String): String = "debrid.$serviceId.api_key"
+
+    /** API key of a subtitle translation provider: `TranslationProvider.id`. Owner: worker p (reads / writes), store: worker q. */
+    fun translationApiKey(providerId: String): String = "translate.$providerId.api_key"
+}
+
+/**
+ * Small key / value store for secrets, sealed with an AndroidKeyStore AES-GCM key under `noBackupFilesDir` (the `LinkKeyVault` /
+ * `ExtensionServerStore` pattern). Desktop counterpart: `tk_core::Secrets` (OS keyring, 0600 JSON fallback). Implemented by worker q in
+ * :core:data (`KeystoreSecretStore`, bound in `dataModule`); workers p and q read / write through it, never through `AppSettings`.
+ */
+interface SecretStore {
+    suspend fun get(key: String): String?
+
+    /** null removes the entry. */
+    suspend fun put(key: String, value: String?)
+
+    /** Removes every secret (sign-out of everything; part of [AppReset.resetAll]). */
+    suspend fun clear()
+}
+
+/**
+ * Settings › Datos › "Restablecer la app" (classic reset-app, checklist `system.reset-app`): wipes settings (DataStore), Room, caches,
+ * extension state, the Link pairing and every [SecretStore] entry, then the shell restarts the activity and shows the first-run wizard
+ * again (`AppSettings.onboardingDone` is back to false). Implemented by worker q in :core:data (`AppResetImpl`, bound in `dataModule`).
+ */
+interface AppReset {
+    suspend fun resetAll(): Result<Unit>
 }

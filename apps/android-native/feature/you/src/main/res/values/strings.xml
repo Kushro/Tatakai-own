@@ -2,8 +2,12 @@
 <resources>
     <string name="you_title">You</string>
     <string name="you_guest_name">Guest</string>
-    <string name="you_guest">No account · local history</string>
-    <string name="you_sign_in">Sign in to sync</string>
+    <string name="you_guest">No account linked · lists and history on this phone</string>
+    <string name="you_sign_in">Connect AniList or MAL</string>
+    <string name="you_accounts">Lists and accounts</string>
+    <string name="you_history_link">History synced with %1$s %2$s</string>
+    <string name="you_history_link_never">History not synced with %1$s yet</string>
+    <string name="you_history_local">History only on this phone · link a PC to sync</string>
     <string name="you_sync_now">Sync now</string>
     <string name="you_syncing">Syncing…</string>
     <string name="you_synced">History synced %1$s</string>

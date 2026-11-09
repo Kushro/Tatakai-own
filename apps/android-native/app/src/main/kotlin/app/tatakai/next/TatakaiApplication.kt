@@ -1,6 +1,7 @@
 package app.tatakai.next
 
 import android.app.Application
+import app.tatakai.next.data.HistorySyncScheduler
 import app.tatakai.next.data.PROP_ANILIST_CLIENT_ID
 import app.tatakai.next.data.PROP_MAL_CLIENT_ID
 import app.tatakai.next.data.dataModule
@@ -14,22 +15,18 @@ import app.tatakai.next.feature.library.libraryModule
 import app.tatakai.next.feature.link.linkFeatureModule
 import app.tatakai.next.feature.search.searchModule
 import app.tatakai.next.feature.settings.settingsModule
+import app.tatakai.next.feature.torrents.torrentsFeatureModule
+import app.tatakai.next.feature.you.youFeatureModule
 import app.tatakai.next.link.linkModule
 import app.tatakai.next.metadata.metadataModule
 import app.tatakai.next.network.networkModule
-import app.tatakai.next.data.HistorySyncScheduler
 import app.tatakai.next.player.HistoryFlush
+import app.tatakai.next.player.mpv.mpvPlayerModule
 import app.tatakai.next.player.playerModule
-import app.tatakai.next.supabase.PROP_SUPABASE_ANON_KEY
-import app.tatakai.next.supabase.PROP_SUPABASE_URL
-import app.tatakai.next.supabase.supabaseModule
+import app.tatakai.next.torrent.torrentModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import org.koin.dsl.module
-import app.tatakai.next.feature.torrents.torrentsFeatureModule
-import app.tatakai.next.feature.you.youFeatureModule
-import app.tatakai.next.player.mpv.mpvPlayerModule
-import app.tatakai.next.torrent.torrentModule
 
 /** Player -> data bridge: flush pending watch history on pause / exit. */
 private val appModule = module {
@@ -38,7 +35,8 @@ private val appModule = module {
 
 /**
  * Koin starts here, before WorkManager's default initializer runs (HistorySyncWorker is a KoinComponent), so the
- * default initializer must stay enabled. Supabase config comes from BuildConfig (E8), never from committed files.
+ * default initializer must stay enabled. parity wave A, 2026-11-09 amendment: there is no own login and no Supabase; the only
+ * injected configuration is the pair of optional OAuth client ids (BuildConfig, never from committed files).
  */
 class TatakaiApplication : Application() {
     override fun onCreate() {
@@ -47,18 +45,16 @@ class TatakaiApplication : Application() {
             androidContext(this@TatakaiApplication)
             properties(
                 mapOf(
-                    PROP_SUPABASE_URL to BuildConfig.TATAKAI_SUPABASE_URL,
-                    PROP_SUPABASE_ANON_KEY to BuildConfig.TATAKAI_SUPABASE_ANON_KEY,
                     // parity wave A (15 §3.3): list provider OAuth client ids (worker q's ListsRepositoryImpl reads them with getProperty)
                     PROP_ANILIST_CLIENT_ID to BuildConfig.TATAKAI_ANILIST_CLIENT_ID,
                     PROP_MAL_CLIENT_ID to BuildConfig.TATAKAI_MAL_CLIENT_ID,
                 ),
             )
             modules(
-                // B3 - data
-                networkModule, metadataModule, databaseModule, supabaseModule, dataModule,
+                // B3 - data (linkModule before dataModule: HistorySyncer consumes LinkHistoryRemote)
+                networkModule, metadataModule, databaseModule, linkModule, dataModule,
                 // B4 - media
-                extensionsModule, playerModule, linkModule,
+                extensionsModule, playerModule,
                 // B2 - feature ViewModels
                 homeModule, searchModule, detailsModule, libraryModule, settingsModule,
                 extensionsFeatureModule, linkFeatureModule,

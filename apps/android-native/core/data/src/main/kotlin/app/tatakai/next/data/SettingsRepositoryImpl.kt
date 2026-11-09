@@ -95,6 +95,9 @@ internal object SettingsCodec {
     private val SHOW_ADULT = booleanPreferencesKey("show_adult")
     private val AUTO_LIST_ADD = booleanPreferencesKey("auto_list_add")
     private val TITLE_LANGUAGE = stringPreferencesKey("title_language")
+    // parity wave A, 2026-11-09 amendment (worker q): history over Link, first-run wizard
+    private val HISTORY_SYNC_LINK = booleanPreferencesKey("history_sync_link")
+    private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
     private val KEYMAP_SERIALIZER = MapSerializer(String.serializer(), String.serializer())
     const val COUNTDOWN_MIN_SECS = 3
     const val COUNTDOWN_MAX_SECS = 30
@@ -133,6 +136,8 @@ internal object SettingsCodec {
             showAdult = p[SHOW_ADULT] ?: d.showAdult,
             autoListAdd = p[AUTO_LIST_ADD] ?: d.autoListAdd,
             titleLanguage = enumOr(p[TITLE_LANGUAGE], d.titleLanguage),
+            historySyncOverLink = p[HISTORY_SYNC_LINK] ?: d.historySyncOverLink,
+            onboardingDone = p[ONBOARDING_DONE] ?: d.onboardingDone,
         )
     }
 
@@ -169,6 +174,8 @@ internal object SettingsCodec {
         p[SHOW_ADULT] = s.showAdult
         p[AUTO_LIST_ADD] = s.autoListAdd
         p[TITLE_LANGUAGE] = s.titleLanguage.name
+        p[HISTORY_SYNC_LINK] = s.historySyncOverLink
+        p[ONBOARDING_DONE] = s.onboardingDone
     }
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =

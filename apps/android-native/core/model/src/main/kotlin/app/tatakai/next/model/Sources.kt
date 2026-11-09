@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.model
 
+import app.tatakai.next.model.torrent.DebridStatus
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -88,6 +89,11 @@ data class SourceCandidate(
     val torrent: TorrentInfo? = null,
     /** Release tags (torrent names); default (empty) for web sources. */
     val tags: ReleaseTags = ReleaseTags(),
+    /**
+     * parity wave A (2026-11-09 amendment, worker q): the torrent as seen by a linked debrid service (`DebridRepository.cached`); with
+     * `cached = true` it plays as a direct HTTPS stream instead of the engine. null = no debrid. Mirrors desktop `SourceVm.debrid: Option<DebridStatusVm>`.
+     */
+    val debrid: DebridStatus? = null,
 ) {
     /** The playable stream of a web candidate; null for torrents. Port of `SourceCandidate::to_stream`. */
     fun toStream(): StreamSource? {

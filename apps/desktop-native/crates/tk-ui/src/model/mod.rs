@@ -536,19 +536,22 @@ pub enum TorrentSection {
     Trackers,
     Library,
     Downloads,
+    /// Torrent session history (wave A, worker i; plan 14 section 0.1 #11).
+    History,
     /// Debrid services as sources (wave A, worker i; docs/redesign/15 section 4).
     Debrid,
     Settings,
 }
 
 impl TorrentSection {
-    pub const ALL: [TorrentSection; 8] = [
+    pub const ALL: [TorrentSection; 9] = [
         Self::Overview,
         Self::Files,
         Self::Peers,
         Self::Trackers,
         Self::Library,
         Self::Downloads,
+        Self::History,
         Self::Debrid,
         Self::Settings,
     ];
@@ -561,6 +564,7 @@ impl TorrentSection {
             Self::Trackers => "trackers",
             Self::Library => "library",
             Self::Downloads => "downloads",
+            Self::History => "history",
             Self::Debrid => "debrid",
             Self::Settings => "settings",
         }
@@ -575,6 +579,7 @@ impl TorrentSection {
             Self::Trackers => "torrent.section.trackers",
             Self::Library => "torrent.section.library",
             Self::Downloads => "torrent.section.downloads",
+            Self::History => "torrent.section.history",
             Self::Debrid => "torrent.section.debrid",
             Self::Settings => "torrent.section.settings",
         }
@@ -588,6 +593,7 @@ impl TorrentSection {
             Self::Trackers => "cast",
             Self::Library => "library",
             Self::Downloads => "download",
+            Self::History => "history",
             Self::Debrid => "bolt",
             Self::Settings => "settings",
         }
@@ -662,9 +668,8 @@ pub enum ErrorKind {
     RateLimited,
     Extension,
     NoSource,
+    /// An account step failed: AniList / MAL OAuth refused, timed out or the token was revoked (`list_connect`).
     Auth,
-    /// Sign-in refused because the account never confirmed its email address.
-    EmailNotConfirmed,
     /// A local port is taken (Link server: os error 10048 on Windows, 98 on Linux).
     AddrInUse,
     /// The backend does not implement this call yet (default `Backend` methods, offline build).
@@ -675,13 +680,12 @@ pub enum ErrorKind {
 }
 
 impl ErrorKind {
-    pub const ALL: [ErrorKind; 10] = [
+    pub const ALL: [ErrorKind; 9] = [
         Self::Offline,
         Self::RateLimited,
         Self::Extension,
         Self::NoSource,
         Self::Auth,
-        Self::EmailNotConfirmed,
         Self::AddrInUse,
         Self::NotWired,
         Self::TorrentM2,
@@ -695,7 +699,6 @@ impl ErrorKind {
             Self::Extension => "error.extension",
             Self::NoSource => "error.no_source",
             Self::Auth => "error.auth",
-            Self::EmailNotConfirmed => "error.email_not_confirmed",
             Self::AddrInUse => "error.addr_in_use",
             Self::NotWired => "error.not_wired",
             Self::TorrentM2 => "src.m2",

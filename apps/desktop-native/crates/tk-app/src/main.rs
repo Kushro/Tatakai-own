@@ -6,8 +6,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod anime_build;
-// wave A (docs/redesign/15 section 2): autostart (f), discord (e), update_check (f); the tray lives in tk-ui.
-#[allow(dead_code)] // used by worker f's live/account.rs
+// wave A (docs/redesign/15 section 2): autostart (f), discord (e), magnet (i), update_check (f); the tray lives in tk-ui.
+#[allow(dead_code)] // used by worker f's live/system.rs
 mod autostart;
 mod backend_common;
 mod config;
@@ -17,12 +17,14 @@ mod firewall;
 #[cfg(feature = "live")]
 mod live;
 mod logging;
+#[allow(dead_code)] // used by worker i's live/torrent_manual.rs and single_instance
+mod magnet;
 #[cfg(not(feature = "live"))]
 mod offline;
 mod paths;
 mod settings_store;
 mod single_instance;
-#[allow(dead_code)] // used by worker f's live/account.rs
+#[allow(dead_code)] // used by worker f's live/system.rs
 mod update_check;
 
 use std::sync::Arc;
@@ -43,12 +45,12 @@ type OnStart = Option<Arc<dyn Fn() + Send + Sync>>;
 #[cfg(feature = "live")]
 fn build_backend(paths: &paths::AppPaths, cfg: &config::AppConfig, ui: UiThread) -> anyhow::Result<(BackendRef, OnStart)> {
     let backend = Arc::new(live::LiveBackend::new(paths, cfg, ui)?);
-    // Wave A, worker f: restore the persisted Supabase session once the UI (and its async runtime) is up.
+    // Wave A: start-up jobs once the UI (and its async runtime) is up: update notice (f, `live/system.rs::on_start`).
     let on_start: Arc<dyn Fn() + Send + Sync> = {
         let backend = backend.clone();
         Arc::new(move || {
             let backend = backend.clone();
-            dioxus::prelude::spawn(async move { backend.restore_session().await });
+            dioxus::prelude::spawn(async move { backend.on_start().await });
         })
     };
     Ok((backend, Some(on_start)))
@@ -103,6 +105,10 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     };
 
+    // Wave A, worker i: a `magnet:` link on the command line (OS scheme handler) waits for the torrent client.
+    if let Some(link) = magnet::from_args(std::env::args_os().map(|a| a.to_string_lossy().into_owned())) {
+        magnet::remember(&link);
+    }
     let cfg = config::AppConfig::load_or_create(&paths.root, config::AppConfig::from_build_env())?;
     let (ui, ui_jobs) = ui_thread::channel();
     let (backend, on_start) = build_backend(&paths, &cfg, ui)?;

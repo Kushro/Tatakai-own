@@ -1,5 +1,7 @@
-//! `config.json` (review E8): created at first launch from the compile-time `TATAKAI_SUPABASE_URL` /
-//! `TATAKAI_SUPABASE_ANON_KEY` (or empty). The app starts without an account either way.
+//! `config.json` (review E8): created at first launch. Wave A (plan 14 section 0.1 #9): the compile-time
+//! `TATAKAI_SUPABASE_URL` / `TATAKAI_SUPABASE_ANON_KEY` and the matching fields are gone with the own login; the
+//! file keeps the metadata provider order. Older files with the Supabase fields still load (unknown fields are
+//! ignored) and lose them on the next write. Nothing secret lives here (OAuth tokens: `tk_core::Secrets`).
 //!
 //! Same JSON shape as `tk_core::AppConfig` (B5) so the file is interchangeable; the integrator may
 //! replace this module with a re-export once tk-core is merged.
@@ -13,8 +15,6 @@ pub const CONFIG_FILE: &str = "config.json";
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
-    pub supabase_url: Option<String>,
-    pub supabase_anon_key: Option<String>,
     pub metadata_priority: Vec<String>,
 }
 
@@ -23,13 +23,9 @@ impl AppConfig {
         dir.join(CONFIG_FILE)
     }
 
+    /// Defaults for a first launch (no build-time values any more).
     pub fn from_build_env() -> Self {
-        Self::from_values(option_env!("TATAKAI_SUPABASE_URL"), option_env!("TATAKAI_SUPABASE_ANON_KEY"))
-    }
-
-    pub fn from_values(url: Option<&str>, key: Option<&str>) -> Self {
-        let clean = |v: Option<&str>| v.map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
-        Self { supabase_url: clean(url), supabase_anon_key: clean(key), metadata_priority: Vec::new() }
+        Self::default()
     }
 
     /// Load `dir/config.json`, writing `defaults` first if it does not exist. A corrupt file is an error
@@ -46,15 +42,6 @@ impl AppConfig {
             Err(e) => Err(e.into()),
         }
     }
-
-    /// `(url, anon_key)` when both are set.
-    #[cfg_attr(not(feature = "live"), allow(dead_code))]
-    pub fn supabase(&self) -> Option<(&str, &str)> {
-        match (self.supabase_url.as_deref(), self.supabase_anon_key.as_deref()) {
-            (Some(u), Some(k)) if !u.is_empty() && !k.is_empty() => Some((u, k)),
-            _ => None,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -64,19 +51,13 @@ mod tests {
     #[test]
     fn first_run_writes_defaults_then_reloads_them() {
         let tmp = tempfile::tempdir().unwrap();
-        let defaults = AppConfig::from_values(Some(" https://x.supabase.co "), Some("anon"));
+        let defaults = AppConfig { metadata_priority: vec!["kitsu".into()] };
         let created = AppConfig::load_or_create(tmp.path(), defaults.clone()).unwrap();
-        assert_eq!(created.supabase(), Some(("https://x.supabase.co", "anon")));
+        assert_eq!(created, defaults);
         assert!(AppConfig::path_in(tmp.path()).is_file());
         // The second call ignores new defaults: the file wins.
         let again = AppConfig::load_or_create(tmp.path(), AppConfig::default()).unwrap();
         assert_eq!(again, defaults);
-    }
-
-    #[test]
-    fn empty_build_env_yields_no_account() {
-        let c = AppConfig::from_values(None, Some("   "));
-        assert_eq!(c.supabase(), None);
     }
 
     #[test]
@@ -88,11 +69,10 @@ mod tests {
     }
 
     #[test]
-    fn partial_files_are_accepted() {
+    fn legacy_supabase_fields_are_ignored() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(AppConfig::path_in(tmp.path()), r#"{"supabase_url":"https://a.b"}"#).unwrap();
+        std::fs::write(AppConfig::path_in(tmp.path()), r#"{"supabase_url":"https://a.b","supabase_anon_key":"k"}"#).unwrap();
         let c = AppConfig::load_or_create(tmp.path(), AppConfig::default()).unwrap();
-        assert_eq!(c.supabase(), None);
-        assert_eq!(c.supabase_url.as_deref(), Some("https://a.b"));
+        assert_eq!(c, AppConfig::default());
     }
 }

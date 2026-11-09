@@ -3,7 +3,8 @@ package app.tatakai.next.feature.you
 import app.cash.turbine.test
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
-import app.tatakai.next.model.AuthRepository
+import app.tatakai.next.model.CharacterRef
+import app.tatakai.next.model.ConflictChoice
 import app.tatakai.next.model.DiscoveredPc
 import app.tatakai.next.model.ExtensionCompat
 import app.tatakai.next.model.ExtensionRepository
@@ -14,12 +15,19 @@ import app.tatakai.next.model.LinkCapabilities
 import app.tatakai.next.model.LinkRepository
 import app.tatakai.next.model.LinkSource
 import app.tatakai.next.model.LinkState
+import app.tatakai.next.model.LinkedAccount
+import app.tatakai.next.model.ListConflict
+import app.tatakai.next.model.ListEntry
+import app.tatakai.next.model.ListProvider
+import app.tatakai.next.model.ListStatus
+import app.tatakai.next.model.ListSyncReport
+import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.PairedPc
 import app.tatakai.next.model.RemoteSession
 import app.tatakai.next.model.StreamSource
-import app.tatakai.next.model.UserSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -28,6 +36,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -46,12 +55,29 @@ class YouViewModelTest {
 
     @AfterTest fun tearDown() = Dispatchers.resetMain()
 
-    private class FakeAuth : AuthRepository {
-        override val session = MutableStateFlow<UserSession?>(null)
-        override suspend fun signIn(email: String, password: String) = Result.success(Unit)
-        override suspend fun signOut() {
-            session.value = null
-        }
+    /** parity wave A (2026-11-09 amendment): identity = linked AniList / MAL accounts. Only `accounts` matters to the You screen. */
+    private class FakeLists : ListsRepository {
+        override val accounts = MutableStateFlow<List<LinkedAccount>>(emptyList())
+        override val pendingChanges: StateFlow<Int> = MutableStateFlow(0)
+        override val lastSyncedAt: StateFlow<Long?> = MutableStateFlow<Long?>(null)
+        override fun entries(status: ListStatus?): Flow<List<ListEntry>> = flowOf(emptyList())
+        override fun favorites(): Flow<List<ListEntry>> = flowOf(emptyList())
+        override fun entry(ref: MediaRef): Flow<ListEntry?> = flowOf(null)
+        override suspend fun setStatus(media: Media, status: ListStatus?): Result<Unit> = Result.success(Unit)
+        override suspend fun setProgress(ref: MediaRef, episode: Int): Result<Unit> = Result.success(Unit)
+        override suspend fun setScore(ref: MediaRef, score: Int?): Result<Unit> = Result.success(Unit)
+        override suspend fun setFavorite(media: Media, favorite: Boolean): Result<Unit> = Result.success(Unit)
+        override fun favoriteCharacters(): Flow<List<CharacterRef>> = flowOf(emptyList())
+        override fun isCharacterFavorite(characterId: Int): Flow<Boolean> = flowOf(false)
+        override suspend fun setCharacterFavorite(character: CharacterRef, favorite: Boolean): Result<Unit> = Result.success(Unit)
+        override suspend fun beginLink(provider: ListProvider): Result<String> = Result.failure(UnsupportedOperationException())
+        override suspend fun completeLink(redirectUri: String): Result<LinkedAccount> = Result.failure(UnsupportedOperationException())
+        override suspend fun unlink(provider: ListProvider) {}
+        override suspend fun syncNow(): Result<ListSyncReport> = Result.success(ListSyncReport(0, 0, 0, 0))
+        override fun conflicts(): Flow<List<ListConflict>> = flowOf(emptyList())
+        override suspend fun resolveConflict(id: String, choice: ConflictChoice) {}
+        override suspend fun exportJson(): String = "[]"
+        override suspend fun importJson(json: String): Result<Int> = Result.success(0)
     }
 
     private class FakeHistory(var failHistory: Boolean = false) : HistoryRepository {
@@ -92,20 +118,23 @@ class YouViewModelTest {
     )
 
     @Test
-    fun `overview counts history, extensions and the linked pc`() = runTest {
+    fun `overview counts history, extensions, accounts and the linked pc`() = runTest {
+        val lists = FakeLists()
         val history = FakeHistory()
         val extensions = FakeExtensions()
         val link = FakeLink()
-        val vm = YouViewModel(FakeAuth(), history, extensions, link)
+        val vm = YouViewModel(lists, history, extensions, link)
 
         history.rows.value = listOf(entry(1), entry(2))
         extensions.installed.value = listOf(
             InstalledExtension("e1", "Toko", "1.0", "custom", emptyList(), ExtensionCompat.FULL, enabled = true),
         )
+        lists.accounts.value = listOf(LinkedAccount(ListProvider.ANILIST, "1", "octavio", null, linkedAtMs = 0L, expiresAtMs = null))
         link.state.value = LinkState.Paired(PairedPc("d", "DESKTOP", "192.168.1.2", 47321), reachable = false)
 
         val ok = assertIs<LoadState.Ok<YouOverview>>(vm.state.first { it.overview is LoadState.Ok && (it.overview as LoadState.Ok).value.historyCount == 2 && (it.overview as LoadState.Ok).value.linked is LinkedSummary.Paired }.overview)
         assertEquals(1, ok.value.extensionsCount)
+        assertEquals("octavio", ok.value.accounts.single().username)
         assertEquals(LinkedSummary.Paired("DESKTOP", reachable = false), ok.value.linked)
         assertEquals(0, ok.value.activeDownloads)
     }
@@ -113,7 +142,7 @@ class YouViewModelTest {
     @Test
     fun `history failure shows the error and retry re-subscribes`() = runTest {
         val history = FakeHistory(failHistory = true)
-        val vm = YouViewModel(FakeAuth(), history, FakeExtensions(), FakeLink())
+        val vm = YouViewModel(FakeLists(), history, FakeExtensions(), FakeLink())
 
         assertIs<LoadState.Err>(vm.state.first { it.overview is LoadState.Err }.overview)
 
@@ -126,7 +155,7 @@ class YouViewModelTest {
     @Test
     fun `sync now reports success and failure as events`() = runTest {
         val history = FakeHistory()
-        val vm = YouViewModel(FakeAuth(), history, FakeExtensions(), FakeLink())
+        val vm = YouViewModel(FakeLists(), history, FakeExtensions(), FakeLink())
 
         vm.events.test {
             vm.syncNow()

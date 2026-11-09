@@ -108,6 +108,7 @@ import app.tatakai.next.feature.link.LinkedDeviceScreen
 import app.tatakai.next.feature.player.PlayerScreen
 import app.tatakai.next.feature.search.ImageSearchScreen
 import app.tatakai.next.feature.search.SearchScreen
+import app.tatakai.next.feature.settings.OnboardingScreen
 import app.tatakai.next.feature.settings.SettingsScreen
 import app.tatakai.next.feature.torrents.TorrentsScreen
 import app.tatakai.next.feature.you.YouScreen
@@ -164,7 +165,13 @@ fun TatakaiApp(
             LocalReduceMotion provides reduceMotion,
             LocalAppSnackbar provides snackbar,
         ) {
-            AppShell(snackbar, torrentLinks, serverLinks, accountLinks, imageLinks)
+            // parity wave A, 2026-11-09 amendment (plan 14 §0.1 #11, worker q): first-run wizard until `AppSettings.onboardingDone`;
+            // the wizard's ViewModel persists the flag (and "Restablecer la app" clears it), so this just reacts to the settings.
+            if (!settings.onboardingDone) {
+                OnboardingScreen(onDone = {})
+            } else {
+                AppShell(snackbar, torrentLinks, serverLinks, accountLinks, imageLinks)
+            }
         }
     }
 }
@@ -516,7 +523,6 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onOpenExtensions = { push(Route.Extensions) },
                     onOpenLinked = { push(Route.Linked) },
                     onOpenSettings = { push(Route.Settings) },
-                    onSignIn = { openSettings(SettingsSection.ACCOUNT) },
                     onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
                 )
             }

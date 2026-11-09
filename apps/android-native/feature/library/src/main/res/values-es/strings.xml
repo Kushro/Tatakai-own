@@ -8,7 +8,6 @@
     <!-- android wave (docs/redesign/12 §4 c): prototype screens.js S.library + torrents tab (11 §3.1) -->
     <string name="library_title">Biblioteca</string>
     <string name="library_local">Local en este dispositivo</string>
-    <string name="library_m1">Las listas de AniList y MAL (Viendo, Planeado, Completado…) llegan en M1.</string>
     <string name="library_tab_continue">Continuar</string>
     <string name="library_tab_history">Historial</string>
     <!-- parity wave A (15 §3.3, worker q): pestañas de listas; el resto de claves son de q (library_lists_*, library_favorites_*). -->

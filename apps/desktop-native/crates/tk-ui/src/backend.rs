@@ -127,13 +127,6 @@ pub struct DeviceVm {
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct AccountVm {
-    pub email: Option<String>,
-    /// False when the build/config has no Supabase URL + anon key: the account section explains it.
-    pub configured: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Default)]
 pub struct LinkStatusVm {
     pub running: bool,
     pub port: u16,
@@ -723,7 +716,7 @@ pub struct SkipMarkVm {
 
 // ---------------------------------------------------------------------------------------------
 // Wave A contract (docs/redesign/15-parity-wave-a-contract.md section 3). View-models per owner: a (search,
-// character), c (details), d (subtitles / translation / capture), e (presence), f (account / system), g (lists),
+// character), c (details), d (subtitles / translation / capture), e (presence), f (system / wizard / reset), g (lists),
 // i (manual torrents / debrid). Frozen after the contract: workers map to these, never change them.
 // ---------------------------------------------------------------------------------------------
 
@@ -996,14 +989,6 @@ pub enum PresenceVm {
     Watching { title: String, episode: u32, position_secs: u32, duration_secs: Option<u32>, paused: bool, poster: Option<String> },
 }
 
-/// `Backend::sign_up` result (worker f). Supabase projects with email confirmation on return
-/// `needs_verification: true`: the UI then asks for the 6-digit code (`verify_email`).
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct SignUpVm {
-    pub account: AccountVm,
-    pub needs_verification: bool,
-}
-
 /// Disk use of the data directory (worker f; Settings > Data).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct StorageUsageVm {
@@ -1054,6 +1039,10 @@ pub struct SystemCapsVm {
     pub platform: PlatformVm,
     pub autostart: bool,
     pub tray: bool,
+    /// The app can register itself as the `magnet:` handler without an installer (worker i, `tk-app/src/magnet.rs`):
+    /// Linux (`.desktop` + `xdg-mime`) and Windows (HKCU `Software\Classes\magnet`); false on macOS (needs the
+    /// bundle's Info.plist) and in dev builds without a stable executable path.
+    pub magnet_handler: bool,
 }
 
 /// List statuses, shared by AniList and MAL (worker g). `id()` is the i18n suffix `lists.status.<id>` and the
@@ -1166,6 +1155,25 @@ pub struct ListImportVm {
     pub errors: Vec<String>,
 }
 
+/// One row of the torrent session history (worker i; classic "Session history"): every torrent the engine ran,
+/// newest first. Mirrors `tk_core::store::torrents::TorrentSessionRow`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TorrentSessionVm {
+    pub id: i64,
+    pub torrent_id: String,
+    pub info_hash: String,
+    pub name: String,
+    pub media_id: Option<String>,
+    pub series: Option<String>,
+    pub episode: Option<u32>,
+    pub started_unix: i64,
+    /// `None` = still in the engine.
+    pub ended_unix: Option<i64>,
+    pub downloaded_bytes: u64,
+    pub uploaded_bytes: u64,
+    pub completed: bool,
+}
+
 /// What `Backend::torrent_preview` returns for a magnet / `.torrent` added by hand (worker i; classic
 /// `MagnetAlignmentModal`): its files and a suggested `(file index, episode)` alignment with a confidence.
 #[derive(Debug, Clone, PartialEq)]
@@ -1247,7 +1255,7 @@ pub trait Backend: Send + Sync + 'static {
     async fn episodes(&self, id: &str) -> UiResult<Vec<EpisodeVm>>;
     /// Resolve playable streams through the installed extensions.
     async fn playback(&self, id: &str, episode: u32) -> UiResult<PlaybackVm>;
-    /// Local-first history write (+ Supabase sync when signed in).
+    /// Local-first history write (exact position; paired phones pull it over Tatakai Link `GET /v1/history`).
     async fn record_progress(&self, id: &str, episode: u32, progress_secs: u32, duration_secs: Option<u32>) -> UiResult<()>;
 
     // --- extensions ---
@@ -1256,12 +1264,9 @@ pub trait Backend: Send + Sync + 'static {
     async fn set_extension_enabled(&self, id: &str, enabled: bool) -> UiResult<()>;
     async fn remove_extension(&self, id: &str) -> UiResult<()>;
 
-    // --- settings / account ---
+    // --- settings --- (no own account: identity is AniList / MAL, see `list_connect`; plan 14 section 0.1 #9)
     async fn load_settings(&self) -> UiResult<Settings>;
     async fn save_settings(&self, settings: &Settings) -> UiResult<()>;
-    async fn account(&self) -> UiResult<AccountVm>;
-    async fn sign_in(&self, email: &str, password: &str) -> UiResult<AccountVm>;
-    async fn sign_out(&self) -> UiResult<()>;
 
     // --- Tatakai Link ---
     async fn link_status(&self) -> UiResult<LinkStatusVm>;
@@ -1293,10 +1298,6 @@ pub trait Backend: Send + Sync + 'static {
     }
     async fn library(&self) -> UiResult<LibraryVm> {
         Err(UiError::not_wired("library"))
-    }
-    /// Push dirty history and pull remote rows now (signed in only; otherwise `ErrorKind::Auth`).
-    async fn sync_now(&self) -> UiResult<()> {
-        Err(UiError::not_wired("sync_now"))
     }
     /// Newest first.
     async fn extension_logs(&self, _id: &str) -> UiResult<Vec<ExtLogVm>> {
@@ -1465,6 +1466,16 @@ pub trait Backend: Send + Sync + 'static {
     async fn fetch_subtitle(&self, _url: &str, _headers: &[(String, String)]) -> UiResult<String> {
         Err(UiError::not_wired("fetch_subtitle"))
     }
+    /// Store (`Some`) or remove (`None`) the API key of a translation provider in `tk_core::Secrets`
+    /// (`keys::translation(provider.id())`); never in `ui-settings.json`. `TranslationProviderVm::needs_key()` says
+    /// which providers take one.
+    async fn set_translation_key(&self, _provider: crate::model::TranslationProviderVm, _key: Option<&str>) -> UiResult<()> {
+        Err(UiError::not_wired("set_translation_key"))
+    }
+    /// Whether a key is stored for `provider` (the UI shows "Key saved" and a Remove button, never the key).
+    async fn translation_key_present(&self, _provider: crate::model::TranslationProviderVm) -> UiResult<bool> {
+        Err(UiError::not_wired("translation_key_present"))
+    }
     /// Translate cues with the configured provider (`Settings::subs.translation`), cached in the store by
     /// `TranslateRequestVm::cache_key`. Returns the same cues (same `index`) with translated `text`.
     async fn translate_cues(&self, _req: &TranslateRequestVm) -> UiResult<Vec<CueVm>> {
@@ -1488,27 +1499,15 @@ pub trait Backend: Send + Sync + 'static {
         Err(UiError::not_wired("presence"))
     }
 
-    // ----- f: account, system -----
+    // ----- f: system, first-run wizard, reset -----
 
-    /// Create a Supabase account. With email confirmation on, `needs_verification` is true and the UI asks for the
-    /// 6-digit code (`verify_email`); otherwise the user is signed in.
-    async fn sign_up(&self, _email: &str, _password: &str) -> UiResult<SignUpVm> {
-        Err(UiError::not_wired("sign_up"))
-    }
-    /// Confirm the sign-up code (GoTrue `verify`, type `signup` / `email`) and sign in.
-    async fn verify_email(&self, _email: &str, _code: &str) -> UiResult<AccountVm> {
-        Err(UiError::not_wired("verify_email"))
-    }
-    async fn resend_verification(&self, _email: &str) -> UiResult<()> {
-        Err(UiError::not_wired("resend_verification"))
-    }
-    /// Send the recovery code / link (GoTrue `recover`).
-    async fn request_password_reset(&self, _email: &str) -> UiResult<()> {
-        Err(UiError::not_wired("request_password_reset"))
-    }
-    /// Verify the recovery code (type `recovery`) and set the new password.
-    async fn reset_password(&self, _email: &str, _code: &str, _new_password: &str) -> UiResult<()> {
-        Err(UiError::not_wired("reset_password"))
+    /// "Reset app" (Settings > System, danger zone; classic `system:reset app data`): stop Link / torrents, delete
+    /// `ui-settings.json`, `data.db`, `secrets.json` + the keyring entries, `config.json`, caches, extensions and
+    /// the web view profile; with `keep_downloads` the torrent download folder survives. The window then shows the
+    /// first-run wizard again (`Settings::system.setup_done` is false after the reset). Never deletes outside the
+    /// data directory and the download folder.
+    async fn reset_app(&self, _keep_downloads: bool) -> UiResult<()> {
+        Err(UiError::not_wired("reset_app"))
     }
     /// Sizes of the data directory (Settings > Data).
     async fn storage_usage(&self) -> UiResult<StorageUsageVm> {
@@ -1540,7 +1539,7 @@ pub trait Backend: Send + Sync + 'static {
     }
     /// What the OS integration offers on this platform / build.
     fn system_caps(&self) -> SystemCapsVm {
-        SystemCapsVm { platform: PlatformVm::current(), autostart: false, tray: false }
+        SystemCapsVm { platform: PlatformVm::current(), autostart: false, tray: false, magnet_handler: false }
     }
     /// Whether the OS autostart entry exists right now (may differ from `Settings::system.start_with_system`).
     async fn autostart_enabled(&self) -> UiResult<bool> {
@@ -1628,6 +1627,34 @@ pub trait Backend: Send + Sync + 'static {
     /// plays (`TorrentSettingsVm::preload_next`).
     async fn torrent_preload_next(&self, _id: &str, _episode: u32) -> UiResult<()> {
         Err(UiError::not_wired("torrent_preload_next"))
+    }
+    /// A `magnet:` link the OS handed to the app (command line at launch, or forwarded by a second instance) that
+    /// the torrent client has not consumed yet; `None` otherwise. The Torrents > Library page polls it on mount and
+    /// opens the "Add torrent" sheet with it (`tk-app/src/magnet.rs`).
+    async fn take_pending_magnet(&self) -> UiResult<Option<String>> {
+        Err(UiError::not_wired("take_pending_magnet"))
+    }
+    /// Whether this app is the OS handler of the `magnet:` scheme right now (`SystemCapsVm::magnet_handler` says
+    /// if that can be changed from here).
+    async fn magnet_handler_registered(&self) -> UiResult<bool> {
+        Err(UiError::not_wired("magnet_handler_registered"))
+    }
+    /// Register / unregister the app as the `magnet:` handler (per-user, no installer, no elevation).
+    async fn set_magnet_handler(&self, _enabled: bool) -> UiResult<()> {
+        Err(UiError::not_wired("set_magnet_handler"))
+    }
+    /// Torrent session history, newest first (`torrent_sessions` table; Torrents > History).
+    async fn torrent_session_history(&self, _limit: u32) -> UiResult<Vec<TorrentSessionVm>> {
+        Err(UiError::not_wired("torrent_session_history"))
+    }
+    /// Delete the closed rows of the session history; returns how many were removed.
+    async fn torrent_clear_session_history(&self) -> UiResult<u32> {
+        Err(UiError::not_wired("torrent_clear_session_history"))
+    }
+    /// Force an announce to every tracker of a torrent (Torrents > Trackers "Reannounce"); the status column then
+    /// reflects the real answer (`TrackerStatusVm::Working` / `Failed` with its message), not `Unknown`.
+    async fn torrent_reannounce(&self, _torrent_id: &str) -> UiResult<()> {
+        Err(UiError::not_wired("torrent_reannounce"))
     }
     async fn debrid_accounts(&self) -> UiResult<Vec<DebridAccountVm>> {
         Err(UiError::not_wired("debrid_accounts"))

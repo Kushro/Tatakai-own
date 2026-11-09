@@ -4,13 +4,13 @@ package app.tatakai.next.feature.you
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.tatakai.next.model.AppError
-import app.tatakai.next.model.AuthRepository
 import app.tatakai.next.model.ExtensionRepository
 import app.tatakai.next.model.HistoryRepository
 import app.tatakai.next.model.LinkRepository
 import app.tatakai.next.model.LinkState
+import app.tatakai.next.model.LinkedAccount
+import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.LoadState
-import app.tatakai.next.model.UserSession
 import app.tatakai.next.model.torrent.TorrentRepository
 import app.tatakai.next.model.torrent.TorrentServiceStatus
 import app.tatakai.next.ui.state.runCatchingApp
@@ -37,9 +37,12 @@ sealed interface LinkedSummary {
     data object Problem : LinkedSummary
 }
 
-/** Everything the "Tú" list shows (prototype android.js `S.you`). */
+/**
+ * Everything the "Tú" list shows (prototype android.js `S.you`). 2026-11-09 amendment (plan 14 §0.1 #9): no own login; the identity is
+ * [accounts] (AniList / MAL, `ListsRepository`) and [lastSyncedAt] is the history sync with the paired PC over Tatakai Link.
+ */
 data class YouOverview(
-    val session: UserSession?,
+    val accounts: List<LinkedAccount>,
     val lastSyncedAt: Long?,
     val historyCount: Int,
     val extensionsCount: Int,
@@ -64,7 +67,7 @@ sealed interface YouEvent {
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class YouViewModel(
-    private val auth: AuthRepository,
+    private val lists: ListsRepository,
     private val history: HistoryRepository,
     private val extensions: ExtensionRepository,
     private val link: LinkRepository,
@@ -98,18 +101,18 @@ class YouViewModel(
     }
 
     private val overview: Flow<LoadState<YouOverview>> = combine(
-        combine(auth.session, history.lastSyncedAt) { session, synced -> session to synced },
+        combine(lists.accounts, history.lastSyncedAt) { accounts, synced -> accounts to synced },
         historyCount,
         extensions.installed,
         torrentFacts,
         linked,
-    ) { (session, synced), count, installed, (active, total), linkedSummary ->
+    ) { (accounts, synced), count, installed, (active, total), linkedSummary ->
         when (count) {
             LoadState.Loading -> LoadState.Loading
             is LoadState.Err -> count
             is LoadState.Ok -> LoadState.Ok(
                 YouOverview(
-                    session = session,
+                    accounts = accounts,
                     lastSyncedAt = synced,
                     historyCount = count.value,
                     extensionsCount = installed.size,
@@ -128,7 +131,7 @@ class YouViewModel(
         reload.value++
     }
 
-    /** "Sincronizar ahora": push pending rows and pull remote ones; the result goes to the global snackbar. */
+    /** "Sincronizar ahora": push dirty history rows to the paired PC and pull its recent ones; the result goes to the global snackbar. */
     fun syncNow() {
         if (syncing.value) return
         syncing.value = true

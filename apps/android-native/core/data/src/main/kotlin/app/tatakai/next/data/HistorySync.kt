@@ -10,21 +10,24 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.tatakai.next.database.HistoryDao
-import app.tatakai.next.supabase.SessionExpiredException
-import app.tatakai.next.supabase.SupabaseAuthSource
-import app.tatakai.next.supabase.SupabaseNotConfiguredException
-import app.tatakai.next.supabase.WatchHistoryRemote
+import app.tatakai.next.link.LinkException
+import app.tatakai.next.link.LinkHistoryRemote
+import app.tatakai.next.link.LinkHistoryUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.util.concurrent.TimeUnit
 
+// parity wave A, 2026-11-09 amendment (plan 14 §0.1 #9): the server side of the history sync is the paired PC over Tatakai Link
+// (`LinkHistoryRemote`, :core:link), not Supabase. Same local-first model: Room is the source of truth, dirty rows are pushed in
+// coalesced WorkManager passes, recent PC rows are merged back. Owner: worker q.
+
 /** Asks for a (coalesced) push of dirty history rows. */
 interface HistorySyncScheduler {
     /**
      * [immediate] = false: at most one request per [HistorySyncWorker.COALESCE_SECONDS] window (normal progress ticks).
-     * [immediate] = true: run as soon as possible (pause, leaving the player, sign-in). Player code can call
+     * [immediate] = true: run as soon as possible (pause, leaving the player, pairing a PC). Player code can call
      * `get<HistorySyncScheduler>().requestSync(true)` on pause / exit.
      */
     fun requestSync(immediate: Boolean = false)
@@ -51,37 +54,58 @@ class WorkManagerHistorySyncScheduler(private val context: Context) : HistorySyn
 }
 
 /**
- * One sync pass: push dirty rows (batched upsert, `on_conflict=user_id,episode_id`), then pull the 30 most recent
- * server rows and merge them (newest `watched_at` wins, tie -> higher progress).
+ * One sync pass against the paired PC (desktop contract §3.8): push dirty rows (batched `POST /v1/history`), then pull the rows the PC
+ * changed after the stored cursor (`GET /v1/history?since=<unix s>`, oldest first, repeating while `truncated`) and merge them
+ * (newest `watchedAt` wins, tie -> higher progress: the same `HistoryEntry::wins_over` rule the PC applies). The PC is only a peer with
+ * the same merge rule, so two phones paired to one PC converge through it. Runs when the app opens, when an episode ends (the
+ * player's `HistoryFlush`) and on the coalesced progress ticks.
  */
 class HistorySyncer(
     private val dao: HistoryDao,
-    private val remote: WatchHistoryRemote,
-    private val auth: SupabaseAuthSource,
+    private val remote: LinkHistoryRemote,
+    /** `AppSettings.historySyncOverLink`; false = behave as unpaired (nothing is sent). */
+    private val enabled: () -> Boolean = { true },
     // android wave (12 §3.6): stamp of the last successful pass, exposed as HistoryRepository.lastSyncedAt
     private val stamp: HistorySyncStamp = HistorySyncStamp(),
+    /** Pull cursor (`next_since_unix` of the last page, unix seconds); worker q persists it beside the stamp (DataStore key `history_link_since_unix`). */
+    private val cursor: () -> Long = { 0L },
+    private val saveCursor: suspend (Long) -> Unit = {},
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
-    enum class Outcome { SKIPPED_SIGNED_OUT, SYNCED }
+    enum class Outcome { SKIPPED_NOT_PAIRED, SKIPPED_DISABLED, SYNCED }
 
-    /** Epoch ms of the last successful [syncOnce]; null = never / signed out. */
+    /** Epoch ms of the last successful [syncOnce]; null = never / no paired PC. */
     val lastSyncedAt: StateFlow<Long?> get() = stamp.value
 
-    /** Sign-out: the stamp belongs to the account that left. */
-    suspend fun resetStamp() = stamp.set(null)
+    /** Forget: the stamp and cursor belong to the pairing that left. */
+    suspend fun resetStamp() {
+        stamp.set(null)
+        saveCursor(0L)
+    }
 
-    /** @throws SessionExpiredException when the token cannot be refreshed; other exceptions mean "retry later". */
+    /**
+     * @throws LinkHistoryUnavailableException when the pairing is gone / revoked (treat as not paired);
+     *   [LinkException] or any other exception means "retry later".
+     */
     suspend fun syncOnce(): Outcome {
-        if (auth.session.value == null) return Outcome.SKIPPED_SIGNED_OUT
+        if (!enabled()) return Outcome.SKIPPED_DISABLED
+        if (!remote.available) return Outcome.SKIPPED_NOT_PAIRED
         while (true) {
             val batch = dao.dirty(BATCH)
             if (batch.isEmpty()) break
-            remote.upsert(batch.map { it.toRemote() })
+            remote.push(batch.map { it.toRemote() })
             // Only rows not touched again while the request was in flight become clean.
             batch.forEach { dao.markSynced(it.episodeId, it.watchedAtMs) }
             if (batch.size < BATCH) break
         }
-        remote.recent(PULL_LIMIT).forEach { dao.mergeRemote(it.toRow()) }
+        var since = cursor()
+        while (true) {
+            val page = remote.since(since)
+            page.items.forEach { dao.mergeRemote(it.toRow()) }
+            since = page.nextSinceUnix
+            if (!page.truncated) break
+        }
+        saveCursor(since)
         stamp.set(clock())
         return Outcome.SYNCED
     }
@@ -89,8 +113,8 @@ class HistorySyncer(
     suspend fun hasPending(): Boolean = dao.dirtyCount() > 0
 
     private companion object {
-        const val BATCH = 50
-        const val PULL_LIMIT = 30
+        /** <= `LinkClient.MAX_HISTORY_ROWS` (500) and comfortably under the 256 KiB body cap. */
+        const val BATCH = 100
     }
 }
 
@@ -105,10 +129,10 @@ class HistorySyncWorker(context: Context, params: WorkerParameters) : CoroutineW
         Result.success()
     } catch (e: CancellationException) {
         throw e
-    } catch (_: SessionExpiredException) {
-        Result.success() // signed out: nothing to push until the user signs in again
-    } catch (_: SupabaseNotConfiguredException) {
-        Result.success()
+    } catch (_: LinkHistoryUnavailableException) {
+        Result.success() // no PC: nothing to push until the user pairs one again
+    } catch (_: LinkException) {
+        Result.retry() // PC offline / busy: exponential backoff
     } catch (_: Exception) {
         Result.retry()
     }

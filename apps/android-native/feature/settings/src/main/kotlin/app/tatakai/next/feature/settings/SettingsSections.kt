@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -36,7 +35,6 @@ import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
@@ -45,7 +43,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -63,8 +60,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -469,103 +464,53 @@ private fun providerSubRes(id: String): Int? = when (id) {
     else -> null
 }
 
-// ==================================================================== Cuenta
-
-@Composable
-internal fun AccountSection(state: SettingsUiState, vm: SettingsViewModel) {
-    val session = state.session
-    if (session != null) {
-        Text(stringResource(R.string.settings_signed_in_as, session.email ?: session.userId), style = MaterialTheme.typography.bodyLarge)
-        Text(
-            state.lastSyncedAt?.let { stringResource(R.string.settings_account_synced, relativeTime(it)) }
-                ?: stringResource(R.string.settings_account_never),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            stringResource(R.string.settings_account_lists),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-            FilledTonalButton(onClick = vm::syncNow, enabled = !state.syncing) {
-                if (state.syncing) {
-                    LoadingIndicator(Modifier.size(20.dp))
-                } else {
-                    Icon(Icons.Outlined.Sync, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-                }
-                Text(
-                    stringResource(if (state.syncing) R.string.settings_syncing else R.string.settings_sync_now),
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-            }
-            OutlinedButton(onClick = vm::signOut) { Text(stringResource(R.string.settings_sign_out)) }
-        }
-    } else {
-        var email by rememberSaveable { mutableStateOf("") }
-        var password by rememberSaveable { mutableStateOf("") }
-        Text(stringResource(R.string.settings_account_title), style = MaterialTheme.typography.bodyLarge)
-        Text(
-            stringResource(R.string.settings_account_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedTextField(
-            value = email,
-            onValueChange = {
-                email = it
-                vm.dismissSignInError()
-            },
-            label = { Text(stringResource(R.string.settings_email)) },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        )
-        OutlinedTextField(
-            value = password,
-            onValueChange = {
-                password = it
-                vm.dismissSignInError()
-            },
-            label = { Text(stringResource(R.string.settings_password)) },
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            isError = state.signInError != null,
-            supportingText = state.signInError?.let { error ->
-                {
-                    Text(
-                        stringResource(
-                            when (error) {
-                                SignInError.SUSPENDED -> R.string.settings_error_suspended
-                                SignInError.EMAIL_NOT_CONFIRMED -> R.string.settings_error_email_not_confirmed
-                                SignInError.INVALID -> R.string.settings_error_invalid
-                            },
-                        ),
-                    )
-                }
-            },
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        )
-        Button(
-            onClick = { vm.signIn(email, password) },
-            enabled = !state.signingIn && email.isNotBlank() && password.isNotEmpty(),
-            modifier = Modifier.padding(top = 12.dp),
-        ) {
-            if (state.signingIn) LoadingIndicator(Modifier.padding(end = 8.dp).size(20.dp))
-            Text(stringResource(if (state.signingIn) R.string.settings_signing_in else R.string.settings_sign_in))
-        }
-    }
-}
-
 // ==================================================================== Enlace / Torrents
 
+/**
+ * Enlace: the linked-device entry plus, since the 2026-11-09 amendment (no own login), the history sync between the user's devices over
+ * Tatakai Link (`AppSettings.historySyncOverLink`, last sync stamp, "Sincronizar ahora"). Owner: worker q.
+ */
 @Composable
-internal fun LinkSection(onOpenLinked: () -> Unit) {
+internal fun LinkSection(state: SettingsUiState, vm: SettingsViewModel, onOpenLinked: () -> Unit) {
     SectionHint(stringResource(R.string.settings_link_hint))
     FilledTonalButton(onClick = onOpenLinked) {
         Icon(Icons.Outlined.Computer, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
         Text(stringResource(R.string.settings_link_open), modifier = Modifier.padding(start = 8.dp))
+    }
+    Text(
+        stringResource(R.string.settings_link_history_title),
+        style = MaterialTheme.typography.bodyLarge,
+        modifier = Modifier.padding(top = 16.dp),
+    )
+    SectionHint(stringResource(R.string.settings_link_history_hint))
+    SwitchRow(
+        label = stringResource(R.string.settings_link_history_switch),
+        checked = state.settings.historySyncOverLink,
+        onChange = { on -> vm.updateSettings { it.copy(historySyncOverLink = on) } },
+    )
+    Text(
+        when {
+            !state.linkPaired -> stringResource(R.string.settings_link_history_unpaired)
+            state.lastSyncedAt != null -> stringResource(R.string.settings_account_synced, relativeTime(state.lastSyncedAt))
+            else -> stringResource(R.string.settings_account_never)
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    FilledTonalButton(
+        onClick = vm::syncNow,
+        enabled = state.linkPaired && state.settings.historySyncOverLink && !state.syncing,
+        modifier = Modifier.padding(top = 8.dp),
+    ) {
+        if (state.syncing) {
+            LoadingIndicator(Modifier.size(20.dp))
+        } else {
+            Icon(Icons.Outlined.Sync, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+        }
+        Text(
+            stringResource(if (state.syncing) R.string.settings_syncing else R.string.settings_sync_now),
+            modifier = Modifier.padding(start = 8.dp),
+        )
     }
 }
 
@@ -640,6 +585,8 @@ internal fun DataSection(state: SettingsUiState, vm: SettingsViewModel) {
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(stringResource(UiR.string.ui_cancel)) } },
         )
     }
+    // parity wave A, 2026-11-09 amendment (worker q): Exportar historial, Borrar historial and Restablecer la app live here.
+    ResetAppRow(vm)
 }
 
 /** Storage bar (prototype `.storage__bar`): metadata cache, torrents, free space; figures in the mono font. */

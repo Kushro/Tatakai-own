@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 
 // Torrent model mirrored 1:1 from apps/desktop-native/crates/tk-ui/src/backend.rs (Torrent*Vm, docs/redesign/10 §5.2) and
 // docs/redesign/11 §2.2-2.4, with the user's android-wave decisions (docs/redesign/12 §0). Signatures are FINAL.
@@ -195,6 +196,15 @@ data class TorrentSettings(
     /** On metered networks the engine uploads at most 1 KiB/s unless this is true. */
     val uploadOnMobileData: Boolean = false,
     val storageLocation: StorageLocation = StorageLocation.AppSpecific,
+    // --- parity wave A (15 §3.9, worker q; classic TorrentSettings) ---
+    /** Extra tracker URLs announced for every torrent (checklist torrent.custom-trackers). */
+    val trackers: List<String> = emptyList(),
+    /** Alternative limits inside a daily window; null = always the limits above (checklist torrent.bandwidth-schedule). */
+    val schedule: BandwidthSchedule? = null,
+    /** Max MiB kept by streaming (non-persisted) torrents before the oldest are removed; 0 = unlimited (checklist torrent.cache-limit). */
+    val cacheLimitMib: Int = 0,
+    /** Start fetching the next episode of a batch torrent while the current one plays (checklist torrent.preload-next). */
+    val preloadNext: Boolean = true,
 ) {
     /** Clamp into range, port 0 or 1024..=65535 (else 0), background off without ack. Implemented here (contract, 1:1 with desktop `sanitized`). */
     fun sanitized(): TorrentSettings = copy(
@@ -204,13 +214,66 @@ data class TorrentSettings(
         uploadLimitKib = uploadLimitKib.coerceIn(0, MAX_LIMIT_KIB),
         listenPort = if (listenPort == 0 || listenPort in 1024..65535) listenPort else 0,
         backgroundDownloads = backgroundDownloads && backgroundAck,
+        trackers = trackers.map(String::trim).filter { it.startsWith("udp://") || it.startsWith("http://") || it.startsWith("https://") || it.startsWith("wss://") }.distinct(),
+        schedule = schedule?.sanitized(),
+        cacheLimitMib = cacheLimitMib.coerceIn(0, MAX_CACHE_MIB),
     )
 
     companion object {
         const val MAX_PEERS: Int = 500
         const val MAX_LIMIT_KIB: Int = 1_000_000
+        const val MAX_CACHE_MIB: Int = 1_000_000
     }
 }
+
+/**
+ * parity wave A (worker q): a daily window `[startMinute, endMinute)` in local time (0..1439, may wrap past midnight) during which the
+ * engine uses [downloadLimitKib] / [uploadLimitKib] instead of the base limits (0 = unlimited). Classic "bandwidth schedule".
+ */
+@Serializable
+data class BandwidthSchedule(
+    val startMinute: Int = 0,
+    val endMinute: Int = 0,
+    val downloadLimitKib: Int = 0,
+    val uploadLimitKib: Int = 0,
+) {
+    fun sanitized(): BandwidthSchedule = copy(
+        startMinute = startMinute.coerceIn(0, 1439),
+        endMinute = endMinute.coerceIn(0, 1439),
+        downloadLimitKib = downloadLimitKib.coerceIn(0, TorrentSettings.MAX_LIMIT_KIB),
+        uploadLimitKib = uploadLimitKib.coerceIn(0, TorrentSettings.MAX_LIMIT_KIB),
+    )
+
+    /** True when [minuteOfDay] (0..1439) falls inside the window; an empty window (start == end) never matches. */
+    fun contains(minuteOfDay: Int): Boolean = when {
+        startMinute == endMinute -> false
+        startMinute < endMinute -> minuteOfDay in startMinute until endMinute
+        else -> minuteOfDay >= startMinute || minuteOfDay < endMinute
+    }
+}
+
+/**
+ * parity wave A (worker q, checklist torrent.episode-alignment): how the video files of a manually added torrent map to episodes.
+ * File `i` (sorted by name, videos only) is episode `firstEpisode + i`; [offset] is added to any episode number parsed from the file name.
+ */
+@Serializable
+data class EpisodeAlignment(val firstEpisode: Int = 1, val offset: Int = 0)
+
+/** parity wave A (worker q, checklist torrent.session-history): one torrent the session has seen, persisted (`labels.json` sibling). */
+@Serializable
+data class TorrentSessionEntry(
+    val id: TorrentId,
+    val name: String,
+    val mediaId: String? = null,
+    val series: String? = null,
+    val episode: Int? = null,
+    val addedUnix: Long,
+    val removedUnix: Long? = null,
+    val downloadedBytes: Long = 0,
+    val uploadedBytes: Long = 0,
+    /** How it was added: "play" | "download" | "manual" | "magnet". */
+    val origin: String = "play",
+)
 
 /**
  * A torrent playback session (desktop `TorrentPlaybackVm`): [stream] has the loopback URL
@@ -235,6 +298,12 @@ enum class TorrentSection(val id: String, val perTorrent: Boolean) {
     @SerialName("trackers") TRACKERS("trackers", true),
     @SerialName("library") LIBRARY("library", false),
     @SerialName("downloads") DOWNLOADS("downloads", false),
+
+    /** parity wave A (worker q, checklist torrent.session-history): torrents the session has seen (desktop `TorrentSection::History`). */
+    @SerialName("history") HISTORY("history", false),
+
+    /** parity wave A (worker q): debrid services (Real-Debrid, TorBox, AllDebrid, Premiumize) as a section of the Torrents client (`torrent_section_debrid`). */
+    @SerialName("debrid") DEBRID("debrid", false),
     @SerialName("settings") SETTINGS("settings", false),
 }
 
@@ -329,4 +398,26 @@ interface TorrentRepository {
     suspend fun exportToDownloads(id: TorrentId, fileIndex: Int): Result<String>
 
     suspend fun storageUsage(): TorrentStorage
+
+    // --- parity wave A (15 §3.9, worker q; defaults = "not available" so the existing fakes keep compiling) ---
+    /**
+     * "Añadir torrent" by hand (checklist torrent.add-magnet / torrent.add-file / torrent.magnet-link-handler): [source] = magnet URI,
+     * 40-hex info-hash, or a `content://` / `file://` URI of a `.torrent` picked with SAF. Optional [media] + [alignment] label the
+     * files as episodes of a title (torrent.episode-alignment); without them the torrent shows in the library as "Sin serie".
+     * Persisted (download-for-later) when [persist]; otherwise it behaves like a streamed torrent.
+     */
+    suspend fun addManual(source: String, media: Media? = null, alignment: EpisodeAlignment? = null, persist: Boolean = true): Result<TorrentId> =
+        Result.failure(NotImplementedError("addManual"))
+
+    /** Re-label the files of a torrent already in the session (Files tab › "Alinear episodios"). */
+    suspend fun setAlignment(id: TorrentId, media: Media?, alignment: EpisodeAlignment?): Result<Unit> =
+        Result.failure(NotImplementedError("setAlignment"))
+
+    /** Torrents the session has seen, newest first, including removed ones (checklist torrent.session-history). */
+    fun sessionHistory(limit: Int = 200): Flow<List<TorrentSessionEntry>> = flowOf(emptyList())
+
+    suspend fun clearSessionHistory() {}
+
+    /** Re-announce to every tracker of [id] now; the Trackers tab refreshes `trackers(id)` afterwards (checklist torrent.trackers.status). */
+    suspend fun reannounce(id: TorrentId) {}
 }

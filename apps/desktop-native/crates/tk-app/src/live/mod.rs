@@ -1,5 +1,6 @@
-//! The shipping backend: `tk_ui::Backend` over tk-core (metadata router, Supabase, local store),
-//! tk-ext (extension host) and tk-link (Link server).
+//! The shipping backend: `tk_ui::Backend` over tk-core (metadata router, local store, secrets, AniList / MAL
+//! lists), tk-ext (extension host) and tk-link (Link server, incl. the watch-history sync with the phone).
+//! No own account (plan 14 section 0.1 #9): the Supabase client was removed in wave A.
 //!
 
 mod browser;
@@ -10,15 +11,16 @@ mod sources;
 mod torrent;
 mod torrent_play;
 mod torrent_settings;
-// wave A (docs/redesign/15 section 2): one file per owner. a search, c details, d subs, e presence, f account,
-// g lists, i debrid + torrent_manual. This file only delegates; nobody edits it after the contract.
-mod account;
+// wave A (docs/redesign/15 section 2): one file per owner. a search, c details, d subs, e presence, f system +
+// history_sync, g lists, i debrid + torrent_manual. This file only delegates; nobody edits it after the contract.
 mod debrid;
 mod details;
+mod history_sync;
 mod lists;
 mod presence;
 mod search;
 mod subs;
+mod system;
 mod torrent_manual;
 
 use std::collections::HashMap;
@@ -28,20 +30,17 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use time::OffsetDateTime;
 use tk_core::sources::{INITIAL_RELIABILITY, SourceCandidate, SourceKind, parse_source_key, source_key};
-use tk_core::{
-    Compat, FeedKind, HistoryEntry, LocalStore, Media, MediaKind, MediaRef, MetadataRouter, ProviderError, Supabase,
-    SupabaseError,
-};
+use tk_core::{Compat, FeedKind, HistoryEntry, LocalStore, Media, MediaKind, MediaRef, MetadataRouter, ProviderError};
 use tk_ui::backend::{
-    AccountVm, AnimeBuildVm, Backend, CharacterVm, ConflictSideVm, ContinueVm, CueVm, DebridAccountVm, DebridServiceVm,
+    AnimeBuildVm, Backend, CharacterVm, ConflictSideVm, ContinueVm, CueVm, DebridAccountVm, DebridServiceVm,
     DetailsExtraVm, DetailsVm, EpisodeVm, ExportFormatVm, ExtLogVm, ExtensionDetailVm, ExtensionVm, HistoryItemVm, HomeVm,
     ImageMatchVm, ImageQueryVm, LibraryVm, LinkCapsVm, LinkStatusVm, ListAccountVm, ListConflictVm, ListEntryUpdateVm,
     ListEntryVm, ListImportVm, ListStatusVm, ListSyncVm, MediaVm, PlaybackVm, PresenceVm, SearchPageVm, SearchQueryVm,
-    SectionVm, SignUpVm, SkipMarkVm, SourceVm, StorageUsageVm, SystemCapsVm, TorrentFileVm, TorrentLibraryItemVm,
-    TorrentPeerVm, TorrentPlaybackVm, TorrentPreviewVm, TorrentSettingsVm, TorrentStatsVm, TorrentTrackerVm,
+    SectionVm, SkipMarkVm, SourceVm, StorageUsageVm, SystemCapsVm, TorrentFileVm, TorrentLibraryItemVm, TorrentPeerVm,
+    TorrentPlaybackVm, TorrentPreviewVm, TorrentSessionVm, TorrentSettingsVm, TorrentStatsVm, TorrentTrackerVm,
     TranslateRequestVm, TranslationTestVm, UiResult, UpdateCheckVm, WatchOrderEntryVm,
 };
-use tk_ui::model::{ErrorKind, ListServiceVm, Pairing, Settings, UiError};
+use tk_ui::model::{ErrorKind, ListServiceVm, Pairing, Settings, TranslationProviderVm, UiError};
 use tk_ui::ui_thread::UiThread;
 
 use crate::backend_common::{IdKind, parse_media_id};
@@ -55,8 +54,6 @@ pub struct LiveBackend {
     settings_file: std::path::PathBuf,
     store: Arc<LocalStore>,
     router: Arc<MetadataRouter>,
-    supabase: Option<Arc<Supabase>>,
-    email: Mutex<Option<String>>,
     /// `id -> (title, poster)` of titles opened this session, for history rows.
     titles: Mutex<HashMap<String, (String, Option<String>)>>,
     ext: ext::Extensions,
@@ -66,7 +63,8 @@ pub struct LiveBackend {
     candidates: Mutex<HashMap<(String, u32), (Instant, Vec<SourceCandidate>)>>,
     /// Torrent engine, started on demand (wave 3 A, `live/torrent.rs`).
     torrent: torrent::TorrentService,
-    /// OS keyring / fallback file (wave A): Supabase session (f), AniList / MAL tokens (g), debrid keys (i).
+    /// OS keyring / fallback file (wave A, `tk_core::Secrets`, f): AniList / MAL tokens (g), translation keys (d),
+    /// debrid keys (i).
     secrets: tk_core::Secrets,
 }
 
@@ -76,24 +74,20 @@ const SOURCES_TTL: Duration = Duration::from_secs(5 * 60);
 const LIBRARY_HISTORY: u32 = 200;
 
 impl LiveBackend {
-    /// `ui`: jobs for the UI thread (hidden web views of the extension browser runtime).
-    pub fn new(paths: &AppPaths, cfg: &AppConfig, ui: UiThread) -> anyhow::Result<Self> {
+    /// `ui`: jobs for the UI thread (hidden web views of the extension browser runtime). `config.json` carries
+    /// nothing the backend needs yet (the provider order comes from `Settings`); kept for future machine options.
+    pub fn new(paths: &AppPaths, _cfg: &AppConfig, ui: UiThread) -> anyhow::Result<Self> {
         let settings_file = paths.ui_settings_file();
         let settings = settings_store::load(&settings_file);
         let store = Arc::new(LocalStore::open(&paths.db_file())?);
         let client = reqwest::Client::builder().user_agent("TatakaiNext/0.1").timeout(Duration::from_secs(20)).build()?;
         let router = Arc::new(MetadataRouter::with_defaults(client, settings.provider_priority.clone()));
-        let supabase = cfg.supabase().and_then(|(url, key)| match Supabase::new(url, key) {
-            Ok(s) => Some(Arc::new(s)),
-            Err(e) => {
-                tracing::warn!(error = %e, "Supabase config rejected; running without an account service");
-                None
-            }
-        });
         let ext = ext::Extensions::new(paths.extensions_dir(), Arc::new(browser::WebviewBrowsers::new(ui)))?;
+        // Wave A (f): the Link server also serves / merges the watch history of paired phones (`history_sync`).
         let link = link::LinkService::new(
             paths.link_dir(),
             ext.host(),
+            store.clone(),
             crate::paths::shaders_dir(paths, None),
             crate::paths::anime4k_lock(None),
         );
@@ -102,8 +96,6 @@ impl LiveBackend {
             settings_file,
             store,
             router,
-            supabase,
-            email: Mutex::new(None),
             titles: Mutex::new(HashMap::new()),
             ext,
             link,
@@ -118,10 +110,10 @@ impl LiveBackend {
         AppPaths::from_root(self.data_root.clone())
     }
 
-    /// Wave A, worker f: load the persisted Supabase session (`live/account.rs::restore_session`). tk-app's `main.rs`
-    /// spawns it right after building the backend; a stub until f lands.
-    pub async fn restore_session(&self) {
-        account::restore_session(self).await;
+    /// Wave A: start-up jobs (`live/system.rs::on_start`, worker f: update notice). tk-app's `main.rs` spawns it
+    /// through `Services::on_start` once the UI runtime is up; a stub until f lands.
+    pub async fn on_start(&self) {
+        system::on_start(self).await;
     }
 
     fn remember_title(&self, id: &str, title: &str, poster: Option<&str>) {
@@ -201,21 +193,6 @@ impl LiveBackend {
         }
         list
     }
-
-    /// Push dirty rows to Supabase (best effort, only when signed in).
-    async fn sync_history(&self) {
-        let Some(sb) = self.supabase.as_ref().filter(|s| s.session().is_some()) else { return };
-        let Ok(dirty) = self.store.dirty_history() else { return };
-        if dirty.is_empty() {
-            return;
-        }
-        match sb.upsert_history(&dirty).await {
-            Ok(()) => {
-                let _ = self.store.mark_synced(&dirty);
-            }
-            Err(e) => tracing::warn!(error = %e, "history sync failed; rows stay local"),
-        }
-    }
 }
 
 fn media_ref(id: &str) -> Option<MediaRef> {
@@ -263,16 +240,6 @@ fn provider_err(e: ProviderError) -> UiError {
     let kind = match &e {
         ProviderError::RateLimited { .. } => ErrorKind::RateLimited,
         ProviderError::Network(_) => ErrorKind::Offline,
-        _ => ErrorKind::Other,
-    };
-    UiError::new(kind, e.to_string())
-}
-
-fn supabase_err(e: SupabaseError) -> UiError {
-    let kind = match &e {
-        SupabaseError::InvalidCredentials | SupabaseError::NotSignedIn | SupabaseError::SessionExpired => ErrorKind::Auth,
-        SupabaseError::EmailNotConfirmed => ErrorKind::EmailNotConfirmed,
-        SupabaseError::Network(_) => ErrorKind::Offline,
         _ => ErrorKind::Other,
     };
     UiError::new(kind, e.to_string())
@@ -397,9 +364,9 @@ impl Backend for LiveBackend {
                 tracing::warn!(error = %e, "could not clear the picked source");
             }
         }
-        // Wave A, worker g: automatic list progress (never fails the local write).
+        // Wave A, worker g: automatic list progress (never fails the local write). The row itself stays local:
+        // paired phones pull it over Tatakai Link (`GET /v1/history`), there is no cloud push any more.
         lists::on_progress(self, id, episode, progress_secs, duration_secs, entry.completed).await;
-        self.sync_history().await;
         Ok(())
     }
 
@@ -428,43 +395,6 @@ impl Backend for LiveBackend {
     async fn save_settings(&self, settings: &Settings) -> UiResult<()> {
         self.router.set_priority(settings.provider_priority.clone());
         settings_store::save(&self.settings_file, settings).map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))
-    }
-
-    async fn account(&self) -> UiResult<AccountVm> {
-        let signed_in = self.supabase.as_ref().is_some_and(|s| s.session().is_some());
-        Ok(AccountVm {
-            // The Supabase session carries no email; keep what the user typed for display.
-            email: if signed_in { self.email.lock().ok().and_then(|e| e.clone()) } else { None },
-            configured: self.supabase.is_some(),
-        })
-    }
-    async fn sign_in(&self, email: &str, password: &str) -> UiResult<AccountVm> {
-        let sb = self.supabase.as_ref().ok_or_else(|| UiError::new(ErrorKind::Auth, "no account service configured"))?;
-        sb.sign_in_password(email, password).await.map_err(supabase_err)?;
-        if let Ok(mut e) = self.email.lock() {
-            *e = Some(email.to_owned());
-        }
-        // Merge what the account already has, then push local rows.
-        match sb.select_history(200).await {
-            Ok(rows) => {
-                let _ = self.store.merge_remote(&rows);
-            }
-            Err(e) => tracing::warn!(error = %e, "pulling remote history failed"),
-        }
-        self.sync_history().await;
-        // Wave A, worker f: persist the session (`live/account.rs`).
-        account::after_sign_in(self).await;
-        self.account().await
-    }
-    async fn sign_out(&self) -> UiResult<()> {
-        if let Some(sb) = &self.supabase {
-            sb.sign_out();
-        }
-        if let Ok(mut e) = self.email.lock() {
-            *e = None;
-        }
-        account::after_sign_out(self).await;
-        Ok(())
     }
 
     async fn link_status(&self) -> UiResult<LinkStatusVm> {
@@ -544,21 +474,6 @@ impl Backend for LiveBackend {
             .map(|e| HistoryItemVm { media: history_media(&e), episode: e.episode, watched_unix: e.watched_at.unix_timestamp() })
             .collect();
         Ok(LibraryVm { continue_watching: self.continue_vms(40), history })
-    }
-
-    async fn sync_now(&self) -> UiResult<()> {
-        let sb = self
-            .supabase
-            .as_ref()
-            .filter(|s| s.session().is_some())
-            .ok_or_else(|| UiError::new(ErrorKind::Auth, "not signed in"))?;
-        let dirty = self.store.dirty_history().map_err(Self::store_err)?;
-        if !dirty.is_empty() {
-            sb.upsert_history(&dirty).await.map_err(supabase_err)?;
-            self.store.mark_synced(&dirty).map_err(Self::store_err)?;
-        }
-        let rows = sb.select_history(LIBRARY_HISTORY).await.map_err(supabase_err)?;
-        self.store.merge_remote(&rows).map_err(Self::store_err)
     }
 
     async fn extension_logs(&self, id: &str) -> UiResult<Vec<ExtLogVm>> {
@@ -698,60 +613,54 @@ impl Backend for LiveBackend {
     async fn screenshot_path(&self, title: &str, episode: u32) -> UiResult<std::path::PathBuf> {
         subs::screenshot_path(self, title, episode).await
     }
+    async fn set_translation_key(&self, provider: TranslationProviderVm, key: Option<&str>) -> UiResult<()> {
+        subs::set_translation_key(self, provider, key).await
+    }
+    async fn translation_key_present(&self, provider: TranslationProviderVm) -> UiResult<bool> {
+        subs::translation_key_present(self, provider).await
+    }
 
     // e: live/presence.rs
     async fn presence(&self, state: &PresenceVm) -> UiResult<()> {
         presence::presence(self, state).await
     }
 
-    // f: live/account.rs
-    async fn sign_up(&self, email: &str, password: &str) -> UiResult<SignUpVm> {
-        account::sign_up(self, email, password).await
-    }
-    async fn verify_email(&self, email: &str, code: &str) -> UiResult<AccountVm> {
-        account::verify_email(self, email, code).await
-    }
-    async fn resend_verification(&self, email: &str) -> UiResult<()> {
-        account::resend_verification(self, email).await
-    }
-    async fn request_password_reset(&self, email: &str) -> UiResult<()> {
-        account::request_password_reset(self, email).await
-    }
-    async fn reset_password(&self, email: &str, code: &str, new_password: &str) -> UiResult<()> {
-        account::reset_password(self, email, code, new_password).await
+    // f: live/system.rs
+    async fn reset_app(&self, keep_downloads: bool) -> UiResult<()> {
+        system::reset_app(self, keep_downloads).await
     }
     async fn storage_usage(&self) -> UiResult<StorageUsageVm> {
-        account::storage_usage(self).await
+        system::storage_usage(self).await
     }
     async fn clear_cache(&self) -> UiResult<u64> {
-        account::clear_cache(self).await
+        system::clear_cache(self).await
     }
     async fn open_data_folder(&self) -> UiResult<()> {
-        account::open_data_folder(self).await
+        system::open_data_folder(self).await
     }
     async fn open_logs(&self) -> UiResult<()> {
-        account::open_logs(self).await
+        system::open_logs(self).await
     }
     async fn export_history(&self, format: ExportFormatVm) -> UiResult<std::path::PathBuf> {
-        account::export_history(self, format).await
+        system::export_history(self, format).await
     }
     async fn licenses_text(&self) -> UiResult<String> {
-        account::licenses_text(self).await
+        system::licenses_text(self).await
     }
     async fn check_updates(&self) -> UiResult<UpdateCheckVm> {
-        account::check_updates(self).await
+        system::check_updates(self).await
     }
     fn system_caps(&self) -> SystemCapsVm {
-        account::system_caps(self)
+        system::system_caps(self)
     }
     async fn autostart_enabled(&self) -> UiResult<bool> {
-        account::autostart_enabled(self).await
+        system::autostart_enabled(self).await
     }
     async fn set_autostart(&self, enabled: bool) -> UiResult<()> {
-        account::set_autostart(self, enabled).await
+        system::set_autostart(self, enabled).await
     }
     async fn open_url(&self, url: &str) -> UiResult<()> {
-        account::open_url(self, url).await
+        system::open_url(self, url).await
     }
 
     // g: live/lists.rs
@@ -810,6 +719,24 @@ impl Backend for LiveBackend {
     }
     async fn torrent_preload_next(&self, id: &str, episode: u32) -> UiResult<()> {
         torrent_manual::torrent_preload_next(self, id, episode).await
+    }
+    async fn take_pending_magnet(&self) -> UiResult<Option<String>> {
+        torrent_manual::take_pending_magnet(self).await
+    }
+    async fn magnet_handler_registered(&self) -> UiResult<bool> {
+        torrent_manual::magnet_handler_registered(self).await
+    }
+    async fn set_magnet_handler(&self, enabled: bool) -> UiResult<()> {
+        torrent_manual::set_magnet_handler(self, enabled).await
+    }
+    async fn torrent_session_history(&self, limit: u32) -> UiResult<Vec<TorrentSessionVm>> {
+        torrent_manual::torrent_session_history(self, limit).await
+    }
+    async fn torrent_clear_session_history(&self) -> UiResult<u32> {
+        torrent_manual::torrent_clear_session_history(self).await
+    }
+    async fn torrent_reannounce(&self, torrent_id: &str) -> UiResult<()> {
+        torrent_manual::torrent_reannounce(self, torrent_id).await
     }
     async fn debrid_accounts(&self) -> UiResult<Vec<DebridAccountVm>> {
         debrid::debrid_accounts(self).await

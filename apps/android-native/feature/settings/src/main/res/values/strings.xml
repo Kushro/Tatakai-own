@@ -87,23 +87,20 @@
     <string name="settings_ttl_days">%1$d d</string>
     <string name="settings_measuring">Measuring…</string>
     <string name="settings_unknown_size">Unknown</string>
-    <string name="settings_account">Account</string>
     <!-- parity wave A (15 §3.3, worker q): AniList / MAL section title; the rest of its keys are q's (settings_accounts_*). -->
     <string name="settings_accounts">Lists and accounts</string>
-    <string name="settings_account_title">Sync your history</string>
-    <string name="settings_account_hint">Signing in only syncs your watch history. Everything else works without an account.</string>
-    <string name="settings_email">Email</string>
-    <string name="settings_password">Password</string>
-    <string name="settings_sign_in">Sign in</string>
-    <string name="settings_signing_in">Signing in…</string>
-    <string name="settings_sign_out">Sign out</string>
-    <string name="settings_signed_in_as">Signed in as %1$s</string>
-    <string name="settings_error_invalid">Could not sign in. Check your email and password.</string>
-    <string name="settings_error_suspended">This account is suspended.</string>
-    <string name="settings_error_email_not_confirmed">Your email isn\'t confirmed yet. Enter the code from your sign-up email on the Tatakai website, then sign in again.</string>
+    <!-- parity wave A, 2026-11-09 amendment (worker q): history between devices over Tatakai Link (Enlace section), reset app, first-run wizard. -->
+    <string name="settings_link_history_title">History between your devices</string>
+    <string name="settings_link_history_hint">Your watch history, with the exact position to resume, syncs with your paired PC over Tatakai Link. No account needed.</string>
+    <string name="settings_link_history_switch">Sync history with the PC</string>
+    <string name="settings_link_history_unpaired">No PC linked: history stays on this phone.</string>
+    <string name="settings_data_reset">Reset app</string>
+    <string name="settings_data_reset_hint">Clears settings, history, caches, extensions, the PC link and linked accounts. Cannot be undone.</string>
+    <string name="settings_data_reset_confirm">Reset everything</string>
+    <string name="settings_onboarding_title">Welcome to Tatakai</string>
+    <string name="settings_onboarding_skip">Skip</string>
     <string name="settings_account_synced">History synced %1$s</string>
     <string name="settings_account_never">Not synced yet</string>
-    <string name="settings_account_lists">AniList and MAL lists arrive in M1.</string>
     <string name="settings_sync_now">Sync now</string>
     <string name="settings_syncing">Syncing…</string>
     <string name="settings_synced">History synced</string>

@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 /// Namespace files, in the order they are merged. Keep both lists in sync (same names, same order).
 pub const NAMESPACES: [&str; 9] =
-    ["common", "search", "details", "player", "settings_player", "subs", "account", "library", "torrent"];
+    ["common", "search", "details", "player", "settings_player", "subs", "system", "library", "torrent"];
 
 const EN_FILES: [&str; 9] = [
     include_str!("../i18n/en/common.json"),
@@ -22,7 +22,7 @@ const EN_FILES: [&str; 9] = [
     include_str!("../i18n/en/player.json"),
     include_str!("../i18n/en/settings_player.json"),
     include_str!("../i18n/en/subs.json"),
-    include_str!("../i18n/en/account.json"),
+    include_str!("../i18n/en/system.json"),
     include_str!("../i18n/en/library.json"),
     include_str!("../i18n/en/torrent.json"),
 ];
@@ -33,7 +33,7 @@ const ES_FILES: [&str; 9] = [
     include_str!("../i18n/es/player.json"),
     include_str!("../i18n/es/settings_player.json"),
     include_str!("../i18n/es/subs.json"),
-    include_str!("../i18n/es/account.json"),
+    include_str!("../i18n/es/system.json"),
     include_str!("../i18n/es/library.json"),
     include_str!("../i18n/es/torrent.json"),
 ];

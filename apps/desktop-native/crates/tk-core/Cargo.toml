@@ -1,6 +1,6 @@
 [package]
 name = "tk-core"
-description = "Models, metadata router (AniList + ani.zip + Kitsu), Supabase REST client, local store - owner B5"
+description = "Models, metadata router (AniList + ani.zip + Kitsu), local store, secrets, AniList / MAL lists - owner B5"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

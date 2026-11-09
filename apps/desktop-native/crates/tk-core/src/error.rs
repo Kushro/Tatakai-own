@@ -39,33 +39,6 @@ impl From<reqwest::Error> for ProviderError {
 }
 
 #[derive(Debug, Error)]
-pub enum SupabaseError {
-    #[error("not signed in")]
-    NotSignedIn,
-    #[error("invalid credentials")]
-    InvalidCredentials,
-    /// The password was right but the account never confirmed its email address.
-    #[error("email not confirmed")]
-    EmailNotConfirmed,
-    #[error("session expired")]
-    SessionExpired,
-    #[error("http status {0}")]
-    Http(u16),
-    #[error("network error: {0}")]
-    Network(String),
-    #[error("unexpected payload: {0}")]
-    Parse(String),
-    #[error("invalid supabase url: {0}")]
-    BadUrl(String),
-}
-
-impl From<reqwest::Error> for SupabaseError {
-    fn from(e: reqwest::Error) -> Self {
-        Self::Network(e.without_url().to_string())
-    }
-}
-
-#[derive(Debug, Error)]
 pub enum StoreError {
     #[error("sqlite: {0}")]
     Sqlite(#[from] rusqlite::Error),

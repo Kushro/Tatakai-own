@@ -24,7 +24,6 @@ Every branch that copies a file MUST add a row here (origin repo + path, license
 | OkHttp 5 / Okio | Apache-2.0 |
 | Coil 3 | Apache-2.0 |
 | Koin | Apache-2.0 |
-| supabase-kt (auth-kt, postgrest-kt) and Ktor client | Apache-2.0 / MIT (supabase-kt) |
 | quickjs-kt (dokar3) with bundled QuickJS | Apache-2.0 / MIT (QuickJS, Fabrice Bellard) |
 | jsoup | MIT |
 | MaterialKolor | MIT |
@@ -49,8 +48,8 @@ Settings > About > Licenses shows this file (copied into the APK assets as `lice
 
 ## 4. Services
 
-No usage-tracking or crash-reporting SDKs (see apps/README.md, rule 3). The app talks only to: the user's own Supabase project, AniList (GraphQL), ani.zip, Kitsu, hosts allowed by installed
-extensions, and a paired PC on the local network.
+No usage-tracking or crash-reporting SDKs (see apps/README.md, rule 3). There is no own backend and no own login (2026-11-09). The app talks only to: AniList (GraphQL + OAuth), MyAnimeList (REST + OAuth), ani.zip, Kitsu, trace.moe, api.github.com (release notice), the debrid services the user links, the translation endpoints the user configures, hosts allowed by installed
+extensions, and a paired PC on the local network (Tatakai Link, incl. the watch-history sync).
 
 ## 5. Code adapted from the author's own repositories
 
@@ -68,3 +67,9 @@ Code adapted from the author's own repositories (AGPL-3.0-or-later), per decisio
 - `core/link/.../LinkCrypto.kt` (LinkCrypto, LinkCsr, Der), `PairingPayload.kt`, `LinkHttp.kt`, `LinkError.kt` (structure), `PairingClient.kt`:
   adapted from Enigmata `app/src/main/java/app/enigmata/temple/{crypto,pairing,client}` (TempleCrypto, TempleCsr, TemplePairingPayload, TempleHttp, TempleError, TemplePairingClient).
 - `core/link/.../LinkKeyVault.kt`: key-sealing model (software P-256 key sealed with an AndroidKeyStore AES-GCM key under `noBackupFilesDir`) from Enigmata `temple/vault/{TempleKeyVault,KeystoreTempleKeyCipher}`.
+
+### Background playback with libmpv (parity wave A, worker p, AGPL-3.0-or-later)
+
+| Target file(s) | Origin | License | Notes |
+|---|---|---|---|
+| `core/player-mpv/.../MpvPlayerAdapter.kt`, `core/player/.../PlaybackService.kt` (observe-the-core pattern, per-core observer re-registration, "no notification update after shutdown" gate, `onTaskRemoved` handling) | Enigmata `app/src/main/java/app/enigmata/ui/player/MediaPlaybackService.kt` (author's own) | AGPL-3.0-or-later | Re-expressed over Media3 `SimpleBasePlayer` + `MediaSessionService` (no `MediaSessionCompat`); worker p completes this row with the commit it copied from |

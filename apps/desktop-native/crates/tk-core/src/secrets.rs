@@ -1,6 +1,6 @@
-//! Secret storage (wave A, worker **f**; docs/redesign/15-parity-wave-a-contract.md section 3): the Supabase
-//! session (`supabase::session_store`), AniList / MAL tokens (`lists`) and debrid keys (`debrid`) go through
-//! [`Secrets`], never through `ui-settings.json`.
+//! Secret storage (wave A, worker **f**; docs/redesign/15-parity-wave-a-contract.md section 3): AniList / MAL
+//! OAuth tokens (`lists`, worker g), subtitle-translation API keys (`translate`, worker d) and debrid keys
+//! (`debrid`, worker i) go through [`Secrets`], never through `ui-settings.json` or `config.json`.
 //!
 //! Implementation expected from f: the OS keyring through the `keyring` crate (Secret Service on Linux via zbus,
 //! Credential Manager on Windows, Keychain on macOS; service name `Tatakai-Next`, one entry per `key`) and, when
@@ -19,12 +19,17 @@ pub const FALLBACK_FILE: &str = "secrets.json";
 
 /// Well-known keys.
 pub mod keys {
-    pub const SUPABASE_SESSION: &str = "supabase.session";
+    /// AniList OAuth token (`lists::Token` as JSON).
     pub const ANILIST_TOKEN: &str = "lists.anilist.token";
+    /// MAL OAuth token + refresh token (`lists::Token` as JSON).
     pub const MAL_TOKEN: &str = "lists.mal.token";
     /// `debrid.<service id>.key`
     pub fn debrid(service_id: &str) -> String {
         format!("debrid.{service_id}.key")
+    }
+    /// `translate.<provider id>.key` (`TranslationProviderVm::id()`: `deepl`, `azure`, `openai`).
+    pub fn translation(provider_id: &str) -> String {
+        format!("translate.{provider_id}.key")
     }
 }
 

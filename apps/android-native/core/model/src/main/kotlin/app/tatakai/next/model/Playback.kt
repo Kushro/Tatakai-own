@@ -73,8 +73,8 @@ enum class TranslationMode {
 
 /**
  * Subtitle translation settings (`AppSettings.subtitleTranslation`). [endpoint] is only used by DEEPLX / AZURE / OPENAI-compatible
- * servers (empty = the provider's default); [model] by OPENAI; [region] by AZURE. [apiKey] is stored in the settings DataStore
- * (app-private); it is never logged or exported.
+ * servers (empty = the provider's default); [model] by OPENAI; [region] by AZURE. The API key is NOT here (2026-11-09 amendment: secrets
+ * never live in plain settings): it is stored through [SecretStore] under [SecretKeys.translationApiKey] and never logged or exported.
  */
 @Serializable
 data class SubtitleTranslation(
@@ -83,7 +83,6 @@ data class SubtitleTranslation(
     /** ISO 639-1 target language (default = the app's subtitle preference, `es`). */
     val targetLang: String = "es",
     val endpoint: String = "",
-    val apiKey: String = "",
     val model: String = "",
     val region: String = "",
 )

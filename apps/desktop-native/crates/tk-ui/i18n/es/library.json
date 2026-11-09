@@ -6,5 +6,8 @@
   "lib.watched_on": "Visto {when}",
   "lib.empty.title": "Todavía no hay nada",
   "lib.empty.body": "Los episodios que veas aparecen aquí para seguir después.",
-  "settings.accounts": "Cuentas"
+  "settings.accounts": "Cuentas",
+  "lists.sync_now": "Sincronizar listas",
+  "lists.synced": "Listas sincronizadas {when}",
+  "lists.not_connected": "Conecta AniList o MAL en Ajustes › Cuentas para sincronizar tus listas. El historial queda en esta PC y se sincroniza con tu teléfono por Tatakai Link."
 }

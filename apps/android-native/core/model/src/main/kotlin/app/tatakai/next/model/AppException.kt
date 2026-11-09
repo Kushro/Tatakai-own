@@ -9,8 +9,5 @@ fun Throwable.toAppError(): AppError = when (this) {
     else -> AppError.Unknown(message ?: this::class.simpleName.orEmpty())
 }
 
-/** Sign-in succeeded but `profiles.is_banned = true`: the app shows "account suspended" and does not sync. */
-class AccountSuspendedException : Exception("Account suspended")
-
-/** The password was right but the account never confirmed its email address (confirmed on the website). */
-class EmailNotConfirmedException : Exception("Email not confirmed")
+// 2026-11-09 amendment (plan 14 §0.1 #9): AccountSuspendedException / EmailNotConfirmedException (Supabase sign-in) were removed with
+// the own login. OAuth failures of the list providers travel as AppException(AppError.Http(status)).

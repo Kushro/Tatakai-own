@@ -1,4 +1,5 @@
 // Dependencies below pre-wire what the module is expected to need; the version catalog itself is frozen (NOTES-deps.md for additions).
+// parity wave A (2026-11-09 amendment): :core:supabase is gone; the history syncs over Tatakai Link (:core:link, LinkHistoryRemote).
 plugins { id("tatakai.android.library") }
 
 dependencies {
@@ -6,7 +7,7 @@ dependencies {
     implementation(projects.core.network)
     implementation(projects.core.metadata)
     implementation(projects.core.database)
-    implementation(projects.core.supabase)
+    implementation(projects.core.link)
     implementation(projects.core.release)
     implementation(libs.room.runtime)
     implementation(libs.work.runtime)

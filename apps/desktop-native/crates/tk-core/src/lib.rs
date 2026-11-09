@@ -1,5 +1,9 @@
-//! tk-core: domain model, metadata router (AniList + ani.zip + Kitsu), Supabase REST client,
-//! local SQLite store and `config.json` loading for the native desktop app.
+//! tk-core: domain model, metadata router (AniList + ani.zip + Kitsu), local SQLite store (history, lists,
+//! caches), secrets and `config.json` loading for the native desktop app.
+//!
+//! Wave A (docs/redesign/14-parity-plan.md section 0.1 #9): there is no own login any more. The Supabase client
+//! is gone; identity is AniList / MAL OAuth (`lists`), the watch history stays local and syncs between the user's
+//! own devices over Tatakai Link (`tk-link::history`).
 //!
 //! Everything here is UI-free and free of global state: paths and clocks are injected so that
 //! tests never touch the real user profile.
@@ -14,23 +18,21 @@ pub mod metadata;
 pub mod model;
 pub mod net;
 pub mod release;
-/// OS keyring with a file fallback for tokens and the Supabase session (wave A, worker f).
+/// OS keyring with a file fallback for OAuth tokens, translation and debrid keys (wave A, worker f).
 pub mod secrets;
 pub mod sources;
 pub mod store;
-pub mod supabase;
 /// trace.moe scene search (wave A, worker a).
 pub mod tracemoe;
 /// Subtitle translation providers (wave A, worker d).
 pub mod translate;
 
 pub use config::AppConfig;
-pub use error::{DebridError, ListError, ProviderError, SecretError, StoreError, SupabaseError, TranslateError};
+pub use error::{DebridError, ListError, ProviderError, SecretError, StoreError, TranslateError};
 pub use secrets::Secrets;
 pub use metadata::{MetadataProvider, MetadataRouter};
 pub use model::*;
 pub use store::LocalStore;
-pub use supabase::{Session, Supabase};
 
 /// Directory name under `%APPDATA%` used by the native app (06 #6).
 pub const APP_DIR_NAME: &str = "Tatakai-Next";

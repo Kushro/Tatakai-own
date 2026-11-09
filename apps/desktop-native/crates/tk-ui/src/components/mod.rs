@@ -4,7 +4,6 @@
 
 pub mod button;
 pub mod chips;
-pub mod comments;
 pub mod dialog;
 pub mod download_season;
 pub mod floating_toolbar;
@@ -16,6 +15,7 @@ pub mod menu;
 pub mod nav_rail;
 pub mod player_controls;
 pub mod progress;
+pub mod reviews;
 pub mod segmented;
 pub mod sheet;
 pub mod snackbar;
@@ -25,7 +25,6 @@ pub mod title_bar;
 
 pub use button::{Button, ButtonSize, ButtonVariant, IconButton, IconButtonSize, IconButtonVariant, SplitButton};
 pub use chips::{Banner, Chip, ChipKind, InfoChip, Kbd, Pill, Tone};
-pub use comments::Comments;
 pub use dialog::ConfirmDialog;
 pub use download_season::DownloadSeasonSheet;
 pub use floating_toolbar::{FloatingToolbar, ToolbarSeparator};
@@ -38,6 +37,7 @@ pub use menu::{Menu, MenuAlign, MenuItem, MenuPlacement, MenuSeparator};
 pub use nav_rail::{NavRail, RailFootItem};
 pub use player_controls::PlayerControls;
 pub use progress::WavyProgress;
+pub use reviews::Reviews;
 pub use segmented::{SegOption, Segmented};
 pub use sheet::Sheet;
 pub use snackbar::{Snackbar, SnackbarHost, use_snackbar};

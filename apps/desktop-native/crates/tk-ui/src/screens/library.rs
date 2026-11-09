@@ -1,6 +1,8 @@
 //! Library (M0: local on this PC): Continue watching grid + watch history from `Backend::library()`
-//! (docs/redesign/07 section 4, prototype `screens.js::library`). "Sync now" calls `Backend::sync_now`:
-//! success and "not signed in" are confirmations in the snackbar; any other failure stays inline.
+//! (docs/redesign/07 section 4, prototype `screens.js::library`). "Sync lists" calls `Backend::list_sync_now`
+//! (wave A, worker g): success and "no account connected" (`ErrorKind::Auth`) are confirmations in the snackbar;
+//! any other failure stays inline. History itself never syncs from here: it is local and paired phones pull it
+//! over Tatakai Link (plan 14 section 0.1 #9).
 
 use dioxus::prelude::*;
 
@@ -59,13 +61,13 @@ pub fn LibraryPage() -> Element {
         syncing.set(true);
         sync_error.set(None);
         spawn(async move {
-            match backend.sync_now().await {
-                Ok(()) => {
-                    snack.show(tf("account.synced", &[("when", &t("time.now"))]));
+            match backend.list_sync_now().await {
+                Ok(_) => {
+                    snack.show(tf("lists.synced", &[("when", &t("time.now"))]));
                     lib.restart();
                 }
-                // Not signed in: explain what signing in does (prototype behaviour), nothing to fix here.
-                Err(e) if e.kind == ErrorKind::Auth => snack.show(t("account.body")),
+                // No AniList / MAL account connected: explain where to connect one, nothing to fix here.
+                Err(e) if e.kind == ErrorKind::Auth => snack.show(t("lists.not_connected")),
                 Err(e) => sync_error.set(Some(e)),
             }
             syncing.set(false);
@@ -104,7 +106,7 @@ pub fn LibraryPage() -> Element {
                 Pill { text: t("lib.local"), tone: Tone::Primary }
             }
             if let Some(e) = sync_error() {
-                ErrorState { error: e, compact: true, title: Some(t("account.sync_now")), on_retry: move |_| sync.call(()) }
+                ErrorState { error: e, compact: true, title: Some(t("lists.sync_now")), on_retry: move |_| sync.call(()) }
             }
             {body}
         }
@@ -116,7 +118,7 @@ fn SyncButton(syncing: bool, on_sync: EventHandler<()>) -> Element {
     let class = if syncing { "tk-lib__sync tk-lib__sync--busy" } else { "tk-lib__sync" }.to_string();
     rsx! {
         Button {
-            label: t("account.sync_now"),
+            label: t("lists.sync_now"),
             icon: "sync".to_string(),
             variant: ButtonVariant::Text,
             size: ButtonSize::Sm,

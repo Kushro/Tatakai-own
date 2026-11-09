@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use tk_core::LocalStore;
 use tk_ext::ExtensionHost;
 use tk_link::media::capabilities::Sustain;
 use tk_link::{Device, LinkConfig, LinkError, LinkHandle, LinkHost, Vendor};
@@ -17,13 +18,24 @@ use tk_ui::model::{ErrorKind, Pairing, UiError};
 
 /// What the Link server may ask of the app. M0: no library folder; FFmpeg only if `fetch-deps.ps1` ran.
 /// Extension permissions come from the installed extension, so `url` sources can only reach its declared domains.
+/// Wave A (worker f): the watch history for `GET` / `POST /v1/history` (`super::history_sync`).
 struct AppLinkHost {
     ext: Arc<ExtensionHost>,
+    store: Arc<LocalStore>,
 }
 
 impl LinkHost for AppLinkHost {
     fn extension_permissions(&self, id: &str) -> Option<Vec<String>> {
         self.ext.get(id).map(|e| e.permissions)
+    }
+    fn history_since(&self, since_unix: i64, limit: usize) -> Vec<tk_core::HistoryEntry> {
+        super::history_sync::since(&self.store, since_unix, limit)
+    }
+    fn history_merge(&self, rows: Vec<tk_core::HistoryEntry>) -> usize {
+        super::history_sync::merge(&self.store, rows)
+    }
+    fn history_clear(&self) -> bool {
+        super::history_sync::clear(&self.store)
     }
     fn library(&self) -> Vec<tk_link::LibraryItem> {
         Vec::new()
@@ -45,6 +57,7 @@ struct LinkState {
 pub struct LinkService {
     dir: PathBuf,
     ext: Arc<ExtensionHost>,
+    store: Arc<LocalStore>,
     anime4k_dir: PathBuf,
     anime4k_lock: Option<PathBuf>,
     state: tokio::sync::Mutex<LinkState>,
@@ -134,9 +147,9 @@ async fn stop_handle(mut h: Arc<LinkHandle>) {
 }
 
 impl LinkService {
-    pub fn new(dir: PathBuf, ext: Arc<ExtensionHost>, anime4k_dir: PathBuf, anime4k_lock: Option<PathBuf>) -> Self {
+    pub fn new(dir: PathBuf, ext: Arc<ExtensionHost>, store: Arc<LocalStore>, anime4k_dir: PathBuf, anime4k_lock: Option<PathBuf>) -> Self {
         let port = load_port(&dir);
-        Self { dir, ext, anime4k_dir, anime4k_lock, state: tokio::sync::Mutex::new(LinkState { handle: None, port }) }
+        Self { dir, ext, store, anime4k_dir, anime4k_lock, state: tokio::sync::Mutex::new(LinkState { handle: None, port }) }
     }
 
     /// Start on `st.port`.
@@ -145,7 +158,7 @@ impl LinkService {
         cfg.port = st.port;
         cfg.anime4k_dir = Some(self.anime4k_dir.clone());
         cfg.anime4k_lock = self.anime4k_lock.clone();
-        let host = Arc::new(AppLinkHost { ext: self.ext.clone() });
+        let host = Arc::new(AppLinkHost { ext: self.ext.clone(), store: self.store.clone() });
         match tk_link::start(cfg, host).await {
             Ok(h) => {
                 let h = Arc::new(h);

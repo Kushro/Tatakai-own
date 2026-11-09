@@ -58,6 +58,21 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="image/*" />
             </intent-filter>
+            <!-- parity wave A (docs/redesign/15 §3.9, worker q; checklist torrent.magnet-link-handler): open magnet: links and .torrent
+                 files from the system. MainActivity offers them to PendingMagnetLink (:core:torrent) and opens the Torrents client. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="magnet" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/x-bittorrent" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+            </intent-filter>
         </activity>
     </application>
 </manifest>

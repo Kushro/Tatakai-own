@@ -1,6 +1,7 @@
 //! Settings: sticky side index (scroll spy) + one section file per owner (wave A contract,
 //! docs/redesign/15-parity-wave-a-contract.md section 2): Appearance, Player (e), Subtitles (d), Metadata,
-//! Account (f), Accounts (g), Link, Data & storage (f), System (f) and About (f). Prototype: `screens.js::S.settings`.
+//! Accounts (g: AniList / MAL, the only account UI since plan 14 section 0.1 #9 removed the own login), Link,
+//! Data & storage (f), System (f) and About (f). Prototype: `screens.js::S.settings`.
 //!
 //! This file (page shell, `SECTIONS`, `SettingsPanel`, `SettingRow`, helpers) is frozen after the contract: a
 //! section's owner edits only its `<section>.rs`.
@@ -9,7 +10,6 @@
 //! `onscroll` fires; the active index entry is the last section whose top passed 25% of the viewport.
 
 pub mod about;
-pub mod account;
 pub mod accounts;
 pub mod appearance;
 pub mod data;
@@ -29,7 +29,6 @@ use crate::icons::Icon;
 use crate::model::{PlatformVm, SettingsAction, reduce_settings};
 
 use self::about::AboutSection;
-use self::account::AccountSection;
 use self::accounts::AccountsSection;
 use self::appearance::AppearanceSection;
 use self::data::DataSection;
@@ -41,13 +40,12 @@ use self::system::SystemSection;
 
 /// `(section id, icon)`: anchors `set-<id>`, titles `settings.<id>`. Order = index order; `SettingsPanel { index }`
 /// below must match.
-const SECTIONS: [(&str, &str); 10] = [
+const SECTIONS: [(&str, &str); 9] = [
     ("appearance", "palette"),
     ("player", "play"),
     ("subtitles", "cc"),
     ("metadata", "sync"),
-    ("account", "user"),
-    ("accounts", "bookmark"),
+    ("accounts", "user"),
     ("link", "link"),
     ("data", "storage"),
     ("system", "desktop"),
@@ -207,12 +205,11 @@ pub fn SettingsPage() -> Element {
                         SettingsPanel { index: 1, panels, PlayerSection { commit_saved } }
                         SettingsPanel { index: 2, panels, SubtitlesSection {} }
                         SettingsPanel { index: 3, panels, MetadataSection { commit_saved } }
-                        SettingsPanel { index: 4, panels, AccountSection {} }
-                        SettingsPanel { index: 5, panels, AccountsSection {} }
-                        SettingsPanel { index: 6, panels, LinkSection {} }
-                        SettingsPanel { index: 7, panels, DataSection {} }
-                        SettingsPanel { index: 8, panels, SystemSection {} }
-                        SettingsPanel { index: 9, panels, AboutSection {} }
+                        SettingsPanel { index: 4, panels, AccountsSection {} }
+                        SettingsPanel { index: 5, panels, LinkSection {} }
+                        SettingsPanel { index: 6, panels, DataSection {} }
+                        SettingsPanel { index: 7, panels, SystemSection {} }
+                        SettingsPanel { index: 8, panels, AboutSection {} }
                     }
                 }
             }

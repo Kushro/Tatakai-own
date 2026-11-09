@@ -56,15 +56,17 @@ data class AppSettings(
     val showAdult: Boolean = false,
     /** Worker o: which title to show in cards, rows and Details (checklist details.title-language). */
     val titleLanguage: TitleLanguage = TitleLanguage.ROMAJI,
+    // --- 2026-11-09 amendment (plan 14 §0.1 #9 / #11), persisted by SettingsCodec (contract) ---
+    /** Worker q: sync the watch history (exact resume position) with the paired PC over Tatakai Link. Local-only when off. */
+    val historySyncOverLink: Boolean = true,
+    /** Worker q: the first-run wizard was completed (or skipped). The shell shows `OnboardingScreen` while false. */
+    val onboardingDone: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_PALETTE_ID = "tatakai-violet"
         val DEFAULT_PROVIDER_PRIORITY: List<String> = listOf("anilist", "anizip", "kitsu")
     }
 }
-
-/** Only non-secret session info is exposed; tokens stay inside :core:supabase. */
-data class UserSession(val userId: String, val email: String?)
 
 // --- android wave (12 §3.3) ---
 
@@ -76,17 +78,19 @@ enum class AppLanguage(val tag: String?) { SYSTEM(null), EN("en"), ES("es") }
 /** parity wave A (15 §3.5, worker o): preferred title (`Media.titles` keys `romaji` / `english` / `native`, falling back to `Media.title`). */
 enum class TitleLanguage(val key: String) { ROMAJI("romaji"), ENGLISH("english"), NATIVE("native") }
 
-/** Sections of the single Settings screen (prototype order) + the Torrents subpage. Deep links: `Route.SettingsSection(section)`. */
+/**
+ * Sections of the single Settings screen (prototype order) + the Torrents subpage. Deep links: `Route.SettingsSection(section)`.
+ * 2026-11-09 amendment: the Supabase `ACCOUNT` section is gone; [ACCOUNTS] (AniList / MAL) takes its place in the order.
+ */
 enum class SettingsSection(val id: String) {
     APPEARANCE("appearance"),
     PLAYER("player"),
     METADATA("metadata"),
-    ACCOUNT("account"),
+
+    /** Parity wave A (worker q): AniList / MAL accounts (the app's only identity), lists sync, import / export. */
+    ACCOUNTS("accounts"),
     LINK("link"),
     TORRENTS("torrents"),
     DATA("data"),
     ABOUT("about"),
-
-    /** Parity wave A (worker q): AniList / MAL accounts, lists sync, import / export. Rendered after ACCOUNT. */
-    ACCOUNTS("accounts"),
 }
