@@ -100,7 +100,7 @@ class StremioWireTest {
     }
 
     @Test
-    fun installThenResolveStreamsByKitsuId() = runBlocking {
+    fun installThenResolveStreamsByKitsuId(): Unit = runBlocking {
         val server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
