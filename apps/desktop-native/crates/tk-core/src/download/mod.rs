@@ -6,6 +6,7 @@
 //! * [`hls`]: playlist walk with `m3u8-rs` (variant by quality, segment plan, AES-128 keys).
 //! * [`files`]: on-disk layout, safe names, integrity check (`Damage`), concatenation.
 //! * [`library`]: local-library scan (video files under the library folders) and release-name guesses.
+//! * [`watch`]: `notify` watcher of the library folders (new files are imported without a manual scan).
 //! * `engine.rs`: [`Engine`], the queue: `Engine::new(client, store, dir, concurrent)`, `start()`, `enqueue(Job)` /
 //!   `enqueue_with(Job, Meta)`, `pause(id)`, `resume(id)`, `cancel(id, delete_file)`, `remove(id, delete_file)`,
 //!   `verify(id)`, `verify_completed()`, `progress() -> Vec<Progress>`, `set_limits(speed_kib, concurrent)`,
@@ -28,6 +29,7 @@ mod engine;
 pub mod files;
 pub mod hls;
 pub mod library;
+pub mod watch;
 
 pub use engine::{Engine, Meta, Progress, content_range_total, eta, novel_json};
 

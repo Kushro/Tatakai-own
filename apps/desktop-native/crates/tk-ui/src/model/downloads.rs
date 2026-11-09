@@ -308,6 +308,199 @@ pub struct AutoDownloadRunVm {
     pub skipped: Vec<String>,
 }
 
+impl DownloadKindVm {
+    /// Inverse of [`DownloadKindVm::id`] (the `downloads.kind` column); unknown = `Mp4`.
+    pub fn from_id(id: &str) -> Self {
+        Self::ALL.into_iter().find(|k| k.id() == id).unwrap_or(Self::Mp4)
+    }
+
+    /// Anime episode rows (web or torrent), as opposed to reading chapters.
+    pub fn is_episode(self) -> bool {
+        matches!(self, Self::Hls | Self::Mp4 | Self::Torrent)
+    }
+}
+
+impl DownloadStateVm {
+    /// Inverse of [`DownloadStateVm::id`] (the `downloads.state` column); unknown = `Failed`.
+    pub fn from_id(id: &str) -> Self {
+        Self::ALL.into_iter().find(|s| s.id() == id).unwrap_or(Self::Failed)
+    }
+
+    /// Row actions offered for a state (Downloads page): `(pause, resume, retry, cancel)`.
+    pub fn actions(self) -> RowActions {
+        RowActions {
+            pause: matches!(self, Self::Queued | Self::Downloading),
+            resume: self == Self::Paused,
+            retry: matches!(self, Self::Failed | Self::Cancelled | Self::Broken),
+            cancel: self.is_active(),
+            verify: matches!(self, Self::Completed | Self::Broken),
+            play: self == Self::Completed,
+        }
+    }
+}
+
+/// Buttons a row shows (see [`DownloadStateVm::actions`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RowActions {
+    pub pause: bool,
+    pub resume: bool,
+    pub retry: bool,
+    pub cancel: bool,
+    pub verify: bool,
+    pub play: bool,
+}
+
+/// `StreamVm::provider` of a file played from disk (`Backend::local_playback`): the player marks it
+/// `data-stream-kind="local"`.
+pub const LOCAL_PROVIDER: &str = "local";
+
+/// `Backend::download_open_folder(OPEN_ROOT_FOLDER)` opens the download folder itself.
+pub const OPEN_ROOT_FOLDER: i64 = 0;
+
+/// Tabs of the Downloads page (`role="tab"`, `data-tab` = `id()`, label `downloads.tab.<id>`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum DownloadsTabVm {
+    #[default]
+    Active,
+    History,
+    Anime,
+    Manga,
+    Novels,
+    Local,
+}
+
+impl DownloadsTabVm {
+    pub const ALL: [DownloadsTabVm; 6] = [Self::Active, Self::History, Self::Anime, Self::Manga, Self::Novels, Self::Local];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::History => "history",
+            Self::Anime => "anime",
+            Self::Manga => "manga",
+            Self::Novels => "novels",
+            Self::Local => "local",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Self {
+        Self::ALL.into_iter().find(|t| t.id() == id).unwrap_or_default()
+    }
+
+    /// Whether a queue row belongs to the tab (the Local tab lists `LocalItemVm`s instead).
+    pub fn shows(self, d: &DownloadVm) -> bool {
+        match self {
+            Self::Active => d.state.is_active(),
+            Self::History => !d.state.is_active(),
+            Self::Anime => d.kind.is_episode(),
+            Self::Manga => d.kind == DownloadKindVm::MangaChapter,
+            Self::Novels => d.kind == DownloadKindVm::NovelChapter,
+            Self::Local => false,
+        }
+    }
+}
+
+/// Rows of a tab that match the search box (title, chapter label or `E<n>`; case-insensitive).
+pub fn filter_rows<'a>(rows: &'a [DownloadVm], tab: DownloadsTabVm, query: &str) -> Vec<&'a DownloadVm> {
+    let q = query.trim().to_lowercase();
+    rows.iter()
+        .filter(|d| tab.shows(d))
+        .filter(|d| {
+            q.is_empty()
+                || d.title.to_lowercase().contains(&q)
+                || d.chapter.as_deref().is_some_and(|c| c.to_lowercase().contains(&q))
+                || d.episode.is_some_and(|e| format!("e{e}") == q || e.to_string() == q)
+        })
+        .collect()
+}
+
+/// Episodes of a title that are on disk or on their way (the "Download season" sheet's "N already downloaded").
+pub fn have_episodes(rows: &[DownloadVm], media_id: &str) -> Vec<u32> {
+    let mut v: Vec<u32> =
+        rows.iter().filter(|d| d.media_id == media_id && counts_as_have(d.state)).filter_map(|d| d.episode).collect();
+    v.sort_unstable();
+    v.dedup();
+    v
+}
+
+/// Parse a "1-3, 5, 8-9" episode range typed in the season sheet (bounded by `max` when known); ascending, unique.
+pub fn parse_episode_ranges(text: &str, max: Option<u32>) -> Vec<u32> {
+    let cap = max.unwrap_or(5000).min(5000);
+    let mut out = Vec::new();
+    for part in text.split([',', ';', ' ']).map(str::trim).filter(|p| !p.is_empty()) {
+        let (a, b) = match part.split_once('-') {
+            Some((a, b)) => (a.trim().parse::<u32>().ok(), b.trim().parse::<u32>().ok()),
+            None => {
+                let n = part.parse::<u32>().ok();
+                (n, n)
+            }
+        };
+        if let (Some(a), Some(b)) = (a, b) {
+            let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
+            for e in lo.max(1)..=hi.min(cap) {
+                out.push(e);
+            }
+        }
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// `1.38 GB` style (SI units, three significant digits).
+pub fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1000.0 && unit < UNITS.len() - 1 {
+        value /= 1000.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} B")
+    } else if value >= 100.0 {
+        format!("{value:.0} {}", UNITS[unit])
+    } else if value >= 10.0 {
+        format!("{value:.1} {}", UNITS[unit])
+    } else {
+        format!("{value:.2} {}", UNITS[unit])
+    }
+}
+
+/// `1h 02m`, `3m 05s`, `45s`.
+pub fn format_eta(secs: u64) -> String {
+    let (h, m, s) = (secs / 3600, (secs / 60) % 60, secs % 60);
+    if h > 0 {
+        format!("{h}h {m:02}m")
+    } else if m > 0 {
+        format!("{m}m {s:02}s")
+    } else {
+        format!("{s}s")
+    }
+}
+
+/// `42%` (one decimal between 99 and 100 so "almost done" never reads as done).
+pub fn format_percent(fraction: f64) -> String {
+    let pct = fraction.clamp(0.0, 1.0) * 100.0;
+    if (99.0..100.0).contains(&pct) { format!("{:.1}%", (pct * 10.0).floor() / 10.0) } else { format!("{pct:.0}%") }
+}
+
+/// `YYYY-MM-DD HH:MM` (UTC) of a Unix time; empty for 0.
+pub fn format_when(unix: i64) -> String {
+    if unix <= 0 {
+        return String::new();
+    }
+    let s = super::format_unix_utc(unix);
+    let date = s.get(..10).unwrap_or_default();
+    let time = s.get(11..16).unwrap_or_default();
+    if time.is_empty() { date.to_owned() } else { format!("{date} {time}") }
+}
+
+/// Usage of the storage cap, 0.0..=1.0 (`None` without a cap).
+pub fn storage_fraction(s: &DownloadStorageVm) -> Option<f64> {
+    s.limit_bytes.filter(|l| *l > 0).map(|l| (s.used_bytes as f64 / l as f64).clamp(0.0, 1.0))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,6 +540,96 @@ mod tests {
         assert!(!storage_limit_reached(u64::MAX, None));
         assert!(counts_as_have(DownloadStateVm::Paused));
         assert!(!counts_as_have(DownloadStateVm::Broken));
+    }
+
+
+    fn row(id: i64, media: &str, ep: Option<u32>, kind: DownloadKindVm, state: DownloadStateVm) -> DownloadVm {
+        DownloadVm {
+            id,
+            media_id: media.into(),
+            title: format!("Show {media}"),
+            poster: None,
+            episode: ep,
+            chapter: None,
+            kind,
+            state,
+            progress: 0.0,
+            bytes_done: 0,
+            bytes_total: None,
+            speed_bps: 0,
+            eta_secs: None,
+            error: None,
+            path: None,
+            added_unix: 0,
+            completed_unix: None,
+        }
+    }
+
+    #[test]
+    fn ids_round_trip() {
+        for k in DownloadKindVm::ALL {
+            assert_eq!(DownloadKindVm::from_id(k.id()), k);
+        }
+        for s in DownloadStateVm::ALL {
+            assert_eq!(DownloadStateVm::from_id(s.id()), s);
+        }
+        for t in DownloadsTabVm::ALL {
+            assert_eq!(DownloadsTabVm::from_id(t.id()), t);
+        }
+        assert_eq!(DownloadStateVm::from_id("weird"), DownloadStateVm::Failed);
+    }
+
+    #[test]
+    fn tabs_and_search() {
+        let rows = vec![
+            row(1, "1", Some(1), DownloadKindVm::Hls, DownloadStateVm::Downloading),
+            row(2, "1", Some(2), DownloadKindVm::Mp4, DownloadStateVm::Completed),
+            DownloadVm { chapter: Some("Ch. 12".into()), ..row(3, "2", None, DownloadKindVm::MangaChapter, DownloadStateVm::Queued) },
+            row(4, "3", None, DownloadKindVm::NovelChapter, DownloadStateVm::Failed),
+            row(5, "4", Some(3), DownloadKindVm::Torrent, DownloadStateVm::Paused),
+        ];
+        let ids = |v: Vec<&DownloadVm>| v.iter().map(|d| d.id).collect::<Vec<_>>();
+        assert_eq!(ids(filter_rows(&rows, DownloadsTabVm::Active, "")), vec![1, 3, 5]);
+        assert_eq!(ids(filter_rows(&rows, DownloadsTabVm::History, "")), vec![2, 4]);
+        assert_eq!(ids(filter_rows(&rows, DownloadsTabVm::Anime, "")), vec![1, 2, 5]);
+        assert_eq!(ids(filter_rows(&rows, DownloadsTabVm::Manga, "")), vec![3]);
+        assert_eq!(ids(filter_rows(&rows, DownloadsTabVm::Novels, "")), vec![4]);
+        assert_eq!(ids(filter_rows(&rows, DownloadsTabVm::Anime, "e2")), vec![2]);
+        assert_eq!(ids(filter_rows(&rows, DownloadsTabVm::Active, "ch. 12")), vec![3]);
+        assert!(filter_rows(&rows, DownloadsTabVm::Local, "").is_empty());
+        assert_eq!(have_episodes(&rows, "1"), vec![1, 2]);
+    }
+
+    #[test]
+    fn actions_by_state() {
+        assert!(DownloadStateVm::Downloading.actions().pause);
+        assert!(DownloadStateVm::Paused.actions().resume);
+        assert!(DownloadStateVm::Broken.actions().retry && DownloadStateVm::Broken.actions().verify);
+        assert!(!DownloadStateVm::Completed.actions().cancel);
+        assert!(DownloadStateVm::Completed.actions().play);
+    }
+
+    #[test]
+    fn ranges() {
+        assert_eq!(parse_episode_ranges("1-3, 5", None), vec![1, 2, 3, 5]);
+        assert_eq!(parse_episode_ranges("4-2 9", Some(8)), vec![2, 3, 4]);
+        assert_eq!(parse_episode_ranges("x, 0-1", None), vec![1]);
+        assert!(parse_episode_ranges("", None).is_empty());
+    }
+
+    #[test]
+    fn formatting() {
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(1_380_000_000), "1.38 GB");
+        assert_eq!(format_eta(3725), "1h 02m");
+        assert_eq!(format_eta(45), "45s");
+        assert_eq!(format_percent(0.42), "42%");
+        assert_eq!(format_percent(0.995), "99.5%");
+        assert_eq!(format_when(0), "");
+        assert_eq!(format_when(86_400 + 3_660), "1970-01-02 01:01");
+        let s = DownloadStorageVm { used_bytes: 5, limit_bytes: Some(10), ..DownloadStorageVm::default() };
+        assert_eq!(storage_fraction(&s), Some(0.5));
+        assert_eq!(storage_fraction(&DownloadStorageVm::default()), None);
     }
 
     #[test]
