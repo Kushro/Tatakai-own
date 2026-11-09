@@ -21,10 +21,17 @@ function resolveAppRoot(app) {
  * the copy under app.asar.unpacked is used.
  */
 function candidateRoots(app) {
-  const appRoot = resolveAppRoot(app);
-  const roots = [appRoot];
-  const unpacked = appRoot.replace(/app\.asar(?=$|[\\/])/, 'app.asar.unpacked');
-  if (unpacked !== appRoot) roots.push(unpacked);
+  const roots = [];
+  const add = (root) => {
+    if (!root || roots.includes(root)) return;
+    roots.push(root);
+    const unpacked = root.replace(/app\.asar(?=$|[\\/])/, 'app.asar.unpacked');
+    if (unpacked !== root && !roots.includes(unpacked)) roots.push(unpacked);
+  };
+  add(resolveAppRoot(app));
+  // Unpackaged runs (`electron desktop/main.cjs`, used by electron:dev) report
+  // desktop/ as the app path, so also try the repository root next to this module.
+  add(pathApi.resolve(__dirname, '../../..'));
   return roots;
 }
 
