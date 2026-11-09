@@ -1,2 +1,152 @@
 /* social.css - wave B, worker n (AniList profile / notifications / activity pages, Reviews block in Details, Settings > Social). Registered in app.rs APP_CSS by the contract; tokens only (no color literals);
    animations through --md-sys-motion-* / --tk-mo-* and [data-reduce-motion="true"]. Prefix: .tk-social. */
+
+/* ----- shared ----- */
+.tk-social { gap: var(--tk-space-24); }
+.tk-social__nav { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); margin-top: var(--tk-space-8); }
+.tk-social__avatar {
+  display: inline-flex; flex: none; align-items: center; justify-content: center; overflow: hidden;
+  border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container); font-size: var(--md-sys-typescale-label-large-size); font-weight: 600;
+}
+.tk-social__avatar img { width: 100%; height: 100%; object-fit: cover; }
+.tk-social__disconnected[data-compact="true"] {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--tk-space-12);
+  padding: var(--tk-space-16); border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container);
+}
+.tk-social__disconnected[data-compact="true"] p { margin: 0; }
+.tk-social__more { display: flex; justify-content: center; padding: var(--tk-space-8) 0; }
+
+/* ----- activity ----- */
+.tk-social-feed { display: flex; flex-direction: column; gap: var(--tk-space-16); min-width: 0; }
+.tk-social-feed__list, .tk-social-replies__list, .tk-social-follows__list, .tk-social-reviews__list, .tk-social-notifs__day ul {
+  display: flex; flex-direction: column; gap: var(--tk-space-12); margin: 0; padding: 0; list-style: none;
+}
+.tk-social-compose { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-social-compose__input {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 64px; padding: var(--tk-space-12);
+  border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);
+  font: inherit; font-size: var(--md-sys-typescale-body-medium-size);
+  transition: border-color var(--tk-mo-fx-fast);
+}
+.tk-social-compose__input:focus { outline: none; border-color: var(--md-sys-color-primary); }
+.tk-social-compose__bar { display: flex; align-items: center; justify-content: space-between; gap: var(--tk-space-8); }
+.tk-social-compose--reply .tk-social-compose__bar { justify-content: flex-end; }
+
+.tk-social-card, .tk-social-review {
+  display: flex; flex-direction: column; gap: var(--tk-space-8); padding: var(--tk-space-16);
+  border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-low);
+}
+.tk-social-card__head { display: flex; align-items: center; gap: var(--tk-space-12); min-width: 0; }
+.tk-social-card__user {
+  display: inline-flex; align-items: center; gap: var(--tk-space-8); min-width: 0; padding: 0;
+  border: 0; background: none; color: var(--md-sys-color-on-surface); font: inherit; cursor: pointer;
+}
+.tk-social-card__user:hover b { text-decoration: underline; }
+.tk-social-card__time { margin-inline-start: auto; font-size: var(--md-sys-typescale-body-small-size); white-space: nowrap; }
+.tk-social-card__text p, .tk-social-reply__text p, .tk-social-review__body p, .tk-social-profile__about p {
+  margin: 0 0 var(--tk-space-8); white-space: pre-line; overflow-wrap: anywhere;
+}
+.tk-social-card__list { display: flex; align-items: center; gap: var(--tk-space-12); }
+.tk-social-card__cover { flex: none; width: 48px; padding: 0; border: 0; background: none; cursor: pointer; }
+.tk-social-card__line { margin: 0; }
+.tk-social-card__title {
+  padding: 0; border: 0; background: none; color: var(--md-sys-color-primary); font: inherit; font-weight: 600; cursor: pointer;
+}
+.tk-social-card__title:hover { text-decoration: underline; }
+.tk-social-card__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-4); }
+.tk-social-card__count { min-width: 2ch; font-size: var(--md-sys-typescale-label-medium-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-social-card__spacer { flex: 1; }
+.tk-social-card[data-liked="true"] .tk-social-card__count { color: var(--md-sys-color-primary); }
+
+.tk-social-replies {
+  display: flex; flex-direction: column; gap: var(--tk-space-12); padding-inline-start: var(--tk-space-16);
+  border-inline-start: 2px solid var(--md-sys-color-outline-variant);
+}
+.tk-social-reply { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); }
+.tk-social-reply__text { flex-basis: 100%; }
+
+/* ----- profile ----- */
+.tk-social-profile__card {
+  display: flex; flex-direction: column; gap: var(--tk-space-16); overflow: hidden; padding-bottom: var(--tk-space-24);
+  border-radius: var(--md-sys-shape-corner-extra-large); background: var(--md-sys-color-surface-container-low);
+}
+.tk-social-profile__banner { display: block; width: 100%; height: 180px; object-fit: cover; }
+.tk-social-profile__banner--empty { background: var(--md-sys-color-secondary-container); }
+.tk-social-profile__head {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--tk-space-16); margin-top: -48px; padding: 0 var(--tk-space-24);
+}
+.tk-social-profile__head .tk-social__avatar { border: 4px solid var(--md-sys-color-surface-container-low); }
+.tk-social-profile__who { display: flex; flex: 1; flex-direction: column; gap: var(--tk-space-4); min-width: 200px; }
+.tk-social-profile__name { margin: 0; font-size: var(--md-sys-typescale-headline-small-size); }
+.tk-social-profile__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); }
+.tk-social-profile__counts { display: flex; gap: var(--tk-space-16); }
+.tk-social-profile__count {
+  display: inline-flex; align-items: baseline; gap: var(--tk-space-4); padding: var(--tk-space-4) var(--tk-space-8);
+  border: 0; border-radius: var(--md-sys-shape-corner-small); background: none; color: var(--md-sys-color-on-surface);
+  font: inherit; cursor: pointer; transition: background-color var(--tk-mo-fx-fast);
+}
+.tk-social-profile__count:hover { background: var(--md-sys-color-surface-container-high); }
+.tk-social-profile__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); }
+.tk-social-profile__about { padding: 0 var(--tk-space-24); max-width: 72ch; }
+.tk-social-profile__stats {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--tk-space-12); margin: 0; padding: 0 var(--tk-space-24);
+}
+.tk-social-profile__stat {
+  display: flex; flex-direction: column-reverse; gap: var(--tk-space-2); padding: var(--tk-space-12);
+  border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container);
+}
+.tk-social-profile__stat dt { font-size: var(--md-sys-typescale-label-medium-size); }
+.tk-social-profile__stat dd { margin: 0; font-size: var(--md-sys-typescale-title-large-size); font-weight: 600; }
+.tk-social-profile__tabs { display: flex; }
+.tk-social-profile__tab { min-width: 0; }
+.tk-social-lists { display: flex; flex-direction: column; gap: var(--tk-space-16); }
+.tk-social-follows { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-social-follows__row {
+  display: flex; align-items: center; gap: var(--tk-space-12); width: 100%; padding: var(--tk-space-8);
+  border: 0; border-radius: var(--md-sys-shape-corner-medium); background: none; color: var(--md-sys-color-on-surface);
+  font: inherit; text-align: start; cursor: pointer; transition: background-color var(--tk-mo-fx-fast);
+}
+.tk-social-follows__row:hover { background: var(--md-sys-color-surface-container-high); }
+
+/* ----- notifications ----- */
+.tk-social-notifs__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-16); }
+.tk-social-notifs__groups { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); }
+.tk-social-notifs__list { display: flex; flex-direction: column; gap: var(--tk-space-24); }
+.tk-social-notifs__day { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-social-notifs__day-title {
+  margin: 0; font-size: var(--md-sys-typescale-title-small-size); color: var(--md-sys-color-on-surface-variant);
+}
+.tk-social-notifs__day ul { gap: var(--tk-space-4); }
+.tk-social-notif__btn {
+  display: flex; align-items: center; gap: var(--tk-space-12); width: 100%; padding: var(--tk-space-12);
+  border: 0; border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface); font: inherit; text-align: start; cursor: pointer;
+  transition: background-color var(--tk-mo-fx-fast);
+}
+.tk-social-notif__btn:hover:not(:disabled) { background: var(--md-sys-color-surface-container-high); }
+.tk-social-notif__btn:disabled { cursor: default; }
+.tk-social-notif[data-unread="true"] .tk-social-notif__btn { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.tk-social-notif__cover { flex: none; width: 40px; }
+.tk-social-notif__text { display: flex; flex: 1; flex-direction: column; gap: var(--tk-space-2); min-width: 0; }
+.tk-social-notif__time { font-size: var(--md-sys-typescale-body-small-size); }
+.tk-social-notif__dot { flex: none; width: 8px; height: 8px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-primary); }
+
+/* ----- details: reviews + own activity ----- */
+.tk-social-reviews { gap: var(--tk-space-24); }
+.tk-social-reviews__block, .tk-social-reviews__activity { display: flex; flex-direction: column; gap: var(--tk-space-16); }
+.tk-social-reviews__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-12); }
+.tk-social-reviews__head .tk-panel__title { margin: 0; }
+.tk-social-reviews__score {
+  display: inline-flex; align-items: baseline; gap: var(--tk-space-4); padding: var(--tk-space-4) var(--tk-space-12);
+  border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+}
+.tk-social-reviews__score .tk-muted { color: inherit; font-size: var(--md-sys-typescale-label-small-size); }
+.tk-social-review__score {
+  padding: var(--tk-space-2) var(--tk-space-8); border-radius: var(--md-sys-shape-corner-small);
+  background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container);
+  font-size: var(--md-sys-typescale-label-medium-size);
+}
+.tk-social-review__summary { margin: 0; font-weight: 500; }
+.tk-social-review__body { max-width: 80ch; }

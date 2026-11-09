@@ -15,7 +15,7 @@ use crate::components::{
 };
 use crate::i18n::{t, tf, tn};
 use crate::model::UiError;
-use crate::model::social::{ActivityKindVm as _Kind, wake_unread_poll};
+use crate::model::social::wake_unread_poll;
 use crate::platform::now_unix;
 use crate::screens::social::{Avatar, Disconnected, SocialTabs, is_auth, media_route, paragraphs, rel_time};
 
@@ -142,15 +142,15 @@ pub fn ActivityList(
         }
     });
 
-    let load_more = {
+    let load_more = use_callback({
         let backend = services.backend.clone();
         let feed = feed.clone();
-        move |_| {
-            if more_busy() {
+        move |()| {
+            if *more_busy.peek() {
                 return;
             }
             let (backend, feed) = (backend.clone(), feed.clone());
-            let next = page() + 1;
+            let next = *page.peek() + 1;
             more_busy.set(true);
             spawn(async move {
                 match backend.anilist_activity(&feed, next).await {
@@ -165,7 +165,7 @@ pub fn ActivityList(
                 more_busy.set(false);
             });
         }
-    };
+    });
 
     let current = state.read().clone();
     let list = items.read().clone();
@@ -219,14 +219,14 @@ pub fn ActivityList(
                         }
                     }
                     if let Load::Failed(e) = other.clone() {
-                        ErrorState { error: e, compact: true, on_retry: load_more.clone() }
+                        ErrorState { error: e, compact: true, on_retry: move |_| load_more.call(()) }
                     } else if matches!(other, Load::Ready { has_next: true }) {
                         div { class: "tk-social__more",
                             Button {
                                 label: if more_busy() { t("social.loading") } else { t("social.load_more") },
                                 variant: ButtonVariant::Tonal,
                                 disabled: more_busy(),
-                                onclick: load_more.clone(),
+                                onclick: move |_| load_more.call(()),
                             }
                         }
                     }
@@ -378,7 +378,6 @@ pub fn ActivityCard(activity: ActivityVm, me: Option<u64>, on_deleted: EventHand
     let like_label = if liked() { t("social.activity.unlike") } else { t("social.activity.like") };
     let replies_label = tn("social.activity.replies", reply_count() as usize);
     let kind = a.kind.id();
-    let _ = _Kind::ALL;
 
     rsx! {
         li { class: "tk-social-card", "data-activity-id": "{id}", "data-activity-kind": "{kind}", "data-liked": "{liked()}",
