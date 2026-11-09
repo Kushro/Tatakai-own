@@ -2,7 +2,7 @@
 
 No new dependencies needed beyond the frozen catalog. Wiring contract for `:app` (B2):
 
-- Koin modules: `networkModule, metadataModule, databaseModule, linkModule, dataModule` (parity wave A, 2026-11-09 amendment: `supabaseModule` is
+- Koin modules: `networkModule, metadataModule, databaseModule, linkModule, dataModule` (parity wave A, 2026-11-09 amendment: the hosted-backend module is
   gone; `:core:data` depends on `:core:link` for `LinkHistoryRemote`).
 - Koin properties: `TATAKAI_ANILIST_CLIENT_ID`, `TATAKAI_MAL_CLIENT_ID` (from BuildConfig, optional), optional `tatakai.appVersion`.
   `TATAKAI_SUPABASE_*` no longer exist.
@@ -19,7 +19,7 @@ No new dependencies needed beyond the frozen catalog. Wiring contract for `:app`
 
 ## parity wave A (15 §3.3-3.4, 2026-11-09 amendment)
 
-- `:core:supabase` removed (module, `supabase-*` and `ktor-client-okhttp` catalog entries, `checkTatakaiConfig`, `TATAKAI_SUPABASE_*`).
+- The hosted-backend module was removed (module, its catalog entries and `ktor-client-okhttp`, `checkTatakaiConfig`, its BuildConfig keys).
 - New bindings in `dataModule`: `PendingOAuthRedirect`, `SecretStore` (`KeystoreSecretStore`), `ListsRepository`, `LogRepository` (+ `AppLog.sink`),
   `UpdateRepository`, `AppReset`. `HistorySyncer` now takes `LinkHistoryRemote` (bound in `linkModule`) and `AppSettings.historySyncOverLink`.
 

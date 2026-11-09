@@ -83,7 +83,7 @@ fun YouScreen(
     onOpenLinked: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    // --- parity wave A (docs/redesign/15 §3.3, worker q): wired by :app. 2026-11-09 amendment: the Supabase sign-in callback is
+    // --- parity wave A (docs/redesign/15 §3.3, worker q): wired by :app. 2026-11-09 amendment: the old sign-in callback is
     // gone; the account card's button and the "Listas y cuentas" row both lead here. ---
     /** AniList / MAL accounts -> Route.SettingsSection(ACCOUNTS). */
     onOpenAccounts: () -> Unit = {},

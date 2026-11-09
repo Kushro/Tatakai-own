@@ -20,7 +20,7 @@ import org.koin.core.component.inject
 import java.util.concurrent.TimeUnit
 
 // parity wave A, 2026-11-09 amendment (plan 14 §0.1 #9): the server side of the history sync is the paired PC over Tatakai Link
-// (`LinkHistoryRemote`, :core:link), not Supabase. Same local-first model: Room is the source of truth, dirty rows are pushed in
+// (`LinkHistoryRemote`, :core:link), with no hosted backend. Same local-first model: Room is the source of truth, dirty rows are pushed in
 // coalesced WorkManager passes, recent PC rows are merged back. Owner: worker q.
 
 /** Asks for a (coalesced) push of dirty history rows. */

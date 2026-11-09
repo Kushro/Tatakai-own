@@ -24,7 +24,7 @@ import java.io.File
 
 /**
  * Wires the repositories. Needs networkModule, metadataModule, databaseModule and linkModule loaded too (the history syncs with the
- * paired PC through `LinkHistoryRemote` of :core:link). 2026-11-09 amendment: no Supabase, no own login; the Koin properties
+ * paired PC through `LinkHistoryRemote` of :core:link). 2026-11-09 amendment: no hosted backend, no own login; the Koin properties
  * PROP_ANILIST_CLIENT_ID / PROP_MAL_CLIENT_ID (OAuth client ids) are the only configuration.
  */
 val dataModule: Module = module {

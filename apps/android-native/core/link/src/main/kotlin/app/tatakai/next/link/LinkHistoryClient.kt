@@ -5,7 +5,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 // Parity wave A contract, 2026-11-09 amendment (plan 14 §0.1 #9): the watch history (exact resume position) syncs between the user's
-// own devices over Tatakai Link instead of Supabase. The PC (tk-link, desktop worker f; desktop contract §3.8) serves `/v1/history`
+// own devices over Tatakai Link, with no hosted backend. The PC (tk-link, desktop worker f; desktop contract §3.8) serves `/v1/history`
 // behind the same mTLS + per-request device check as every other route; this phone pulls from a cursor and pushes its dirty rows.
 // Wire shape = the camelCase JSON of `tk_core::model::HistoryEntry` (the E9 keys the Room entity already uses).
 // Owner of this file afterwards: Android worker q (the only part of :core:link q edits, together with the `LinkHistoryRemote` binding

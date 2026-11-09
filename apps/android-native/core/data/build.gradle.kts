@@ -1,5 +1,5 @@
 // Dependencies below pre-wire what the module is expected to need; the version catalog itself is frozen (NOTES-deps.md for additions).
-// parity wave A (2026-11-09 amendment): :core:supabase is gone; the history syncs over Tatakai Link (:core:link, LinkHistoryRemote).
+// parity wave A (2026-11-09 amendment): the hosted backend module is gone; the history syncs over Tatakai Link (:core:link, LinkHistoryRemote).
 plugins { id("tatakai.android.library") }
 
 dependencies {
