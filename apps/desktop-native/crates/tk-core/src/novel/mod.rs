@@ -24,7 +24,10 @@ pub const ORIGINS: [&str; 4] = ["JP", "KR", "CN", "TW"];
 
 /// Words of a chapter (whitespace-separated tokens; pure).
 pub fn word_count(paragraphs: &[String]) -> u32 {
-    paragraphs.iter().map(|p| p.split_whitespace().count() as u32).sum()
+    paragraphs
+        .iter()
+        .map(|p| p.split_whitespace().count() as u32)
+        .sum()
 }
 
 /// The country code of an `origin:XX` tag, upper-cased, when it is one of [`ORIGINS`].
@@ -36,11 +39,34 @@ pub fn origin_of(tags: &[String]) -> Option<String> {
 }
 
 /// Elements whose text is never part of a chapter.
-const SKIP: [&str; 12] = ["script", "style", "noscript", "iframe", "template", "svg", "button", "form", "nav", "ins", "select", "head"];
+const SKIP: [&str; 12] = [
+    "script", "style", "noscript", "iframe", "template", "svg", "button", "form", "nav", "ins", "select",
+    "head",
+];
 /// Elements that start / end a paragraph.
 const BLOCK: [&str; 22] = [
-    "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "section", "article", "tr", "hr", "pre", "ul", "ol",
-    "table", "header", "footer", "main", "aside",
+    "p",
+    "div",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "blockquote",
+    "section",
+    "article",
+    "tr",
+    "hr",
+    "pre",
+    "ul",
+    "ol",
+    "table",
+    "header",
+    "footer",
+    "main",
+    "aside",
 ];
 
 /// HTML of a chapter -> plain-text paragraphs: `<p>` / block elements and `<br><br>` split, a single `<br>` is a
@@ -138,7 +164,9 @@ impl ChapterKey {
     }
 
     pub fn decode(s: &str) -> Option<Self> {
-        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(s.trim().as_bytes()).ok()?;
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(s.trim().as_bytes())
+            .ok()?;
         let k: Self = serde_json::from_slice(&bytes).ok()?;
         (!k.key.is_empty()).then_some(k)
     }
@@ -221,7 +249,9 @@ pub fn parse_chapter_rows(body: &Value, fallback_provider: &str) -> Vec<Provider
         .unwrap_or_default();
     let mut out = Vec::new();
     for row in &list {
-        let Some(number) = num_of(&row["number"]).filter(|n| *n > 0.0) else { continue };
+        let Some(number) = num_of(&row["number"]).filter(|n| *n > 0.0) else {
+            continue;
+        };
         let title = str_of(&row["title"]);
         let volume = volume_of(&row["volume"]);
         let mut push = |s: &Value| {
@@ -277,7 +307,10 @@ pub fn translators(rows: &[ProviderChapter]) -> Vec<String> {
 }
 
 /// Previous / next chapter of `current` among `rows` by number, preferring the same sub-provider and translator.
-pub fn neighbours<'a>(rows: &'a [ProviderChapter], current: &ChapterKey) -> (Option<&'a ProviderChapter>, Option<&'a ProviderChapter>) {
+pub fn neighbours<'a>(
+    rows: &'a [ProviderChapter],
+    current: &ChapterKey,
+) -> (Option<&'a ProviderChapter>, Option<&'a ProviderChapter>) {
     let same_translator = rows
         .iter()
         .find(|r| r.chapter_key == current.key && r.provider == current.provider)
@@ -286,7 +319,13 @@ pub fn neighbours<'a>(rows: &'a [ProviderChapter], current: &ChapterKey) -> (Opt
         u8::from(r.provider != current.provider) * 2 + u8::from(r.translator != same_translator)
     };
     let pick = |want_next: bool| -> Option<&'a ProviderChapter> {
-        let candidates = rows.iter().filter(|r| if want_next { r.number > current.number } else { r.number < current.number });
+        let candidates = rows.iter().filter(|r| {
+            if want_next {
+                r.number > current.number
+            } else {
+                r.number < current.number
+            }
+        });
         let target = if want_next {
             candidates.clone().map(|r| r.number).min_by(f32::total_cmp)
         } else {
@@ -299,8 +338,10 @@ pub fn neighbours<'a>(rows: &'a [ProviderChapter], current: &ChapterKey) -> (Opt
 
 /// Other sources of the same chapter number (the classic "trying another translator" fallback), best first.
 pub fn alternatives<'a>(rows: &'a [ProviderChapter], current: &ChapterKey) -> Vec<&'a ProviderChapter> {
-    let mut v: Vec<&ProviderChapter> =
-        rows.iter().filter(|r| r.number == current.number && r.chapter_key != current.key).collect();
+    let mut v: Vec<&ProviderChapter> = rows
+        .iter()
+        .filter(|r| r.number == current.number && r.chapter_key != current.key)
+        .collect();
     v.sort_by_key(|r| u8::from(r.provider != current.provider));
     v
 }
@@ -314,9 +355,16 @@ pub fn parse_content(body: &Value) -> (Option<String>, Vec<String>) {
         for (i, p) in list.iter().enumerate() {
             let (index, text) = match p {
                 Value::String(s) => (i as i64, s.clone()),
-                _ => (p["index"].as_i64().unwrap_or(i as i64), p["text"].as_str().unwrap_or_default().to_owned()),
+                _ => (
+                    p["index"].as_i64().unwrap_or(i as i64),
+                    p["text"].as_str().unwrap_or_default().to_owned(),
+                ),
             };
-            let cleaned = if text.contains('<') { paragraphs(&text).join(" ") } else { text.split_whitespace().collect::<Vec<_>>().join(" ") };
+            let cleaned = if text.contains('<') {
+                paragraphs(&text).join(" ")
+            } else {
+                text.split_whitespace().collect::<Vec<_>>().join(" ")
+            };
             if !cleaned.is_empty() {
                 out.push((index, cleaned));
             }
@@ -338,9 +386,15 @@ pub fn parse_diagnostics(body: &Value, rows: &[ProviderChapter]) -> Vec<(String,
     if let Some(list) = body["diagnostics"].as_array().filter(|l| !l.is_empty()) {
         let mut out: Vec<(String, u32)> = Vec::new();
         for d in list {
-            let Some(name) = str_of(&d["provider"]) else { continue };
+            let Some(name) = str_of(&d["provider"]) else {
+                continue;
+            };
             let n = rows.iter().filter(|r| r.provider == name).count() as u32;
-            let n = if n > 0 { n } else { d["resultCount"].as_u64().unwrap_or(0) as u32 };
+            let n = if n > 0 {
+                n
+            } else {
+                d["resultCount"].as_u64().unwrap_or(0) as u32
+            };
             match out.iter_mut().find(|(p, _)| *p == name) {
                 Some(slot) => slot.1 = slot.1.max(n),
                 None => out.push((name, n)),
@@ -348,12 +402,18 @@ pub fn parse_diagnostics(body: &Value, rows: &[ProviderChapter]) -> Vec<(String,
         }
         return out;
     }
-    group_by_provider(rows.to_vec()).into_iter().map(|(p, list)| (p, list.len() as u32)).collect()
+    group_by_provider(rows.to_vec())
+        .into_iter()
+        .map(|(p, list)| (p, list.len() as u32))
+        .collect()
 }
 
 /// Whether a manifest (`capabilities`, `apiServer.routes`) advertises the novel routes.
 pub fn is_novel_manifest(capabilities: &[String], routes: &[String]) -> bool {
-    capabilities.iter().any(|c| c == "novel") || routes.iter().any(|r| r == "novel/chapters" || r == "novel/content")
+    capabilities.iter().any(|c| c == "novel")
+        || routes
+            .iter()
+            .any(|r| r == "novel/chapters" || r == "novel/content")
 }
 
 #[cfg(test)]
@@ -370,7 +430,16 @@ mod tests {
     fn html_becomes_paragraphs() {
         let html = "<div><h2>Chapter 1</h2><p>Hello&nbsp;<b>world</b>.</p><script>ads()</script>\
                     <p>Second\n   line</p>First<br>still first<br><br>Third &amp; last</div>";
-        assert_eq!(paragraphs(html), vec!["Chapter 1", "Hello world.", "Second line", "First still first", "Third & last"]);
+        assert_eq!(
+            paragraphs(html),
+            vec![
+                "Chapter 1",
+                "Hello world.",
+                "Second line",
+                "First still first",
+                "Third & last"
+            ]
+        );
     }
 
     #[test]
@@ -381,9 +450,18 @@ mod tests {
 
     #[test]
     fn chapter_key_round_trips_and_is_route_safe() {
-        let k = ChapterKey { media_id: "108592".into(), provider: "novelfire".into(), key: "novelfire:abc/ch-1?x=1".into(), provider_chapter_id: "abc/ch-1".into(), number: 1.5 };
+        let k = ChapterKey {
+            media_id: "108592".into(),
+            provider: "novelfire".into(),
+            key: "novelfire:abc/ch-1?x=1".into(),
+            provider_chapter_id: "abc/ch-1".into(),
+            number: 1.5,
+        };
         let s = k.encode();
-        assert!(s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+        assert!(
+            s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        );
         assert_eq!(ChapterKey::decode(&s), Some(k));
         assert_eq!(ChapterKey::decode("not base64!"), None);
     }
@@ -406,9 +484,18 @@ mod tests {
         assert_eq!(rows[2].number, 2.0);
         assert_eq!(rows[2].provider_chapter_id, "novelfire:2");
         let groups = group_by_provider(rows.clone());
-        assert_eq!(groups.iter().map(|(p, l)| (p.as_str(), l.len())).collect::<Vec<_>>(), vec![("novelfire", 2), ("wuxia", 1)]);
+        assert_eq!(
+            groups
+                .iter()
+                .map(|(p, l)| (p.as_str(), l.len()))
+                .collect::<Vec<_>>(),
+            vec![("novelfire", 2), ("wuxia", 1)]
+        );
         assert_eq!(translators(&rows), vec!["TL A".to_owned()]);
-        assert_eq!(parse_chapter_rows(&json!([{ "number": 3, "chapterKey": "k" }]), "toko")[0].provider, "toko");
+        assert_eq!(
+            parse_chapter_rows(&json!([{ "number": 3, "chapterKey": "k" }]), "toko")[0].provider,
+            "toko"
+        );
     }
 
     #[test]
@@ -425,35 +512,75 @@ mod tests {
             translator: None,
             published_unix: None,
         };
-        let rows = vec![row("a", 1.0), row("b", 2.0), row("a", 2.0), row("a", 3.0), row("b", 3.0)];
-        let cur = ChapterKey { media_id: "1".into(), provider: "a".into(), key: "a:2".into(), provider_chapter_id: String::new(), number: 2.0 };
+        let rows = vec![
+            row("a", 1.0),
+            row("b", 2.0),
+            row("a", 2.0),
+            row("a", 3.0),
+            row("b", 3.0),
+        ];
+        let cur = ChapterKey {
+            media_id: "1".into(),
+            provider: "a".into(),
+            key: "a:2".into(),
+            provider_chapter_id: String::new(),
+            number: 2.0,
+        };
         let (prev, next) = neighbours(&rows, &cur);
         assert_eq!(prev.map(|r| r.chapter_key.as_str()), Some("a:1"));
         assert_eq!(next.map(|r| r.chapter_key.as_str()), Some("a:3"));
-        assert_eq!(alternatives(&rows, &cur).iter().map(|r| r.chapter_key.as_str()).collect::<Vec<_>>(), vec!["b:2"]);
-        let last = ChapterKey { number: 3.0, key: "b:3".into(), provider: "b".into(), ..cur };
+        assert_eq!(
+            alternatives(&rows, &cur)
+                .iter()
+                .map(|r| r.chapter_key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["b:2"]
+        );
+        let last = ChapterKey {
+            number: 3.0,
+            key: "b:3".into(),
+            provider: "b".into(),
+            ..cur
+        };
         assert_eq!(neighbours(&rows, &last).1, None);
     }
 
     #[test]
     fn content_bodies() {
-        let (title, p) = parse_content(&json!({ "title": "Ch 1", "paragraphs": [{ "index": 1, "text": "Two" }, { "index": 0, "text": "<i>One</i>  x" }, { "index": 2, "text": "  " }] }));
+        let (title, p) = parse_content(
+            &json!({ "title": "Ch 1", "paragraphs": [{ "index": 1, "text": "Two" }, { "index": 0, "text": "<i>One</i>  x" }, { "index": 2, "text": "  " }] }),
+        );
         assert_eq!(title.as_deref(), Some("Ch 1"));
         assert_eq!(p, vec!["One x", "Two"]);
-        assert_eq!(parse_content(&json!({ "html": "<p>a</p><p>b</p>" })).1, vec!["a", "b"]);
+        assert_eq!(
+            parse_content(&json!({ "html": "<p>a</p><p>b</p>" })).1,
+            vec!["a", "b"]
+        );
         assert!(parse_content(&json!({})).1.is_empty());
     }
 
     #[test]
     fn diagnostics_and_origin() {
-        let rows = parse_chapter_rows(&json!([{ "number": 1, "provider": "a", "chapterKey": "a:1" }]), "x");
-        let d = parse_diagnostics(&json!({ "diagnostics": [{ "provider": "a", "resultCount": 9 }, { "provider": "b", "resultCount": 0 }] }), &rows);
+        let rows = parse_chapter_rows(
+            &json!([{ "number": 1, "provider": "a", "chapterKey": "a:1" }]),
+            "x",
+        );
+        let d = parse_diagnostics(
+            &json!({ "diagnostics": [{ "provider": "a", "resultCount": 9 }, { "provider": "b", "resultCount": 0 }] }),
+            &rows,
+        );
         assert_eq!(d, vec![("a".to_owned(), 1), ("b".to_owned(), 0)]);
         assert_eq!(parse_diagnostics(&json!([]), &rows), vec![("a".to_owned(), 1)]);
-        assert_eq!(origin_of(&["action".into(), "origin:kr".into()]).as_deref(), Some("KR"));
+        assert_eq!(
+            origin_of(&["action".into(), "origin:kr".into()]).as_deref(),
+            Some("KR")
+        );
         assert_eq!(origin_of(&["origin:XX".into()]), None);
         assert!(is_novel_manifest(&["novel".into()], &[]));
-        assert!(!is_novel_manifest(&["chapters".into()], &["manga/chapters".into()]));
+        assert!(!is_novel_manifest(
+            &["chapters".into()],
+            &["manga/chapters".into()]
+        ));
     }
 
     #[test]

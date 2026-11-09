@@ -26,8 +26,22 @@ staff(perPage: 8, sort: [RELEVANCE]) { edges { role node { name { full } } } } }
 
 /// AniList genres offered as chips on the Novels home (the fixed AniList genre collection, novel-relevant subset).
 pub const GENRES: [&str; 16] = [
-    "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror", "Mahou Shoujo", "Mecha", "Mystery", "Psychological",
-    "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural",
+    "Action",
+    "Adventure",
+    "Comedy",
+    "Drama",
+    "Ecchi",
+    "Fantasy",
+    "Horror",
+    "Mahou Shoujo",
+    "Mecha",
+    "Mystery",
+    "Psychological",
+    "Romance",
+    "Sci-Fi",
+    "Slice of Life",
+    "Sports",
+    "Supernatural",
 ];
 
 /// One novel: the shared `Media` card plus what the novel screens add.
@@ -141,7 +155,8 @@ pub fn feed_vars(feed: NovelFeed, page: u32) -> Value {
 /// Variables of a search.
 pub fn search_vars(q: &NovelSearch) -> Value {
     let query = q.query.trim();
-    let mut v = json!({ "page": q.page.max(1), "perPage": 24, "sort": [sort_var(&q.sort, !query.is_empty())] });
+    let mut v =
+        json!({ "page": q.page.max(1), "perPage": 24, "sort": [sort_var(&q.sort, !query.is_empty())] });
     if !query.is_empty() {
         v["search"] = query.into();
     }
@@ -163,13 +178,24 @@ pub fn search_vars(q: &NovelSearch) -> Value {
 /// One `Media` object of the novel queries.
 pub fn map_novel(m: &Value) -> NovelInfo {
     let mut media = map_anilist_media(m);
-    media.year = m["startDate"]["year"].as_i64().and_then(|y| i32::try_from(y).ok());
+    media.year = m["startDate"]["year"]
+        .as_i64()
+        .and_then(|y| i32::try_from(y).ok());
     let mut titles: Vec<String> = Vec::new();
-    for t in [&m["title"]["english"], &m["title"]["romaji"], &m["title"]["native"]]
-        .into_iter()
-        .filter_map(Value::as_str)
-        .chain(m["synonyms"].as_array().into_iter().flatten().filter_map(Value::as_str))
-    {
+    for t in [
+        &m["title"]["english"],
+        &m["title"]["romaji"],
+        &m["title"]["native"],
+    ]
+    .into_iter()
+    .filter_map(Value::as_str)
+    .chain(
+        m["synonyms"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str),
+    ) {
         let t = t.trim();
         if !t.is_empty() && !titles.iter().any(|x| x == t) {
             titles.push(t.to_owned());
@@ -181,7 +207,10 @@ pub fn map_novel(m: &Value) -> NovelInfo {
         .flatten()
         .filter(|e| {
             let role = e["role"].as_str().unwrap_or_default().to_ascii_lowercase();
-            role.contains("story") || role.contains("original") || role.contains("author") || role.contains("art")
+            role.contains("story")
+                || role.contains("original")
+                || role.contains("author")
+                || role.contains("art")
         })
         .filter_map(|e| e["node"]["name"]["full"].as_str().map(str::to_owned))
         .fold(Vec::new(), |mut acc: Vec<String>, n| {
@@ -206,11 +235,19 @@ pub fn map_novel(m: &Value) -> NovelInfo {
 pub fn map_page(doc: &Value) -> Result<NovelPage, ProviderError> {
     let page = &doc["data"]["Page"];
     if page.is_null() {
-        let msg = doc["errors"][0]["message"].as_str().unwrap_or("missing data.Page");
+        let msg = doc["errors"][0]["message"]
+            .as_str()
+            .unwrap_or("missing data.Page");
         return Err(ProviderError::Parse(msg.to_owned()));
     }
     Ok(NovelPage {
-        items: page["media"].as_array().into_iter().flatten().filter(|m| m["id"].as_u64().is_some_and(|id| id != 0)).map(map_novel).collect(),
+        items: page["media"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|m| m["id"].as_u64().is_some_and(|id| id != 0))
+            .map(map_novel)
+            .collect(),
         page: u32_of(&page["pageInfo"]["currentPage"]).unwrap_or(1),
         has_next: page["pageInfo"]["hasNextPage"].as_bool().unwrap_or(false),
         total: u32_of(&page["pageInfo"]["total"]),
@@ -219,7 +256,10 @@ pub fn map_page(doc: &Value) -> Result<NovelPage, ProviderError> {
 
 impl AniListNovels {
     pub fn new(client: reqwest::Client) -> Self {
-        Self { client, endpoint: ENDPOINT.to_owned() }
+        Self {
+            client,
+            endpoint: ENDPOINT.to_owned(),
+        }
     }
 
     /// Point at another GraphQL endpoint (tests).
@@ -238,11 +278,21 @@ impl AniListNovels {
             .await?;
         let status = resp.status().as_u16();
         if status == 429 {
-            return Err(ProviderError::RateLimited { provider: "anilist".into() });
+            return Err(ProviderError::RateLimited {
+                provider: "anilist".into(),
+            });
         }
-        let body: Value = resp.json().await.map_err(|e| ProviderError::Parse(e.without_url().to_string()))?;
-        if body["errors"].as_array().is_some_and(|e| e.iter().any(|x| x["status"] == 429)) {
-            return Err(ProviderError::RateLimited { provider: "anilist".into() });
+        let body: Value = resp
+            .json()
+            .await
+            .map_err(|e| ProviderError::Parse(e.without_url().to_string()))?;
+        if body["errors"]
+            .as_array()
+            .is_some_and(|e| e.iter().any(|x| x["status"] == 429))
+        {
+            return Err(ProviderError::RateLimited {
+                provider: "anilist".into(),
+            });
         }
         if !(200..300).contains(&status) && status != 404 {
             return Err(ProviderError::Http(status));
@@ -298,7 +348,12 @@ mod tests {
         assert_eq!(v["countryOfOrigin"], "JP");
         assert_eq!(v["isAdult"], false);
         assert_eq!(v["page"], 1);
-        let all = search_vars(&NovelSearch { origin: Some("XX".into()), adult: true, sort: "title".into(), ..NovelSearch::default() });
+        let all = search_vars(&NovelSearch {
+            origin: Some("XX".into()),
+            adult: true,
+            sort: "title".into(),
+            ..NovelSearch::default()
+        });
         assert!(all.get("countryOfOrigin").is_none());
         assert!(all.get("isAdult").is_none());
         assert_eq!(all["sort"], json!(["TITLE_ROMAJI"]));

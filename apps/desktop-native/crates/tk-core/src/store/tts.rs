@@ -95,13 +95,17 @@ fn progress_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<NovelProgressRow> {
     })
 }
 
-const PROGRESS_COLUMNS: &str = "media_id, ext_id, chapter_id, chapter_number, position, total, completed, title, poster, updated_at";
+const PROGRESS_COLUMNS: &str =
+    "media_id, ext_id, chapter_id, chapter_number, position, total, completed, title, poster, updated_at";
 
 impl LocalStore {
     // ---- tts_cache --------------------------------------------------------------------------------
 
     pub fn tts_clip(&self, key: &str) -> Result<Option<TtsClipRow>, StoreError> {
-        self.with(|c| c.query_row("SELECT * FROM tts_cache WHERE key = ?1", [key], clip_row).optional())
+        self.with(|c| {
+            c.query_row("SELECT * FROM tts_cache WHERE key = ?1", [key], clip_row)
+                .optional()
+        })
     }
 
     pub fn put_tts_clip(&self, row: &TtsClipRow) -> Result<(), StoreError> {
@@ -128,23 +132,38 @@ impl LocalStore {
     }
 
     pub fn delete_tts_clip(&self, key: &str) -> Result<(), StoreError> {
-        self.with(|c| c.execute("DELETE FROM tts_cache WHERE key = ?1", [key]).map(|_| ()))
+        self.with(|c| {
+            c.execute("DELETE FROM tts_cache WHERE key = ?1", [key])
+                .map(|_| ())
+        })
     }
 
     pub fn tts_cache_bytes(&self) -> Result<i64, StoreError> {
-        self.with(|c| c.query_row("SELECT COALESCE(SUM(bytes), 0) FROM tts_cache", [], |r| r.get::<_, i64>(0)))
+        self.with(|c| {
+            c.query_row("SELECT COALESCE(SUM(bytes), 0) FROM tts_cache", [], |r| {
+                r.get::<_, i64>(0)
+            })
+        })
     }
 
     /// Drop the oldest clips until the cache holds at most `max_bytes`; returns the paths of the removed rows.
     pub fn evict_tts_cache(&self, max_bytes: i64) -> Result<Vec<String>, StoreError> {
         self.with(|c| {
-            let total: i64 = c.query_row("SELECT COALESCE(SUM(bytes), 0) FROM tts_cache", [], |r| r.get(0))?;
+            let total: i64 =
+                c.query_row("SELECT COALESCE(SUM(bytes), 0) FROM tts_cache", [], |r| r.get(0))?;
             if total <= max_bytes {
                 return Ok(Vec::new());
             }
-            let mut stmt = c.prepare("SELECT key, path, bytes FROM tts_cache ORDER BY created_at ASC, key ASC")?;
+            let mut stmt =
+                c.prepare("SELECT key, path, bytes FROM tts_cache ORDER BY created_at ASC, key ASC")?;
             let rows = stmt
-                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?)))?
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                    ))
+                })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             let mut left = total;
             let mut removed = Vec::new();
@@ -165,7 +184,8 @@ impl LocalStore {
         self.with(|c| {
             let paths = {
                 let mut stmt = c.prepare("SELECT path FROM tts_cache")?;
-                stmt.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?
+                stmt.query_map([], |r| r.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
             };
             c.execute("DELETE FROM tts_cache", [])?;
             Ok(paths)
@@ -175,7 +195,13 @@ impl LocalStore {
     // ---- novel chapter lists (chapter_lists, kind = 'novel') ---------------------------------------
 
     /// Cached chapter JSON of one extension for a novel, when younger than `max_age_secs` at `now`.
-    pub fn novel_chapter_list(&self, media_id: &str, ext_id: &str, max_age_secs: i64, now: i64) -> Result<Option<String>, StoreError> {
+    pub fn novel_chapter_list(
+        &self,
+        media_id: &str,
+        ext_id: &str,
+        max_age_secs: i64,
+        now: i64,
+    ) -> Result<Option<String>, StoreError> {
         self.with(|c| {
             c.query_row(
                 "SELECT chapters_json FROM chapter_lists WHERE kind = ?1 AND media_id = ?2 AND ext_id = ?3 AND fetched_at >= ?4",
@@ -195,7 +221,13 @@ impl LocalStore {
         })
     }
 
-    pub fn set_novel_chapter_list(&self, media_id: &str, ext_id: &str, chapters_json: &str, now: i64) -> Result<(), StoreError> {
+    pub fn set_novel_chapter_list(
+        &self,
+        media_id: &str,
+        ext_id: &str,
+        chapters_json: &str,
+        now: i64,
+    ) -> Result<(), StoreError> {
         self.with(|c| {
             c.execute(
                 "INSERT INTO chapter_lists (kind, media_id, ext_id, chapters_json, fetched_at) VALUES (?1, ?2, ?3, ?4, ?5)
@@ -208,7 +240,14 @@ impl LocalStore {
 
     // ---- offline chapters (offline_chapters, kind = 'novel', text inline) ----------------------------
 
-    pub fn put_novel_offline(&self, media_id: &str, ext_id: &str, chapter_id: &str, text_json: &str, now: i64) -> Result<(), StoreError> {
+    pub fn put_novel_offline(
+        &self,
+        media_id: &str,
+        ext_id: &str,
+        chapter_id: &str,
+        text_json: &str,
+        now: i64,
+    ) -> Result<(), StoreError> {
         self.with(|c| {
             c.execute(
                 "INSERT INTO offline_chapters (kind, media_id, ext_id, chapter_id, dir, text_json, pages, bytes, saved_at)
@@ -220,7 +259,12 @@ impl LocalStore {
         })
     }
 
-    pub fn novel_offline_text(&self, media_id: &str, ext_id: &str, chapter_id: &str) -> Result<Option<String>, StoreError> {
+    pub fn novel_offline_text(
+        &self,
+        media_id: &str,
+        ext_id: &str,
+        chapter_id: &str,
+    ) -> Result<Option<String>, StoreError> {
         self.with(|c| {
             c.query_row(
                 "SELECT text_json FROM offline_chapters WHERE kind = ?1 AND media_id = ?2 AND ext_id = ?3 AND chapter_id = ?4",
@@ -331,7 +375,10 @@ mod tests {
         s.put_tts_clip(&clip("c", 100, 3)).unwrap();
         assert_eq!(s.tts_clip("b").unwrap().unwrap().duration_ms, Some(1200));
         assert_eq!(s.tts_cache_bytes().unwrap(), 300);
-        assert_eq!(s.evict_tts_cache(150).unwrap(), vec!["/tmp/a.wav".to_owned(), "/tmp/b.wav".to_owned()]);
+        assert_eq!(
+            s.evict_tts_cache(150).unwrap(),
+            vec!["/tmp/a.wav".to_owned(), "/tmp/b.wav".to_owned()]
+        );
         assert!(s.evict_tts_cache(150).unwrap().is_empty());
         s.delete_tts_clip("c").unwrap();
         s.put_tts_clip(&clip("d", 5, 4)).unwrap();
@@ -343,14 +390,26 @@ mod tests {
     fn chapter_lists_and_offline_text() {
         let s = LocalStore::open_in_memory().unwrap();
         s.set_novel_chapter_list("1", "toko", "[]", 100).unwrap();
-        assert_eq!(s.novel_chapter_list("1", "toko", 50, 120).unwrap().as_deref(), Some("[]"));
+        assert_eq!(
+            s.novel_chapter_list("1", "toko", 50, 120).unwrap().as_deref(),
+            Some("[]")
+        );
         assert_eq!(s.novel_chapter_list("1", "toko", 10, 120).unwrap(), None);
         s.set_novel_chapter_list("1", "toko", "[1]", 130).unwrap();
-        assert_eq!(s.novel_chapter_lists("1").unwrap(), vec![("toko".to_owned(), "[1]".to_owned())]);
+        assert_eq!(
+            s.novel_chapter_lists("1").unwrap(),
+            vec![("toko".to_owned(), "[1]".to_owned())]
+        );
         assert_eq!(s.novel_offline_text("1", "toko", "c1").unwrap(), None);
         s.put_novel_offline("1", "toko", "c1", "[\"p\"]", 5).unwrap();
-        assert_eq!(s.novel_offline_text("1", "toko", "c1").unwrap().as_deref(), Some("[\"p\"]"));
-        assert_eq!(s.novel_offline_ids("1").unwrap(), vec![("toko".to_owned(), "c1".to_owned())]);
+        assert_eq!(
+            s.novel_offline_text("1", "toko", "c1").unwrap().as_deref(),
+            Some("[\"p\"]")
+        );
+        assert_eq!(
+            s.novel_offline_ids("1").unwrap(),
+            vec![("toko".to_owned(), "c1".to_owned())]
+        );
     }
 
     #[test]
@@ -373,7 +432,12 @@ mod tests {
         })
         .unwrap();
         let rows = s.novel_recent_progress(10).unwrap();
-        assert_eq!(rows.iter().map(|r| (r.media_id.as_str(), r.chapter_id.as_str())).collect::<Vec<_>>(), vec![("1", "b"), ("2", "x")]);
+        assert_eq!(
+            rows.iter()
+                .map(|r| (r.media_id.as_str(), r.chapter_id.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("1", "b"), ("2", "x")]
+        );
         assert_eq!(rows[0].position, 4);
         assert_eq!(s.novel_progress_rows("1").unwrap().len(), 2);
     }
@@ -395,8 +459,17 @@ mod tests {
             })
             .unwrap();
         let (kind, state, done): (String, String, Option<i64>) = s
-            .with(|c| c.query_row("SELECT kind, state, completed_at FROM downloads WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))))
+            .with(|c| {
+                c.query_row(
+                    "SELECT kind, state, completed_at FROM downloads WHERE id = ?1",
+                    [id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                )
+            })
             .unwrap();
-        assert_eq!((kind.as_str(), state.as_str(), done), ("novel", "completed", Some(7)));
+        assert_eq!(
+            (kind.as_str(), state.as_str(), done),
+            ("novel", "completed", Some(7))
+        );
     }
 }

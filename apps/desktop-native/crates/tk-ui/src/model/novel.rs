@@ -3,7 +3,9 @@
 //! file; `model/mod.rs` stays frozen. Chapter / progress types come from `model/manga.rs` (worker l, shared).
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 use crate::backend::MediaVm;
@@ -17,6 +19,26 @@ pub const MAX_WIDTH_MIN: u16 = 480;
 pub const MAX_WIDTH_MAX: u16 = 1400;
 pub const TTS_RATE_MIN: u8 = 50;
 pub const TTS_RATE_MAX: u8 = 200;
+pub const PARAGRAPH_GAP_MAX: u8 = 30;
+
+/// Built-in font choices of the reader (`NovelPrefs::font`); `custom` = the picked file, `family:<name>` = a font
+/// installed on the system (`novel.reader.typography`: sans, Georgia, Lora, dyslexia-friendly, installed).
+pub const READER_FONTS: [&str; 7] = ["serif", "sans", "mono", "georgia", "lora", "dyslexic", "custom"];
+/// Prefix of an installed system font family in `NovelPrefs::font`.
+pub const FAMILY_PREFIX: &str = "family:";
+
+/// KittenTTS models offered for download: `(id, Hugging Face repo, approximate MB)`; same ids as the classic
+/// `desktop/services/kitten-tts.cjs` (`kitten-2` left out for size, plan 14 section 0.1 #13).
+pub const KITTEN_MODELS: [(&str, &str, u32); 2] = [
+    ("nano-int8", "KittenML/kitten-tts-nano-0.8-int8", 25),
+    ("mini", "KittenML/kitten-tts-mini-0.8", 80),
+];
+/// Default KittenTTS model.
+pub const KITTEN_DEFAULT_MODEL: &str = "nano-int8";
+/// Approximate size of the ONNX Runtime library KittenTTS downloads with the model.
+pub const KITTEN_RUNTIME_MB: u32 = 30;
+/// The eight voices of the legacy KittenTTS ONNX models (classic `LEGACY_VOICES`).
+pub const KITTEN_VOICES: [&str; 8] = ["Bella", "Jasper", "Luna", "Bruno", "Rosie", "Hugo", "Kiki", "Leo"];
 
 /// Reader colour theme (classic novel reader settings sheet). `id()` = `novel.theme.<id>`, `data-theme`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -58,7 +80,13 @@ pub enum TtsProviderVm {
 }
 
 impl TtsProviderVm {
-    pub const ALL: [TtsProviderVm; 5] = [Self::System, Self::OpenAi, Self::OpenAiCompatible, Self::ElevenLabs, Self::Kitten];
+    pub const ALL: [TtsProviderVm; 5] = [
+        Self::System,
+        Self::OpenAi,
+        Self::OpenAiCompatible,
+        Self::ElevenLabs,
+        Self::Kitten,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
@@ -134,6 +162,34 @@ impl TtsPrefs {
     }
 }
 
+/// Reading flow of the novel reader (`novel.reader.flow`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NovelFlowPrefs {
+    /// Append the next chapter when the end is reached (continuous scroll).
+    pub continuous: bool,
+    /// Reading progress bar at the top of the reader.
+    pub show_progress: bool,
+    /// Percent read in the reader bar.
+    pub show_percent: bool,
+    /// Chapter number in the reader bar.
+    pub show_chapter: bool,
+    /// Keep the screen on while the reader is open (Screen Wake Lock of the web view).
+    pub keep_awake: bool,
+}
+
+impl Default for NovelFlowPrefs {
+    fn default() -> Self {
+        Self {
+            continuous: true,
+            show_progress: true,
+            show_percent: true,
+            show_chapter: true,
+            keep_awake: false,
+        }
+    }
+}
+
 /// `Settings::novel`: typography and narration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -153,6 +209,8 @@ pub struct NovelPrefs {
     pub theme: NovelThemeVm,
     pub justify: bool,
     pub tts: TtsPrefs,
+    /// Reading flow (added by worker m with `serde(default)`; older files load the defaults).
+    pub flow: NovelFlowPrefs,
 }
 
 impl Default for NovelPrefs {
@@ -167,22 +225,31 @@ impl Default for NovelPrefs {
             theme: NovelThemeVm::System,
             justify: false,
             tts: TtsPrefs::default(),
+            flow: NovelFlowPrefs::default(),
         }
     }
 }
 
 impl NovelPrefs {
     pub fn sanitized(mut self) -> Self {
-        if !["serif", "sans", "mono", "custom"].contains(&self.font.as_str()) {
+        self.font = self.font.trim().to_owned();
+        let family_ok = self.font.strip_prefix(FAMILY_PREFIX).is_some_and(|f| {
+            let f = f.trim();
+            !f.is_empty() && f.len() <= 120 && !f.contains(['"', '\\', ';', '{', '}', '<', '>'])
+        });
+        if !family_ok && !READER_FONTS.contains(&self.font.as_str()) {
             self.font = "serif".to_owned();
         }
-        self.custom_font_path = self.custom_font_path.map(|p| p.trim().to_owned()).filter(|p| !p.is_empty());
+        self.custom_font_path = self
+            .custom_font_path
+            .map(|p| p.trim().to_owned())
+            .filter(|p| !p.is_empty());
         if self.font == "custom" && self.custom_font_path.is_none() {
             self.font = "serif".to_owned();
         }
         self.font_size = self.font_size.clamp(FONT_SIZE_MIN, FONT_SIZE_MAX);
         self.line_height = self.line_height.clamp(LINE_HEIGHT_MIN, LINE_HEIGHT_MAX);
-        self.paragraph_gap = self.paragraph_gap.min(30);
+        self.paragraph_gap = self.paragraph_gap.min(PARAGRAPH_GAP_MAX);
         self.max_width = self.max_width.clamp(MAX_WIDTH_MIN, MAX_WIDTH_MAX);
         self.tts = self.tts.sanitized();
         self
@@ -274,6 +341,113 @@ pub struct KittenStatusVm {
     pub error: Option<String>,
 }
 
+impl NovelPrefs {
+    /// CSS `font-family` of the reader for [`NovelPrefs::font`]. `custom` uses the `@font-face` the reader declares
+    /// as `TkNovelCustom`; installed families are quoted. Only generic fallbacks, never a web font URL.
+    pub fn font_stack(&self) -> String {
+        if let Some(family) = self.font.strip_prefix(FAMILY_PREFIX) {
+            return format!("\"{}\", var(--tk-font-text), serif", family.trim());
+        }
+        match self.font.as_str() {
+            "sans" => "var(--tk-font-text), system-ui, sans-serif".to_owned(),
+            "mono" => "var(--tk-font-mono), ui-monospace, monospace".to_owned(),
+            "georgia" => "Georgia, \"Times New Roman\", serif".to_owned(),
+            "lora" => "Lora, Georgia, serif".to_owned(),
+            "dyslexic" => "OpenDyslexic, \"Atkinson Hyperlegible\", \"Comic Sans MS\", sans-serif".to_owned(),
+            "custom" => "TkNovelCustom, Georgia, serif".to_owned(),
+            _ => "Georgia, \"Noto Serif\", \"Times New Roman\", serif".to_owned(),
+        }
+    }
+}
+
+impl TtsPrefs {
+    /// KittenTTS model id of these prefs: `model` holds it while the provider is `Kitten` (the UI clears `model`
+    /// when the provider changes), else the default.
+    pub fn kitten_model(&self) -> &'static str {
+        let want = if self.provider == TtsProviderVm::Kitten {
+            self.model.as_deref()
+        } else {
+            None
+        };
+        KITTEN_MODELS
+            .iter()
+            .map(|(id, _, _)| *id)
+            .find(|id| Some(*id) == want)
+            .unwrap_or(KITTEN_DEFAULT_MODEL)
+    }
+}
+
+/// Name of the web view asset handler the novel screens register (`/tk-novel/clip/<file>` narration clips,
+/// `/tk-novel/font/<file>` the custom reader font).
+pub const ASSET_HANDLER: &str = "tk-novel";
+
+/// URL of a narration clip file (by file name) for the reader's audio element.
+pub fn clip_url(file_name: &str) -> String {
+    format!("/{ASSET_HANDLER}/clip/{file_name}")
+}
+
+/// `(repo, approximate MB)` of a KittenTTS model id.
+pub fn kitten_model_info(id: &str) -> Option<(&'static str, u32)> {
+    KITTEN_MODELS
+        .iter()
+        .find(|(m, _, _)| *m == id)
+        .map(|(_, repo, mb)| (*repo, *mb))
+}
+
+/// Progress of a running `Backend::kitten_install` (download of the ONNX Runtime library and the model). tk-app
+/// writes it with [`set_kitten_progress`] from its download loop; the settings row polls [`kitten_progress`] while
+/// the install call is pending (same process, so a plain static is enough).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KittenProgressVm {
+    /// `runtime` | `model` | `voices` | `config` | `extract`.
+    pub stage: String,
+    pub done: u64,
+    pub total: Option<u64>,
+}
+
+impl KittenProgressVm {
+    /// 0..=100 when the total is known.
+    pub fn percent(&self) -> Option<u8> {
+        self.total
+            .filter(|t| *t > 0)
+            .map(|t| ((self.done.min(t) * 100) / t) as u8)
+    }
+}
+
+static KITTEN_PROGRESS: Mutex<Option<KittenProgressVm>> = Mutex::new(None);
+
+pub fn set_kitten_progress(p: Option<KittenProgressVm>) {
+    if let Ok(mut g) = KITTEN_PROGRESS.lock() {
+        *g = p;
+    }
+}
+
+pub fn kitten_progress() -> Option<KittenProgressVm> {
+    KITTEN_PROGRESS.lock().ok().and_then(|g| g.clone())
+}
+
+/// Chapter number carried by a novel `ChapterRefVm::chapter_id`. The id is tk-core's `novel::ChapterKey`
+/// (URL-safe base64 of a JSON object whose `n` field is the number); `None` for any other id.
+pub fn chapter_number_of(chapter_id: &str) -> Option<f32> {
+    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(chapter_id.trim().as_bytes())
+        .ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v.get("n")
+        .and_then(serde_json::Value::as_f64)
+        .map(|n| n as f32)
+        .filter(|n| n.is_finite())
+}
+
+/// Display form of a chapter number (`12`, `12.5`).
+pub fn chapter_label(number: f32) -> String {
+    if number.fract().abs() < f32::EPSILON {
+        format!("{}", number as i64)
+    } else {
+        format!("{number:.1}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,7 +460,13 @@ mod tests {
 
     #[test]
     fn custom_font_without_path_falls_back() {
-        let p = NovelPrefs { font: "custom".into(), custom_font_path: None, font_size: 99, ..NovelPrefs::default() }.sanitized();
+        let p = NovelPrefs {
+            font: "custom".into(),
+            custom_font_path: None,
+            font_size: 99,
+            ..NovelPrefs::default()
+        }
+        .sanitized();
         assert_eq!(p.font, "serif");
         assert_eq!(p.font_size, FONT_SIZE_MAX);
     }
@@ -296,6 +476,87 @@ mod tests {
         assert!(TtsProviderVm::OpenAi.needs_key());
         assert!(!TtsProviderVm::System.needs_key());
         assert!(!TtsProviderVm::Kitten.needs_key());
-        assert_eq!(TtsProviderVm::from_id("elevenlabs"), Some(TtsProviderVm::ElevenLabs));
+        assert_eq!(
+            TtsProviderVm::from_id("elevenlabs"),
+            Some(TtsProviderVm::ElevenLabs)
+        );
+    }
+
+    #[test]
+    fn fonts_and_families() {
+        for f in READER_FONTS.iter().filter(|f| **f != "custom") {
+            let p = NovelPrefs {
+                font: (*f).into(),
+                ..NovelPrefs::default()
+            }
+            .sanitized();
+            assert_eq!(p.font, *f);
+            assert!(!p.font_stack().is_empty());
+        }
+        let p = NovelPrefs {
+            font: "family:Noto Serif JP".into(),
+            ..NovelPrefs::default()
+        }
+        .sanitized();
+        assert_eq!(p.font, "family:Noto Serif JP");
+        assert!(p.font_stack().starts_with("\"Noto Serif JP\""));
+        let bad = NovelPrefs {
+            font: "family:x;}body{".into(),
+            ..NovelPrefs::default()
+        }
+        .sanitized();
+        assert_eq!(bad.font, "serif");
+        let custom = NovelPrefs {
+            font: "custom".into(),
+            custom_font_path: Some("/f.ttf".into()),
+            ..NovelPrefs::default()
+        };
+        assert_eq!(custom.sanitized().font_stack(), "TkNovelCustom, Georgia, serif");
+    }
+
+    #[test]
+    fn kitten_model_follows_the_provider() {
+        let mut t = TtsPrefs {
+            provider: TtsProviderVm::Kitten,
+            model: Some("mini".into()),
+            ..TtsPrefs::default()
+        };
+        assert_eq!(t.kitten_model(), "mini");
+        t.provider = TtsProviderVm::OpenAi;
+        assert_eq!(t.kitten_model(), KITTEN_DEFAULT_MODEL);
+        assert_eq!(kitten_model_info("mini").map(|i| i.1), Some(80));
+        assert_eq!(kitten_model_info("kitten-2"), None);
+    }
+
+    #[test]
+    fn chapter_numbers_from_ids() {
+        // {"m":"1","p":"a","k":"a:1","n":12.5}
+        let json = br#"{"m":"1","p":"a","k":"a:1","n":12.5}"#;
+        let id = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(json);
+        assert_eq!(chapter_number_of(&id), Some(12.5));
+        assert_eq!(chapter_number_of("plain-id"), None);
+        assert_eq!(chapter_label(3.0), "3");
+        assert_eq!(chapter_label(3.5), "3.5");
+    }
+
+    #[test]
+    fn progress_percent() {
+        set_kitten_progress(Some(KittenProgressVm {
+            stage: "model".into(),
+            done: 50,
+            total: Some(200),
+        }));
+        assert_eq!(kitten_progress().and_then(|p| p.percent()), Some(25));
+        set_kitten_progress(None);
+        assert_eq!(kitten_progress(), None);
+        assert_eq!(
+            KittenProgressVm {
+                stage: "x".into(),
+                done: 1,
+                total: None
+            }
+            .percent(),
+            None
+        );
     }
 }
