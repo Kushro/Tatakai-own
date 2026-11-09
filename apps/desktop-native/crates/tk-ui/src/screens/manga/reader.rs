@@ -596,6 +596,25 @@ fn ReaderView(media_id: String, chapter: ChapterRefVm) -> Element {
         }
     };
 
+    let end_of_chapter = match next.clone() {
+        Some(n) => {
+            let label = tf("manga.reader.next_chapter_n", &[("n", &chapter_label(n.number))]);
+            let target = n.chapter.reference.clone();
+            rsx! {
+                Button {
+                    label,
+                    icon: "next".to_string(),
+                    onclick: move |e: MouseEvent| {
+                        e.stop_propagation();
+                        open_chapter.call(target.clone());
+                    },
+                }
+            }
+        }
+        None => rsx! {
+            p { class: "tk-muted", {t("manga.reader.last_chapter")} }
+        },
+    };
     let state = pages.read().clone();
     let stage = match state {
         None => rsx! {
@@ -625,20 +644,7 @@ fn ReaderView(media_id: String, chapter: ChapterRefVm) -> Element {
                             div { key: "{i}", class: "tk-reader__page tk-reader__page--idle", "data-page-index": "{i}" }
                         }
                     }
-                    div { class: "tk-reader__end", "data-chapter-end": "true",
-                        if let Some(n) = next.clone() {
-                            Button {
-                                label: tf("manga.reader.next_chapter_n", &[("n", &chapter_label(n.number))]),
-                                icon: "next".to_string(),
-                                onclick: move |e: MouseEvent| {
-                                    e.stop_propagation();
-                                    open_chapter.call(n.chapter.reference.clone());
-                                },
-                            }
-                        } else {
-                            p { class: "tk-muted", {t("manga.reader.last_chapter")} }
-                        }
-                    }
+                    div { class: "tk-reader__end", "data-chapter-end": "true", {end_of_chapter} }
                 }
             }
         },
