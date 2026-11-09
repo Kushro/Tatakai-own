@@ -124,7 +124,9 @@ pub struct StreamSource {
     pub subtitles: Vec<SubtitleTrack>,
 }
 
-/// One watched episode. Keys follow the legacy web app so both apps share one Supabase history (E9).
+/// One watched episode. Keys follow the legacy web app (E9) so exports, the Android app and the Tatakai Link
+/// history sync (`/v1/history`, wave A: `tk_link::history::HistoryRow` is the snake_case wire form) share them.
+/// Serialized as camelCase JSON for local files (exports).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {

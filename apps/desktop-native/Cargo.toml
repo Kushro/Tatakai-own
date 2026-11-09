@@ -122,7 +122,7 @@ auto-launch = "0.6"
 discord-rich-presence = "1.1"
 # Open URLs / folders / files with the system handler (xdg-open, explorer, open); no shell.
 open = "5.4"
-# OS keyring for the Supabase session, AniList / MAL tokens and debrid keys. Pure Rust everywhere: Secret Service
+# OS keyring for the AniList / MAL OAuth tokens, translation and debrid keys. Pure Rust everywhere: Secret Service
 # over zbus on Linux (no libdbus), Credential Manager on Windows, Keychain on macOS; `crypto-rust` = no OpenSSL.
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "tokio", "crypto-rust"] }
 # Version comparison for the GitHub releases update check.

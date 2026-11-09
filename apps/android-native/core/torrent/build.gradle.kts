@@ -6,6 +6,8 @@ dependencies {
     implementation(projects.core.model)
     implementation(projects.core.release)
     implementation(libs.bundles.libtorrent4j)
+    // parity wave A (15 §3.9, worker q): debrid HTTPS clients over the shared OkHttpClient.
+    implementation(libs.okhttp)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.androidx.documentfile)

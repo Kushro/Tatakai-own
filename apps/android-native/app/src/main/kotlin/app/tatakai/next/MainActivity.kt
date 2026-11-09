@@ -13,8 +13,10 @@ import app.tatakai.next.data.OAuthRedirect
 import app.tatakai.next.data.PendingOAuthRedirect
 import app.tatakai.next.extensionserver.DeepLink
 import app.tatakai.next.extensionserver.PendingServerLink
+import app.tatakai.next.model.torrent.TorrentSection
 import app.tatakai.next.nav.TatakaiApp
 import app.tatakai.next.nav.TorrentLink
+import app.tatakai.next.torrent.PendingMagnetLink
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.koin.android.ext.android.inject
 
@@ -41,6 +43,9 @@ class MainActivity : ComponentActivity() {
     /** parity wave A (15 §3.1): an image shared to the app (`ACTION_SEND image/*`) opens the image search with it. */
     private val imageLinks = MutableStateFlow<String?>(null)
 
+    /** parity wave A (15 §3.9, worker q): `magnet:` / `.torrent` opened from the system waits here; the shell opens the Torrents client. */
+    private val pendingMagnet: PendingMagnetLink by inject()
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLocale.wrap(newBase))
     }
@@ -56,12 +61,14 @@ class MainActivity : ComponentActivity() {
             offerServerLink(intent)
             offerOAuthRedirect(intent)
             offerSharedImage(intent)
+            offerMagnet(intent)
         }
         addOnNewIntentListener { newIntent ->
             TorrentLink.from(newIntent)?.let { torrentLinks.value = it }
             offerServerLink(newIntent)
             offerOAuthRedirect(newIntent)
             offerSharedImage(newIntent)
+            offerMagnet(newIntent)
         }
         setContent { TatakaiApp(torrentLinks, serverLinks, accountLinks, imageLinks) }
     }
@@ -89,5 +96,19 @@ class MainActivity : ComponentActivity() {
         if (intent?.action != Intent.ACTION_SEND || intent.type?.startsWith("image/") != true) return
         val uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java) ?: return
         imageLinks.value = uri.toString()
+    }
+
+    /**
+     * Only `VIEW magnet:…` and `VIEW <content|file>://… (application/x-bittorrent)` intents (manifest filters). The raw URI waits in
+     * [PendingMagnetLink] for the Torrents screen (worker q validates it there); the shell navigates through the torrent link flow.
+     */
+    private fun offerMagnet(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_VIEW) return
+        val data = intent.data ?: return
+        val isMagnet = data.scheme.equals(PendingMagnetLink.MAGNET_SCHEME, ignoreCase = true)
+        val isTorrentFile = intent.type.equals(PendingMagnetLink.TORRENT_MIME, ignoreCase = true)
+        if (!isMagnet && !isTorrentFile) return
+        pendingMagnet.offer(data.toString())
+        torrentLinks.value = TorrentLink(TorrentSection.LIBRARY, null)
     }
 }

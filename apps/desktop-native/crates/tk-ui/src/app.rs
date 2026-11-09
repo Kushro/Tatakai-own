@@ -45,7 +45,7 @@ const APP_CSS: &[&str] = &[
     // wave A (docs/redesign/15 section 2): one stylesheet per owner: a, d, f, g, i (e keeps player.css, c details.css)
     include_str!("../assets/css/character.css"),
     include_str!("../assets/css/subs.css"),
-    include_str!("../assets/css/account.css"),
+    include_str!("../assets/css/system.css"),
     include_str!("../assets/css/lists.css"),
     include_str!("../assets/css/debrid.css"),
 ];
@@ -59,8 +59,8 @@ pub struct Services {
     pub fonts_dir: PathBuf,
     /// Jobs app services post to the UI thread (`ui_thread::channel`); drained by `App`.
     pub ui_jobs: Arc<UiJobs>,
-    /// Wave A: run once by `App` on its first render, inside the Dioxus / tokio runtime (tk-app spawns the session
-    /// restore and other start-up jobs from here). `None` = nothing to do.
+    /// Wave A: run once by `App` on its first render, inside the Dioxus / tokio runtime (tk-app spawns its start-up
+    /// jobs from here: update notice, `magnet:` link from the command line). `None` = nothing to do.
     pub on_start: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -81,6 +81,9 @@ pub struct ShortcutEvt {
 #[derive(Clone, Copy)]
 pub struct Ui {
     pub settings: Signal<Settings>,
+    /// True once `Backend::load_settings` answered (or failed): until then `settings` holds defaults and the shell
+    /// must not act on them (first-run wizard redirect, worker f).
+    pub settings_loaded: Signal<bool>,
     pub width: Signal<f64>,
     pub nav: Signal<NavState>,
     pub shortcut: Signal<Option<ShortcutEvt>>,
@@ -130,6 +133,10 @@ pub enum Route {
     LinkPage {},
     #[route("/settings")]
     SettingsPage {},
+    /// First-run wizard (wave A, worker f; plan 14 section 0.1 #11). The shell redirects here while
+    /// `Settings::system.setup_done` is false; Settings > System can open it again.
+    #[route("/setup")]
+    SetupPage {},
     // Torrent client (wave 3, docs/redesign/10 section 5): side index layout + one page per `TorrentSection`.
     #[nest("/torrents")]
         #[layout(TorrentsLayout)]
@@ -145,6 +152,9 @@ pub enum Route {
             TorrentLibraryPage {},
             #[route("/downloads")]
             TorrentDownloadsPage {},
+            // Wave A, worker i: torrent session history.
+            #[route("/history")]
+            TorrentHistoryPage {},
             // Wave A, worker i: debrid services as sources.
             #[route("/debrid")]
             TorrentDebridPage {},
@@ -168,7 +178,7 @@ impl Route {
             Self::ExtensionsPage {} => Some(NavDest::Extensions),
             Self::LinkPage {} => Some(NavDest::Link),
             Self::SettingsPage {} => Some(NavDest::Settings),
-            Self::PlayerPage { .. } | Self::GalleryPage {} => None,
+            Self::PlayerPage { .. } | Self::SetupPage {} | Self::GalleryPage {} => None,
             _ => self.torrent_section().map(|_| NavDest::Torrents),
         }
     }
@@ -182,6 +192,7 @@ impl Route {
             Self::TorrentTrackersPage {} => Some(TorrentSection::Trackers),
             Self::TorrentLibraryPage {} => Some(TorrentSection::Library),
             Self::TorrentDownloadsPage {} => Some(TorrentSection::Downloads),
+            Self::TorrentHistoryPage {} => Some(TorrentSection::History),
             Self::TorrentDebridPage {} => Some(TorrentSection::Debrid),
             Self::TorrentSettingsPage {} => Some(TorrentSection::Settings),
             _ => None,
@@ -196,6 +207,7 @@ impl Route {
             TorrentSection::Trackers => Self::TorrentTrackersPage {},
             TorrentSection::Library => Self::TorrentLibraryPage {},
             TorrentSection::Downloads => Self::TorrentDownloadsPage {},
+            TorrentSection::History => Self::TorrentHistoryPage {},
             TorrentSection::Debrid => Self::TorrentDebridPage {},
             TorrentSection::Settings => Self::TorrentSettingsPage {},
         }
@@ -203,6 +215,11 @@ impl Route {
 
     pub fn is_player(&self) -> bool {
         matches!(self, Self::PlayerPage { .. })
+    }
+
+    /// Routes drawn without the navigation rail (player, first-run wizard).
+    pub fn is_bare(&self) -> bool {
+        matches!(self, Self::PlayerPage { .. } | Self::SetupPage {})
     }
 
     pub fn for_dest(dest: NavDest) -> Self {
@@ -222,16 +239,17 @@ impl Route {
 pub fn App() -> Element {
     let services = use_context::<Services>();
     let mut settings = use_signal(Settings::default);
+    let mut settings_loaded = use_signal(|| false);
     let mut width = use_signal(|| 1280.0_f64);
     let nav = use_signal(NavState::default);
     let mut shortcut_sig = use_signal(|| None::<ShortcutEvt>);
     let torrent = use_signal(|| None::<String>);
     let mut sys_tag = use_signal(|| "en".to_owned());
     let mut sys_dark = use_signal(|| true);
-    use_context_provider(|| Ui { settings, width, nav, shortcut: shortcut_sig, torrent });
+    use_context_provider(|| Ui { settings, settings_loaded, width, nav, shortcut: shortcut_sig, torrent });
     use_context_provider(Snackbar::new);
 
-    // Wave A: start-up jobs of the app (session restore ...) and the tray icon (worker f, `tray.rs`).
+    // Wave A: start-up jobs of the app (update notice, pending magnet link) and the tray icon (worker f, `tray.rs`).
     use_hook({
         let on_start = services.on_start.clone();
         move || {
@@ -256,6 +274,7 @@ pub fn App() -> Element {
                 Ok(s) => settings.set(s.sanitized()),
                 Err(e) => tracing::warn!(detail = %e.detail, "loading settings failed; using defaults"),
             }
+            settings_loaded.set(true);
         }
     });
 
@@ -351,7 +370,21 @@ fn Shell() -> Element {
         }
     });
 
+    // Wave A (worker f): first-run wizard. Once the saved settings are known, a fresh profile goes to `/setup`;
+    // the wizard sets `Settings::system.setup_done` when finished or skipped. Never fires while settings are defaults.
+    {
+        let route = route.clone();
+        use_effect(move || {
+            let loaded = (ui.settings_loaded)();
+            let done = ui.settings.read().system.setup_done;
+            if loaded && !done && !matches!(route, Route::SetupPage {} | Route::GalleryPage {}) {
+                navigator.replace(Route::SetupPage {});
+            }
+        });
+    }
+
     let in_player = route.is_player();
+    let bare = route.is_bare();
     let expanded = nav_expanded(nav_state(), (ui.width)());
     let toggle = move |_| {
         let next = reduce_nav(*nav_state.peek(), NavAction::Toggle);
@@ -362,7 +395,7 @@ fn Shell() -> Element {
         div { class: "tk-shell", "data-player": "{in_player}",
             TitleBar { on_toggle_nav: toggle, offline: !(shell_status.online)(), link_port: shell_status.link_port() }
             div { class: "tk-shell__body",
-                if !in_player {
+                if !bare {
                     NavRail {
                         current: route.nav_dest(),
                         expanded,

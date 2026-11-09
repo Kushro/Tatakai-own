@@ -250,5 +250,6 @@
   "torrent.settings.discard": "Discard",
   "torrent.settings.saved": "Torrent settings saved. Port and discovery changes apply when no torrent is playing.",
   "torrent.settings.save_failed": "Could not save the torrent settings",
-  "torrent.section.debrid": "Debrid"
+  "torrent.section.debrid": "Debrid",
+  "torrent.section.history": "History"
 }

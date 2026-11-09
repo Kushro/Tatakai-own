@@ -44,6 +44,8 @@
     <string name="torrent_section_library">Biblioteca</string>
     <string name="torrent_section_downloads">Descargas</string>
     <string name="torrent_section_settings">Ajustes</string>
+    <string name="torrent_section_history">Historial</string>
+    <string name="torrent_section_debrid">Debrid</string>
     <string name="torrent_proto_dht">DHT</string>
     <string name="torrent_proto_lsd">LSD</string>
     <string name="torrent_proto_pex">PEX</string>

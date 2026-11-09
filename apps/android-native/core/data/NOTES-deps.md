@@ -2,8 +2,10 @@
 
 No new dependencies needed beyond the frozen catalog. Wiring contract for `:app` (B2):
 
-- Koin modules: `networkModule, metadataModule, databaseModule, supabaseModule, dataModule`.
-- Koin properties: `TATAKAI_SUPABASE_URL`, `TATAKAI_SUPABASE_ANON_KEY` (from BuildConfig), optional `tatakai.appVersion`.
+- Koin modules: `networkModule, metadataModule, databaseModule, linkModule, dataModule` (parity wave A, 2026-11-09 amendment: `supabaseModule` is
+  gone; `:core:data` depends on `:core:link` for `LinkHistoryRemote`).
+- Koin properties: `TATAKAI_ANILIST_CLIENT_ID`, `TATAKAI_MAL_CLIENT_ID` (from BuildConfig, optional), optional `tatakai.appVersion`.
+  `TATAKAI_SUPABASE_*` no longer exist.
 - WorkManager: `HistorySyncWorker` uses `KoinComponent`, so Koin must be started before WorkManager runs (default initializer is fine);
   do not disable the default WorkManager initializer.
 - `:core:metadata` pulls `koin-core` (already in the catalog) for `metadataModule`.
@@ -14,3 +16,9 @@ No new dependencies needed beyond the frozen catalog. Wiring contract for `:app`
 - New Koin bindings in `dataModule`: `SourceStatsStore` (`SourceStatsStoreImpl`, Room tables `source_stats` / `picked_source`, DB version 2,
   destructive migration as before) and `HistorySyncStamp` (last successful sync, key `history_last_synced_ms` in the settings DataStore).
 - `MetadataRepositoryImpl` reads `AppSettings.metadataCacheTtlHours` for details / episode lists (feeds keep 15 min).
+
+## parity wave A (15 §3.3-3.4, 2026-11-09 amendment)
+
+- `:core:supabase` removed (module, `supabase-*` and `ktor-client-okhttp` catalog entries, `checkTatakaiConfig`, `TATAKAI_SUPABASE_*`).
+- New bindings in `dataModule`: `PendingOAuthRedirect`, `SecretStore` (`KeystoreSecretStore`), `ListsRepository`, `LogRepository` (+ `AppLog.sink`),
+  `UpdateRepository`, `AppReset`. `HistorySyncer` now takes `LinkHistoryRemote` (bound in `linkModule`) and `AppSettings.historySyncOverLink`.

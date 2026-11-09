@@ -10,7 +10,8 @@ use std::time::Duration;
 use axum::Json;
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -79,6 +80,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/pairing", post(pairing))
         .route("/v1/capabilities", get(capabilities))
         .route("/v1/library", get(library))
+        // wave A (worker f): watch-history sync between the user's devices (`crate::history`)
+        .route("/v1/history", get(history_page).post(history_push).delete(history_clear))
         .route("/v1/devices/self", delete(forget_self))
         .route("/v1/sessions", post(create_session))
         .route("/v1/sessions/{id}", get(session_state).delete(delete_session))
@@ -169,6 +172,48 @@ async fn library(State(st): State<AppState>) -> Json<serde_json::Value> {
     let truncated = items.len() > crate::library::MAX_ITEMS;
     let items: Vec<_> = items.into_iter().take(crate::library::MAX_ITEMS).collect();
     Json(json!({ "items": items, "truncated": truncated }))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct HistoryQuery {
+    /// Unix seconds, exclusive; absent / 0 = everything.
+    since: Option<i64>,
+    limit: Option<usize>,
+}
+
+/// `GET /v1/history?since=&limit=`: rows watched after `since` (unix s), oldest first (`crate::history::HistoryPage`).
+/// A malformed query is `400 request_invalid` like every other bad input (never axum's plain-text rejection).
+async fn history_page(State(st): State<AppState>, q: Result<Query<HistoryQuery>, QueryRejection>) -> ApiResult<Json<crate::history::HistoryPage>> {
+    let Query(q) = q.map_err(|_| ApiError(ErrorCode::RequestInvalid))?;
+    let since = q.since.unwrap_or(0);
+    if since < 0 {
+        return Err(ErrorCode::RequestInvalid.into());
+    }
+    let limit = crate::history::clamp_limit(q.limit);
+    let host = st.host.clone();
+    let rows = tokio::task::spawn_blocking(move || host.history_since(since, limit + 1)).await.map_err(|_| ApiError(ErrorCode::Internal))?;
+    Ok(Json(crate::history::page(rows, limit, since)))
+}
+
+/// `POST /v1/history`: merge the phone's rows into the PC history (`crate::history::HistoryPush`). Rows that do not
+/// parse (bad date, no AniList / MAL id) are dropped, not an error: the rest still merges.
+async fn history_push(State(st): State<AppState>, body: Body) -> ApiResult<Json<crate::history::HistoryPushResult>> {
+    let push: crate::history::HistoryPush = read_json(body, crate::history::MAX_BODY).await?;
+    if push.items.is_empty() || push.items.len() > crate::history::MAX_ROWS {
+        return Err(ErrorCode::RequestInvalid.into());
+    }
+    let rows: Vec<tk_core::HistoryEntry> = push.items.into_iter().filter_map(crate::history::HistoryRow::into_entry).collect();
+    let host = st.host.clone();
+    let merged = tokio::task::spawn_blocking(move || host.history_merge(rows)).await.map_err(|_| ApiError(ErrorCode::Internal))?;
+    Ok(Json(crate::history::HistoryPushResult { merged }))
+}
+
+/// `DELETE /v1/history`: the PC drops its whole history (the phone asks after the user confirmed).
+async fn history_clear(State(st): State<AppState>) -> ApiResult<StatusCode> {
+    let host = st.host.clone();
+    let ok = tokio::task::spawn_blocking(move || host.history_clear()).await.map_err(|_| ApiError(ErrorCode::Internal))?;
+    if ok { Ok(StatusCode::NO_CONTENT) } else { Err(ErrorCode::Internal.into()) }
 }
 
 async fn forget_self(State(st): State<AppState>, axum::Extension(Authed(device)): axum::Extension<Authed>) -> StatusCode {

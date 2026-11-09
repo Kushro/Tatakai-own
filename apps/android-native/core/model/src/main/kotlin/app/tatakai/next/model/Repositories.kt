@@ -11,7 +11,9 @@ import kotlinx.coroutines.flow.flowOf
 // android wave (docs/redesign/12 §3.6): every member added to an EXISTING interface has a default body so the fakes in the
 // feature tests keep compiling; the real implementations (owners in 12 §2) override them.
 // parity wave A (docs/redesign/15-parity-wave-a-contract-android.md §3): same rule. New interfaces of the wave live in their own files
-// (Lists.kt: ListsRepository; Diagnostics.kt: LogRepository, UpdateRepository).
+// (Lists.kt: ListsRepository; Diagnostics.kt: LogRepository, UpdateRepository, SecretStore, AppReset; torrent/Debrid.kt: DebridRepository).
+// 2026-11-09 amendment (plan 14 §0.1 #9): the Supabase `AuthRepository` / `UserSession` are gone. Identity = AniList and/or MAL
+// (`ListsRepository.accounts`); history syncs between the user's devices over Tatakai Link.
 
 interface MetadataRepository {
     suspend fun feed(kind: MediaKind, feed: FeedKind, page: Int = 1): FeedPage
@@ -69,6 +71,11 @@ data class MetadataCacheStats(val entries: Int, val bytes: Long)
 /** Page size of [MetadataRepository.searchCharacters]. */
 const val PER_PAGE_CHARACTERS: Int = 20
 
+/**
+ * Local watch history (Room) with the exact resume position of every episode. There is no account behind it (plan 14 §0.1 #9: Next has
+ * no own login): the rows are synced between the user's own devices over Tatakai Link (`/v1/history` of the paired PC, mTLS), and the
+ * episode COUNT reaches AniList / MAL through [ListsRepository.onEpisodeCompleted]. Without a paired PC everything stays local.
+ */
 interface HistoryRepository {
     fun continueWatching(limit: Int = 20): Flow<List<HistoryEntry>>
     suspend fun record(entry: HistoryEntry)
@@ -78,48 +85,24 @@ interface HistoryRepository {
     /** Library › Historial: one row per watched episode, newest first (not grouped per series like [continueWatching]). */
     fun history(limit: Int = 200): Flow<List<HistoryEntry>> = continueWatching(limit)
 
-    /** "Sincronizar ahora" (You account card, Library): push pending rows and pull remote ones now. Success without an account = no-op. */
+    /**
+     * "Sincronizar ahora" (You, Library, Settings › Enlace): push dirty rows to the paired PC and pull its recent ones over Tatakai Link.
+     * Success without a paired PC (or with `AppSettings.historySyncOverLink` off) = no-op.
+     */
     suspend fun syncNow(): Result<Unit> = Result.success(Unit)
 
-    /** Epoch ms of the last successful sync; null = never / no account. */
+    /** Epoch ms of the last successful Link sync; null = never / no paired PC. */
     val lastSyncedAt: StateFlow<Long?> get() = NO_SYNC
 
     // --- parity wave A (15 §3.4, worker q) ---
     /** Settings › Datos › Exportar historial: JSON array of every local row (the desktop export format), newest first. */
     suspend fun exportJson(): String = "[]"
 
-    /** Settings › Datos › Borrar historial (with confirmation): local rows, and the remote ones too when [includeRemote] and signed in. */
+    /**
+     * Settings › Datos › Borrar historial (with confirmation): local rows. [includeRemote] is kept for desktop parity, but Link v1 has
+     * no `DELETE /v1/history`, so in wave A it only resets the Link cursor (the PC's copy is cleared on the PC; KNOWN-ISSUES).
+     */
     suspend fun clearHistory(includeRemote: Boolean): Result<Unit> = Result.failure(NotImplementedError("clearHistory"))
-}
-
-interface AuthRepository {
-    val session: StateFlow<UserSession?>
-    suspend fun signIn(email: String, password: String): Result<Unit>
-    suspend fun signOut()
-
-    // --- parity wave A (15 §3.4, worker q): Supabase GoTrue sign-up, email OTP and password recovery (classic AuthPage.tsx). ---
-    /** Creates the account ([username] goes to `profiles.username` as in the classic app); GoTrue then emails a 6-digit code to confirm. */
-    suspend fun signUp(email: String, password: String, username: String? = null): Result<Unit> =
-        Result.failure(NotImplementedError("signUp"))
-
-    /** Confirms the email with the code (`verifyOtp` type `signup` / `email` / `email_change`). On success the session is active. */
-    suspend fun verifyEmail(email: String, code: String): Result<Unit> = Result.failure(NotImplementedError("verifyEmail"))
-
-    suspend fun resendVerification(email: String): Result<Unit> = Result.failure(NotImplementedError("resendVerification"))
-
-    /** Sends the password-recovery email (`resetPasswordForEmail`, type `recovery`); [resetPassword] finishes it with the emailed code. */
-    suspend fun requestPasswordReset(email: String): Result<Unit> = Result.failure(NotImplementedError("requestPasswordReset"))
-
-    /** `verifyOtp(recovery)` + `updateUser(password)`: the classic ResetPasswordPage flow, in-app. */
-    suspend fun resetPassword(email: String, code: String, newPassword: String): Result<Unit> =
-        Result.failure(NotImplementedError("resetPassword"))
-
-    /** Signed in: re-authenticates with [currentPassword] and sets [newPassword]. */
-    suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> =
-        Result.failure(NotImplementedError("changePassword"))
-
-    /** Signed in: `updateUser(email)`; GoTrue emails a code that [verifyEmail] confirms (type `email_change`). */
-    suspend fun changeEmail(newEmail: String): Result<Unit> = Result.failure(NotImplementedError("changeEmail"))
 }
 
 interface SettingsRepository {

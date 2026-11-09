@@ -48,7 +48,7 @@ Space Grotesk, Outfit and JetBrains Mono: **SIL Open Font License 1.1**. Ship ea
 
 ## 6. Services
 
-No usage-tracking or crash-reporting code (see apps/README.md, rule 3). Network: the user's own Supabase project, AniList, ani.zip, Kitsu, hosts allowed by installed extensions, and paired phones on the LAN.
+No usage-tracking or crash-reporting code (see apps/README.md, rule 3). Network: AniList and MyAnimeList (OAuth, lists), ani.zip, Kitsu, trace.moe, GitHub Releases (update notice), the translation / debrid services the user configures, hosts allowed by installed extensions, Discord's local IPC socket, and paired phones on the LAN (Tatakai Link, incl. the watch-history sync). No own account service.
 
 ## Code copied or adapted from the author's own repositories
 

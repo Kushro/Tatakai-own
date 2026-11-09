@@ -3,7 +3,7 @@ package app.tatakai.next.data
 import app.tatakai.next.database.HistoryDao
 import app.tatakai.next.model.HistoryEntry
 import app.tatakai.next.model.HistoryRepository
-import app.tatakai.next.supabase.SupabaseNotConfiguredException
+import app.tatakai.next.link.LinkHistoryUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,7 +52,7 @@ class HistoryRepositoryImpl(
     override fun history(limit: Int): Flow<List<HistoryEntry>> =
         dao.observeRecent(limit.coerceAtLeast(1)).map { rows -> rows.map { it.toEntry() } }
 
-    /** Push pending rows and pull the remote ones now. Signed out / Supabase not configured = success (nothing to do). */
+    /** Push dirty rows to the paired PC and pull its recent ones now (Tatakai Link). No PC paired / sync disabled = success (nothing to do). */
     override suspend fun syncNow(): Result<Unit> {
         val s = syncer ?: return Result.success(Unit)
         return try {
@@ -60,10 +60,10 @@ class HistoryRepositoryImpl(
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
-        } catch (_: SupabaseNotConfiguredException) {
+        } catch (_: LinkHistoryUnavailableException) {
             Result.success(Unit)
         } catch (e: Exception) {
-            // SessionExpiredException included: the UI shows the error and the account card offers to sign in again
+            // LinkException (PC offline, busy): the UI shows the error and offers to retry
             Result.failure(e)
         }
     }

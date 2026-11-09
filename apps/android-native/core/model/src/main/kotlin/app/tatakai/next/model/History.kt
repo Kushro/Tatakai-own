@@ -3,8 +3,9 @@ package app.tatakai.next.model
 import java.time.Instant
 
 /**
- * Keys follow contracts/supabase/m0-tables.md (E9): [animeId] = String(anilistId) or "mal:<malId>",
- * [episodeId] = "<animeId>?ep=<episode>". [completed] when progress/duration >= 0.9.
+ * Keys keep the legacy `watch_history` shape (contracts/supabase/m0-tables.md E9, now only a key convention shared with desktop and the
+ * Tatakai Link `/v1/history` rows): [animeId] = String(anilistId) or "mal:<malId>", [episodeId] = "<animeId>?ep=<episode>".
+ * [completed] when progress/duration >= 0.9. [progressSec] is the exact resume position that syncs between the user's devices.
  */
 data class HistoryEntry(
     val animeId: String,

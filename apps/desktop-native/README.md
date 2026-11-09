@@ -7,9 +7,9 @@ of [`docs/redesign/09-wave2-contract.md`](../../docs/redesign/09-wave2-contract.
 
 | Crate | What |
 |---|---|
-| `tk-core` | metadata router, storage (SQLite), history, Supabase REST |
+| `tk-core` | metadata router, storage (SQLite), history, secrets, AniList / MAL lists (no own account: plan 14 section 0.1 #9) |
 | `tk-ext` | extension host (rquickjs), JS prelude, permission-gated `fetch`, browser runtime for Cloudflare bypass |
-| `tk-link` | Tatakai Link server (phone pairing, FFmpeg upscale sessions) |
+| `tk-link` | Tatakai Link server (phone pairing, FFmpeg upscale sessions, watch-history sync with the phone) |
 | `tk-player` | libmpv player, engine modes, external mpv over JSON IPC; `NullPlayer` without the `mpv` feature |
 | `tk-ui` | Dioxus UI; talks to the app only through the `Backend` trait (`src/backend.rs`) |
 | `tk-app` | the `tatakai-next` binary: wiring and the live `Backend` (`src/live/*`) |

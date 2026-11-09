@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit
  * [JsHost] for one extension: `fetch` gated by the manifest's `network:domain:*` permissions (initial host) and by the SSRF policy on
  * EVERY hop and resolved address (DNS is resolved here, so a rebinding answer is validated at connect time). No cookie jar,
  * max 5 redirects (followed manually; Cookie/Authorization dropped on origin change), 30 s call timeout, 25 MiB response cap.
- * No Supabase session or app credential is ever added to a request.
+ * No OAuth token or app credential is ever added to a request.
  */
 class OkHttpJsHost(
     override val networkPolicy: NetworkPolicy,

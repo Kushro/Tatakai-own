@@ -95,8 +95,9 @@ pub struct TranslationPrefs {
     pub provider: TranslationProviderVm,
     /// DeepLX / OpenAI-compatible base URL; empty = provider default.
     pub endpoint: String,
-    /// API key where the provider needs one. Stored in the settings file like the classic app did.
-    pub api_key: String,
+    // No `api_key` here (plan 14 decision, 2026-11-09): provider keys live in `tk_core::Secrets` under
+    // `keys::translation(provider.id())`, written through `Backend::set_translation_key`. A legacy `api_key` field in
+    // an old `ui-settings.json` is ignored by serde.
     /// OpenAI-compatible model name.
     pub model: String,
     /// Azure region.
@@ -114,7 +115,6 @@ impl Default for TranslationPrefs {
         Self {
             provider: TranslationProviderVm::Off,
             endpoint: String::new(),
-            api_key: String::new(),
             model: String::new(),
             region: String::new(),
             target_lang: "es".to_owned(),
@@ -126,7 +126,7 @@ impl Default for TranslationPrefs {
 
 impl TranslationPrefs {
     pub fn sanitized(mut self) -> Self {
-        for f in [&mut self.endpoint, &mut self.api_key, &mut self.model, &mut self.region] {
+        for f in [&mut self.endpoint, &mut self.model, &mut self.region] {
             *f = f.trim().to_owned();
         }
         self.target_lang = self.target_lang.trim().to_ascii_lowercase();

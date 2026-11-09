@@ -6,5 +6,8 @@
   "lib.watched_on": "Watched {when}",
   "lib.empty.title": "Nothing here yet",
   "lib.empty.body": "Episodes you watch show up here to continue later.",
-  "settings.accounts": "Accounts"
+  "settings.accounts": "Accounts",
+  "lists.sync_now": "Sync lists",
+  "lists.synced": "Lists synced {when}",
+  "lists.not_connected": "Connect AniList or MAL in Settings > Accounts to sync your lists. History stays on this PC and syncs with your phone over Tatakai Link."
 }

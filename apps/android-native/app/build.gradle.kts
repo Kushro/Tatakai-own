@@ -1,5 +1,5 @@
-// Placeholder from B1 (m3e/foundation). B2 (m3e/android-shell) owns :app and may overwrite everything below
-// EXCEPT the Supabase BuildConfig injection (E8) which must be preserved.
+// :app (m3e/android-shell). parity wave A, 2026-11-09 amendment (plan 14 §0.1 #9): the Supabase BuildConfig injection (E8) and the
+// `checkTatakaiConfig` task are gone with the own login. The only injected values are the optional OAuth client ids of the list providers.
 import java.util.Properties
 
 plugins {
@@ -7,17 +7,15 @@ plugins {
     id("tatakai.android.compose")
 }
 
-// E8 - config injection. Values come from (in order): local.properties, then environment variables.
-// Nothing is committed. The build FAILS (task checkTatakaiConfig, wired to preBuild) when they are missing;
-// `./gradlew help`, `dependencies` and other module builds are unaffected.
+// Config injection. Values come from (in order): local.properties, then environment variables. Nothing is committed and nothing is
+// required: without a client id, Settings › Listas y cuentas shows "Vincular" disabled with the reason.
 val localProps = Properties().apply {
     rootProject.file("local.properties").takeIf { it.isFile }?.inputStream()?.use { load(it) }
 }
 fun cfg(name: String): String = (localProps.getProperty(name) ?: System.getenv(name) ?: "").trim()
 
-val supabaseUrl = cfg("TATAKAI_SUPABASE_URL")
-val supabaseAnonKey = cfg("TATAKAI_SUPABASE_ANON_KEY")
-// parity wave A (docs/redesign/15 §3.3): OAuth client ids of the list providers (optional: empty = "Vincular" disabled with a hint).
+// parity wave A (docs/redesign/15 §3.3): OAuth client ids of the list providers (public ids; one per platform because AniList allows one
+// redirect per client).
 val anilistClientId = cfg("TATAKAI_ANILIST_CLIENT_ID")
 val malClientId = cfg("TATAKAI_MAL_CLIENT_ID")
 fun String.asBuildConfigString() = "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
@@ -29,8 +27,6 @@ android {
         applicationId = "app.tatakai.own.next"
         versionCode = 1
         versionName = "0.1.0-m0"
-        buildConfigField("String", "TATAKAI_SUPABASE_URL", supabaseUrl.asBuildConfigString())
-        buildConfigField("String", "TATAKAI_SUPABASE_ANON_KEY", supabaseAnonKey.asBuildConfigString())
         buildConfigField("String", "TATAKAI_ANILIST_CLIENT_ID", anilistClientId.asBuildConfigString())
         buildConfigField("String", "TATAKAI_MAL_CLIENT_ID", malClientId.asBuildConfigString())
     }
@@ -41,24 +37,6 @@ android {
     lint { checkReleaseBuilds = false }
 }
 
-val checkTatakaiConfig by tasks.registering {
-    group = "verification"
-    description = "Fails if TATAKAI_SUPABASE_URL / TATAKAI_SUPABASE_ANON_KEY are not provided (local.properties or env)."
-    val url = supabaseUrl
-    val key = supabaseAnonKey
-    doLast {
-        val missing = listOfNotNull(
-            "TATAKAI_SUPABASE_URL".takeIf { url.isBlank() },
-            "TATAKAI_SUPABASE_ANON_KEY".takeIf { key.isBlank() },
-        )
-        check(missing.isEmpty()) {
-            "Missing ${missing.joinToString()}: set them in apps/android-native/local.properties " +
-                "(see local.properties.example) or as environment variables."
-        }
-    }
-}
-tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(checkTatakaiConfig) }
-
 dependencies {
     implementation(projects.core.model)
     implementation(projects.core.designsystem)
@@ -66,7 +44,6 @@ dependencies {
     implementation(projects.core.network)
     implementation(projects.core.metadata)
     implementation(projects.core.database)
-    implementation(projects.core.supabase)
     implementation(projects.core.data)
     implementation(projects.core.extensions)
     implementation(projects.core.extensionsQuickjs)

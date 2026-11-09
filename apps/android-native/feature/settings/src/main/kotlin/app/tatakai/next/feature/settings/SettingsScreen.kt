@@ -28,7 +28,6 @@ import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Palette
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Sync
@@ -138,8 +137,7 @@ internal val SETTINGS_SECTIONS: List<SettingsSection> = listOf(
     SettingsSection.APPEARANCE,
     SettingsSection.PLAYER,
     SettingsSection.METADATA,
-    SettingsSection.ACCOUNT,
-    // parity wave A (15 §3.3, worker q): AniList / MAL accounts right after the Supabase account.
+    // parity wave A (15 §3.3, worker q): AniList / MAL accounts, the app's only identity (2026-11-09: no own login).
     SettingsSection.ACCOUNTS,
     SettingsSection.LINK,
     SettingsSection.TORRENTS,
@@ -151,7 +149,6 @@ internal fun SettingsSection.icon(): ImageVector = when (this) {
     SettingsSection.APPEARANCE -> Icons.Outlined.Palette
     SettingsSection.PLAYER -> Icons.Outlined.PlayCircle
     SettingsSection.METADATA -> Icons.Outlined.Sync
-    SettingsSection.ACCOUNT -> Icons.Outlined.Person
     SettingsSection.ACCOUNTS -> Icons.Outlined.Bookmarks
     SettingsSection.LINK -> Icons.Outlined.Link
     SettingsSection.TORRENTS -> Icons.Outlined.Download
@@ -163,7 +160,6 @@ internal fun SettingsSection.titleRes(): Int = when (this) {
     SettingsSection.APPEARANCE -> R.string.settings_appearance
     SettingsSection.PLAYER -> R.string.settings_player
     SettingsSection.METADATA -> R.string.settings_metadata
-    SettingsSection.ACCOUNT -> R.string.settings_account
     SettingsSection.ACCOUNTS -> R.string.settings_accounts
     SettingsSection.LINK -> R.string.settings_link
     SettingsSection.TORRENTS -> UiR.string.nav_torrents
@@ -308,9 +304,8 @@ private fun SettingsList(
                     SettingsSection.APPEARANCE -> AppearanceSection(state, viewModel)
                     SettingsSection.PLAYER -> PlayerSection(state, viewModel, onOpenExtensions)
                     SettingsSection.METADATA -> MetadataSection(state, viewModel)
-                    SettingsSection.ACCOUNT -> AccountSection(state, viewModel)
                     SettingsSection.ACCOUNTS -> AccountsSection(state, viewModel)
-                    SettingsSection.LINK -> LinkSection(onOpenLinked)
+                    SettingsSection.LINK -> LinkSection(state, viewModel, onOpenLinked)
                     SettingsSection.TORRENTS -> TorrentsSection(onOpenTorrents)
                     SettingsSection.DATA -> DataSection(state, viewModel)
                     SettingsSection.ABOUT -> AboutSection()

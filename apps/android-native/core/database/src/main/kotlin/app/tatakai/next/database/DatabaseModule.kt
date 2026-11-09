@@ -19,7 +19,7 @@ abstract class TatakaiDatabase : RoomDatabase() {
 
         fun build(context: Context): TatakaiDatabase =
             Room.databaseBuilder(context.applicationContext, TatakaiDatabase::class.java, NAME)
-                // v1: no migrations yet; history is re-fetched from Supabase when signed in.
+                // v1: no migrations yet; history is re-fetched from the paired PC (Tatakai Link) when one exists.
                 // v2 (android wave, 12 §4 a): + source_stats / picked_source. Still destructive (accepted, KNOWN-ISSUES): local
                 // unsynced history, source reliabilities and manual picks are dropped on the upgrade.
                 .fallbackToDestructiveMigration(dropAllTables = true)

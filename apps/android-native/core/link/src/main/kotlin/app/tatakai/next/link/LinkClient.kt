@@ -133,6 +133,30 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
     suspend fun forgetSelf(): LinkResult<Unit> =
         LinkHttp.exchange(client, LinkHttp.request(url("v1/devices/self")).delete().build(), MAX_JSON) { _, _ -> Unit }
 
+    // --- parity wave A, 2026-11-09 amendment (history over Link; see LinkHistoryClient.kt, desktop contract §3.8). Owner afterwards: worker q. ---
+
+    /** `GET /v1/history?since=<unix s>&limit=<1..=500>`: rows with watchedAt > [sinceUnix] (0 = all), oldest first, with the next cursor. */
+    suspend fun historySince(sinceUnix: Long, limit: Int = MAX_HISTORY_ROWS): LinkResult<LinkHistoryPageDto> {
+        val target = url("v1/history").newBuilder()
+            .addQueryParameter("since", sinceUnix.coerceAtLeast(0L).toString())
+            .addQueryParameter("limit", limit.coerceIn(1, MAX_HISTORY_ROWS).toString())
+            .build()
+        return LinkHttp.exchange(client, LinkHttp.request(target).get().build(), MAX_HISTORY) { _, b ->
+            LinkHttp.json.decodeFromString(LinkHistoryPageDto.serializer(), b.decodeToString())
+        }
+    }
+
+    /** `POST /v1/history` with the phone's dirty rows (1..[MAX_HISTORY_ROWS], <= 256 KiB); the PC merges them and answers how many entered. */
+    suspend fun historyPush(rows: List<LinkHistoryRow>): LinkResult<LinkHistoryPushResultDto> {
+        if (rows.isEmpty() || rows.size > MAX_HISTORY_ROWS) return LinkResult.Failure(LinkError.Api(LinkApiError.RequestInvalid))
+        val body = LinkHttp.json.encodeToString(LinkHistoryPushDto.serializer(), LinkHistoryPushDto(rows)).toByteArray(Charsets.UTF_8)
+        if (body.size > MAX_JSON) return LinkResult.Failure(LinkError.Api(LinkApiError.BodyTooLarge))
+        val request = LinkHttp.request(url("v1/history")).post(body.toRequestBody(LinkHttp.JSON_TYPE)).build()
+        return LinkHttp.exchange(client, request, MAX_JSON) { _, b ->
+            LinkHttp.json.decodeFromString(LinkHistoryPushResultDto.serializer(), b.decodeToString())
+        }
+    }
+
     /** Absolute URL of a `playback_path` returned by the PC (same origin as this client). */
     fun playbackUrl(playbackPath: String): String = baseUrl.newBuilder().encodedPath(playbackPath).build().toString()
 
@@ -155,6 +179,9 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
     companion object {
         private const val MAX_JSON = 256L * 1024
         private const val MAX_LIBRARY = 8L * 1024 * 1024
+        private const val MAX_HISTORY = 2L * 1024 * 1024
+        /** `tk-link::history::MAX_ROWS` (desktop contract §3.8). */
+        const val MAX_HISTORY_ROWS = 500
         val SESSION_ID = Regex("""[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}""")
     }
 }

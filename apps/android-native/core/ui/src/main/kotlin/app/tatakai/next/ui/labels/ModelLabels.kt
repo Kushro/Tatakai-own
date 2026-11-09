@@ -36,6 +36,8 @@ fun TorrentSection.labelRes(): Int = when (this) {
     TorrentSection.TRACKERS -> R.string.torrent_section_trackers
     TorrentSection.LIBRARY -> R.string.torrent_section_library
     TorrentSection.DOWNLOADS -> R.string.torrent_section_downloads
+    TorrentSection.HISTORY -> R.string.torrent_section_history
+    TorrentSection.DEBRID -> R.string.torrent_section_debrid
     TorrentSection.SETTINGS -> R.string.torrent_section_settings
 }
 

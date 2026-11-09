@@ -59,8 +59,10 @@ import app.tatakai.next.designsystem.components.Pill
 import app.tatakai.next.designsystem.components.PillTone
 import app.tatakai.next.designsystem.components.SkeletonBox
 import app.tatakai.next.designsystem.components.rememberAfterDelay
+import app.tatakai.next.model.ListProvider
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.ui.format.relativeTime
+import app.tatakai.next.ui.labels.labelRes
 import app.tatakai.next.ui.state.screenInsets
 import app.tatakai.next.ui.state.userMessage
 import org.koin.compose.viewmodel.koinViewModel
@@ -79,10 +81,10 @@ fun YouScreen(
     onOpenExtensions: () -> Unit,
     onOpenLinked: () -> Unit,
     onOpenSettings: () -> Unit,
-    onSignIn: () -> Unit,
     modifier: Modifier = Modifier,
-    // --- parity wave A (docs/redesign/15 §3.3, worker q): appended, wired by :app ---
-    /** "Listas y cuentas" row (AniList / MAL) -> Route.SettingsSection(ACCOUNTS). */
+    // --- parity wave A (docs/redesign/15 §3.3, worker q): wired by :app. 2026-11-09 amendment: the Supabase sign-in callback is
+    // gone; the account card's button and the "Listas y cuentas" row both lead here. ---
+    /** AniList / MAL accounts -> Route.SettingsSection(ACCOUNTS). */
     onOpenAccounts: () -> Unit = {},
 ) {
     val viewModel: YouViewModel = koinViewModel()
@@ -111,7 +113,7 @@ fun YouScreen(
         onOpenExtensions = onOpenExtensions,
         onOpenLinked = onOpenLinked,
         onOpenSettings = onOpenSettings,
-        onSignIn = onSignIn,
+        onOpenAccounts = onOpenAccounts,
         modifier = modifier,
     )
 }
@@ -126,7 +128,7 @@ internal fun YouContent(
     onOpenExtensions: () -> Unit,
     onOpenLinked: () -> Unit,
     onOpenSettings: () -> Unit,
-    onSignIn: () -> Unit,
+    onOpenAccounts: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Scaffold(modifier = modifier, contentWindowInsets = screenInsets) { padding ->
@@ -153,7 +155,7 @@ internal fun YouContent(
                         )
                     }
                     item(key = "account", contentType = "account") {
-                        AccountCard(overview.value, syncing = state.syncing, onSyncNow = onSyncNow, onSignIn = onSignIn)
+                        AccountCard(overview.value, syncing = state.syncing, onSyncNow = onSyncNow, onOpenAccounts = onOpenAccounts)
                     }
                     item(key = "list", contentType = "list") {
                         YouList(
@@ -172,8 +174,9 @@ internal fun YouContent(
 }
 
 @Composable
-private fun AccountCard(overview: YouOverview, syncing: Boolean, onSyncNow: () -> Unit, onSignIn: () -> Unit) {
-    val session = overview.session
+private fun AccountCard(overview: YouOverview, syncing: Boolean, onSyncNow: () -> Unit, onOpenAccounts: () -> Unit) {
+    // 2026-11-09 amendment (no own login): the identity is the linked AniList / MAL account(s); the history syncs with the paired PC.
+    val primary = overview.accounts.firstOrNull { it.provider == ListProvider.ANILIST } ?: overview.accounts.firstOrNull()
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = MaterialTheme.shapes.extraLarge,
@@ -181,38 +184,50 @@ private fun AccountCard(overview: YouOverview, syncing: Boolean, onSyncNow: () -
     ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Avatar(session?.email)
+                Avatar(primary?.username)
                 Column(Modifier.weight(1f)) {
                     Text(
-                        session?.email ?: stringResource(R.string.you_guest_name),
+                        primary?.username ?: stringResource(R.string.you_guest_name),
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    val subtitle = when {
-                        session == null -> stringResource(R.string.you_guest)
-                        overview.lastSyncedAt != null -> stringResource(R.string.you_synced, relativeTime(overview.lastSyncedAt))
-                        else -> stringResource(R.string.you_never_synced)
+                    val subtitle = if (overview.accounts.isEmpty()) {
+                        stringResource(R.string.you_guest)
+                    } else {
+                        overview.accounts.joinToString(" · ") { stringResource(it.provider.labelRes()) }
                     }
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val linked = overview.linked
+                    val historyLine = when {
+                        linked is LinkedSummary.Paired && overview.lastSyncedAt != null ->
+                            stringResource(R.string.you_history_link, linked.name, relativeTime(overview.lastSyncedAt))
+                        linked is LinkedSummary.Paired -> stringResource(R.string.you_history_link_never, linked.name)
+                        else -> stringResource(R.string.you_history_local)
+                    }
+                    Text(historyLine, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (session != null) {
-                FilledTonalButton(onClick = onSyncNow, enabled = !syncing) {
-                    if (syncing) {
-                        LoadingIndicator(Modifier.size(20.dp))
-                    } else {
-                        Icon(Icons.Outlined.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (overview.linked is LinkedSummary.Paired) {
+                    FilledTonalButton(onClick = onSyncNow, enabled = !syncing) {
+                        if (syncing) {
+                            LoadingIndicator(Modifier.size(20.dp))
+                        } else {
+                            Icon(Icons.Outlined.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                        Text(
+                            stringResource(if (syncing) R.string.you_syncing else R.string.you_sync_now),
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
                     }
+                }
+                FilledTonalButton(onClick = onOpenAccounts) {
+                    Icon(Icons.Outlined.Person, contentDescription = null, modifier = Modifier.size(18.dp))
                     Text(
-                        stringResource(if (syncing) R.string.you_syncing else R.string.you_sync_now),
+                        stringResource(if (overview.accounts.isEmpty()) R.string.you_sign_in else R.string.you_accounts),
                         modifier = Modifier.padding(start = 8.dp),
                     )
-                }
-            } else {
-                FilledTonalButton(onClick = onSignIn) {
-                    Icon(Icons.Outlined.Person, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(stringResource(R.string.you_sign_in), modifier = Modifier.padding(start = 8.dp))
                 }
             }
         }
@@ -220,12 +235,12 @@ private fun AccountCard(overview: YouOverview, syncing: Boolean, onSyncNow: () -
 }
 
 @Composable
-private fun Avatar(email: String?) {
+private fun Avatar(username: String?) {
     Box(
         Modifier.size(56.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
         contentAlignment = Alignment.Center,
     ) {
-        val initial = email?.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()
+        val initial = username?.firstOrNull { it.isLetterOrDigit() }?.uppercaseChar()
         if (initial != null) {
             Text(initial.toString(), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
         } else {

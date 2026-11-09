@@ -128,6 +128,22 @@ CREATE TABLE IF NOT EXISTS debrid_cache (
   checked_at  INTEGER NOT NULL,
   PRIMARY KEY (service, info_hash)
 );
+-- wave A, worker i: torrent session history (one row per torrent the engine ran; classic 'Session history')
+CREATE TABLE IF NOT EXISTS torrent_sessions (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  torrent_id       TEXT NOT NULL,
+  info_hash        TEXT NOT NULL,
+  name             TEXT NOT NULL,
+  media_id         TEXT,
+  series           TEXT,
+  episode          INTEGER,
+  started_at       INTEGER NOT NULL,
+  ended_at         INTEGER,
+  downloaded_bytes INTEGER NOT NULL DEFAULT 0,
+  uploaded_bytes   INTEGER NOT NULL DEFAULT 0,
+  completed        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_torrent_sessions_started ON torrent_sessions (started_at DESC);
 ";
 
 pub struct LocalStore {
@@ -180,7 +196,8 @@ impl LocalStore {
 
     // ---- history ---------------------------------------------------------------------------------
 
-    /// Local write (marks the row dirty for the next Supabase sync). Newest `watched_at` wins over the stored row.
+    /// Local write. Newest `watched_at` wins over the stored row. The `dirty` flag survives from the removed cloud
+    /// sync and is unused (Tatakai Link syncs by `watched_at`, see [`LocalStore::history_since`]).
     pub fn record_history(&self, e: &HistoryEntry) -> Result<(), StoreError> {
         self.put_history(e, true)
     }
@@ -209,7 +226,8 @@ impl LocalStore {
         })
     }
 
-    /// Merge rows pulled from Supabase (newest wins, tie -> higher progress). Merged rows are not dirty.
+    /// Merge rows received from another of the user's devices over Tatakai Link (`POST /v1/history`, wave A worker
+    /// f) or from an import: newest wins, tie -> higher progress. Merged rows are not dirty.
     pub fn merge_remote(&self, remote: &[HistoryEntry]) -> Result<(), StoreError> {
         for e in remote {
             self.put_history(e, false)?;
@@ -222,6 +240,23 @@ impl LocalStore {
             let mut st = c.prepare("SELECT * FROM history ORDER BY watched_at DESC LIMIT ?1")?;
             st.query_map([limit], row_to_entry)?.collect()
         })
+    }
+
+    /// Rows watched strictly after `since_unix` (unix seconds; `<= 0` = everything), OLDEST first, at most `limit`:
+    /// the page `GET /v1/history?since=` serves to a paired phone (wave A, worker f; `tk-link::history`, canonical
+    /// wire shared with the Android client). `watched_at` is stored with second precision.
+    pub fn history_since_unix(&self, since_unix: i64, limit: u32) -> Result<Vec<HistoryEntry>, StoreError> {
+        let since = ts(&OffsetDateTime::from_unix_timestamp(since_unix.max(0)).unwrap_or(OffsetDateTime::UNIX_EPOCH));
+        self.with(|c| {
+            let mut st = c.prepare("SELECT * FROM history WHERE watched_at > ?1 ORDER BY watched_at ASC LIMIT ?2")?;
+            st.query_map(params![since, limit], row_to_entry)?.collect()
+        })
+    }
+
+    /// Delete every history row (Settings > Data "Clear watch history", `DELETE /v1/history` from a paired phone).
+    /// Returns the rows removed.
+    pub fn clear_history(&self) -> Result<usize, StoreError> {
+        self.with(|c| c.execute("DELETE FROM history", []))
     }
 
     pub fn continue_watching(&self, limit: usize) -> Result<Vec<HistoryEntry>, StoreError> {
@@ -410,6 +445,21 @@ mod tests {
         assert_eq!(s.history(5).unwrap()[0].progress_sec, 400);
         s.merge_remote(&[entry(1, 1, 10, 200)]).unwrap(); // newer wins even with less progress
         assert_eq!(s.history(5).unwrap()[0].progress_sec, 10);
+    }
+
+    #[test]
+    fn history_since_unix_is_oldest_first_exclusive_and_clear_empties() {
+        let s = LocalStore::open_in_memory().unwrap();
+        s.record_history(&entry(1, 1, 100, 10)).unwrap();
+        s.record_history(&entry(1, 2, 100, 20)).unwrap();
+        s.record_history(&entry(2, 1, 100, 30)).unwrap();
+        let all = s.history_since_unix(0, 10).unwrap();
+        assert_eq!(all.iter().map(|e| e.episode_id.as_str()).collect::<Vec<_>>(), ["1?ep=1", "1?ep=2", "2?ep=1"]);
+        assert_eq!(s.history_since_unix(10, 10).unwrap().len(), 2, "the row AT the cursor is not repeated");
+        assert_eq!(s.history_since_unix(10, 1).unwrap()[0].episode_id, "1?ep=2", "oldest first after the cursor");
+        assert!(s.history_since_unix(30, 10).unwrap().is_empty());
+        assert_eq!(s.clear_history().unwrap(), 3);
+        assert!(s.history(10).unwrap().is_empty());
     }
 
     #[test]

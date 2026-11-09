@@ -16,8 +16,8 @@ const val PROP_APP_VERSION = "tatakai.appVersion"
 /**
  * The single shared OkHttp client for third-party public APIs (AniList, ani.zip, Kitsu, images).
  *
- * It deliberately has NO authentication interceptor: the Supabase session lives in :core:supabase (its own Ktor
- * engine, restricted to the configured Supabase URL) and must never be attached to third-party hosts.
+ * It deliberately has NO authentication interceptor: the AniList / MAL OAuth tokens live in :core:data (ListsRepositoryImpl adds
+ * them per request to graphql.anilist.co / api.myanimelist.net only) and must never be attached to third-party hosts.
  */
 object HttpClientFactory {
     const val CACHE_BYTES = 20L * 1024 * 1024
