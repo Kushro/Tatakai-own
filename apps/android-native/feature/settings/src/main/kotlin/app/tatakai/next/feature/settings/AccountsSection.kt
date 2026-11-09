@@ -60,6 +60,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.tatakai.next.designsystem.components.LocalAppSnackbar
 import app.tatakai.next.designsystem.components.Pill
 import app.tatakai.next.designsystem.components.PillTone
+import app.tatakai.next.data.InitialSyncMode
 import app.tatakai.next.model.ConflictChoice
 import app.tatakai.next.model.LinkedAccount
 import app.tatakai.next.model.ListConflict
@@ -172,9 +173,12 @@ internal fun AccountsSection(state: SettingsUiState, vm: SettingsViewModel) {
                 error = ui.linkError?.takeIf { it.first == provider || it.first == null }?.second,
                 onLink = { accountsVm.link(provider) },
                 onUnlink = { confirmUnlink = provider },
+                firstSyncPending = provider in ui.firstSyncPending,
+                onSyncMode = { accountsVm.askSyncMode(provider) }.takeIf { !ui.syncing },
             )
         }
     }
+    SyncModeSheet(ui, accountsVm)
 
     // queue + sync
     SettingRow(
@@ -308,7 +312,71 @@ internal fun OnboardingProviderCards(accountsVm: AccountsViewModel) {
                 error = ui.linkError?.takeIf { it.first == provider || it.first == null }?.second,
                 onLink = { accountsVm.link(provider) },
                 onUnlink = { accountsVm.unlink(provider) },
+                firstSyncPending = provider in ui.firstSyncPending,
+                onSyncMode = { accountsVm.askSyncMode(provider) }.takeIf { !ui.syncing },
             )
+        }
+    }
+    SyncModeSheet(ui, accountsVm)
+}
+
+/**
+ * `lists.import-export`: how to sync a linked provider — merge (default), import the remote list over the local one, or export the
+ * local list over the remote one. Opens by itself after linking while the local list has titles (the first sync waits for it), and
+ * from the card's "Importar / exportar" at any time. "Más tarde" keeps a pending first sync pending.
+ */
+@Composable
+private fun SyncModeSheet(ui: AccountsUiState, accountsVm: AccountsViewModel) {
+    val provider = ui.syncModeSheet ?: return
+    val name = stringResource(provider.labelRes())
+    val first = provider in ui.firstSyncPending
+    AlertDialog(
+        onDismissRequest = accountsVm::dismissSyncMode,
+        icon = { Icon(Icons.Outlined.CloudSync, contentDescription = null) },
+        title = { Text(stringResource(R.string.settings_accounts_sync_mode_title, name)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    stringResource(if (first) R.string.settings_accounts_sync_mode_body_first else R.string.settings_accounts_sync_mode_body, name),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                SyncModeOption(
+                    title = stringResource(R.string.settings_accounts_mode_merge),
+                    hint = stringResource(R.string.settings_accounts_mode_merge_hint),
+                    primary = true,
+                    onClick = { accountsVm.syncWithMode(provider, InitialSyncMode.MERGE) },
+                )
+                SyncModeOption(
+                    title = stringResource(R.string.settings_accounts_mode_import, name),
+                    hint = stringResource(R.string.settings_accounts_mode_import_hint, name),
+                    onClick = { accountsVm.syncWithMode(provider, InitialSyncMode.IMPORT) },
+                )
+                SyncModeOption(
+                    title = stringResource(R.string.settings_accounts_mode_export, name),
+                    hint = stringResource(R.string.settings_accounts_mode_export_hint, name),
+                    onClick = { accountsVm.syncWithMode(provider, InitialSyncMode.EXPORT) },
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = accountsVm::dismissSyncMode) {
+                Text(stringResource(if (first) R.string.settings_accounts_mode_later else app.tatakai.next.ui.R.string.ui_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun SyncModeOption(title: String, hint: String, onClick: () -> Unit, primary: Boolean = false) {
+    Surface(
+        onClick = onClick,
+        color = if (primary) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -322,6 +390,9 @@ private fun ProviderCard(
     error: AccountsError?,
     onLink: () -> Unit,
     onUnlink: () -> Unit,
+    firstSyncPending: Boolean = false,
+    /** Opens the import / export / merge sheet (lists.import-export); null hides the action (no account, or a sync running). */
+    onSyncMode: (() -> Unit)? = null,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -353,6 +424,17 @@ private fun ProviderCard(
                     linking -> LoadingIndicator(Modifier.size(32.dp))
                     // Without a client id the button stays visible but disabled; the line above says why (account.oauth.errors).
                     else -> FilledTonalButton(onClick = onLink, enabled = configured) { Text(stringResource(R.string.settings_accounts_link)) }
+                }
+            }
+            if (account != null && (firstSyncPending || onSyncMode != null)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (firstSyncPending) Pill(stringResource(R.string.settings_accounts_first_sync_pending), tone = PillTone.WARN)
+                    Box(Modifier.weight(1f))
+                    if (onSyncMode != null) {
+                        TextButton(onClick = onSyncMode) {
+                            Text(stringResource(if (firstSyncPending) R.string.settings_accounts_choose else R.string.settings_accounts_sync_mode))
+                        }
+                    }
                 }
             }
             if (account?.expiresAtMs != null && account.expiresAtMs!! < System.currentTimeMillis()) {
