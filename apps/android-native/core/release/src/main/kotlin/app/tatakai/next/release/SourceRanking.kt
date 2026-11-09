@@ -17,14 +17,22 @@ const val RELIABILITY_ALPHA: Float = 0.2f
 const val SEADEX_BEST_BONUS: Float = 4f
 
 /**
+ * parity wave A (worker q, checklist sources.debrid.ranking; additive): bonus of a torrent instantly available on a linked debrid service
+ * (`SourceCandidate.debrid?.cached == true`). Such a torrent also skips the seeder bonus / penalty and counts as a web source for the
+ * preferred-kind rule: it plays as a direct HTTPS stream, like a web source.
+ */
+const val DEBRID_CACHED_BONUS: Float = 10f
+
+/**
  * `reliability*50 ± 20 (preferred kind) + 6*min(rank,3) − 25 if below minQuality + 10 (subLang in subs) + 6 (dubLang in dubs)
  * + torrent: min(seeders,500)/50 − 20 if seeders < 20 + SEADEX_BEST_BONUS if tags.seadexBest | web: −min(latency,1000)/100
  * − 1000 when the extension is disabled`. Desktop has NO batch bonus (score does not get the episode); neither does this port.
  */
 fun score(c: SourceCandidate, prefs: SourcePrefs, extEnabled: Boolean): Float {
     var v = c.reliability * 50f
+    val debridCached = c.kind == SourceKind.TORRENT && c.debrid?.cached == true
     val kind = prefs.prefer
-    if (kind != null) v += if (c.kind == kind) 20f else -20f
+    if (kind != null) v += if (c.kind == kind || (debridCached && kind == SourceKind.WEB)) 20f else -20f
     val q = c.quality.rank()
     v += minOf(q, 3).toFloat() * 6f
     if (q < prefs.minQuality.rank()) v -= 25f
@@ -32,9 +40,13 @@ fun score(c: SourceCandidate, prefs: SourcePrefs, extEnabled: Boolean): Float {
     if (c.dubs.any { it == prefs.dubLang }) v += 6f
     when (c.kind) {
         SourceKind.TORRENT -> {
-            val seeders = c.torrent?.seeders ?: 0
-            v += minOf(seeders, 500).toFloat() / 50f
-            if (seeders < 20) v -= 20f
+            if (debridCached) {
+                v += DEBRID_CACHED_BONUS
+            } else {
+                val seeders = c.torrent?.seeders ?: 0
+                v += minOf(seeders, 500).toFloat() / 50f
+                if (seeders < 20) v -= 20f
+            }
             if (c.tags.seadexBest) v += SEADEX_BEST_BONUS
         }
         SourceKind.WEB -> {
