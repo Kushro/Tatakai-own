@@ -644,8 +644,9 @@ fn FavoritesTab(sort: LibSort, query: String, rev: u32) -> Element {
             if shown.is_empty() {
                 rsx! { EmptyState { icon: "filter".to_string(), title: t("lib.no_match") } }
             } else {
+                let n = shown.len();
                 rsx! {
-                    div { class: "tk-grid", "data-favorites": "{shown.len()}",
+                    div { class: "tk-grid", "data-favorites": "{n}",
                         for m in shown {
                             {
                                 let target = match m.id.strip_prefix(CHARACTER_PREFIX) {

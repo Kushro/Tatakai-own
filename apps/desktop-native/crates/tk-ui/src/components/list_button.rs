@@ -142,7 +142,7 @@ pub fn ListButton(
         }
     });
 
-    let state = entry.read().clone();
+    let state = (*entry.read()).clone();
     let (current, failed): (Option<ListEntryVm>, Option<UiError>) = match state {
         Some(Ok(e)) => (e, None),
         Some(Err(e)) => (None, Some(e)),
@@ -154,7 +154,7 @@ pub fn ListButton(
     let pending = current.as_ref().is_some_and(|e| e.pending);
     let total = current.as_ref().and_then(|e| e.episodes_total).or(episodes_total);
     let service = current.as_ref().map_or(ListServiceVm::AniList, |e| e.service);
-    let connected = any_connected(&accounts.read());
+    let connected = any_connected(&*accounts.read());
     let label = match &current {
         Some(e) => t(&status_key(e.status)),
         None => t("lists.add"),

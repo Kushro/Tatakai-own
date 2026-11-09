@@ -652,6 +652,7 @@ async fn pull(b: &LiveBackend, s: Service, tok: &mut Token) -> Result<PullReport
     let keys: BTreeSet<&String> = local.keys().chain(base.keys()).chain(remote.keys()).collect();
     let mut report = PullReport::default();
     let at = now();
+    let wb = write_back(b);
     for id in keys {
         let (l, bs, r) = (local.get(id), base.get(id), remote.get(id));
         // A local title this service cannot address (e.g. Kitsu-only, or MAL without a MAL id) is not its business.
@@ -679,7 +680,7 @@ async fn pull(b: &LiveBackend, s: Service, tok: &mut Token) -> Result<PullReport
             }
             Decision::PushLocal => {
                 if let Some(l) = l
-                    && write_back(b)
+                    && wb
                 {
                     queue_upsert_on(b, s, l).map_err(|e| ListError::Parse(e.detail))?;
                 }
@@ -691,7 +692,7 @@ async fn pull(b: &LiveBackend, s: Service, tok: &mut Token) -> Result<PullReport
             }
             Decision::DeleteRemote => {
                 if let Some(bs) = bs
-                    && write_back(b)
+                    && wb
                 {
                     queue_delete_on(b, s, bs).map_err(|e| ListError::Parse(e.detail))?;
                 }
