@@ -112,6 +112,8 @@ fun HomeScreen(
     onOpenProvider: (extensionId: String, sourceId: String) -> Unit = { _, _ -> },
     /** Item of a custom-provider row -> Route.ProviderItem(extensionId, sourceId, itemId) (replaces the title search of wave android). */
     onOpenProviderItem: (extensionId: String, sourceId: String, itemId: String) -> Unit = { _, _, _ -> },
+    /** Continue watching card of a provider title (`ext:` history id) -> resume it in the player. */
+    onResumeProviderItem: ((HistoryEntry) -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     HomeContent(
@@ -137,6 +139,7 @@ fun HomeScreen(
             onOpenNotifications = onOpenNotifications,
             onOpenProvider = onOpenProvider,
             onOpenProviderItem = onOpenProviderItem,
+            onResumeProviderItem = onResumeProviderItem,
             onTopWindow = viewModel::loadTop10,
             onRetryLatest = viewModel::loadLatest,
             onRetryUpcoming = viewModel::loadUpcoming,
@@ -172,6 +175,7 @@ internal data class HomeActions(
     val onOpenNotifications: () -> Unit = {},
     val onOpenProvider: (String, String) -> Unit = { _, _ -> },
     val onOpenProviderItem: (String, String, String) -> Unit = { _, _, _ -> },
+    val onResumeProviderItem: ((HistoryEntry) -> Unit)? = null,
     val onTopWindow: (TopWindow) -> Unit = {},
     val onRetryLatest: () -> Unit = {},
     val onRetryUpcoming: () -> Unit = {},
@@ -232,7 +236,8 @@ internal fun HomeContent(
                         onClick = { entry ->
                             val provider = HomeLogic.parseProviderHistoryId(entry.animeId)
                             if (provider != null) {
-                                actions.onOpenProviderItem(provider.first, provider.second, provider.third)
+                                actions.onResumeProviderItem?.invoke(entry)
+                                    ?: actions.onOpenProviderItem(provider.first, provider.second, provider.third)
                             } else {
                                 actions.onContinueClick(entry)
                             }
