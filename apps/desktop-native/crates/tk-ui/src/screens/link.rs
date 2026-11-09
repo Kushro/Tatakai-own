@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use dioxus::prelude::*;
 
-use crate::app::Services;
+use crate::app::{Route, Services};
 use crate::backend::{DeviceVm, LinkCapsVm, LinkStatusVm};
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
@@ -38,7 +38,7 @@ pub fn alt_port(port: u16) -> u16 {
 }
 
 /// "now", "5 min ago", "3 h ago", "yesterday", "4 days ago"; older than 30 days -> UTC date.
-fn rel_time(ts: i64, now: i64) -> String {
+pub(crate) fn rel_time(ts: i64, now: i64) -> String {
     let d = (now - ts).max(0);
     match d {
         0..60 => t("time.now"),
@@ -56,6 +56,7 @@ pub fn LinkPage() -> Element {
     let backend = services.backend.clone();
     let shell = try_use_context::<ShellStatus>();
     let snack = use_snackbar();
+    let navigator = use_navigator();
 
     let mut status = use_resource({
         let backend = backend.clone();
@@ -394,6 +395,15 @@ pub fn LinkPage() -> Element {
                     h1 { class: "tk-page__title", {t("link.title")} }
                     p { class: "tk-page__intro", {t("link.intro")} }
                 }
+                // Wave B (k): the native extension server lives under Link (`Route::ServerPage`).
+                Button {
+                    label: t("link.server_page"),
+                    variant: ButtonVariant::Tonal,
+                    icon: "desktop".to_string(),
+                    onclick: move |_| {
+                        navigator.push(Route::ServerPage {});
+                    },
+                }
             }
 
             {status_block}
@@ -650,7 +660,8 @@ fn DeviceRow(
     #[props(default)] on_rename: EventHandler<DeviceVm>,
     #[props(default)] on_revoke: EventHandler<DeviceVm>,
 ) -> Element {
-    let platform_key = if device.platform.eq_ignore_ascii_case("android") { "link.platform.android" } else { "link.platform.unknown" };
+    let platform_key = platform_key(&device.platform);
+    let last_seen = last_seen_attr(device.last_seen_unix, now);
     let seen = match device.last_seen_unix {
         _ if device.online => t("link.online"),
         Some(ts) => tf("link.last_seen", &[("when", &rel_time(ts, now))]),
@@ -660,7 +671,7 @@ fn DeviceRow(
     let revoke_label = tf("link.revoke_named", &[("name", &device.name)]);
     let (for_rename, for_revoke) = (device.clone(), device.clone());
     rsx! {
-        li { class: "tk-device", "data-online": "{device.online}",
+        li { class: "tk-device", "data-online": "{device.online}", "data-last-seen": "{last_seen}", "data-platform": "{device.platform}",
             span { class: "tk-device__ico", Icon { name: icon.to_string(), size: 22 } }
             div { class: "tk-device__text",
                 div { class: "tk-device__name",
@@ -690,9 +701,36 @@ fn DeviceRow(
     }
 }
 
+/// i18n key of a device platform (`link.last-seen`: tk-link records it at pairing and from the phone's agent).
+pub fn platform_key(platform: &str) -> &'static str {
+    match platform.to_ascii_lowercase().as_str() {
+        "android" => "link.platform.android",
+        "ios" => "link.platform.ios",
+        _ => "link.platform.unknown",
+    }
+}
+
+/// `data-last-seen`: whole minutes since the last request of the device, `never` when it was never seen. Pure.
+pub fn last_seen_attr(last_seen: Option<i64>, now: i64) -> String {
+    match last_seen {
+        Some(ts) => ((now - ts).max(0) / 60).to_string(),
+        None => "never".to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::alt_port;
+    use super::{alt_port, last_seen_attr, platform_key};
+
+    #[test]
+    fn last_seen_and_platform() {
+        assert_eq!(last_seen_attr(Some(1_000), 1_000 + 7 * 60 + 5), "7");
+        assert_eq!(last_seen_attr(None, 5), "never");
+        assert_eq!(last_seen_attr(Some(10), 0), "0");
+        assert_eq!(platform_key("Android"), "link.platform.android");
+        assert_eq!(platform_key("ios"), "link.platform.ios");
+        assert_eq!(platform_key(""), "link.platform.unknown");
+    }
 
     #[test]
     fn restart_port_moves_away_and_stays_valid() {
