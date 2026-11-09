@@ -1,7 +1,7 @@
 //! `LocalStore` methods over `list_entries`, `list_queue`, `list_conflicts` and `favorites` (wave A, worker **g**;
 //! docs/redesign/15-parity-wave-a-contract.md section 3). Child module of `store`: it uses the private `with`
 //! helper of `mod.rs`. Contract: the row types below are the final shape tk-app maps to the UI view-models; the
-//! method bodies are stubs that g implements (plus tests on `LocalStore::open_in_memory`).
+//! methods are implemented by g (tests on `LocalStore::open_in_memory`).
 
 use rusqlite::{OptionalExtension, params};
 
