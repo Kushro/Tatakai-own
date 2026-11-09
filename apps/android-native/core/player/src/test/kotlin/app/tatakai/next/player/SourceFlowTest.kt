@@ -139,4 +139,42 @@ class SourceFlowTest {
         assertTrue(applyPick(base, null, null).none { it.picked })
         assertEquals(base.map { it.key }, applyPick(base, "toko|web|Beta", null).map { it.key }, "never reorders")
     }
+
+    // parity wave A (15 §3.2, bug sources.remembered-vs-prefs): audit case, JA audio + ES subs preferred, remembered RU torrent pack.
+    @Test
+    fun rememberedIncompatibleSourceIsIgnoredAndTheRankingPlays() {
+        val ru = RankedSource(
+            candidate = SourceCandidate(
+                extId = "nyaa", extName = "Nyaa", kind = SourceKind.TORRENT, label = "RU pack", quality = Quality.P1080,
+                subs = emptyList(), dubs = listOf("ru"), torrent = TorrentInfo("b".repeat(40), seeders = 5),
+            ),
+            score = 0.1f,
+        )
+        val anizone = RankedSource(
+            candidate = SourceCandidate(
+                extId = "anizone", extName = "AniZone", kind = SourceKind.WEB, label = "Main", quality = Quality.P1080,
+                subs = listOf("es-419"), dubs = listOf("ja"), web = WebInfo("https://cdn.example/a.m3u8"),
+            ),
+            score = 0.9f,
+            recommended = true,
+        )
+        val prefs = app.tatakai.next.model.SourcePrefs(subLang = "es", dubLang = "ja", minQuality = Quality.P720)
+        val list = listOf(anizone, ru)
+        val res = resolvePick(list, requestedKey = null, storedPick = ru.key, prefs = prefs)
+        assertTrue(res.storedDiscarded)
+        assertEquals(PickMismatch.LANGUAGE, res.mismatch)
+        assertTrue(res.sources.none { it.picked })
+        assertEquals(list.map { it.key }, res.sources.map { it.key }, "the remembered one stays as an option")
+        val flow = SourceFlow(res.sources, SourceMode.AUTO)
+        assertEquals(anizone.key, flow.toResolve()?.key)
+
+        // A compatible remembered pick still wins; this session's pick always wins.
+        val ok = resolvePick(list, null, anizone.key, prefs)
+        assertFalse(ok.storedDiscarded)
+        assertEquals(anizone.key, ok.sources.single { it.picked }.key)
+        assertEquals(ru.key, resolvePick(list, ru.key, anizone.key, prefs).sources.single { it.picked }.key)
+        // Disabled extension or too low quality also drop the remembered pick.
+        assertEquals(PickMismatch.EXTENSION_OFF, pickMismatches(anizone.candidate, false, prefs).first())
+        assertTrue(PickMismatch.QUALITY in pickMismatches(anizone.candidate.copy(quality = Quality.P480), true, prefs))
+    }
 }
