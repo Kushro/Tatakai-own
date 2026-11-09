@@ -44,4 +44,5 @@
     <string name="you_linked_unreachable">%1$s · out of reach</string>
     <string name="you_settings">Settings</string>
     <string name="you_settings_summary">Appearance · Player · Torrents</string>
+    <string name="you_accounts_none">Lists stay on this phone · connect AniList or MAL to sync them</string>
 </resources>
