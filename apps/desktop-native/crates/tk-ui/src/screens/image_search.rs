@@ -174,9 +174,15 @@ pub fn ImageSearchPage() -> Element {
     let can_search = !busy && (file.is_some() || valid_url(&url_text).is_some());
     let min = min_similarity();
     let drop_label = t("imgsearch.drop");
+    let phase_attr = match &current {
+        Phase::Idle => "idle",
+        Phase::Loading => "loading",
+        Phase::Ready(_) => "ready",
+        Phase::Failed(_) => "error",
+    };
 
     rsx! {
-        div { class: "tk-page tk-imgsearch", "data-phase": match &current { Phase::Idle => "idle", Phase::Loading => "loading", Phase::Ready(_) => "ready", Phase::Failed(_) => "error" },
+        div { class: "tk-page tk-imgsearch", "data-phase": "{phase_attr}",
             div { class: "tk-page__head",
                 IconButton {
                     icon: "back".to_string(),
@@ -392,6 +398,7 @@ fn MatchCard(
 ) -> Element {
     let m = item;
     let percent = (m.similarity * 100.0).round().clamp(0.0, 100.0) as u32;
+    let similarity = format!("{:.3}", m.similarity);
     let tone = if percent >= 90 { Tone::Primary } else { Tone::default() };
     let scene = format!("{} – {}", clock(m.from_secs), clock(m.to_secs));
     let when = match m.episode {
@@ -405,7 +412,7 @@ fn MatchCard(
     let episode = m.episode.unwrap_or(1).max(1);
     let play_label = tf("imgsearch.play_at", &[("time", &clock(m.from_secs))]);
     rsx! {
-        article { class: "tk-imgsearch__match", "data-match": "{index}", "data-similarity": "{m.similarity:.3}", "data-media-id": "{m.media.id}",
+        article { class: "tk-imgsearch__match", "data-match": "{index}", "data-similarity": "{similarity}", "data-media-id": "{m.media.id}",
             div { class: "tk-imgsearch__scene",
                 if let Some(v) = m.preview_video.clone() {
                     video {

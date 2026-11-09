@@ -167,7 +167,7 @@ fn tags_vm(tags: Vec<MediaTag>) -> SearchPageVm {
         items: tags
             .into_iter()
             .map(|t| {
-                let flags = if t.spoiler { TAG_SPOILER } else { 0 } | if t.adult { TAG_ADULT } else { 0 };
+                let flags = (if t.spoiler { TAG_SPOILER } else { 0 }) | (if t.adult { TAG_ADULT } else { 0 });
                 MediaVm { id: t.name.clone(), title: t.name, cover: None, color: None, subtitle: t.category, score: Some(flags) }
             })
             .collect(),
