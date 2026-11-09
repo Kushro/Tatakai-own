@@ -3,6 +3,8 @@ package app.tatakai.next.player.mpv
 
 import android.content.Context
 import android.view.Surface
+import app.tatakai.next.player.LanguageCodes
+import app.tatakai.next.player.SubtitleExtras
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +42,15 @@ data class MpvState(
     val audio: List<MpvTrack> = emptyList(),
     /** Video height of the current file (`height`), 0 = unknown. */
     val videoHeight: Int = 0,
+    // --- parity wave A (worker p) ---
+    /** Primary subtitle line on screen right now (`sub-text`), for the screen-drawn translation. */
+    val subText: String? = null,
+    /** `secondary-sid`, null = off. */
+    val secondarySid: Int? = null,
+    /** `loop-file=inf`. */
+    val loop: Boolean = false,
+    /** `sub-delay` in ms. */
+    val subDelayMs: Long = 0,
 )
 
 /**
@@ -100,7 +111,10 @@ class MpvEngine(context: Context) {
         }
 
         override fun eventProperty(property: String, value: String) {
-            if (property == "track-list") refreshTracks()
+            when (property) {
+                "track-list" -> refreshTracks()
+                "sub-text" -> _state.update { it.copy(subText = value.takeIf { v -> v.isNotBlank() }) }
+            }
         }
 
         override fun event(eventId: Int) {
@@ -151,6 +165,10 @@ class MpvEngine(context: Context) {
         mpv.setOptionString("demuxer-readahead-secs", "$READAHEAD_SECS")
         mpv.setOptionString("network-timeout", "$NETWORK_TIMEOUT_S")
         mpv.setOptionString("sub-ass-override", "no")
+        // parity wave A (player.subs.custom-fonts): fonts imported by the user (`filesDir/fonts`) are visible to libass, also for the
+        // fonts ASS styles ask for; embedded MKV fonts keep working (`embeddedfonts` default yes).
+        val fontsDir = File(appContext.filesDir, "fonts").apply { mkdirs() }
+        mpv.setOptionString("sub-fonts-dir", fontsDir.absolutePath)
         mpv.init()
         mpv.addObserver(observer)
         mpv.addLogObserver(logObserver)
@@ -164,6 +182,7 @@ class MpvEngine(context: Context) {
         mpv.observeProperty("core-idle", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
         mpv.observeProperty("height", MPVLib.MpvFormat.MPV_FORMAT_INT64)
         mpv.observeProperty("track-list", MPVLib.MpvFormat.MPV_FORMAT_NONE)
+        mpv.observeProperty("sub-text", MPVLib.MpvFormat.MPV_FORMAT_STRING)
     }
 
     /** Load [url] with HTTP [headers] (`http-header-fields`), start at [startSecs]. */
@@ -175,7 +194,8 @@ class MpvEngine(context: Context) {
         fileLoaded = false
         lastError = null
         pendingSubtitles = subtitleUrls
-        _state.update { MpvState(loadId = it.loadId + 1, buffering = true, speed = it.speed) }
+        subtitleDecided = false
+        _state.update { MpvState(loadId = it.loadId + 1, buffering = true, speed = it.speed, loop = it.loop, subDelayMs = it.subDelayMs) }
         val ua = headers.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
         val referer = headers.entries.firstOrNull { it.key.equals("Referer", ignoreCase = true) }?.value
         val rest = headers.filterKeys { !it.equals("User-Agent", ignoreCase = true) && !it.equals("Referer", ignoreCase = true) }
@@ -221,6 +241,7 @@ class MpvEngine(context: Context) {
     /** mpv `sid`; null = subtitles off. */
     fun selectSubtitle(id: Int?) {
         if (released) return
+        subtitleDecided = true
         mpv.setPropertyString("sid", id?.toString() ?: "no")
         refreshTracks()
     }
@@ -232,10 +253,84 @@ class MpvEngine(context: Context) {
         refreshTracks()
     }
 
+    /**
+     * Bug player.subs.preferred-lang: `slang` / `alang` get every variant of the language (`es-419,es-ES,es-MX,es,spa,esl`), and the first
+     * track list of a load selects a matching subtitle when mpv chose none ([refreshTracks]).
+     */
     fun setPreferredLanguages(subtitle: String?, audio: String?) {
         if (released) return
-        subtitle?.takeIf { it.isNotBlank() }?.let { mpv.setPropertyString("slang", it) }
-        audio?.takeIf { it.isNotBlank() }?.let { mpv.setPropertyString("alang", it) }
+        preferredSub = LanguageCodes.normalize(subtitle)
+        LanguageCodes.engineVariants(subtitle).takeIf { it.isNotEmpty() }?.let { mpv.setPropertyString("slang", it.joinToString(",")) }
+        LanguageCodes.engineVariants(audio).takeIf { it.isNotEmpty() }?.let { mpv.setPropertyString("alang", it.joinToString(",")) }
+    }
+
+    @Volatile
+    private var preferredSub: String? = null
+
+    @Volatile
+    private var subtitleDecided = false
+
+    /** `sub-delay` (seconds), ±60 s. */
+    fun setSubtitleDelay(ms: Long) {
+        if (released) return
+        val clamped = app.tatakai.next.player.SubtitleDelay.clamp(ms)
+        mpv.setPropertyDouble("sub-delay", clamped / 1000.0)
+        _state.update { it.copy(subDelayMs = clamped) }
+    }
+
+    /** `sub-add <path> select <title>`: a loaded SRT / ASS / VTT becomes the active track. */
+    fun addSubtitleFile(path: String, title: String) {
+        if (released) return
+        subtitleDecided = true
+        mpv.command(arrayOf("sub-add", path, "select", title))
+        refreshTracks()
+    }
+
+    /** `secondary-sid` (drawn at the top by mpv); null = off. */
+    fun selectSecondarySubtitle(id: Int?) {
+        if (released) return
+        mpv.setPropertyString("secondary-sid", id?.toString() ?: "no")
+        _state.update { it.copy(secondarySid = id) }
+    }
+
+    /** `sub-visibility` (the screen draws translated lines itself while this is off). */
+    fun setSubtitlesVisible(visible: Boolean) {
+        if (!released) mpv.setPropertyBoolean("sub-visibility", visible)
+    }
+
+    fun setLoop(loop: Boolean) {
+        if (released) return
+        mpv.setPropertyString("loop-file", if (loop) "inf" else "no")
+        _state.update { it.copy(loop = loop, ended = if (loop) false else it.ended) }
+    }
+
+    /** Stable volume: ffmpeg `dynaudnorm` through mpv's `af` (classic `usePlayerEnhancements`). */
+    fun setStableVolume(enabled: Boolean) {
+        if (!released) mpv.setPropertyString("af", if (enabled) STABLE_VOLUME_FILTER else "")
+    }
+
+    /** `screenshot-to-file <path> video` (the frame without subtitles or OSD). True when the PNG exists afterwards. */
+    fun screenshotToFile(path: String): Boolean {
+        if (released) return false
+        val f = File(path)
+        f.delete()
+        f.parentFile?.mkdirs()
+        mpv.command(arrayOf("screenshot-to-file", path, "video"))
+        return f.isFile && f.length() > 0
+    }
+
+    /**
+     * Colour, outline and vertical position of text subtitles (player.subs.style.*): `sub-color`, `sub-border-color`, `sub-border-size`
+     * (when [outline]), `sub-pos`, and the chosen imported font family as `sub-font` ([fontFamily] null = mpv's default).
+     */
+    fun setSubtitleExtras(extras: SubtitleExtras, outline: Boolean, fontFamily: String?) {
+        if (released) return
+        val e = extras.sanitized()
+        mpv.setPropertyString("sub-color", SubtitleExtras.mpvColor(e.textColor))
+        mpv.setPropertyString("sub-border-color", SubtitleExtras.mpvColor(e.outlineColor))
+        mpv.setPropertyDouble("sub-border-size", if (outline) e.outlineSize.toDouble() else 0.0)
+        mpv.setPropertyInt("sub-pos", e.positionPct)
+        mpv.setPropertyString("sub-font", fontFamily ?: DEFAULT_SUB_FONT)
     }
 
     /**
@@ -247,7 +342,7 @@ class MpvEngine(context: Context) {
         if (released) return
         mpv.setPropertyDouble("sub-scale", scale.coerceIn(0.5f, 2f).toDouble())
         mpv.setPropertyBoolean("sub-bold", bold)
-        mpv.setPropertyDouble("sub-border-size", if (outline) 2.5 else 0.0)
+        if (!outline) mpv.setPropertyDouble("sub-border-size", 0.0)
         val alpha = backgroundOpacity.coerceIn(0f, 1f)
         if (alpha > 0f) {
             mpv.setPropertyString("sub-border-style", "background-box")
@@ -258,18 +353,15 @@ class MpvEngine(context: Context) {
     }
 
     /**
-     * Applies a shader preset (Settings › Reproductor › Preajuste) when its GLSL files exist under `filesDir/shaders/<preset>/`. Anime4K /
-     * FSR are not bundled in this wave (12 §7.13): without files this clears the chain and returns false (the preset is ignored).
+     * Applies a shader preset (Settings › Reproductor › Preajuste, checklist player.android.upscaling-shaders): every Anime4K / FSR shader
+     * is bundled in this module's `assets/shaders/` and copied to `filesDir/shaders/<preset>/` the first time ([ShaderPresets.install]);
+     * `glsl-shaders` then gets the chain in order. "off" (or an unknown id) clears it. Returns whether a chain is active.
      */
     fun applyPreset(preset: String): Boolean {
         if (released) return false
-        val dir = File(appContext.filesDir, "shaders/$preset")
-        val files = if (preset != "off" && dir.isDirectory) {
-            dir.listFiles { f -> f.extension == "glsl" }?.sortedBy { it.name }.orEmpty()
-        } else {
-            emptyList()
-        }
+        val files = runCatching { ShaderPresets.install(appContext, preset) }.getOrDefault(emptyList())
         mpv.setPropertyString("glsl-shaders", files.joinToString(PATH_LIST_SEPARATOR) { it.absolutePath })
+        if (files.isNotEmpty()) android.util.Log.i("mpv", "glsl-shaders ($preset): ${files.joinToString(",") { it.name }}")
         return files.isNotEmpty()
     }
 
@@ -333,6 +425,13 @@ class MpvEngine(context: Context) {
             }
         }
         _state.update { it.copy(subtitles = subs, audio = audio) }
+        // First track list of a load with subtitles and none selected: pick the preferred language (bug player.subs.preferred-lang).
+        if (fileLoaded && !subtitleDecided && subs.isNotEmpty()) {
+            subtitleDecided = true
+            if (subs.none { it.selected }) {
+                LanguageCodes.firstMatch(subs, preferredSub, { it.lang }, { it.title })?.let { i -> selectSubtitle(subs[i].id) }
+            }
+        }
     }
 
     companion object {
@@ -341,6 +440,8 @@ class MpvEngine(context: Context) {
         const val READAHEAD_SECS = 60
         const val NETWORK_TIMEOUT_S = 90
         private const val DEFAULT_USER_AGENT = "TatakaiNext/0.1"
+        private const val DEFAULT_SUB_FONT = "sans-serif"
+        const val STABLE_VOLUME_FILTER = "lavfi=[dynaudnorm=f=250:g=15:p=0.9]"
 
         /** mpv path-list separator on Android (POSIX). */
         private const val PATH_LIST_SEPARATOR = ":"

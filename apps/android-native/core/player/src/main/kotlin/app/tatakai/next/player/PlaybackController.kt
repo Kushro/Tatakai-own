@@ -17,7 +17,11 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.session.MediaSession
+import android.media.audiofx.AudioEffect
+import android.media.audiofx.DynamicsProcessing
+import android.media.audiofx.LoudnessEnhancer
+import android.os.Build
+import androidx.media3.common.MediaMetadata
 import app.tatakai.next.model.Container
 import app.tatakai.next.model.SubtitleStyle
 import kotlinx.coroutines.CoroutineScope
@@ -37,7 +41,8 @@ interface PlaybackListener {
 }
 
 /**
- * Media3 engine ([PlayerSession]): ExoPlayer + `OkHttpDataSource` with per-source headers, a MediaSession and the state / callbacks the
+ * Media3 engine ([PlayerSession]): ExoPlayer + `OkHttpDataSource` with per-source headers, published to [ActivePlayback] (the one
+ * `MediaSession` lives in [PlaybackService], parity wave A) and the state / callbacks the
  * UI and history need. Failover between sources is the caller's job (android wave: `SourceFlow` in the player view-model); a failed load
  * only sets [PlaybackState.error]. Torrent loopback streams (`Container.PROGRESSIVE`) get long read timeouts; the load control keeps a
  * 30-60 s buffer for everything (11 §5.3). Subtitles are NOT drawn by `ContentFrame`: [cues] carries them and the screen renders them
@@ -86,9 +91,17 @@ class PlaybackController(
         )
         .build()
 
-    private val session: MediaSession = MediaSession.Builder(appContext, player).build()
     private var released = false
     private var loaded = false
+
+    // --- parity wave A (worker p) ---
+    /** ISO 639-1 subtitle preference (`SourcePrefs.subLang`), for the forced selection of [onTracksChanged]. */
+    private var preferredSub: String? = null
+
+    /** loadId whose subtitle auto-selection was already decided (forced, or the user chose). */
+    private var subDecidedLoad = -1
+    private var loudness: AudioEffect? = null
+    private var stableVolume = false
 
     private val ticker = SessionTicker(
         scope = scope,
@@ -110,7 +123,10 @@ class PlaybackController(
             publish()
         }
 
-        override fun onTracksChanged(tracks: Tracks) = publish()
+        override fun onTracksChanged(tracks: Tracks) {
+            ensurePreferredSubtitle(tracks)
+            publish()
+        }
 
         override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) = publish()
 
@@ -130,6 +146,8 @@ class PlaybackController(
     init {
         player.addListener(playerListener)
         ticker.start()
+        // parity wave A (15 §3.2): background playback / the system media controls go through PlaybackService.
+        ActivePlayback.publish(player)
     }
 
     // ---- commands ---------------------------------------------------------------------------------------------------------------
@@ -138,14 +156,18 @@ class PlaybackController(
         if (released) return
         val client = source.httpClient ?: if (source.torrent || source.container == Container.PROGRESSIVE) progressiveClient else baseClient
         val factory = OkHttpDataSource.Factory(client).setDefaultRequestProperties(source.headers)
-        val subs = source.subtitles.map { t ->
+        // Bug player.subs.preferred-lang: extension tracks say `es-419`, `spa`, `Spanish`...; normalised to ISO 639-1 so the preferred
+        // language matches. The id carries the index of the external track (SubtitleOption.external).
+        val subs = source.subtitles.mapIndexed { i, t ->
             MediaItem.SubtitleConfiguration.Builder(android.net.Uri.parse(t.url))
                 .setMimeType(subtitleMime(t.format))
-                .setLanguage(t.lang)
+                .setLanguage(LanguageCodes.normalize(t.lang) ?: LanguageCodes.normalize(t.label) ?: t.lang.ifBlank { null })
                 .setLabel(t.label.ifBlank { t.lang })
+                .setId("$EXTERNAL_ID_PREFIX$i")
                 .setSelectionFlags(0)
                 .build()
         }
+        val meta = ActivePlayback.metadata.value
         val item = MediaItem.Builder()
             .setUri(source.url)
             .setMimeType(
@@ -158,6 +180,18 @@ class PlaybackController(
                 },
             )
             .setSubtitleConfigurations(subs)
+            .apply {
+                if (meta != null) {
+                    setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(meta.title)
+                            .setArtist(meta.subtitle)
+                            .setDisplayTitle(meta.title)
+                            .apply { meta.artworkUri?.let { setArtworkUri(android.net.Uri.parse(it)) } }
+                            .build(),
+                    )
+                }
+            }
             .build()
         val mediaSource = DefaultMediaSourceFactory(factory).createMediaSource(item)
         loaded = true
@@ -173,6 +207,7 @@ class PlaybackController(
             audioTracks = emptyList(),
             subtitleIsAss = false,
         )
+        ActivePlayback.publish(player)
         player.setMediaSource(mediaSource, startMs.coerceAtLeast(0))
         player.prepare()
         player.playWhenReady = true
@@ -203,6 +238,7 @@ class PlaybackController(
 
     /** [groupIndex] from [SubtitleOption]; null turns subtitles off. */
     override fun selectSubtitle(groupIndex: Int?) {
+        subDecidedLoad = _state.value.loadId
         val b = player.trackSelectionParameters.buildUpon()
         if (groupIndex == null) {
             b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
@@ -224,11 +260,65 @@ class PlaybackController(
         publish()
     }
 
+    /**
+     * Bug player.subs.preferred-lang: Media3 compares raw tags, so `es` never matched `es-419` / `spa`. Every variant of the language is
+     * handed over ([LanguageCodes.engineVariants]) and [ensurePreferredSubtitle] forces a matching track when Media3 still picked none.
+     */
     override fun setPreferredLanguages(subtitle: String?, audio: String?) {
+        preferredSub = LanguageCodes.normalize(subtitle)
+        val text = LanguageCodes.engineVariants(subtitle).toTypedArray()
+        val sound = LanguageCodes.engineVariants(audio).toTypedArray()
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .setPreferredTextLanguage(subtitle?.takeIf { it.isNotBlank() })
-            .setPreferredAudioLanguage(audio?.takeIf { it.isNotBlank() })
+            .setPreferredTextLanguages(*text)
+            .setPreferredAudioLanguages(*sound)
             .build()
+    }
+
+    /** First tracks of a load with no subtitle selected although one is in the preferred language: select it (once per load). */
+    private fun ensurePreferredSubtitle(tracks: Tracks) {
+        val loadId = _state.value.loadId
+        if (!loaded || subDecidedLoad == loadId) return
+        val text = tracks.groups.withIndex().filter { it.value.type == C.TRACK_TYPE_TEXT }
+        if (text.isEmpty()) return
+        subDecidedLoad = loadId
+        if (text.any { it.value.isSelected }) return
+        val pick = LanguageCodes.firstMatch(text, preferredSub, { it.value.getTrackFormat(0).language }, { it.value.getTrackFormat(0).label }) ?: return
+        selectSubtitle(text[pick].index)
+    }
+
+    override fun setSubtitleDelay(ms: Long) {
+        _state.value = _state.value.copy(subtitleDelayMs = SubtitleDelay.clamp(ms))
+    }
+
+    override fun setLoop(loop: Boolean) {
+        player.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+        _state.value = _state.value.copy(loop = loop)
+    }
+
+    /** Stable volume: a limiter with make-up gain on the player's audio session (API 28+), else a mild LoudnessEnhancer. */
+    override fun setStableVolume(enabled: Boolean) {
+        stableVolume = enabled
+        loudness?.let { runCatching { it.release() } }
+        loudness = null
+        if (!enabled || released) return
+        val sessionId = player.audioSessionId.takeIf { it != C.AUDIO_SESSION_ID_UNSET } ?: return
+        loudness = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val config = DynamicsProcessing.Config.Builder(
+                    DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION, 2, false, 0, false, 0, false, 0, true,
+                ).build()
+                DynamicsProcessing(0, sessionId, config).apply {
+                    setInputGainAllChannelsTo(STABLE_INPUT_GAIN_DB)
+                    setLimiterAllChannelsTo(DynamicsProcessing.Limiter(true, true, 0, 1f, 60f, 10f, -12f, 0f))
+                    setEnabled(true)
+                }
+            } else {
+                LoudnessEnhancer(sessionId).apply {
+                    setTargetGain(STABLE_GAIN_MB)
+                    setEnabled(true)
+                }
+            }
+        }.getOrNull()
     }
 
     override fun setSubtitleStyle(style: SubtitleStyle) {
@@ -241,7 +331,9 @@ class PlaybackController(
         released = true
         ticker.stop()
         player.removeListener(playerListener)
-        session.release()
+        if (ActivePlayback.player.value === player) ActivePlayback.publish(null)
+        loudness?.let { runCatching { it.release() } }
+        loudness = null
         player.release()
     }
 
@@ -265,7 +357,8 @@ class PlaybackController(
             val f = g.getTrackFormat(0)
             // Media3 >= 1.4 parses subtitles during extraction: the original mime survives in `codecs`.
             val ass = f.sampleMimeType == MimeTypes.TEXT_SSA || f.codecs == MimeTypes.TEXT_SSA
-            SubtitleOption(i, f.label ?: f.language ?: "#${i + 1}", f.language, g.isSelected, ass)
+            val external = f.id?.substringAfter(EXTERNAL_ID_PREFIX, "")?.takeWhile { it.isDigit() }?.toIntOrNull()
+            SubtitleOption(i, f.label ?: f.language ?: "#${i + 1}", f.language, g.isSelected, ass, external)
         }
         val audioOptions = tracks.groups.withIndex().filter { it.value.type == C.TRACK_TYPE_AUDIO }.map { (i, g) ->
             val f = g.getTrackFormat(0)
@@ -305,5 +398,10 @@ class PlaybackController(
         const val BUFFER_AFTER_REBUFFER_MS = 5_000
         const val TORRENT_CONNECT_TIMEOUT_S = 30L
         const val TORRENT_READ_TIMEOUT_S = 90L
+
+        /** SubtitleConfiguration id of external track N (`ext-N`). */
+        const val EXTERNAL_ID_PREFIX = "ext-"
+        const val STABLE_INPUT_GAIN_DB = 6f
+        const val STABLE_GAIN_MB = 400
     }
 }
