@@ -577,6 +577,11 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let send_watching = {
         let backend = backend.clone();
         move || {
+            // Setting off: nothing reaches Discord and the shell reports `off`.
+            if !ui.settings.peek().flow.discord_presence {
+                presence::send(&backend, PresenceVm::Clear);
+                return;
+            }
             let state = {
                 let m = meta.peek();
                 let d = details.peek();

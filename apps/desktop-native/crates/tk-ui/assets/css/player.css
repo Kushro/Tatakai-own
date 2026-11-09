@@ -134,3 +134,27 @@ button.tk-pc__src:hover { background: color-mix(in srgb, var(--tk-video-on) 12%,
 .tk-xmpv__torrent { margin: 0; display: flex; align-items: center; gap: var(--tk-space-8); color: var(--md-sys-color-on-surface-variant); font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-medium-size); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .tk-xmpv__file { margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 600px) { .tk-xmpv__torrent { justify-content: center; } }
+
+/* ---- wave A (worker e): previous episode, end card without countdown, episode list, shortcut panel -------- */
+/* The previous-episode button reuses the "next" glyph, mirrored. */
+.tk-pc__prev svg { transform: scaleX(-1); }
+.tk-pc__next[data-counting="false"] .tk-pc__ring i { display: grid; place-items: center; }
+.tk-player-eps { display: flex; flex-direction: column; gap: var(--tk-space-4); min-height: 120px; }
+.tk-player-eps[data-episodes="loading"] { justify-content: center; }
+.tk-keys { display: flex; flex-direction: column; gap: var(--tk-space-4); }
+.tk-keys__row { display: flex; align-items: center; justify-content: space-between; gap: var(--tk-space-16); padding: var(--tk-space-8) var(--tk-space-4); border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+.tk-keys__row--fixed { color: var(--md-sys-color-on-surface-variant); }
+.tk-keys__label { font-size: var(--md-sys-typescale-body-medium-size); min-width: 0; }
+
+/* ---- Settings > Player > Shortcuts ---------------------------------------------------------------- */
+.tk-keymap { display: flex; flex-direction: column; width: 100%; border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-medium); overflow: hidden; }
+.tk-keymap__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--tk-space-8) var(--tk-space-16); padding: var(--tk-space-8) var(--tk-space-12); border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+.tk-keymap__row:last-child { border-bottom: 0; }
+.tk-keymap__row[data-conflict="true"] { background: color-mix(in srgb, var(--md-sys-color-error-container) 35%, transparent); }
+.tk-keymap__row[data-editing="true"] { background: var(--md-sys-color-surface-container-high); }
+.tk-keymap__label { flex: 1 1 200px; min-width: 0; font-size: var(--md-sys-typescale-body-medium-size); }
+.tk-keymap__keys { display: flex; align-items: center; gap: var(--tk-space-8); }
+.tk-keymap__capture { width: 200px; max-width: 100%; padding: var(--tk-space-4) var(--tk-space-8); border: 2px solid var(--md-sys-color-primary); border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface); font: inherit; caret-color: transparent; }
+.tk-keymap__refused { flex-basis: 100%; color: var(--md-sys-color-error); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-keymap__foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--tk-space-12); margin-top: var(--tk-space-12); width: 100%; }
+.tk-keymap__note { flex: 1; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
