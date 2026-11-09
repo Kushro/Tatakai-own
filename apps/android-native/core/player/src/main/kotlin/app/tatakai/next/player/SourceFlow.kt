@@ -280,7 +280,7 @@ fun historyAnimeId(anilistId: Int?, malId: Int?, provider: ProviderEntryRef?): S
  * [ProgressTracker.entry] that also records provider titles: with an AniList / MAL id it is exactly [ProgressTracker.entry]; without
  * one, a [provider] entry is recorded under its `historyId` (anilistId / malId null) so "Continue watching" shows it.
  */
-fun progressEntry(
+fun providerHistoryEntry(
     anilistId: Int?,
     malId: Int?,
     provider: ProviderEntryRef?,

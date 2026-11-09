@@ -97,10 +97,10 @@ class SourceFlowWaveBTest {
         assertEquals("ext:myext:main:item-9", historyAnimeId(null, null, ref))
         assertEquals("21", historyAnimeId(21, null, ref))
         assertNull(historyAnimeId(null, null, null))
-        val e = progressEntry(null, null, ref, "Title", null, 3, 600_000, 1_200_000, Instant.EPOCH)
+        val e = providerHistoryEntry(null, null, ref, "Title", null, 3, 600_000, 1_200_000, Instant.EPOCH)
         assertEquals("ext:myext:main:item-9", e?.animeId)
         assertEquals("ext:myext:main:item-9?ep=3", e?.episodeId)
         assertNull(e?.anilistId)
-        assertEquals("21", progressEntry(21, null, ref, "Title", null, 3, 600_000, 1_200_000, Instant.EPOCH)?.animeId)
+        assertEquals("21", providerHistoryEntry(21, null, ref, "Title", null, 3, 600_000, 1_200_000, Instant.EPOCH)?.animeId)
     }
 }
