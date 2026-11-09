@@ -164,4 +164,24 @@
     <string name="extensions_stremio_reset">Reset matches</string>
     <string name="extensions_stremio_reset_done">Title matches reset</string>
     <string name="extensions_stremio_remove_message">The addon stops providing streams. You can install it again with its manifest URL.</string>
+    <!-- parity wave B closure (server.api.extensions): extensions of the linked PC servers -->
+    <string name="extensions_server_title">Extensions on your PC</string>
+    <string name="extensions_server_hint">Extensions installed on the PC servers linked to this phone. Link or remove a server in Linked devices.</string>
+    <string name="extensions_server_none">No PC server linked yet.</string>
+    <string name="extensions_server_disabled">This server is turned off on this phone.</string>
+    <string name="extensions_server_empty">This server has no extensions installed.</string>
+    <plurals name="extensions_server_count">
+        <item quantity="one">%1$d extension</item>
+        <item quantity="other">%1$d extensions</item>
+    </plurals>
+    <string name="extensions_server_refresh">Refresh extensions of %1$s</string>
+    <string name="extensions_server_version">v%1$s</string>
+    <string name="extensions_server_on">Enabled</string>
+    <string name="extensions_server_off">Disabled</string>
+    <string name="extensions_server_err_unreachable">Could not reach this PC. Check that it is on and on the same network.</string>
+    <string name="extensions_server_err_unauthorized">This PC no longer accepts this phone. Pair it again in Linked devices.</string>
+    <string name="extensions_server_err_incompatible">This PC answered with a format this app does not understand. Update both apps.</string>
+    <string name="extensions_server_err_other">The PC could not list its extensions.</string>
+    <!-- parity wave B closure (ext.custom-providers.continue): resuming a provider title from Continue watching -->
+    <string name="extensions_provider_resuming">Opening episode…</string>
 </resources>

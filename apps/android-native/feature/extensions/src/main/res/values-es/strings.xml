@@ -164,4 +164,25 @@
     <string name="extensions_stremio_reset">Restablecer coincidencias</string>
     <string name="extensions_stremio_reset_done">Coincidencias de títulos restablecidas</string>
     <string name="extensions_stremio_remove_message">El addon deja de aportar streams. Puedes volver a instalarlo con la URL de su manifest.</string>
+    <!-- parity wave B closure (server.api.extensions): extensions of the linked PC servers -->
+    <string name="extensions_server_title">Extensiones de tu PC</string>
+    <string name="extensions_server_hint">Extensiones instaladas en los servidores de PC vinculados a este teléfono. Vincula o quita un servidor en Dispositivos vinculados.</string>
+    <string name="extensions_server_none">Todavía no vinculaste ningún servidor de PC.</string>
+    <string name="extensions_server_disabled">Este servidor está apagado en este teléfono.</string>
+    <string name="extensions_server_empty">Este servidor no tiene extensiones instaladas.</string>
+    <plurals name="extensions_server_count">
+        <item quantity="one">%1$d extensión</item>
+        <item quantity="many">%1$d extensiones</item>
+        <item quantity="other">%1$d extensiones</item>
+    </plurals>
+    <string name="extensions_server_refresh">Actualizar las extensiones de %1$s</string>
+    <string name="extensions_server_version">v%1$s</string>
+    <string name="extensions_server_on">Activada</string>
+    <string name="extensions_server_off">Desactivada</string>
+    <string name="extensions_server_err_unreachable">No se pudo conectar con esta PC. Comprueba que esté encendida y en la misma red.</string>
+    <string name="extensions_server_err_unauthorized">Esta PC ya no acepta este teléfono. Vuelve a vincularla en Dispositivos vinculados.</string>
+    <string name="extensions_server_err_incompatible">Esta PC respondió con un formato que la app no entiende. Actualiza las dos apps.</string>
+    <string name="extensions_server_err_other">La PC no pudo listar sus extensiones.</string>
+    <!-- parity wave B closure (ext.custom-providers.continue): resuming a provider title from Continue watching -->
+    <string name="extensions_provider_resuming">Abriendo el episodio…</string>
 </resources>
