@@ -124,10 +124,13 @@ class ExtensionRepositoryCandidatesTest {
             assertEquals("All in one", ext.description)
 
             val ranked = repo.resolveCandidates(media, 5)
-            assertEquals(2, ranked.size)
+            // parity wave B (16 §3.3): the embed page is listed too, marked for the sniffer.
+            assertEquals(3, ranked.size)
             assertEquals(setOf(SourceKind.WEB, SourceKind.TORRENT), ranked.map { it.candidate.kind }.toSet())
             assertTrue(ranked.first().recommended && ranked.drop(1).none { it.recommended })
-            val web = ranked.single { it.candidate.kind == SourceKind.WEB }
+            val embed = ranked.single { it.candidate.isEmbed }
+            assertEquals("EMBED", embed.candidate.container)
+            val web = ranked.single { it.candidate.kind == SourceKind.WEB && !it.candidate.isEmbed }
             assertEquals(0.1f, web.candidate.reliability)
             assertTrue(web.picked)
             val torrent = ranked.single { it.candidate.kind == SourceKind.TORRENT }
@@ -147,7 +150,7 @@ class ExtensionRepositoryCandidatesTest {
 
             val lines = repo.logs("x.toko").first()
             assertTrue(lines.any { it.op == "install" && it.level == ExtLogLevel.OK })
-            assertTrue(lines.any { it.op == "stream" && it.message == "1 sources" })
+            assertTrue(lines.any { it.op == "stream" && it.message == "2 sources" })
             assertTrue(lines.any { it.op == "torrent" && it.message == "1 sources" })
             assertTrue(lines.any { it.op == "source" && it.level == ExtLogLevel.WARN })
             assertTrue(lines.any { it.op == "browser" && it.level == ExtLogLevel.WARN }) // evil.example ignored
@@ -193,7 +196,7 @@ class ExtensionRepositoryCandidatesTest {
 
             repo.installFromUri(kai(root).path).getOrThrow()
             val all = repo.resolveCandidates(media, 5)
-            assertEquals(3, all.size)
+            assertEquals(4, all.size)
             assertEquals(setOf("x.toko", "server:srv-1/a"), all.map { it.candidate.extId }.toSet())
             assertTrue(all.all { it.extEnabled })
             assertTrue(all.zipWithNext().all { (a, b) -> a.score >= b.score })

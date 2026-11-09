@@ -36,6 +36,7 @@ import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -43,6 +44,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -54,6 +56,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,6 +85,8 @@ import app.tatakai.next.model.ExtLogLevel
 import app.tatakai.next.model.ExtensionCompat
 import app.tatakai.next.model.ExtensionDetail
 import app.tatakai.next.model.ExtensionLogEntry
+import app.tatakai.next.model.ExtensionRepo
+import app.tatakai.next.model.StremioAddon
 import app.tatakai.next.model.InstalledExtension
 import app.tatakai.next.ui.R as UiR
 import org.koin.compose.viewmodel.koinViewModel
@@ -99,8 +104,10 @@ fun ExtensionsScreen(
     viewModel: ExtensionsViewModel = koinViewModel(),
     // parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.4, worker t): "Proveedores" section (customSources) -> Route.Provider.
     onOpenProvider: (extensionId: String, sourceId: String) -> Unit = { _, _ -> },
+    hub: ExtensionsHubViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val hubState by hub.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbar = LocalAppSnackbar.current
     val invalidText = stringResource(R.string.extensions_install_invalid)
@@ -115,6 +122,17 @@ fun ExtensionsScreen(
         }
     }
     var pendingRemove by remember { mutableStateOf<InstalledExtension?>(null) }
+    // parity wave B (16 §3.4, worker t): sheets and dialogs of the hub sections.
+    var showUpdates by rememberSaveable { mutableStateOf(false) }
+    var showInstallUrl by rememberSaveable { mutableStateOf(false) }
+    var confirmKill by remember { mutableStateOf(false) }
+    var prefsFor by remember { mutableStateOf<InstalledExtension?>(null) }
+    var removeRepo by remember { mutableStateOf<ExtensionRepo?>(null) }
+    var removeAddon by remember { mutableStateOf<StremioAddon?>(null) }
+    HubNoticesEffect(hub)
+    LaunchedEffect(state.message) {
+        if (state.message is InstallMessage.Installed) showInstallUrl = false
+    }
 
     val installedText = (state.message as? InstallMessage.Installed)?.let { stringResource(R.string.extensions_installed, it.name) }
     LaunchedEffect(state.message) {
@@ -138,10 +156,17 @@ fun ExtensionsScreen(
                     if (state.items.isNotEmpty()) {
                         Pill(
                             pluralStringResource(R.plurals.extensions_installed_count, state.items.size, state.items.size),
-                            modifier = Modifier.padding(end = 16.dp),
+                            modifier = Modifier.padding(end = 4.dp),
                             tone = PillTone.NEUTRAL,
                         )
                     }
+                    HubTopActions(
+                        updates = hubState.updates.size,
+                        anyEnabled = state.items.any { it.enabled },
+                        hasExtensions = state.items.isNotEmpty(),
+                        onOpenUpdates = { showUpdates = true },
+                        onKillSwitch = { enable -> if (enable) hub.setAllEnabled(true) else confirmKill = true },
+                    )
                 },
             )
         },
@@ -160,7 +185,15 @@ fun ExtensionsScreen(
                     )
                 }
                 item(key = "install", contentType = "install") {
-                    InstallPanel(installing = state.installing, onPick = { picker.launch(arrayOf("*/*")) })
+                    InstallPanel(installing = state.installing, onPick = { picker.launch(arrayOf("*/*")) }, onUrl = { showInstallUrl = true })
+                }
+                if (hubState.updates.isNotEmpty()) {
+                    item(key = "updates-banner", contentType = "banner") {
+                        UpdatesBanner(hubState.updates.size, onOpen = { showUpdates = true })
+                    }
+                }
+                if (state.items.isNotEmpty() && state.items.none { it.enabled }) {
+                    item(key = "all-off", contentType = "banner") { AllDisabledBanner(onEnable = { hub.setAllEnabled(true) }) }
                 }
                 (state.message as? InstallMessage.Failed)?.let { failed ->
                     item(key = "install-error", contentType = "message") {
@@ -197,9 +230,21 @@ fun ExtensionsScreen(
                                 snackbar.show(if (on) enabledText else disabledText)
                             },
                             onRemove = { pendingRemove = ext },
+                            hasPreferences = ext.id in hubState.withPreferences,
+                            onPreferences = { prefsFor = ext },
+                            update = hubState.updates.firstOrNull { it.id == ext.id }?.availableVersion,
+                            updating = ext.id in hubState.updating,
+                            onUpdate = { hub.update(ext.id) },
                         )
                     }
                 }
+                hubSections(
+                    state = hubState,
+                    hub = hub,
+                    onOpenProvider = onOpenProvider,
+                    onRemoveRepo = { removeRepo = it },
+                    onRemoveAddon = { removeAddon = it },
+                )
             }
         }
     }
@@ -221,6 +266,84 @@ fun ExtensionsScreen(
             dismissButton = { TextButton(onClick = { pendingRemove = null }) { Text(stringResource(UiR.string.ui_close)) } },
         )
     }
+    if (showUpdates) UpdatesSheet(hubState, hub, onDismiss = { showUpdates = false })
+    if (showInstallUrl) {
+        InstallUrlDialog(installing = state.installing, onInstall = viewModel::installFromUrl, onDismiss = { showInstallUrl = false })
+    }
+    if (confirmKill) {
+        KillSwitchDialog(
+            onConfirm = {
+                confirmKill = false
+                hub.setAllEnabled(false)
+            },
+            onDismiss = { confirmKill = false },
+        )
+    }
+    prefsFor?.let { ext -> PreferencesDialog(ext.id, ext.name, hub, onDismiss = { prefsFor = null }) }
+    removeRepo?.let { r ->
+        ConfirmRemoveDialog(
+            title = stringResource(R.string.extensions_repo_remove_title, r.name),
+            message = stringResource(R.string.extensions_repo_remove_message),
+            onConfirm = {
+                hub.removeRepository(r.url)
+                removeRepo = null
+            },
+            onDismiss = { removeRepo = null },
+        )
+    }
+    removeAddon?.let { a ->
+        ConfirmRemoveDialog(
+            title = stringResource(R.string.extensions_remove_title, a.name),
+            message = stringResource(R.string.extensions_stremio_remove_message),
+            onConfirm = {
+                hub.removeAddon(a.id)
+                removeAddon = null
+            },
+            onDismiss = { removeAddon = null },
+        )
+    }
+}
+
+/** Snackbar of the hub's one-shot outcomes. */
+@Composable
+private fun HubNoticesEffect(hub: ExtensionsHubViewModel) {
+    val snackbar = LocalAppSnackbar.current
+    val res = LocalContext.current.resources
+    LaunchedEffect(hub) {
+        hub.notices.collect { n ->
+            val text = when (n) {
+                is HubNotice.Updated -> res.getString(R.string.extensions_updated_to, n.name, n.version)
+                is HubNotice.UpdatesChecked -> res.getQuantityString(R.plurals.extensions_updates_found, n.count, n.count)
+                is HubNotice.RepoAdded -> res.getString(R.string.extensions_repo_added, n.name)
+                is HubNotice.AddonInstalled -> res.getString(R.string.extensions_installed, n.name)
+                is HubNotice.AddonUpdated -> res.getString(R.string.extensions_updated_to, n.name, n.version)
+                HubNotice.MatchesReset -> res.getString(R.string.extensions_stremio_reset_done)
+                is HubNotice.AllEnabled -> res.getString(if (n.enabled) R.string.extensions_all_enabled else R.string.extensions_all_disabled)
+                is HubNotice.Failed -> res.getString(R.string.extensions_action_failed, n.reason)
+            }
+            snackbar.show(text)
+        }
+    }
+}
+
+@Composable
+private fun UpdatesBanner(count: Int, onOpen: () -> Unit) {
+    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(pluralStringResource(R.plurals.extensions_updates_badge, count, count), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = onOpen) { Text(stringResource(R.string.extensions_updates_open)) }
+        }
+    }
+}
+
+@Composable
+private fun AllDisabledBanner(onEnable: () -> Unit) {
+    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.extensions_all_off_banner), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            TextButton(onClick = onEnable) { Text(stringResource(R.string.extensions_enable_all)) }
+        }
+    }
 }
 
 @Composable
@@ -229,7 +352,7 @@ private fun DelayedLoading() {
 }
 
 @Composable
-private fun InstallPanel(installing: Boolean, onPick: () -> Unit) {
+private fun InstallPanel(installing: Boolean, onPick: () -> Unit, onUrl: () -> Unit) {
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Icon(Icons.Outlined.FileOpen, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
@@ -241,8 +364,11 @@ private fun InstallPanel(installing: Boolean, onPick: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Button(onClick = onPick, enabled = !installing) {
-                Text(stringResource(if (installing) R.string.extensions_installing else R.string.extensions_install_choose))
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Button(onClick = onPick, enabled = !installing) {
+                    Text(stringResource(if (installing) R.string.extensions_installing else R.string.extensions_install_choose))
+                }
+                TextButton(onClick = onUrl, enabled = !installing) { Text(stringResource(R.string.extensions_install_url)) }
             }
         }
     }
@@ -257,6 +383,11 @@ private fun ExtensionCard(
     viewModel: ExtensionsViewModel,
     onToggle: (Boolean) -> Unit,
     onRemove: () -> Unit,
+    hasPreferences: Boolean = false,
+    onPreferences: () -> Unit = {},
+    update: String? = null,
+    updating: Boolean = false,
+    onUpdate: () -> Unit = {},
 ) {
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -313,6 +444,21 @@ private fun ExtensionCard(
             }
             Permissions(ext.permissions)
             CompatBanner(ext)
+            if (hasPreferences || update != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (hasPreferences) {
+                        OutlinedButton(onClick = onPreferences) {
+                            Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Text(stringResource(R.string.extensions_prefs), modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                    if (update != null) {
+                        Button(onClick = onUpdate, enabled = !updating) {
+                            Text(if (updating) stringResource(R.string.extensions_updating) else stringResource(R.string.extensions_update_to, update))
+                        }
+                    }
+                }
+            }
             Foot(ext, detail, logOpen, onRetry = { viewModel.retryDetail(ext.id) }, onToggleLog = { viewModel.toggleLog(ext.id) })
             if (logOpen) LogPanel(ext.id, viewModel)
         }

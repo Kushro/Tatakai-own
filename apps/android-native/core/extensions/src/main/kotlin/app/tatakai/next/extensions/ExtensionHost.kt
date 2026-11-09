@@ -291,7 +291,10 @@ class ExtensionHost(
         withSession(slot) { s ->
             val method = spec.methods.firstOrNull { s.hasMethod(it) }
                 ?: throw ExtError.NotImplemented("Bundle does not implement ${spec.methods.first()}")
-            result = s.invoke(method, spec.args(params)).result
+            // parity wave B (16 §3.4, ext.preferences): custom routes take positional args; the preference values ride as one extra
+            // trailing object (`{ preferences, settings }`), which bundles that do not read simply ignore.
+            val extra = if (path.startsWith("custom/")) preferenceArg(params)?.let { listOf(it) }.orEmpty() else emptyList()
+            result = s.invoke(method, spec.args(params) + extra).result
         }
         val now = clock().toString()
         val o = result as? JsonObject ?: JsonObject(mapOf("result" to result))
@@ -360,6 +363,20 @@ class ExtensionHost(
         for (k in listOf("maxConcurrency", "maxRetries", "retryDelayMs", "timeoutMs")) params.num(k)?.let { po[k] = JsonPrimitive(it) }
         po.putIfAbsent("timeoutMs", JsonPrimitive(DEFAULT_PROVIDER_TIMEOUT_MS))
         put("providerOptions", JsonObject(po))
+        // parity wave B (16 §3.4, ext.preferences): the extension's preference values, under both names the bundles use.
+        (params[PREFERENCES_PARAM] as? JsonObject)?.let { prefs ->
+            put("preferences", prefs)
+            put("settings", prefs)
+        }
+    }
+
+    /** `{ preferences, settings }` of [params] (the values the repository injected), or null when there are none. */
+    internal fun preferenceArg(params: JsonObject): JsonObject? {
+        val prefs = params[PREFERENCES_PARAM] as? JsonObject ?: return null
+        return buildJsonObject {
+            put("preferences", prefs)
+            put("settings", prefs)
+        }
     }
 
     private fun titles(params: JsonObject): List<String> {
@@ -386,6 +403,8 @@ class ExtensionHost(
         const val AGGREGATE_TTL_S = 600L
         const val TORRENT_TTL_S = 1800L
         const val DEFAULT_PROVIDER_TIMEOUT_MS = 20_000
+        /** Param key under which `ExtensionRepositoryImpl` passes an extension's preference values (a JSON object of strings). */
+        const val PREFERENCES_PARAM = "preferences"
         val CUSTOM_ROUTES = listOf("custom/home", "custom/search", "custom/info", "custom/watch", "custom/read")
     }
 }
