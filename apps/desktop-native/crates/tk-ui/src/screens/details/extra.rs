@@ -372,14 +372,19 @@ pub fn FactsSheet(
                         h3 { class: "tk-panel__title", Icon { name: "external".to_string(), size: 20 } {t("details.facts.links")} }
                         div { class: "tk-chips",
                             for (site , url) in x.external_links.clone() {
-                                button {
-                                    key: "{url}",
-                                    class: "tk-dfacts__ext",
-                                    r#type: "button",
-                                    title: "{url}",
-                                    onclick: move |_| on_link.call(url.clone()),
-                                    Icon { name: "external".to_string(), size: 16 }
-                                    "{site}"
+                                {
+                                    let target = url.clone();
+                                    rsx! {
+                                        button {
+                                            key: "{url}",
+                                            class: "tk-dfacts__ext",
+                                            r#type: "button",
+                                            title: "{url}",
+                                            onclick: move |_| on_link.call(target.clone()),
+                                            Icon { name: "external".to_string(), size: 16 }
+                                            "{site}"
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -519,7 +524,7 @@ pub fn RelatedTab(extra: ExtraState, on_retry: EventHandler<()>) -> Element {
                                 span { class: "tk-drelated__title", "{r.media.title}" }
                                 span { class: "tk-chips",
                                     if manga {
-                                        Pill { text: t("details.kind.manga"), tone: Tone::Info, plain: true }
+                                        Pill { text: t("details.kind.manga"), tone: Tone::Primary, plain: true }
                                     }
                                     if !r.media.subtitle.is_empty() {
                                         span { class: "tk-drelated__sub", "{r.media.subtitle}" }
