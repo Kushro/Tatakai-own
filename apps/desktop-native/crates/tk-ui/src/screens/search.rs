@@ -654,7 +654,6 @@ pub fn SearchPage() -> Element {
     let clear_label = t("search.clear");
     let type_label = t("search.type");
     let active_filters = filters.read().clone();
-    let m1 = t("search.m1");
     let current_kind = kind();
     let by_extension = origin.read().is_some();
     let metadata_view = current_kind == SearchKind::Anime && !by_extension;
@@ -709,8 +708,6 @@ pub fn SearchPage() -> Element {
                     }
                 },
             }
-            span { title: "{m1}", Chip { label: t("type.manga"), disabled: true } }
-            span { title: "{m1}", Chip { label: t("type.novel"), disabled: true } }
             if current_kind == SearchKind::Anime {
                 span { class: "tk-search__sep", "aria-hidden": "true" }
                 Chip {
