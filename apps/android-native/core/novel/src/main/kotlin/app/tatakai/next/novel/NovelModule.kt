@@ -8,7 +8,7 @@ import app.tatakai.next.model.NovelRepository
 import app.tatakai.next.model.SettingsRepository
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.Module
-import org.koin.dsl.bind
+import org.koin.dsl.binds
 import org.koin.dsl.module
 import java.io.File
 
@@ -27,7 +27,7 @@ val novelModule: Module = module {
             storeDir = File(androidContext().filesDir, NovelRepositoryImpl.DIR_NAME),
             settings = { settings.settings.value },
         )
-    } bind AppDataWiper::class bind ChapterDownloadSource::class
+    } binds arrayOf(AppDataWiper::class, ChapterDownloadSource::class)
     single<NovelRepository> { get<NovelRepositoryImpl>() }
     single<Narrator> {
         val settings = get<SettingsRepository>()

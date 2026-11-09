@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
     private val accountLinks = MutableStateFlow(false)
     private val pendingOAuth: PendingOAuthRedirect by inject()
 
-    /** parity wave A (15 §3.1): an image shared to the app (`ACTION_SEND image/*`) opens the image search with it. */
+    /** parity wave A (15 §3.1): an image shared to the app (`ACTION_SEND` of an `image/` type) opens the image search with it. */
     private val imageLinks = MutableStateFlow<String?>(null)
 
     /** parity wave A (15 §3.9, worker q): `magnet:` / `.torrent` opened from the system waits here; the shell opens the Torrents client. */
@@ -98,7 +98,7 @@ class MainActivity : ComponentActivity() {
         accountLinks.value = true
     }
 
-    /** Only `SEND image/*` intents with a stream URI (share sheet). */
+    /** Only `SEND` intents of an `image/` type with a stream URI (share sheet). */
     private fun offerSharedImage(intent: Intent?) {
         if (intent?.action != Intent.ACTION_SEND || intent.type?.startsWith("image/") != true) return
         val uri = IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java) ?: return

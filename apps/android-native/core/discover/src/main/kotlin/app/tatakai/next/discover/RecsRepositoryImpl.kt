@@ -30,7 +30,7 @@ import java.time.Year
 
 /**
  * Parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.1, worker r; checklist home.recs.*, home.because-you-watched):
- * [RecsRepository] computed on the device (port of the classic `src/core/recommendations/*`, pure part in [RecsEngine]). Signals: the
+ * [RecsRepository] computed on the device (port of the classic `src/core/recommendations/`, pure part in [RecsEngine]). Signals: the
  * list entries (status + score, `ListsRepository`) and the watch history (completed episodes = positive signal), the most recent
  * [MAX_SIGNALS] titles; their genres / year / score from `MetadataRepository.media` and studios from `details` (top [MAX_STUDIO_LOOKUPS]).
  * Candidates: AniList `recommendations(ref)` of the [MAX_SEEDS] strongest titles ("Parecida a X") plus the Trending / Popular / Top
