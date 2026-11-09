@@ -8,11 +8,20 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.Module
 import org.koin.dsl.module
 
-@Database(entities = [HistoryRow::class, FeedCacheRow::class, SourceStatRow::class, PickedSourceRow::class], version = 2, exportSchema = false)
+@Database(
+    entities = [
+        HistoryRow::class, FeedCacheRow::class, SourceStatRow::class, PickedSourceRow::class,
+        // parity wave A (15 §3.3, worker q): lists, offline queue, conflicts, linked accounts, favorite characters (v3)
+        ListEntryRow::class, ListChangeRow::class, ListConflictRow::class, LinkedAccountRow::class, FavoriteCharacterRow::class,
+    ],
+    version = 3,
+    exportSchema = false,
+)
 abstract class TatakaiDatabase : RoomDatabase() {
     abstract fun history(): HistoryDao
     abstract fun feedCache(): FeedCacheDao
     abstract fun sourceStats(): SourceStatsDao
+    abstract fun lists(): ListsDao
 
     companion object {
         const val NAME = "tatakai.db"
@@ -22,6 +31,8 @@ abstract class TatakaiDatabase : RoomDatabase() {
                 // v1: no migrations yet; history is re-fetched from the paired PC (Tatakai Link) when one exists.
                 // v2 (android wave, 12 §4 a): + source_stats / picked_source. Still destructive (accepted, KNOWN-ISSUES): local
                 // unsynced history, source reliabilities and manual picks are dropped on the upgrade.
+                // v3 (parity wave A, worker q): + list_entry / list_change / list_conflict / linked_account / favorite_character.
+                // Destructive again (accepted, KNOWN-ISSUES): history not yet synced over Tatakai Link is lost on the upgrade.
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
     }
@@ -51,5 +62,6 @@ val databaseModule: Module = module {
     single { get<TatakaiDatabase>().history() }
     single { get<TatakaiDatabase>().feedCache() }
     single { get<TatakaiDatabase>().sourceStats() }
+    single { get<TatakaiDatabase>().lists() }
     single { FeedCache(get()) }
 }
