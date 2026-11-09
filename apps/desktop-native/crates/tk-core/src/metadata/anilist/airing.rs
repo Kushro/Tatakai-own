@@ -82,18 +82,28 @@ fn opt_u32(v: &Value) -> Option<u32> {
 }
 
 fn graphql_err(doc: &Value, what: &str) -> ProviderError {
-    ProviderError::Parse(doc["errors"][0]["message"].as_str().map_or_else(|| format!("missing {what}"), str::to_owned))
+    ProviderError::Parse(
+        doc["errors"][0]["message"]
+            .as_str()
+            .map_or_else(|| format!("missing {what}"), str::to_owned),
+    )
 }
 
 fn year_u16(v: &Value) -> Option<u16> {
-    v.as_u64().and_then(|y| u16::try_from(y).ok()).filter(|y| *y > 1900)
+    v.as_u64()
+        .and_then(|y| u16::try_from(y).ok())
+        .filter(|y| *y > 1900)
 }
 
 /// `studios.nodes[].name`.
 fn studios(m: &Value) -> Vec<String> {
     m["studios"]["nodes"]
         .as_array()
-        .map(|a| a.iter().filter_map(|s| s["name"].as_str().map(str::to_owned)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s["name"].as_str().map(str::to_owned))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -104,7 +114,12 @@ fn tags(m: &Value) -> Vec<(String, u8)> {
         .map(|a| {
             a.iter()
                 .filter(|t| t["isMediaSpoiler"].as_bool() != Some(true))
-                .filter_map(|t| Some((t["name"].as_str()?.to_owned(), u8::try_from(t["rank"].as_u64()?.min(100)).ok()?)))
+                .filter_map(|t| {
+                    Some((
+                        t["name"].as_str()?.to_owned(),
+                        u8::try_from(t["rank"].as_u64()?.min(100)).ok()?,
+                    ))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -117,7 +132,10 @@ pub fn map_features(m: &Value) -> Option<Candidate> {
     let anilist_id = opt_u32(&m["id"]).filter(|id| *id != 0)?;
     Some(Candidate {
         anilist_id,
-        genres: m["genres"].as_array().map(|a| a.iter().filter_map(|g| g.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
+        genres: m["genres"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|g| g.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default(),
         studios: studios(m),
         year: year_u16(&m["seasonYear"]).or_else(|| year_u16(&m["startDate"]["year"])),
         tags: tags(m),
@@ -149,7 +167,10 @@ pub fn map_airing_page(doc: &Value) -> Result<AiringPage, ProviderError> {
                 .collect()
         })
         .unwrap_or_default();
-    Ok(AiringPage { rows, has_next: page["pageInfo"]["hasNextPage"].as_bool().unwrap_or(false) })
+    Ok(AiringPage {
+        rows,
+        has_next: page["pageInfo"]["hasNextPage"].as_bool().unwrap_or(false),
+    })
 }
 
 /// `Page.media` with `startDate` -> dated titles + has next.
@@ -165,8 +186,16 @@ pub fn map_dated_page(doc: &Value) -> Result<(Vec<DatedMedia>, bool), ProviderEr
                 .filter(|m| opt_u32(&m["id"]).is_some_and(|id| id != 0))
                 .map(|m| {
                     let d = &m["startDate"];
-                    let date = (d["year"].as_i64().and_then(|y| i32::try_from(y).ok()), opt_u32(&d["month"]), opt_u32(&d["day"]));
-                    DatedMedia { media: map_anilist_media(m), start_date: format_fuzzy_date(date), adult: m["isAdult"].as_bool() == Some(true) }
+                    let date = (
+                        d["year"].as_i64().and_then(|y| i32::try_from(y).ok()),
+                        opt_u32(&d["month"]),
+                        opt_u32(&d["day"]),
+                    );
+                    DatedMedia {
+                        media: map_anilist_media(m),
+                        start_date: format_fuzzy_date(date),
+                        adult: m["isAdult"].as_bool() == Some(true),
+                    }
                 })
                 .collect()
         })
@@ -176,8 +205,18 @@ pub fn map_dated_page(doc: &Value) -> Result<(Vec<DatedMedia>, bool), ProviderEr
 
 /// `GenreCollection` -> names in AniList order.
 pub fn map_genres(doc: &Value) -> Result<Vec<String>, ProviderError> {
-    let list = doc["data"]["GenreCollection"].as_array().ok_or_else(|| graphql_err(doc, "GenreCollection"))?;
-    Ok(list.iter().filter_map(|g| g.as_str().map(str::trim).filter(|g| !g.is_empty()).map(str::to_owned)).collect())
+    let list = doc["data"]["GenreCollection"]
+        .as_array()
+        .ok_or_else(|| graphql_err(doc, "GenreCollection"))?;
+    Ok(list
+        .iter()
+        .filter_map(|g| {
+            g.as_str()
+                .map(str::trim)
+                .filter(|g| !g.is_empty())
+                .map(str::to_owned)
+        })
+        .collect())
 }
 
 /// `Media.recommendations` -> recommended titles (best rated first), `(media, adult)`.
@@ -205,7 +244,10 @@ pub fn map_features_page(doc: &Value) -> Result<Vec<Candidate>, ProviderError> {
     if page.is_null() {
         return Err(graphql_err(doc, "data.Page"));
     }
-    Ok(page["media"].as_array().map(|a| a.iter().filter_map(map_features).collect()).unwrap_or_default())
+    Ok(page["media"]
+        .as_array()
+        .map(|a| a.iter().filter_map(map_features).collect())
+        .unwrap_or_default())
 }
 
 /// Discover page -> `(media, features, adult)`.
@@ -218,14 +260,26 @@ pub fn map_discover_page(doc: &Value) -> Result<Vec<(Media, Candidate, bool)>, P
         .as_array()
         .map(|a| {
             a.iter()
-                .filter_map(|m| Some((map_anilist_media(m), map_features(m)?, m["isAdult"].as_bool() == Some(true))))
+                .filter_map(|m| {
+                    Some((
+                        map_anilist_media(m),
+                        map_features(m)?,
+                        m["isAdult"].as_bool() == Some(true),
+                    ))
+                })
                 .collect()
         })
         .unwrap_or_default())
 }
 
 /// Variables of [`AIRING_QUERY`] (pure).
-pub fn airing_vars(from_unix: i64, to_unix: i64, ids: Option<&[u32]>, newest_first: bool, page: u32) -> Value {
+pub fn airing_vars(
+    from_unix: i64,
+    to_unix: i64,
+    ids: Option<&[u32]>,
+    newest_first: bool,
+    page: u32,
+) -> Value {
     let mut v = json!({
         "page": page.max(1),
         "perPage": AIRING_PER_PAGE,
@@ -252,11 +306,21 @@ impl AniList {
             .await?;
         let status = resp.status().as_u16();
         if status == 429 {
-            return Err(ProviderError::RateLimited { provider: "anilist".into() });
+            return Err(ProviderError::RateLimited {
+                provider: "anilist".into(),
+            });
         }
-        let body: Value = resp.json().await.map_err(|e| ProviderError::Parse(e.without_url().to_string()))?;
-        if body["errors"].as_array().is_some_and(|e| e.iter().any(|x| x["status"] == 429)) {
-            return Err(ProviderError::RateLimited { provider: "anilist".into() });
+        let body: Value = resp
+            .json()
+            .await
+            .map_err(|e| ProviderError::Parse(e.without_url().to_string()))?;
+        if body["errors"]
+            .as_array()
+            .is_some_and(|e| e.iter().any(|x| x["status"] == 429))
+        {
+            return Err(ProviderError::RateLimited {
+                provider: "anilist".into(),
+            });
         }
         if !(200..300).contains(&status) && status != 404 {
             return Err(ProviderError::Http(status));
@@ -276,7 +340,14 @@ impl AniList {
         if ids.is_some_and(<[u32]>::is_empty) || to_unix < from_unix {
             return Ok(AiringPage::default());
         }
-        map_airing_page(&self.post(AIRING_QUERY, airing_vars(from_unix, to_unix, ids, newest_first, page)).await?)
+        map_airing_page(
+            &self
+                .post(
+                    AIRING_QUERY,
+                    airing_vars(from_unix, to_unix, ids, newest_first, page),
+                )
+                .await?,
+        )
     }
 
     /// AniList's genre list.
@@ -284,7 +355,13 @@ impl AniList {
         map_genres(&self.post_bare(GENRES_QUERY, json!({})).await?)
     }
 
-    async fn sorted(&self, sort: &str, status: Option<&str>, page: u32, adult: bool) -> Result<(Vec<DatedMedia>, bool), ProviderError> {
+    async fn sorted(
+        &self,
+        sort: &str,
+        status: Option<&str>,
+        page: u32,
+        adult: bool,
+    ) -> Result<(Vec<DatedMedia>, bool), ProviderError> {
         let mut v = json!({ "page": page.max(1), "perPage": 20, "sort": [sort] });
         if let Some(s) = status {
             v["status"] = s.into();
@@ -297,11 +374,16 @@ impl AniList {
 
     /// Not yet released titles, most popular first, with their expected start date.
     pub async fn upcoming(&self, page: u32, adult: bool) -> Result<(Vec<DatedMedia>, bool), ProviderError> {
-        self.sorted("POPULARITY_DESC", Some("NOT_YET_RELEASED"), page, adult).await
+        self.sorted("POPULARITY_DESC", Some("NOT_YET_RELEASED"), page, adult)
+            .await
     }
 
     /// Most favourited titles of all time.
-    pub async fn most_favourite(&self, page: u32, adult: bool) -> Result<(Vec<DatedMedia>, bool), ProviderError> {
+    pub async fn most_favourite(
+        &self,
+        page: u32,
+        adult: bool,
+    ) -> Result<(Vec<DatedMedia>, bool), ProviderError> {
         self.sorted("FAVOURITES_DESC", None, page, adult).await
     }
 
@@ -316,7 +398,11 @@ impl AniList {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        map_features_page(&self.post_bare(FEATURES_QUERY, json!({ "ids": ids, "perPage": ids.len() })).await?)
+        map_features_page(
+            &self
+                .post_bare(FEATURES_QUERY, json!({ "ids": ids, "perPage": ids.len() }))
+                .await?,
+        )
     }
 
     /// Well rated titles of any of `genres`, without `exclude`, with their features (recommendation candidates).
@@ -365,7 +451,15 @@ mod tests {
         let p = map_airing_page(&doc).unwrap();
         assert!(p.has_next);
         assert_eq!(p.rows.len(), 2);
-        assert_eq!((p.rows[0].episode, p.rows[0].at_unix, p.rows[0].adult, p.rows[0].popularity), (5, 1_800_000_000, false, 1200));
+        assert_eq!(
+            (
+                p.rows[0].episode,
+                p.rows[0].at_unix,
+                p.rows[0].adult,
+                p.rows[0].popularity
+            ),
+            (5, 1_800_000_000, false, 1200)
+        );
         assert!(p.rows[1].adult);
         assert!(map_airing_page(&json!({ "errors": [{ "message": "boom" }] })).is_err());
     }
@@ -373,7 +467,10 @@ mod tests {
     #[test]
     fn airing_vars_widen_the_exclusive_bounds() {
         let v = airing_vars(100, 200, Some(&[1, 2]), true, 0);
-        assert_eq!((v["from"].as_i64(), v["to"].as_i64(), v["page"].as_u64()), (Some(99), Some(201), Some(1)));
+        assert_eq!(
+            (v["from"].as_i64(), v["to"].as_i64(), v["page"].as_u64()),
+            (Some(99), Some(201), Some(1))
+        );
         assert_eq!(v["sort"], json!(["TIME_DESC"]));
         assert_eq!(v["ids"], json!([1, 2]));
         assert!(airing_vars(0, 1, None, false, 2).get("ids").is_none());
@@ -395,7 +492,11 @@ mod tests {
         .unwrap();
         assert_eq!(r.len(), 1);
         assert!(r[0].1);
-        assert!(map_recommendations(&json!({ "data": { "Media": null } })).unwrap().is_empty());
+        assert!(
+            map_recommendations(&json!({ "data": { "Media": null } }))
+                .unwrap()
+                .is_empty()
+        );
 
         let f = map_features(&card(4, false)).unwrap();
         assert_eq!(f.anilist_id, 4);

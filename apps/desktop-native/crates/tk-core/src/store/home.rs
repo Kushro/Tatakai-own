@@ -13,7 +13,12 @@ use crate::error::StoreError;
 use crate::store::LocalStore;
 
 /// Tables of this file (the contract's `SCHEMA` creates them; the test below checks they exist).
-pub const TABLES: &[&str] = &["tracked_shows", "airing_reminders", "recs_feedback", "home_visits"];
+pub const TABLES: &[&str] = &[
+    "tracked_shows",
+    "airing_reminders",
+    "recs_feedback",
+    "home_visits",
+];
 
 /// Announced reminders are kept this long (30 days), then pruned.
 pub const REMINDER_RETENTION_SECS: i64 = 30 * 86_400;
@@ -52,14 +57,21 @@ impl LocalStore {
     }
 
     pub fn remove_tracked(&self, media_id: &str) -> Result<(), StoreError> {
-        self.with(|c| c.execute("DELETE FROM tracked_shows WHERE media_id = ?1", [media_id]).map(|_| ()))
+        self.with(|c| {
+            c.execute("DELETE FROM tracked_shows WHERE media_id = ?1", [media_id])
+                .map(|_| ())
+        })
     }
 
     pub fn is_tracked(&self, media_id: &str) -> Result<bool, StoreError> {
         self.with(|c| {
-            c.query_row("SELECT 1 FROM tracked_shows WHERE media_id = ?1", [media_id], |_| Ok(()))
-                .optional()
-                .map(|r| r.is_some())
+            c.query_row(
+                "SELECT 1 FROM tracked_shows WHERE media_id = ?1",
+                [media_id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map(|r| r.is_some())
         })
     }
 
@@ -122,9 +134,17 @@ impl LocalStore {
     /// Every feedback row, newest first.
     pub fn recs_feedback(&self) -> Result<Vec<RecsFeedbackRow>, StoreError> {
         self.with(|c| {
-            let mut st = c.prepare("SELECT media_id, feedback, created_at FROM recs_feedback ORDER BY created_at DESC, media_id")?;
-            st.query_map([], |r| Ok(RecsFeedbackRow { media_id: r.get(0)?, feedback: r.get(1)?, created_at: r.get(2)? }))?
-                .collect()
+            let mut st = c.prepare(
+                "SELECT media_id, feedback, created_at FROM recs_feedback ORDER BY created_at DESC, media_id",
+            )?;
+            st.query_map([], |r| {
+                Ok(RecsFeedbackRow {
+                    media_id: r.get(0)?,
+                    feedback: r.get(1)?,
+                    created_at: r.get(2)?,
+                })
+            })?
+            .collect()
         })
     }
 
@@ -146,8 +166,12 @@ impl LocalStore {
 
     pub fn last_home_visit(&self, section: &str) -> Result<Option<i64>, StoreError> {
         self.with(|c| {
-            c.query_row("SELECT visited_at FROM home_visits WHERE section = ?1", [section], |r| r.get::<_, i64>(0))
-                .optional()
+            c.query_row(
+                "SELECT visited_at FROM home_visits WHERE section = ?1",
+                [section],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()
         })
     }
 }
@@ -157,7 +181,13 @@ mod tests {
     use super::*;
 
     fn row(id: &str, at: i64) -> TrackedShowRow {
-        TrackedShowRow { media_id: id.into(), title: format!("T{id}"), poster: None, anilist_id: id.parse().ok(), added_at: at }
+        TrackedShowRow {
+            media_id: id.into(),
+            title: format!("T{id}"),
+            poster: None,
+            anilist_id: id.parse().ok(),
+            added_at: at,
+        }
     }
 
     #[test]
@@ -174,9 +204,16 @@ mod tests {
         s.set_tracked(&row("21", 10)).unwrap();
         s.set_tracked(&row("1", 20)).unwrap();
         // re-tracking keeps the first added_at and refreshes the poster
-        s.set_tracked(&TrackedShowRow { poster: Some("p".into()), ..row("21", 99) }).unwrap();
+        s.set_tracked(&TrackedShowRow {
+            poster: Some("p".into()),
+            ..row("21", 99)
+        })
+        .unwrap();
         let all = s.tracked_shows().unwrap();
-        assert_eq!(all.iter().map(|r| r.media_id.as_str()).collect::<Vec<_>>(), ["1", "21"]);
+        assert_eq!(
+            all.iter().map(|r| r.media_id.as_str()).collect::<Vec<_>>(),
+            ["1", "21"]
+        );
         assert_eq!(all[1].added_at, 10);
         assert_eq!(all[1].poster.as_deref(), Some("p"));
         assert!(s.is_tracked("21").unwrap());
@@ -190,7 +227,10 @@ mod tests {
         assert!(s.reminder_announced("21", 5, 1_000).unwrap());
         assert!(!s.reminder_announced("21", 5, 1_100).unwrap());
         assert!(s.was_announced("21", 5).unwrap());
-        assert!(s.reminder_announced("21", 6, 1_000 + REMINDER_RETENTION_SECS + 1).unwrap());
+        assert!(
+            s.reminder_announced("21", 6, 1_000 + REMINDER_RETENTION_SECS + 1)
+                .unwrap()
+        );
         assert!(!s.was_announced("21", 5).unwrap(), "old row pruned");
     }
 
@@ -202,7 +242,10 @@ mod tests {
         s.set_recs_feedback("6", "like", 3).unwrap();
         let rows = s.recs_feedback().unwrap();
         assert_eq!(rows.len(), 2);
-        assert_eq!((rows[0].media_id.as_str(), rows[1].feedback.as_str()), ("6", "not_interested"));
+        assert_eq!(
+            (rows[0].media_id.as_str(), rows[1].feedback.as_str()),
+            ("6", "not_interested")
+        );
         assert_eq!(s.clear_recs_feedback().unwrap(), 2);
     }
 
