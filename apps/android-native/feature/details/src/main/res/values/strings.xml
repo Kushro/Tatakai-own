@@ -83,6 +83,7 @@
     <string name="details_adult_show">Show</string>
     <string name="details_adult_back">Go back</string>
     <string name="details_adult_badge">18+</string>
+    <string name="details_mature_tap">Adult content · tap to show</string>
     <string name="details_characters">Characters</string>
     <string name="details_characters_empty_title">No characters</string>
     <string name="details_characters_empty">The metadata provider lists no characters for this title.</string>

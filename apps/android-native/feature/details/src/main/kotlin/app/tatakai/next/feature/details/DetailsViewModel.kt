@@ -12,6 +12,7 @@ import app.tatakai.next.model.LinkRepository
 import app.tatakai.next.model.LinkSource
 import app.tatakai.next.model.LinkState
 import app.tatakai.next.model.LoadState
+import app.tatakai.next.model.MatureContentMode
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaDetails
 import app.tatakai.next.model.MediaKind
@@ -84,6 +85,10 @@ data class DetailsUiState(
     val titleLanguage: TitleLanguage = TitleLanguage.ROMAJI,
     /** 18+ title not confirmed yet for this id (classic AdultWarningGate): the screen shows the gate instead of the content. */
     val adultGate: Boolean = false,
+    /** AppSettings.matureContent: SHOW / BLUR / WARN (see [adultPresentation]). */
+    val matureContent: MatureContentMode = MatureContentMode.WARN,
+    /** BLUR mode: banner and cover of this 18+ title stay blurred until tapped once (not remembered). */
+    val coverBlurred: Boolean = false,
     val episodeQuery: String = "",
     /** parity wave B (r, downloads.local-library.play-offline): episodes with a completed web download (marked, played offline). */
     val downloaded: Set<Int> = emptySet(),
@@ -201,7 +206,10 @@ class DetailsViewModel(
         }
         if (settings != null) {
             viewModelScope.launch {
-                settings.settings.collect { s -> _state.update { it.copy(mode = s.sourcePrefs.mode, titleLanguage = s.titleLanguage) } }
+                settings.settings.collect { s ->
+                    _state.update { it.copy(mode = s.sourcePrefs.mode, titleLanguage = s.titleLanguage, matureContent = s.matureContent) }
+                    updateAdultGate()
+                }
             }
         }
         viewModelScope.launch {
@@ -437,7 +445,23 @@ class DetailsViewModel(
         val media = (s.media as? LoadState.Ok)?.value ?: return
         val adult = s.detailsOrNull?.isAdult == true || media.looksAdult()
         val id = ref.anilistId
-        _state.update { it.copy(adultGate = adult && (id == null || !prefs.adultAccepted(id))) }
+        val accepted = id != null && prefs.adultAccepted(id)
+        val presentation = adultPresentation(s.matureContent, adult, accepted)
+        _state.update {
+            it.copy(
+                adultGate = presentation == AdultPresentation.GATE,
+                // Once revealed it stays revealed for this screen, even when the technical sheet re-runs the check.
+                coverBlurred = presentation == AdultPresentation.BLUR && !revealedCover,
+            )
+        }
+    }
+
+    private var revealedCover = false
+
+    /** BLUR mode: the first tap on the blurred banner / cover reveals them. */
+    fun revealCover() {
+        revealedCover = true
+        _state.update { it.copy(coverBlurred = false) }
     }
 
     /** "Mostrar" of the 18+ gate: remembered for this title. */
