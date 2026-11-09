@@ -376,6 +376,8 @@ private fun SourceRowContent(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Pill(stringResource(if (torrent) UiR.string.src_torrent else UiR.string.src_web), plain = true)
                 if (source.recommended) Pill(stringResource(UiR.string.src_recommended), tone = PillTone.PRIMARY)
+                // 15 §3.9: torrent cached by a linked debrid service (plays as a direct HTTPS stream).
+                c.debrid?.takeIf { it.cached }?.let { d -> Pill(stringResource(R.string.src_tag_debrid_cached, d.service.label), tone = PillTone.PRIMARY) }
                 if (!enabled) Pill(stringResource(UiR.string.src_ext_off, c.extName), tone = PillTone.ERR, plain = true)
                 c.note?.takeIf { it.isNotBlank() }?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)

@@ -12,12 +12,15 @@ import android.media.AudioManager
 import android.os.Build
 import android.util.Rational
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -45,6 +48,14 @@ import androidx.compose.material.icons.rounded.BrightnessMedium
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.FormatListNumbered
+import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.FullscreenExit
+import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.HighQuality
 import androidx.compose.material.icons.rounded.Info
@@ -81,12 +92,19 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -108,18 +126,25 @@ import androidx.media3.ui.compose.ContentFrame
 import app.tatakai.next.model.SkipKind
 import app.tatakai.next.model.SourceKind
 import app.tatakai.next.player.PlaybackController
+import app.tatakai.next.player.PlaybackService
 import app.tatakai.next.player.PlaybackState
+import app.tatakai.next.player.PlayerKeymap
+import app.tatakai.next.player.PlayerPrefs
 import app.tatakai.next.player.PlayerSession
+import app.tatakai.next.player.SubtitleExtras
+import app.tatakai.next.player.SubtitleTools
 import app.tatakai.next.player.mpv.MpvPlayerSession
 import app.tatakai.next.player.mpv.MpvPlayerSurface
 import app.tatakai.next.player.rangeSpans
 import app.tatakai.next.player.readySpan
 import app.tatakai.next.ui.format.formatDuration
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.koin.compose.getKoin
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private enum class Sheet { Quality, Subtitles, Audio, Speed }
+private enum class Sheet { Quality, Subtitles, Audio, Speed, More, Episodes }
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
 
@@ -148,17 +173,31 @@ internal fun PlayerContent(
     var sheet by remember { mutableStateOf<Sheet?>(null) }
     var inPip by remember { mutableStateOf(false) }
     var hud by remember { mutableStateOf<Hud?>(null) }
+    // --- parity wave A (worker p) ---
+    var fullscreen by rememberSaveable { mutableStateOf(true) }
+    var locked by rememberSaveable { mutableStateOf(false) }
+    var lockButtonVisible by remember { mutableStateOf(true) }
+    var helpOpen by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val koin = getKoin()
+    val prefs = remember { koin.getOrNull<PlayerPrefs>() }
+    val tools = remember { koin.getOrNull<SubtitleTools>() }
+    val extras = prefs?.subtitleExtras?.collectAsStateWithLifecycle()?.value ?: SubtitleExtras()
+    val fontFile = remember(extras.fontFile) { tools?.fonts?.file(extras.fontFile) }
+    val settings = state.settings
+    val focus = remember { FocusRequester() }
+    val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::loadSubtitleFile) }
+    val episodeForShot = if (state.remoteless) vm.episodeNumber else null
+    fun screenshot() {
+        scope.launch { vm.onScreenshot(captureScreenshot(activity, session, vm.titleForFiles, episodeForShot)?.displayPath) }
+    }
 
-    // Immersive landscape playback; everything is restored on exit.
+    // Restores the window on exit (orientation, bars, brightness, keep-awake).
     DisposableEffect(activity) {
         val window = activity?.window
         val insets = window?.let { WindowCompat.getInsetsController(it, view) }
         val previousOrientation = activity?.requestedOrientation
         val previousBrightness = window?.attributes?.screenBrightness
-        view.keepScreenOn = true
-        insets?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        insets?.hide(WindowInsetsCompat.Type.systemBars())
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         onDispose {
             view.keepScreenOn = false
             insets?.show(WindowInsetsCompat.Type.systemBars())
@@ -166,6 +205,57 @@ internal fun PlayerContent(
             if (window != null && previousBrightness != null) {
                 window.attributes = window.attributes.also { it.screenBrightness = previousBrightness }
             }
+        }
+    }
+    // player.android.fullscreen: immersive + forced landscape; off = system bars and the device's own orientation.
+    LaunchedEffect(fullscreen, activity) {
+        val act = activity ?: return@LaunchedEffect
+        val insets = WindowCompat.getInsetsController(act.window, view)
+        if (fullscreen) {
+            insets.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insets.hide(WindowInsetsCompat.Type.systemBars())
+            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            insets.show(WindowInsetsCompat.Type.systemBars())
+            act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+    // Keep-awake only while the video plays (FLAG_KEEP_SCREEN_ON through the view).
+    LaunchedEffect(ps.isPlaying) { view.keepScreenOn = ps.isPlaying }
+    // Background playback (15 §3.2): the MediaSession service runs while playing when the setting is on.
+    LaunchedEffect(ps.isPlaying, settings.backgroundPlayback) {
+        if (ps.isPlaying && settings.backgroundPlayback) PlaybackService.start(context)
+    }
+    LaunchedEffect(locked, lockButtonVisible) {
+        if (locked && lockButtonVisible) {
+            delay(LOCK_BUTTON_TIMEOUT_MS)
+            lockButtonVisible = false
+        }
+    }
+    LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+
+    fun runAction(action: String) {
+        when (action) {
+            PlayerKeymap.PLAY_PAUSE -> session.togglePlay()
+            PlayerKeymap.SEEK_BACK -> session.seekBy(-SEEK_STEP_MS)
+            PlayerKeymap.SEEK_FORWARD -> session.seekBy(SEEK_STEP_MS)
+            PlayerKeymap.FULLSCREEN -> fullscreen = !fullscreen
+            PlayerKeymap.MUTE -> adjustVolume(context, AudioManager.ADJUST_TOGGLE_MUTE)
+            PlayerKeymap.PIP -> activity?.let { enterPip(it) }
+            PlayerKeymap.PREV_EPISODE -> vm.playPrevious()
+            PlayerKeymap.NEXT_EPISODE -> if (state.hasNextEpisode && state.remoteless) vm.playNext()
+            PlayerKeymap.VOLUME_UP -> adjustVolume(context, AudioManager.ADJUST_RAISE)
+            PlayerKeymap.VOLUME_DOWN -> adjustVolume(context, AudioManager.ADJUST_LOWER)
+            PlayerKeymap.SCREENSHOT -> screenshot()
+            PlayerKeymap.SUBS_TOGGLE -> {
+                val st = session.state.value
+                if (st.subtitlesEnabled || state.customSubtitle != null) {
+                    vm.selectSubtitle(null)
+                } else {
+                    st.subtitles.firstOrNull()?.let { vm.selectSubtitle(it.groupIndex) }
+                }
+            }
+            PlayerKeymap.HELP -> helpOpen = !helpOpen
         }
     }
 
@@ -182,7 +272,7 @@ internal fun PlayerContent(
             activity?.setPictureInPictureParams(pipParams(autoEnter = ps.isPlaying))
         }
     }
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (!inPip) session.pause() }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { if (!inPip && !settings.backgroundPlayback) session.pause() }
 
     // Controls stay up until the first frame (resolving / buffering), then hide after a few seconds of playback.
     val keepUp = !ps.started || state.phase == PlayerPhase.RESOLVING
@@ -199,23 +289,39 @@ internal fun PlayerContent(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(scheme.background)) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(scheme.background)
+            .focusRequester(focus)
+            .focusable()
+            .onPreviewKeyEvent { e ->
+                if (e.type != KeyEventType.KeyDown || locked) return@onPreviewKeyEvent false
+                val action = PlayerKeymap.actionFor(keyNameOf(e.nativeKeyEvent.keyCode), settings.playerKeymap) ?: return@onPreviewKeyEvent false
+                runAction(action)
+                interaction++
+                true
+            },
+    ) {
         when (session) {
-            is PlaybackController -> {
-                ContentFrame(player = session.player, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                val cues by session.cues.collectAsState()
-                val style by session.subtitleStyle.collectAsState()
-                SubtitleOverlay(
-                    cues,
-                    style,
-                    Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
-                        .padding(bottom = if (controlsVisible && !inPip) 136.dp else 24.dp, start = 24.dp, end = 24.dp),
-                )
-            }
+            is PlaybackController -> ContentFrame(player = session.player, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             is MpvPlayerSession -> MpvPlayerSurface(session.engine, Modifier.fillMaxSize())
         }
+        ScreenSubtitleLayer(
+            vm = vm,
+            session = session,
+            ps = ps,
+            style = settings.subtitleStyle,
+            extras = extras,
+            fontFile = fontFile,
+            bottomPadding = if (controlsVisible && !inPip && !locked) 136.dp else 24.dp,
+            modifier = Modifier.navigationBarsPadding(),
+        )
 
-        if (!inPip) {
+        if (!inPip && locked) {
+            LockOverlay(visible = lockButtonVisible, onShow = { lockButtonVisible = true }, onUnlock = { locked = false; controlsVisible = true })
+        }
+        if (!inPip && !locked) {
             GestureLayer(
                 session = session,
                 onToggleControls = { controlsVisible = !controlsVisible },
@@ -259,7 +365,21 @@ internal fun PlayerContent(
                     onOpenTorrent = onOpenTorrent,
                     onNext = vm::playNext,
                     onInteract = { interaction++ },
+                    fullscreen = fullscreen,
+                    onPrev = vm::playPrevious,
+                    onLock = { locked = true; lockButtonVisible = true; sheet = null },
+                    onScreenshot = { screenshot() },
+                    onToggleFullscreen = { fullscreen = !fullscreen },
+                    onHelp = { helpOpen = true },
                 )
+            }
+            state.translation.progress?.let { p ->
+                PretranslateOverlay(p, onSkip = vm::cancelPretranslate, modifier = Modifier.align(Alignment.Center))
+            }
+            if (helpOpen) {
+                Box(Modifier.fillMaxSize().background(scheme.scrim.copy(alpha = 0.5f)).clickable { helpOpen = false }, contentAlignment = Alignment.Center) {
+                    ShortcutsPanel(settings.playerKeymap, onDismiss = { helpOpen = false })
+                }
             }
         }
     }
@@ -273,18 +393,16 @@ internal fun PlayerContent(
                         SheetRow(stringResource(R.string.player_quality_height, h), ps.selectedHeight == h) { session.selectVideoHeight(h); sheet = null }
                     }
                 }
-                Sheet.Subtitles -> {
-                    if (!ps.fullAss && ps.subtitles.any { it.ass }) {
-                        ListItem(
-                            headlineContent = { Text(stringResource(R.string.player_ass_simplified), style = MaterialTheme.typography.bodySmall) },
-                            leadingContent = { Icon(Icons.Rounded.Info, contentDescription = null) },
-                        )
-                    }
-                    SheetRow(stringResource(R.string.player_subtitles_off), !ps.subtitlesEnabled) { session.selectSubtitle(null); sheet = null }
-                    ps.subtitles.forEach { o ->
-                        SheetRow(o.label, o.selected) { session.selectSubtitle(o.groupIndex); sheet = null }
-                    }
-                }
+                Sheet.Subtitles -> SubtitlesSheetContent(
+                    vm = vm,
+                    session = session,
+                    ps = ps,
+                    state = state,
+                    onLoadFile = { sheet = null; subtitlePicker.launch(SUBTITLE_MIME_TYPES) },
+                    onDone = { sheet = null },
+                )
+                Sheet.More -> MoreSheetContent(vm, state)
+                Sheet.Episodes -> EpisodesSheetContent(vm, state, current = vm.episodeNumber, onPick = { n -> sheet = null; vm.playEpisode(n) })
                 Sheet.Audio -> ps.audioTracks.forEach { a ->
                     SheetRow(a.label, a.selected) { session.selectAudio(a.id); sheet = null }
                 }
@@ -307,7 +425,7 @@ private fun SheetRow(text: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 private data class Hud(val kind: Kind, val percent: Int = 0, val seconds: Int = 0) {
-    enum class Kind { Brightness, Volume, Seek }
+    enum class Kind { Brightness, Volume, Seek, Hold }
 }
 
 @Composable
@@ -325,6 +443,10 @@ private fun HudPill(hud: Hud, modifier: Modifier) {
                     Text(stringResource(R.string.player_percent, hud.percent))
                 }
                 Hud.Kind.Seek -> Text(stringResource(R.string.player_seek_seconds, hud.seconds))
+                Hud.Kind.Hold -> {
+                    Icon(Icons.Rounded.Speed, contentDescription = null)
+                    Text(stringResource(R.string.player_speed_hold))
+                }
             }
         }
     }
@@ -350,12 +472,28 @@ private fun GestureLayer(session: PlayerSession, onToggleControls: () -> Unit, o
     var onLeft by remember { mutableStateOf(true) }
     var scrubStartMs by remember { mutableLongStateOf(0L) }
     var scrubDeltaMs by remember { mutableLongStateOf(0L) }
+    // player.android.long-press-speed: hold = 2x, release = the previous speed.
+    var speedBeforeHold by remember { mutableStateOf<Float?>(null) }
 
     Box(
         Modifier
             .fillMaxSize()
             .pointerInput(session) {
                 detectTapGestures(
+                    onPress = {
+                        tryAwaitRelease()
+                        speedBeforeHold?.let { prev ->
+                            session.setSpeed(prev)
+                            speedBeforeHold = null
+                        }
+                    },
+                    onLongPress = {
+                        if (speedBeforeHold == null) {
+                            speedBeforeHold = session.state.value.speed
+                            session.setSpeed(HOLD_SPEED)
+                            onHud(Hud(Hud.Kind.Hold))
+                        }
+                    },
                     onTap = { onToggleControls() },
                     onDoubleTap = { offset ->
                         val back = offset.x < size.width / 2f
@@ -411,6 +549,12 @@ private fun Controls(
     onOpenTorrent: (String) -> Unit,
     onNext: () -> Unit,
     onInteract: () -> Unit,
+    fullscreen: Boolean,
+    onPrev: () -> Unit,
+    onLock: () -> Unit,
+    onScreenshot: () -> Unit,
+    onToggleFullscreen: () -> Unit,
+    onHelp: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     val on = scheme.onBackground
@@ -460,11 +604,27 @@ private fun Controls(
                     }
                 }
             }
+            IconButton(onClick = onLock) { Icon(Icons.Rounded.LockOpen, stringResource(R.string.player_lock), tint = on) }
+            IconButton(onClick = onScreenshot, enabled = ps.started) { Icon(Icons.Rounded.PhotoCamera, stringResource(R.string.player_screenshot), tint = on) }
+            if (state.remoteless) {
+                IconButton(onClick = { onOpenSheet(Sheet.Episodes) }) { Icon(Icons.Rounded.FormatListNumbered, stringResource(R.string.player_episodes), tint = on) }
+            }
+            IconButton(onClick = onHelp) { Icon(Icons.Rounded.Keyboard, stringResource(R.string.player_shortcuts), tint = on) }
             IconButton(onClick = onPip) { Icon(Icons.Rounded.PictureInPictureAlt, stringResource(R.string.player_pip), tint = on) }
+            IconButton(onClick = onToggleFullscreen) {
+                Icon(
+                    if (fullscreen) Icons.Rounded.FullscreenExit else Icons.Rounded.Fullscreen,
+                    stringResource(if (fullscreen) R.string.player_fullscreen_exit else R.string.player_fullscreen_enter),
+                    tint = on,
+                )
+            }
         }
 
         // Transport
         Row(Modifier.align(Alignment.Center), Arrangement.spacedBy(24.dp), Alignment.CenterVertically) {
+            if (state.hasPrevEpisode) {
+                IconButton(onClick = { onPrev(); onInteract() }) { Icon(Icons.Rounded.SkipPrevious, stringResource(R.string.player_prev), tint = on) }
+            }
             FilledTonalIconButton(onClick = { session.seekBy(-SEEK_STEP_MS); onInteract() }, Modifier.size(56.dp)) {
                 Icon(Icons.Rounded.Replay10, stringResource(R.string.player_seek_back))
             }
@@ -477,6 +637,9 @@ private fun Controls(
             }
             FilledTonalIconButton(onClick = { session.seekBy(SEEK_STEP_MS); onInteract() }, Modifier.size(56.dp)) {
                 Icon(Icons.Rounded.Forward10, stringResource(R.string.player_seek_forward))
+            }
+            if (state.hasNextEpisode && state.remoteless) {
+                IconButton(onClick = { onNext(); onInteract() }) { Icon(Icons.Rounded.SkipNext, stringResource(R.string.player_next), tint = on) }
             }
         }
 
@@ -492,9 +655,10 @@ private fun Controls(
                         leadingIcon = { Icon(Icons.Rounded.HighQuality, null, Modifier.size(18.dp)) },
                     )
                 }
-                if (ps.subtitles.isNotEmpty()) {
+                // Always offered once playing: "Load file…", delay and translation live in this sheet.
+                if (ps.subtitles.isNotEmpty() || ps.started) {
                     FilterChip(
-                        selected = ps.subtitlesEnabled,
+                        selected = ps.subtitlesEnabled || state.customSubtitle != null,
                         onClick = { onOpenSheet(Sheet.Subtitles) },
                         label = { Text(stringResource(R.string.player_subtitles)) },
                         leadingIcon = { Icon(Icons.Rounded.Subtitles, null, Modifier.size(18.dp)) },
@@ -513,6 +677,12 @@ private fun Controls(
                     onClick = { onOpenSheet(Sheet.Speed) },
                     label = { Text(stringResource(R.string.player_speed_value, speedText(ps.speed))) },
                     leadingIcon = { Icon(Icons.Rounded.Speed, null, Modifier.size(18.dp)) },
+                )
+                FilterChip(
+                    selected = state.sleep != null || state.loop || state.settings.stableVolume,
+                    onClick = { onOpenSheet(Sheet.More) },
+                    label = { Text(stringResource(R.string.player_more)) },
+                    leadingIcon = { Icon(Icons.Rounded.MoreHoriz, null, Modifier.size(18.dp)) },
                 )
                 if (state.hasNextEpisode && state.remoteless) {
                     FilterChip(
@@ -607,3 +777,6 @@ private tailrec fun Context.findActivity(): Activity? =
 private const val CONTROLS_TIMEOUT_MS = 4_000L
 private const val HUD_TIMEOUT_MS = 900L
 private const val SEEK_STEP_MS = 10_000L
+private const val HOLD_SPEED = 2f
+private const val LOCK_BUTTON_TIMEOUT_MS = 2_500L
+private val SUBTITLE_MIME_TYPES = arrayOf("application/x-subrip", "text/vtt", "text/x-ssa", "text/plain", "application/octet-stream", "*/*")

@@ -50,12 +50,16 @@ import app.tatakai.next.designsystem.components.rememberAfterDelay
 import app.tatakai.next.designsystem.theme.TatakaiTheme
 import app.tatakai.next.feature.player.sources.SourcePickerSheet
 import app.tatakai.next.model.PlayerArgs
+import app.tatakai.next.model.SecretStore
 import app.tatakai.next.model.SettingsRepository
+import app.tatakai.next.model.torrent.DebridRepository
 import app.tatakai.next.model.SettingsSection
 import app.tatakai.next.player.ExternalPlayer
 import app.tatakai.next.player.HistoryFlush
 import app.tatakai.next.player.MPV_SESSION_FACTORY
+import app.tatakai.next.player.PlayerPrefs
 import app.tatakai.next.player.PlayerSessionFactory
+import app.tatakai.next.player.SubtitleTools
 import app.tatakai.next.ui.state.contrastLevel
 import app.tatakai.next.ui.state.userMessage
 import org.koin.compose.getKoin
@@ -104,6 +108,10 @@ fun PlayerScreen(
                     stats = koin.getOrNull(),
                     skipMarks = koin.getOrNull(),
                     mpvFactory = koin.getOrNull<PlayerSessionFactory>(named(MPV_SESSION_FACTORY)),
+                    prefs = koin.getOrNull<PlayerPrefs>(),
+                    subtitleTools = koin.getOrNull<SubtitleTools>(),
+                    secrets = koin.getOrNull<SecretStore>(),
+                    debrid = koin.getOrNull<DebridRepository>(),
                 )
             }
         },
@@ -114,6 +122,9 @@ fun PlayerScreen(
     val settings = appSettings ?: state.settings
 
     LaunchedEffect(vm) { vm.replace.collect { onReplace(it) } }
+    // Media notification / lock screen (PlaybackService): title + "Episode N".
+    val notificationLine = if (args.remoteSessionId == null) stringResource(R.string.player_next_episode_n, args.episode) else null
+    LaunchedEffect(vm, notificationLine) { vm.setNotificationText(args.title, notificationLine) }
 
     TatakaiTheme(
         paletteId = settings.paletteId,

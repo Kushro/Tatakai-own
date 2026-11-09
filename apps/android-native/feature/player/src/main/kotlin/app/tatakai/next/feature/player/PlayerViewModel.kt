@@ -353,6 +353,12 @@ class PlayerViewModel(
         }
     }
 
+    /** Episode of this entry (episode list, screenshot names). */
+    val episodeNumber: Int get() = args.episode
+
+    /** Title used in screenshot file names. */
+    val titleForFiles: String get() = args.title
+
     /** Media notification / lock screen text (PlaybackService): the screen passes the localised "Episode N" line. */
     fun setNotificationText(title: String, subtitle: String?) {
         notificationText = title to subtitle
