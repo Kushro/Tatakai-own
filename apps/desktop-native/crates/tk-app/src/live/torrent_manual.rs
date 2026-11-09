@@ -94,11 +94,13 @@ pub fn suggest_alignment(files: &[TorrentFileVm]) -> (Vec<(usize, u32)>, f32) {
         return (Vec::new(), 0.0);
     }
     let mut picked: Vec<(usize, u32, u64)> = Vec::new();
+    let mut numbered = 0usize;
     for f in &videos {
         let Some((first, _)) = parse_release(&f.name).episodes else { continue };
         if first == 0 {
             continue;
         }
+        numbered += 1;
         match picked.iter_mut().find(|(_, e, _)| *e == first) {
             Some(slot) if slot.2 < f.size_bytes => *slot = (f.index, first, f.size_bytes),
             Some(_) => {}
@@ -108,7 +110,7 @@ pub fn suggest_alignment(files: &[TorrentFileVm]) -> (Vec<(usize, u32)>, f32) {
     if picked.is_empty() && videos.len() == 1 {
         return (vec![(videos[0].index, 1)], 0.5);
     }
-    let confidence = picked.len() as f32 / videos.len() as f32;
+    let confidence = numbered as f32 / videos.len() as f32;
     let mut out: Vec<(usize, u32)> = picked.into_iter().map(|(i, e, _)| (i, e)).collect();
     out.sort_by_key(|(_, e)| *e);
     (out, confidence.clamp(0.0, 1.0))
