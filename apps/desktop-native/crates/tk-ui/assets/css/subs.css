@@ -1,1 +1,61 @@
-/* subs.css - wave A, worker d (subtitle sheet, translation settings). Registered in app.rs APP_CSS by the contract; tokens only (no color literals). */
+/* subs.css - wave A, worker d (subtitle sheet, translation settings). Registered in app.rs APP_CSS by the contract; tokens only (no color literals).
+   The subtitle line colours of the preview and the live overlay are user data set inline (Settings::subs.style). */
+
+/* ---- style editor (player sheet + Settings > Subtitles) ------------------------------------------ */
+.tk-subs-style { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-subs-preview { position: relative; aspect-ratio: 16 / 9; width: 100%; max-width: 480px; border-radius: var(--md-sys-shape-corner-medium); overflow: hidden;
+  background: linear-gradient(135deg, var(--md-sys-color-inverse-surface), color-mix(in srgb, var(--md-sys-color-scrim) 85%, var(--md-sys-color-primary))); }
+.tk-subs-preview__line { position: absolute; left: 50%; translate: -50% 0; max-width: 90%; padding: 0 var(--tk-space-4); border-radius: var(--md-sys-shape-corner-extra-small); text-align: center; white-space: pre-line; line-height: 1.25; }
+.tk-subs-ctl { display: grid; grid-template-columns: minmax(120px, 160px) 1fr auto; align-items: center; gap: var(--tk-space-12); }
+.tk-subs-ctl--row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-16); }
+.tk-subs-ctl__label { font-size: var(--md-sys-typescale-label-large-size); color: var(--md-sys-color-on-surface); }
+.tk-subs-ctl__value { min-width: 56px; text-align: end; font-variant-numeric: tabular-nums; font-size: var(--md-sys-typescale-label-medium-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-subs-ctl input[type="range"] { width: 100%; accent-color: var(--md-sys-color-primary); }
+.tk-subs-input, .tk-subs-select { min-height: 40px; padding: 0 var(--tk-space-12); border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-extra-small);
+  background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); font: inherit; }
+.tk-subs-input:focus-visible, .tk-subs-select:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 1px; }
+.tk-subs-swatch { display: inline-flex; align-items: center; gap: var(--tk-space-8); }
+.tk-subs-swatch input[type="color"] { width: 40px; height: 32px; padding: 0; border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-extra-small); background: transparent; cursor: pointer; }
+.tk-subs-actions { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); align-items: center; }
+
+/* ---- player sheet --------------------------------------------------------------------------------- */
+.tk-subs-sheet { display: contents; }
+.tk-subs-sec { display: flex; flex-direction: column; gap: var(--tk-space-8); padding-block: var(--tk-space-12); border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+.tk-subs-sec:last-child { border-bottom: 0; }
+.tk-subs-sec__title, .tk-subs-settings__title { margin: 0; font-size: var(--md-sys-typescale-title-small-size); font-weight: var(--md-sys-typescale-title-small-weight-emphasized); color: var(--md-sys-color-on-surface); }
+.tk-subs-tracks { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); }
+.tk-subs-track { min-height: 32px; padding: 0 var(--tk-space-12); border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-small); background: transparent;
+  color: var(--md-sys-color-on-surface-variant); font: inherit; font-size: var(--md-sys-typescale-label-large-size); cursor: pointer; transition: background var(--tk-mo-fx); }
+.tk-subs-track:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent); }
+.tk-subs-track[data-selected="true"] { border-color: transparent; background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.tk-subs-delay { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); }
+.tk-subs-delay__value { min-width: 72px; text-align: center; font-variant-numeric: tabular-nums; font-size: var(--md-sys-typescale-title-small-size); color: var(--md-sys-color-on-surface); }
+.tk-subs-progress { display: flex; align-items: center; gap: var(--tk-space-8); color: var(--md-sys-color-on-surface-variant); }
+
+/* ---- live translation overlay and status chip (over the video hole) --------------------------------- */
+.tk-subs-live { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.tk-subs-live__line { position: absolute; left: 50%; translate: -50% 0; max-width: 86%; padding: 0 var(--tk-space-8); border-radius: var(--md-sys-shape-corner-extra-small); text-align: center; white-space: pre-line; line-height: 1.25; }
+.tk-subs-live[data-pos="top"] .tk-subs-live__line { top: 8%; }
+.tk-subs-chip { position: absolute; top: 72px; right: var(--tk-space-16); display: flex; align-items: center; gap: var(--tk-space-8); max-width: min(420px, 70%); padding: var(--tk-space-8) var(--tk-space-16);
+  border-radius: var(--md-sys-shape-corner-full); background: color-mix(in srgb, var(--md-sys-color-inverse-surface) 88%, transparent); color: var(--md-sys-color-inverse-on-surface);
+  font-size: var(--md-sys-typescale-label-medium-size); z-index: 3; pointer-events: none; }
+
+/* ---- Settings > Subtitles --------------------------------------------------------------------------- */
+.tk-subs-settings { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-subs-settings__title { margin-top: var(--tk-space-12); }
+.tk-subs-fonts-dir { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8) var(--tk-space-12); }
+.tk-subs-path { padding: var(--tk-space-4) var(--tk-space-8); border-radius: var(--md-sys-shape-corner-extra-small); background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);
+  font-family: var(--tk-font-mono, monospace); font-size: var(--md-sys-typescale-body-small-size); overflow-wrap: anywhere; user-select: text; }
+.tk-subs-key { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-subs-key__saved { display: flex; align-items: center; gap: var(--tk-space-8); color: var(--md-sys-color-primary); font-size: var(--md-sys-typescale-label-large-size); }
+.tk-subs-key__edit { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--tk-space-8); }
+.tk-subs-key__edit > .tk-field { flex: 1 1 260px; }
+.tk-subs-test { display: flex; flex-direction: column; align-items: flex-start; gap: var(--tk-space-8); }
+.tk-subs-test__result { display: flex; flex-direction: column; gap: var(--tk-space-4); padding: var(--tk-space-8) var(--tk-space-12); border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-high); }
+.tk-subs-test__in { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-subs-test__out { color: var(--md-sys-color-on-surface); font-size: var(--md-sys-typescale-body-medium-size); }
+
+@media (max-width: 600px) {
+  .tk-subs-ctl { grid-template-columns: 1fr auto; }
+  .tk-subs-ctl__label { grid-column: 1 / -1; }
+}
