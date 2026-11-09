@@ -12,6 +12,22 @@
 - **Entran en la ola A** (§0.1.11): `account.setup-wizard`, `system.reset-app` (f/q); `torrent.magnet-link-handler`, `torrent.session-history`, `torrent.trackers.status` (i/q). **Torrents y debrid de Android pasan a q** en la ola A (antes r, ola B): todos los `torrent.*`, `sources.debrid.*` y `player.torrent*` de la ola A tienen `android: "q"`.
 - **Android** (§0.1.12): `player.android.background` con Media3 **y** libmpv (p); `player.android.upscaling-shaders` empaqueta todos los presets.
 - **Ola B nueva** (§0.1.13): `sources.embed-sniffer`, `sources.embed-sniffer.ranking` (k / r); `settings.metadata.extra-providers` + `metadata.providers.{mal,shikimori,tenrai}` (b / r); `novel.tts.kitten` (m, solo escritorio).
+
+## Ampliación del contrato de la ola B (2026-11-09)
+
+El contrato de la ola B (agente de checklist) añadió 17 ids y corrigió 6 sin borrar ni renombrar ninguno ni tocar `status` / `found` de la ola A:
+
+- **Sniffer** (k / r): `sources.embed-sniffer.adblock` (la WebView oculta no abre ventanas ni carga hosts de anuncios), `sources.embed-sniffer.timeout-setting` (interruptor + tiempo máximo en Ajustes › Fuentes).
+- **Pendientes de `KNOWN-ISSUES.md` (ola A) con dueño en la ola B**: `sources.debrid.episode-context` (k, solo escritorio: `mark_cached` recibe `(id, episodio)` desde `LiveBackend::sources`), nota en `ext.custom-providers.info` (ids `ext:…` con extras vacíos → `custom/info`), `sourceType` obligatorio en `server.api.sources`.
+- **Stubs "M1" de Android › Dispositivo enlazado** (inventory-next §3; no son features del clásico pero el auditor los cuenta como stub): `link.remote-control`, `link.handoff` ("Continuar en la PC"), `link.discovery` (mDNS + TOFU), todos k / r.
+- **tk-server** (k / r): `server.api.invoke` (catálogo, manga y novelas de las extensiones de la PC), `server.api.extensions`; `server.interpreted-extensions` está `out` (D4: tk-server solo sirve `.kai`; Sora / Mangayomi / Seanime / Java se usan por el servidor Node emparejado).
+- **Descargas** (h / r): `downloads.integrity-check`; `downloads.page` ahora exige pestañas Manga y Novelas además de Anime, Activas e Historial.
+- **Extensiones** (j / r): `ext.kill-switch`, `ext.custom-providers.continue`; `out`: `ext.sideload-audit` (cubierto por `ext.log`), `ext.usage-events-slot` (telemetría prohibida).
+- **Inicio y descubrir** (b / r): `settings.metadata.provider-status` (estado y enfriamiento por proveedor; es lo que la re-revisión mira para descartar un proveedor con nota), `settings.privacy.mature-content` (única parte de Privacidad del clásico sin perfil propio; `details.adult-gate` y `manga.adult-gate` lo leen).
+- **Novelas**: `novel.tts.kitten.android` queda `out` (§0.1.13: KittenTTS solo escritorio); llevarlo a Android con ONNX es una pregunta abierta para el usuario.
+- Corregido `social.avatar-picker`: su `accept` citaba `social.profile.edit`, que ya está `out`; ahora dice que el avatar es el de AniList.
+
+Dueños Android fijos por área en la ola B (test `wave B rows are ready for the workers`): b, h, j, k → r; l, m → s; n → t; `null` solo con `platform: "desktop"`. Ningún id planificado de la ola B nombra Supabase, cloudflared, WARP, Realtime, Giphy ni Turnstile, y ningún `accept` de un `todo` empieza por "Excluido" ni promete un "Próximamente".
 - **Defaults aceptados**: `system.secrets-store` (keyring / Keystore para tokens OAuth, debrid y traducción), debrid como sección de Torrents + campo en `SourceVm`, `system.update-check` contra GitHub Releases de `Kushro/Tatakai-own`, estados de lista como control segmentado dentro de "Listas" en el teléfono (`lists.library-tabs`), app id de Discord = el de `desktop/services/discord-rpc.cjs` (`player.discord.watching`); se mantienen `home.recs.atlas`, `details.reviews`, `player.android.upscaling-shaders`; `system.update-install` sigue `out`.
 
 ## Campos
