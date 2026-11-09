@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.Episode
 import app.tatakai.next.model.ExtensionRepository
-import app.tatakai.next.model.FeedKind
+import app.tatakai.next.model.CharacterEdge
 import app.tatakai.next.model.HistoryEntry
 import app.tatakai.next.model.HistoryRepository
 import app.tatakai.next.model.LinkRepository
@@ -13,20 +13,24 @@ import app.tatakai.next.model.LinkSource
 import app.tatakai.next.model.LinkState
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.MediaDetails
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
+import app.tatakai.next.model.MediaRelation
 import app.tatakai.next.model.MetadataRepository
 import app.tatakai.next.model.PairedPc
 import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.model.RankedSource
+import app.tatakai.next.model.Recommendation
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SourceKind
 import app.tatakai.next.model.SourceMode
 import app.tatakai.next.model.SourceStatsStore
+import app.tatakai.next.model.StaffEdge
 import app.tatakai.next.model.StreamSource
+import app.tatakai.next.model.TitleLanguage
 import app.tatakai.next.model.torrent.TorrentRepository
 import app.tatakai.next.model.torrentUri
-import app.tatakai.next.ui.media.distinctByKey
 import app.tatakai.next.ui.state.runCatchingApp
 import app.tatakai.next.ui.state.toAppError
 import kotlinx.coroutines.Job
@@ -65,8 +69,22 @@ data class DetailsUiState(
     val link: LinkState = LinkState.Unpaired,
     /** A Link session is being started for "Enviar a dispositivo". */
     val sending: Boolean = false,
-    /** Related tab content; null = not requested yet (loaded the first time the tab opens). */
-    val related: LoadState<List<Media>>? = null,
+    // --- parity wave A (15 §5 o.2, worker o) ---
+    /** Technical sheet, trailer, next airing, studios (loaded with the media); Ok(null) = the provider has nothing. */
+    val details: LoadState<MediaDetails?> = LoadState.Loading,
+    /** Related tab: AniList relations (real edges, each opens its own Details); null = not requested yet. */
+    val relations: LoadState<List<MediaRelation>>? = null,
+    /** Seasons / watch order (PREQUEL / SEQUEL chain), loaded with the Related tab. */
+    val seasons: LoadState<List<Media>>? = null,
+    val recommendations: LoadState<List<Recommendation>>? = null,
+    /** Characters tab (paged) + staff. */
+    val characters: CharactersState? = null,
+    val staff: LoadState<List<StaffEdge>>? = null,
+    val titleLanguage: TitleLanguage = TitleLanguage.ROMAJI,
+    /** 18+ title not confirmed yet for this id (classic AdultWarningGate): the screen shows the gate instead of the content. */
+    val adultGate: Boolean = false,
+    val episodeQuery: String = "",
+    val episodeView: EpisodeView = EpisodeView.LIST,
 ) {
     /** Episode the primary button resumes / starts. */
     val continueEpisode: Int
@@ -91,7 +109,18 @@ data class DetailsUiState(
 
     /** The best torrent is a season pack / batch: "Descargar temporada" is offered (11 §3.4). */
     val canDownloadSeason: Boolean get() = bestTorrent?.candidate?.tags?.batch == true
+
+    val detailsOrNull: MediaDetails? get() = (details as? LoadState.Ok)?.value
 }
+
+/** Characters tab: the edges loaded so far; [error] = the last page failed (the list stays, a retry row shows). */
+data class CharactersState(
+    val items: List<CharacterEdge> = emptyList(),
+    val page: Int = 0,
+    val hasNext: Boolean = true,
+    val loading: Boolean = false,
+    val error: AppError? = null,
+)
 
 internal fun List<RankedSource>.bestTorrent(): RankedSource? =
     firstOrNull { it.candidate.kind == SourceKind.TORRENT && it.extEnabled && it.candidate.torrentUri() != null }
@@ -133,9 +162,10 @@ class DetailsViewModel(
     settings: SettingsRepository? = null,
     private val torrents: TorrentRepository? = null,
     private val stats: SourceStatsStore? = null,
+    private val prefs: DetailsPrefs = InMemoryDetailsPrefs(),
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(DetailsUiState())
+    private val _state = MutableStateFlow(DetailsUiState(episodeView = prefs.episodeView()))
     val state: StateFlow<DetailsUiState> = _state.asStateFlow()
 
     private val _events = Channel<DetailsEvent>(Channel.BUFFERED)
@@ -161,7 +191,7 @@ class DetailsViewModel(
         }
         if (settings != null) {
             viewModelScope.launch {
-                settings.settings.collect { s -> _state.update { it.copy(mode = s.sourcePrefs.mode) } }
+                settings.settings.collect { s -> _state.update { it.copy(mode = s.sourcePrefs.mode, titleLanguage = s.titleLanguage) } }
             }
         }
         viewModelScope.launch {
@@ -173,7 +203,7 @@ class DetailsViewModel(
     }
 
     fun retry() {
-        _state.update { it.copy(media = LoadState.Loading, episodes = LoadState.Loading, panel = null) }
+        _state.update { it.copy(media = LoadState.Loading, episodes = LoadState.Loading, details = LoadState.Loading, panel = null) }
         load()
     }
 
@@ -189,7 +219,9 @@ class DetailsViewModel(
                 )
             }
             ensurePanel()
+            updateAdultGate()
         }
+        loadDetails()
         viewModelScope.launch {
             val result = runCatchingApp { metadata.episodes(ref).sortedBy { it.number } }
             _state.update {
@@ -372,34 +404,108 @@ class DetailsViewModel(
         return fromCandidates ?: extensions.resolveStreams(media, episode).firstOrNull()
     }
 
-    // ---- related ----
+    // ---- parity wave A: details extras (15 §5 o.2) ----
 
-    /**
-     * Related tab: the metadata API has no relations endpoint, so this lists titles of the Trending + Popular feeds that share a
-     * genre with this one (prototype: same-genre titles). Loaded once, on first open.
-     */
-    fun loadRelated() {
-        val media = mediaOrNull ?: return
-        val current = _state.value.related
-        if (current != null && current !is LoadState.Err) return
-        _state.update { it.copy(related = LoadState.Loading) }
+    private fun loadDetails() {
         viewModelScope.launch {
-            val result = runCatchingApp {
-                RELATED_FEEDS.flatMap { metadata.feed(MediaKind.ANIME, it).items }
-                    .distinctByKey()
-                    .filter { it.ref != media.ref && it.genres.any { g -> g in media.genres } }
-                    .take(RELATED_LIMIT)
-            }
+            val result = runCatchingApp { metadata.details(ref) }
             _state.update {
-                it.copy(
-                    related = result.fold(
-                        onSuccess = { list -> LoadState.Ok(list) },
-                        onFailure = { e -> LoadState.Err(e.toAppError()) },
+                it.copy(details = result.fold(onSuccess = { d -> LoadState.Ok(d) }, onFailure = { e -> LoadState.Err(e.toAppError()) }))
+            }
+            updateAdultGate()
+        }
+    }
+
+    /** Retry of the technical sheet alone (Info tab error). */
+    fun retryDetails() {
+        _state.update { it.copy(details = LoadState.Loading) }
+        loadDetails()
+    }
+
+    private fun updateAdultGate() {
+        val s = _state.value
+        val media = (s.media as? LoadState.Ok)?.value ?: return
+        val adult = s.detailsOrNull?.isAdult == true || media.looksAdult()
+        val id = ref.anilistId
+        _state.update { it.copy(adultGate = adult && (id == null || !prefs.adultAccepted(id))) }
+    }
+
+    /** "Mostrar" of the 18+ gate: remembered for this title. */
+    fun acceptAdult() {
+        ref.anilistId?.let(prefs::acceptAdult)
+        _state.update { it.copy(adultGate = false) }
+    }
+
+    fun setEpisodeQuery(query: String) = _state.update { it.copy(episodeQuery = query) }
+
+    fun setEpisodeView(view: EpisodeView) {
+        prefs.setEpisodeView(view)
+        _state.update { it.copy(episodeView = view) }
+    }
+
+    /** Related tab: relations, seasons / watch order and recommendations, each once (again after an error). */
+    fun loadRelated() {
+        val s = _state.value
+        if (s.relations == null || s.relations is LoadState.Err) {
+            _state.update { it.copy(relations = LoadState.Loading) }
+            viewModelScope.launch {
+                val result = runCatchingApp { sortRelations(metadata.relations(ref)) }
+                _state.update { it.copy(relations = result.toLoadState()) }
+            }
+        }
+        if (s.seasons == null || s.seasons is LoadState.Err) {
+            _state.update { it.copy(seasons = LoadState.Loading) }
+            viewModelScope.launch {
+                val result = runCatchingApp { metadata.seasons(ref) }
+                _state.update { it.copy(seasons = result.toLoadState()) }
+            }
+        }
+        if (s.recommendations == null || s.recommendations is LoadState.Err) {
+            _state.update { it.copy(recommendations = LoadState.Loading) }
+            viewModelScope.launch {
+                val result = runCatchingApp { metadata.recommendations(ref).filter { r -> r.media.ref != ref } }
+                _state.update { it.copy(recommendations = result.toLoadState()) }
+            }
+        }
+    }
+
+    /** Characters tab: first page + staff on first open, then the next page (infinite scroll / retry row). */
+    fun loadCharacters() {
+        val current = _state.value.characters ?: CharactersState()
+        if (current.loading || !current.hasNext) return
+        val page = current.page + 1
+        _state.update { it.copy(characters = current.copy(loading = true, error = null)) }
+        viewModelScope.launch {
+            val result = runCatchingApp { metadata.characters(ref, page) }
+            _state.update { s ->
+                val c = s.characters ?: CharactersState()
+                s.copy(
+                    characters = result.fold(
+                        onSuccess = { p ->
+                            c.copy(
+                                items = (c.items + p.items).distinctBy { e -> e.character.id },
+                                page = page,
+                                hasNext = p.hasNext,
+                                loading = false,
+                            )
+                        },
+                        onFailure = { e -> c.copy(loading = false, error = e.toAppError()) },
                     ),
                 )
             }
         }
+        val staff = _state.value.staff
+        if (staff == null || staff is LoadState.Err) {
+            _state.update { it.copy(staff = LoadState.Loading) }
+            viewModelScope.launch {
+                val result = runCatchingApp { metadata.staff(ref) }
+                _state.update { it.copy(staff = result.toLoadState()) }
+            }
+        }
     }
+
+    private fun <T> Result<T>.toLoadState(): LoadState<T> =
+        fold(onSuccess = { LoadState.Ok(it) }, onFailure = { e -> LoadState.Err(e.toAppError()) })
 
     private fun emitPlayer(episode: Int, sourceKey: String?, remoteSessionId: String? = null) {
         val s = _state.value
@@ -418,10 +524,5 @@ class DetailsViewModel(
                 ),
             ),
         )
-    }
-
-    private companion object {
-        val RELATED_FEEDS = listOf(FeedKind.TRENDING, FeedKind.POPULAR)
-        const val RELATED_LIMIT = 12
     }
 }
