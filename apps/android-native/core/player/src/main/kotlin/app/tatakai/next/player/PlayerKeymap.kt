@@ -88,6 +88,28 @@ object PlayerKeymap {
         custom.mapValues { it.value.trim().uppercase() }
             .filter { (action, key) -> action in ACTIONS && key.isNotEmpty() && DEFAULTS[action] != key }
 
+    /** Short label of a key name: arrows as symbols, `SLASH` as `?`, `NUMPAD_5` as `Num 5`, letters as they are. `SPACE` is localised by the UI. */
+    fun displayName(key: String): String = when (key) {
+        "DPAD_LEFT" -> "←"
+        "DPAD_RIGHT" -> "→"
+        "DPAD_UP" -> "↑"
+        "DPAD_DOWN" -> "↓"
+        "SLASH" -> "?"
+        "PERIOD" -> "."
+        "COMMA" -> ","
+        "MINUS" -> "-"
+        "EQUALS", "PLUS" -> "+"
+        "PAGE_UP" -> "PgUp"
+        "PAGE_DOWN" -> "PgDn"
+        "MOVE_HOME" -> "Home"
+        "MOVE_END" -> "End"
+        else -> when {
+            key.startsWith("NUMPAD_") -> "Num " + key.removePrefix("NUMPAD_")
+            key.startsWith("MEDIA_") -> key.removePrefix("MEDIA_").lowercase().replaceFirstChar { it.uppercase() }.replace('_', ' ')
+            else -> key
+        }
+    }
+
     /** `KEYCODE_SPACE` -> `SPACE` (Android `KeyEvent.keyCodeToString`). */
     fun keyName(keyCodeString: String): String = keyCodeString.removePrefix("KEYCODE_").uppercase()
 }
