@@ -16,13 +16,14 @@ mod labels;
 mod stream;
 #[cfg(test)]
 mod tests;
+mod tracker_probe;
 mod types;
 
 pub use engine::{EVENTS_CAPACITY, METADATA_TIMEOUT_SECS, TorrentEngine};
 pub use error::TorrentError;
 pub use types::{
     AddOptions, AddSource, EngineConfig, LibraryEntry, Limits, PeerInfo, ProtocolStatus, TorrentEvent, TorrentFile, TorrentId,
-    TorrentLabel, TorrentState, TorrentStats, TrackerInfo, TrackerStatus,
+    TorrentLabel, TorrentPreview, TorrentState, TorrentStats, TrackerInfo, TrackerStatus,
 };
 
 /// The librqbit release this crate is written against (pinned with `=` in the workspace).
