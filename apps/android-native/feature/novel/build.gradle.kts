@@ -3,6 +3,9 @@
 plugins { id("tatakai.android.feature") }
 
 dependencies {
+    // NovelRepositoryImpl extras, Narrator errors, chapter helpers; core/novel exposes core/manga (MangaCatalog) as api.
+    implementation(projects.core.novel)
     implementation(libs.coil.compose)
     implementation(libs.androidx.activity.compose) // BackHandler, SAF (custom font TTF / OTF)
+    implementation(libs.androidx.core.ktx) // WindowCompat (immersive reader)
 }
