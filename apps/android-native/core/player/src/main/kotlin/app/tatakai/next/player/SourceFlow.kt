@@ -1,10 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.player
 
+import app.tatakai.next.model.EmbedSniffException
+import app.tatakai.next.model.EmbedSniffer
+import app.tatakai.next.model.ExtensionRepository
+import app.tatakai.next.model.HistoryEntry
+import app.tatakai.next.model.ProviderEntryRef
 import app.tatakai.next.model.RankedSource
+import app.tatakai.next.model.SourceCandidate
 import app.tatakai.next.model.SourceKind
 import app.tatakai.next.model.SourceMode
+import app.tatakai.next.model.SourcePrefs
+import app.tatakai.next.model.StreamSource
 import app.tatakai.next.model.torrent.DebridRepository
+import java.time.Instant
 
 // android wave (docs/redesign/12 §4 d.2): source selection flow of the player, ported 1:1 from desktop
 // apps/desktop-native/crates/tk-ui/src/player_state.rs (FlowState). Pure: no Android, no clock, no network.
@@ -212,4 +221,91 @@ suspend fun markDebrid(sources: List<RankedSource>, debrid: DebridRepository?): 
     }
     if (marked.size != sources.size) return sources
     return sources.mapIndexed { i, s -> s.copy(candidate = marked[i]) }
+}
+
+// ---- parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.3 / §3.4, worker t; additive) -----------------------------
+
+/**
+ * The playable stream of a web [candidate] (checklist sources.embed-sniffer): a direct HLS / MP4 candidate is its own stream; an embed
+ * page (`SourceCandidate.isEmbed`) is opened by [sniffer] in the hidden WebView with the extension's headers and the user's timeout
+ * (`SourcePrefs.embedTimeoutSecs`, 5..60 s) and the captured media request is played with the candidate's identity.
+ *
+ * Returns null when a non-embed candidate has no playable stream. Throws [EmbedSniffException] when the sniff fails (or no sniffer is
+ * bound): the player records it as a RESOLVE failure of that source with [embedFailDetail], reports it and moves to the next source.
+ */
+suspend fun resolveWebStream(candidate: SourceCandidate, sniffer: EmbedSniffer?, prefs: SourcePrefs): StreamSource? {
+    if (candidate.kind != SourceKind.WEB) return null
+    if (!candidate.isEmbed) return candidate.toStream()
+    val web = candidate.web ?: throw EmbedSniffException(EmbedSniffException.NO_MEDIA)
+    if (!prefs.allowEmbed) throw EmbedSniffException(EmbedSniffException.BLOCKED)
+    val s = sniffer ?: throw EmbedSniffException(EmbedSniffException.UNAVAILABLE)
+    val timeoutMs = prefs.sanitized().embedTimeoutSecs * 1000L
+    return s.sniff(web.url, web.headers, candidate.extId, timeoutMs).toStream(candidate)
+}
+
+/** Fail detail of an embed source (`failed[]` of the error screen): `embed: timeout` … */
+fun embedFailDetail(e: EmbedSniffException): String = "embed: ${e.reason}"
+
+/**
+ * checklist ext.custom-providers.watch: the sources of a provider entry ([PlayerArgs.provider]) as the list the [SourceFlow] works on.
+ * `ExtensionRepository.providerWatch` already returns them in the extension's order (no ranking between extensions: there is only one),
+ * so the order is kept, the first one is `recommended` and labels are made unique (the flow tells sources apart by `sourceKey`).
+ */
+suspend fun providerSources(extensions: ExtensionRepository, ref: ProviderEntryRef, extName: String? = null): List<RankedSource> {
+    val name = extName ?: extensions.installed.value.firstOrNull { it.id == ref.extensionId }?.name ?: ref.extensionId
+    return providerRanked(extensions.providerWatch(ref.extensionId, ref.sourceId, ref.itemId, ref.entryId), name)
+}
+
+/** Pure part of [providerSources]: order kept, scores descending, duplicate labels numbered (`Server`, `Server 2`, …). */
+fun providerRanked(streams: List<StreamSource>, extName: String): List<RankedSource> {
+    val seen = HashMap<String, Int>()
+    return streams.mapIndexed { i, s ->
+        val base = s.provider.ifBlank { extName }
+        val n = (seen[base] ?: 0) + 1
+        seen[base] = n
+        val label = if (n == 1) base else "$base $n"
+        val candidate = SourceCandidate.fromStream(s.copy(provider = label), extName)
+        RankedSource(candidate = candidate, score = (streams.size - i).toFloat(), extEnabled = true, recommended = i == 0)
+    }
+}
+
+/**
+ * `HistoryEntry.animeId` of what is playing (checklist ext.custom-providers.continue): the AniList / MAL id when the media has one,
+ * otherwise `ProviderEntryRef.historyId` (`ext:<ext>:<source>:<item>`) for a provider entry; null = nothing is recorded.
+ */
+fun historyAnimeId(anilistId: Int?, malId: Int?, provider: ProviderEntryRef?): String? =
+    HistoryEntry.animeIdOf(anilistId, malId) ?: provider?.historyId
+
+/**
+ * [ProgressTracker.entry] that also records provider titles: with an AniList / MAL id it is exactly [ProgressTracker.entry]; without
+ * one, a [provider] entry is recorded under its `historyId` (anilistId / malId null) so "Continue watching" shows it.
+ */
+fun progressEntry(
+    anilistId: Int?,
+    malId: Int?,
+    provider: ProviderEntryRef?,
+    title: String,
+    poster: String?,
+    episode: Int,
+    positionMs: Long,
+    durationMs: Long,
+    now: Instant,
+): HistoryEntry? {
+    ProgressTracker.entry(anilistId, malId, title, poster, episode, positionMs, durationMs, now)?.let { return it }
+    val animeId = provider?.historyId ?: return null
+    val progress = (positionMs / 1000).toInt().coerceAtLeast(0)
+    val duration = (durationMs / 1000).toInt().takeIf { durationMs > 0 && it > 0 }
+    return HistoryEntry(
+        animeId = animeId,
+        title = title,
+        poster = poster,
+        episodeId = HistoryEntry.episodeIdOf(animeId, episode),
+        episode = episode,
+        progressSec = progress,
+        durationSec = duration,
+        completed = HistoryEntry.isCompleted(progress, duration, false),
+        watchedAt = now,
+        anilistId = null,
+        malId = null,
+    )
 }
