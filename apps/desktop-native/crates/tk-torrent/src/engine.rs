@@ -322,6 +322,29 @@ impl TorrentEngine {
         .await
     }
 
+    /// Make exactly `files` wanted (Files "Download only this", manual adds with an alignment): every other file is
+    /// deselected. An empty list is refused (it would stop the torrent without saying so).
+    pub async fn set_files(&self, id: &str, files: &[usize]) -> Result<(), TorrentError> {
+        let id = id.to_owned();
+        let files: Vec<usize> = files.to_vec();
+        self.on_engine(move |inner| async move {
+            let handle = inner.get(&id)?;
+            let hash = handle.info_hash().as_string();
+            let count = handle.metadata.load_full().map(|m| m.file_infos.len()).unwrap_or(0);
+            if files.is_empty() {
+                return Err(TorrentError::InvalidSource("no file selected".into()));
+            }
+            if let Some(&bad) = files.iter().find(|&&f| f >= count) {
+                return Err(TorrentError::NoSuchFile { id: hash, index: bad });
+            }
+            lock(&inner.narrow_on_select).remove(&hash);
+            let wanted: HashSet<usize> = files.into_iter().collect();
+            handle.wait_until_initialized().await.map_err(engine_err)?;
+            inner.session.update_only_files(&handle, &wanted).await.map_err(engine_err)
+        })
+        .await
+    }
+
     /// `http://127.0.0.1:<port>/<token>/<id>/<index>/<url-encoded file name>`. The server answers `Range`
     /// requests; a read selects the file and prioritises the pieces from the read position onwards (librqbit
     /// `FileStream`), so mpv plays while downloading. Works for every player mode (embedded, enhanced, external mpv).

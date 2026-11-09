@@ -91,6 +91,24 @@ impl LocalStore {
         })
     }
 
+    /// `(torrent id, file index)` of every manual alignment that maps `episode` of `media_id`, by torrent id.
+    pub fn torrents_for_episode(&self, media_id: &str, episode: u32) -> Result<Vec<(String, usize)>, StoreError> {
+        self.with(|c| {
+            let mut st = c.prepare(
+                "SELECT torrent_id, file_index FROM torrent_episode_map WHERE media_id = ?1 AND episode = ?2 ORDER BY torrent_id ASC",
+            )?;
+            let rows = st.query_map(params![media_id, i64::from(episode)], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            let mut out = Vec::new();
+            for row in rows {
+                let (torrent_id, index) = row?;
+                if let Ok(index) = usize::try_from(index) {
+                    out.push((torrent_id, index));
+                }
+            }
+            Ok(out)
+        })
+    }
+
     pub fn clear_torrent_episode_map(&self, torrent_id: &str) -> Result<(), StoreError> {
         self.with(|c| c.execute("DELETE FROM torrent_episode_map WHERE torrent_id = ?1", [torrent_id]).map(|_| ()))
     }
@@ -247,6 +265,16 @@ mod tests {
         assert!(s.torrent_episode_map("other").unwrap().is_empty());
         s.clear_torrent_episode_map("t").unwrap();
         assert!(s.torrent_episode_map("t").unwrap().is_empty());
+    }
+
+    #[test]
+    fn episode_lookup_by_title() {
+        let s = LocalStore::open_in_memory().unwrap();
+        s.set_torrent_episode_map("b", Some("21"), &[(0, 1), (1, 2)]).unwrap();
+        s.set_torrent_episode_map("a", Some("21"), &[(5, 2)]).unwrap();
+        s.set_torrent_episode_map("c", Some("99"), &[(0, 2)]).unwrap();
+        assert_eq!(s.torrents_for_episode("21", 2).unwrap(), vec![("a".to_owned(), 5), ("b".to_owned(), 1)]);
+        assert!(s.torrents_for_episode("21", 3).unwrap().is_empty());
     }
 
     #[test]

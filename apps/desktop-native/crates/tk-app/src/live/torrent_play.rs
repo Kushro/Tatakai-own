@@ -7,15 +7,21 @@
 //! player then offers the Files page of the client).
 //!
 //! `skip_marks`: AniSkip by MAL id, cached per episode for the session.
+//!
+//! Wave A (worker i): the file comes from the manual alignment first (`LocalStore::torrent_episode_map`, written by
+//! Torrents > Library "Add torrent" and Files "Play this file"), then from `pick_episode_file`. A torrent added by hand
+//! for a title is offered in that title's source list as `manual|torrent|<info-hash>` (`live/debrid.rs::mark_cached`
+//! adds the row); that source id plays the torrent by its hash. With `TorrentSettingsVm::preload_next`, a batch
+//! starts downloading the next episode's file once the history says 80 % of this one was watched.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
-use tk_core::Media;
+use tk_core::{HistoryEntry, LocalStore, Media};
 use tk_core::release::{CandidateFile, is_video_path, parse_release, pick_episode_file};
 use tk_core::sources::{SourceCandidate, SourceKind, parse_source_key, source_key};
-use tk_torrent::{AddOptions, AddSource, TorrentLabel};
+use tk_torrent::{AddOptions, AddSource, TorrentEngine, TorrentLabel};
 use tk_ui::backend::{AfterWatchVm, PlaybackVm, SkipKindVm, SkipMarkVm, StreamVm, TorrentPlaybackVm, UiResult};
 use tk_ui::model::{ErrorKind, UiError};
 
@@ -25,6 +31,25 @@ use super::torrent::engine_err;
 /// AniSkip answers in well under a second; a slow answer must not hold the seek bar back.
 const ANISKIP_TIMEOUT: Duration = Duration::from_secs(6);
 const ANISKIP_BASE: &str = "https://api.aniskip.com/v2/skip-times";
+
+/// Extension id of the source rows that stand for a torrent added by hand (`manual|torrent|<info-hash>`).
+pub const MANUAL_EXT: &str = "manual";
+/// Share of the episode after which the next file of a batch starts downloading (`preload_next`).
+const PRELOAD_AT: f64 = 0.8;
+/// How often the preload watcher reads the history.
+const PRELOAD_POLL: Duration = Duration::from_secs(15);
+/// The preload watcher gives up after this long (the player left long ago).
+const PRELOAD_MAX: Duration = Duration::from_secs(4 * 3600);
+
+/// Source id of a torrent added by hand (see the module docs).
+pub fn manual_source_id(info_hash: &str) -> String {
+    format!("{MANUAL_EXT}|torrent|{}", info_hash.to_ascii_lowercase())
+}
+
+/// The file of `episode` in the manual alignment `map` (`(file index, episode)` rows), if the user set one.
+pub fn mapped_file(map: &[(usize, u32)], episode: u32) -> Option<usize> {
+    map.iter().find(|(_, e)| *e == episode && episode > 0).map(|(i, _)| *i)
+}
 
 /// What `resolve` found besides the add source and the label: shown as `StreamVm::provider` / `quality`.
 struct Resolved {
@@ -51,7 +76,12 @@ pub async fn play(b: &LiveBackend, source: &str, id: &str, episode: u32) -> UiRe
     let candidates: Vec<CandidateFile> =
         files.iter().map(|f| CandidateFile { index: f.index, path: f.path.clone(), size_bytes: f.size_bytes }).collect();
     let videos = candidates.iter().filter(|f| is_video_path(&f.path)).count();
-    let index = pick_episode_file(&candidates, episode, &titles(&media))
+    let names = titles(&media);
+    // Wave A (worker i): the user's own alignment wins over the file-name guess.
+    let map = b.store.torrent_episode_map(&torrent_id).unwrap_or_default();
+    let index = mapped_file(&map, episode)
+        .filter(|i| files.iter().any(|f| f.index == *i))
+        .or_else(|| pick_episode_file(&candidates, episode, &names))
         .ok_or_else(|| UiError::new(ErrorKind::NoSource, torrent_id.clone()))?;
     let file = files.iter().find(|f| f.index == index).ok_or_else(|| UiError::new(ErrorKind::NoSource, torrent_id.clone()))?;
 
@@ -61,6 +91,17 @@ pub async fn play(b: &LiveBackend, source: &str, id: &str, episode: u32) -> UiRe
         tracing::warn!(error = %e, "updating the torrent label failed");
     }
     let url = engine.stream_url(&torrent_id, index).map_err(engine_err)?;
+
+    // Wave A (worker i, checklist `torrent.preload-next`): the next episode of a batch starts downloading at 80 %.
+    if videos > 1 && super::torrent_settings::load(&b.paths()).preload_next {
+        let next = mapped_file(&map, episode + 1)
+            .filter(|i| files.iter().any(|f| f.index == *i))
+            .or_else(|| pick_episode_file(&candidates, episode + 1, &names))
+            .filter(|i| *i != index);
+        if let (Some(next), Some(key)) = (next, HistoryEntry::anime_key(&r)) {
+            spawn_preload(b.store.clone(), engine.clone(), torrent_id.clone(), key, episode, next);
+        }
+    }
 
     let tags = parse_release(&file.name);
     let provider = resolved.provider.or(tags.group.clone()).unwrap_or_else(|| "torrent".to_owned());
@@ -92,6 +133,13 @@ pub async fn resolve_source(b: &LiveBackend, source: &str, id: &str, episode: Op
 
 async fn resolve(b: &LiveBackend, source: &str, id: &str, episode: Option<u32>, media: &Media) -> UiResult<Resolved> {
     let label = TorrentLabel { media_id: id.to_owned(), title: media.title.clone(), episode, poster: media.cover.clone() };
+    // A torrent added by hand (`manual|torrent|<info-hash>`): played by its hash, it is already in the engine.
+    if let Some((ext, SourceKind::Torrent, hash)) = parse_source_key(source)
+        && ext == MANUAL_EXT
+    {
+        let add = AddSource::parse(&hash).ok_or_else(|| UiError::new(ErrorKind::NoSource, source.to_owned()))?;
+        return Ok(Resolved { source: add, label, provider: Some("torrent".to_owned()), quality: None });
+    }
     if let Some((_, kind, _)) = parse_source_key(source) {
         if kind != SourceKind::Torrent {
             return Err(UiError::new(ErrorKind::Other, format!("{source} is not a torrent source")));
@@ -122,7 +170,7 @@ async fn resolve(b: &LiveBackend, source: &str, id: &str, episode: Option<u32>, 
 
 /// The candidate behind a torrent `SourceVm::id`: the episode's list (cached, then fresh once) or, without an
 /// episode (whole-torrent downloads), any cached list of that title before resolving episode 1.
-async fn find_candidate(b: &LiveBackend, source: &str, id: &str, episode: Option<u32>, media: &Media) -> UiResult<SourceCandidate> {
+pub(super) async fn find_candidate(b: &LiveBackend, source: &str, id: &str, episode: Option<u32>, media: &Media) -> UiResult<SourceCandidate> {
     if episode.is_none() {
         let cached = b.candidates.lock().ok().and_then(|c| {
             c.iter()
@@ -144,7 +192,7 @@ async fn find_candidate(b: &LiveBackend, source: &str, id: &str, episode: Option
 }
 
 /// Main title first, then every other title the metadata knows (romaji / english / native), without repeats.
-fn titles(media: &Media) -> Vec<String> {
+pub(super) fn titles(media: &Media) -> Vec<String> {
     let mut out = vec![media.title.clone()];
     for t in media.titles.values() {
         if !t.is_empty() && !out.iter().any(|o| o.eq_ignore_ascii_case(t)) {
@@ -152,6 +200,57 @@ fn titles(media: &Media) -> Vec<String> {
         }
     }
     out
+}
+
+/// Watch the history of `(anime key, episode)` and select `next` in the torrent once 80 % was watched. Runs on the
+/// current runtime; ends when done, when the torrent left the engine or after `PRELOAD_MAX`.
+fn spawn_preload(store: Arc<LocalStore>, engine: Arc<TorrentEngine>, torrent_id: String, key: String, episode: u32, next: usize) {
+    let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+    rt.spawn(async move {
+        let started = Instant::now();
+        while started.elapsed() < PRELOAD_MAX {
+            tokio::time::sleep(PRELOAD_POLL).await;
+            if engine.stats(&torrent_id).is_err() {
+                return;
+            }
+            let rows = store.progress_for(&key).unwrap_or_default();
+            if watched_share(&rows, episode).is_some_and(|f| f >= PRELOAD_AT) {
+                match engine.select_file(&torrent_id, next).await {
+                    Ok(()) => tracing::info!(torrent = %torrent_id, file = next, "preloading the next episode of the batch"),
+                    Err(e) => tracing::warn!(torrent = %torrent_id, error = %e, "preloading the next episode failed"),
+                }
+                return;
+            }
+        }
+    });
+}
+
+/// Watched share (0.0..=1.0) of `episode` from its history row; `None` without a row or a known duration.
+fn watched_share(rows: &[HistoryEntry], episode: u32) -> Option<f64> {
+    let row = rows.iter().find(|e| e.episode == episode)?;
+    if row.completed {
+        return Some(1.0);
+    }
+    let duration = row.duration_sec.filter(|d| *d > 0)?;
+    Some((f64::from(row.progress_sec) / f64::from(duration)).clamp(0.0, 1.0))
+}
+
+/// The torrent the next episode would play from, for `torrent_preload_next`: a torrent of the engine labelled for
+/// this title with a file for `episode` (manual alignment first, then the file names).
+pub(super) fn batch_file_for(b: &LiveBackend, engine: &TorrentEngine, id: &str, episode: u32, names: &[String]) -> Option<(String, usize)> {
+    for entry in engine.list() {
+        if entry.label.as_ref().is_none_or(|l| l.media_id != id) {
+            continue;
+        }
+        let Ok(files) = engine.files(&entry.id) else { continue };
+        let map = b.store.torrent_episode_map(&entry.id).unwrap_or_default();
+        let candidates: Vec<CandidateFile> =
+            files.iter().map(|f| CandidateFile { index: f.index, path: f.path.clone(), size_bytes: f.size_bytes }).collect();
+        if let Some(i) = mapped_file(&map, episode).or_else(|| pick_episode_file(&candidates, episode, names)) {
+            return Some((entry.id, i));
+        }
+    }
+    None
 }
 
 fn aniskip_client() -> Option<&'static reqwest::Client> {
@@ -238,6 +337,40 @@ fn parse_aniskip(body: &str) -> Vec<SkipMarkVm> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_alignment_and_source_ids() {
+        let map = vec![(3, 1), (5, 2), (7, 0)];
+        assert_eq!(mapped_file(&map, 2), Some(5));
+        assert_eq!(mapped_file(&map, 4), None);
+        assert_eq!(mapped_file(&map, 0), None, "episode 0 means 'no episode'");
+        let id = manual_source_id(&"AB".repeat(20));
+        assert_eq!(id, format!("manual|torrent|{}", "ab".repeat(20)));
+        let (ext, kind, hash) = parse_source_key(&id).unwrap();
+        assert_eq!((ext.as_str(), kind, hash.len()), (MANUAL_EXT, SourceKind::Torrent, 40));
+    }
+
+    #[test]
+    fn watched_share_from_history() {
+        let row = |episode: u32, progress: u32, duration: Option<u32>, completed: bool| HistoryEntry {
+            anime_id: "21".into(),
+            title: "Show".into(),
+            poster: None,
+            episode_id: format!("21?ep={episode}"),
+            episode,
+            progress_sec: progress,
+            duration_sec: duration,
+            completed,
+            watched_at: time::OffsetDateTime::UNIX_EPOCH,
+            anilist_id: Some(21),
+            mal_id: None,
+        };
+        let rows = vec![row(1, 1200, Some(1440), false), row(2, 30, None, false), row(3, 0, Some(1440), true)];
+        assert!(watched_share(&rows, 1).is_some_and(|f| (f - 1200.0 / 1440.0).abs() < 1e-9));
+        assert_eq!(watched_share(&rows, 2), None);
+        assert_eq!(watched_share(&rows, 3), Some(1.0));
+        assert_eq!(watched_share(&rows, 9), None);
+    }
 
     #[test]
     fn aniskip_bodies_map_to_marks() {
