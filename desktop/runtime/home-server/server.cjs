@@ -749,9 +749,19 @@ function createHomeServer({ store, adapters, logger }) {
 
   async function handle(req, res) {
     const requestPath = (req.url || '/').split('?')[0];
-    if (adapters.handleExtensionServer && (requestPath === '/' || requestPath.startsWith('/assets/') || requestPath.startsWith('/api/server/'))) {
+    // Integrated extension server: dashboard under /server/ and its API under
+    // /api/server/v1. Everything else (/, /home, /ui/*, /api/home/*) stays with
+    // the legacy remote UI and home API below.
+    const isExtensionServerPath = requestPath === '/server'
+      || requestPath.startsWith('/server/')
+      || requestPath.startsWith('/api/server/');
+    if (adapters.handleExtensionServer && isExtensionServerPath) {
       try { return await adapters.handleExtensionServer(req, res); }
-      catch { return sendJson(res, 503, { success: false, error: 'extension_server_unavailable' }); }
+      catch (err) {
+        logger?.warn?.('[HomeServer] extension server unavailable', err?.message || err);
+        if (res.headersSent) { res.destroy(); return undefined; }
+        return sendJson(res, 503, { success: false, error: 'extension_server_unavailable' });
+      }
     }
     const config = store.read();
     const origin = req.headers.origin;

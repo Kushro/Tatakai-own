@@ -4,6 +4,7 @@ import android.app.Application
 import app.tatakai.next.data.dataModule
 import app.tatakai.next.database.databaseModule
 import app.tatakai.next.extensions.extensionsModule
+import app.tatakai.next.extensionserver.extensionServerModule
 import app.tatakai.next.feature.details.detailsModule
 import app.tatakai.next.feature.extensions.extensionsFeatureModule
 import app.tatakai.next.feature.home.homeModule
@@ -59,6 +60,8 @@ class TatakaiApplication : Application() {
                 appModule,
                 // android wave contract (docs/redesign/12 §3.16)
                 torrentModule, mpvPlayerModule, torrentsFeatureModule, youFeatureModule,
+                // integrated extension server client (docs/redesign/13 §3.10)
+                extensionServerModule,
             )
         }
     }

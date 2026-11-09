@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.PhotoCamera
@@ -114,6 +115,8 @@ fun LinkedDeviceScreen(
     onBack: () -> Unit,
     onPlay: (PlayerArgs) -> Unit,
     modifier: Modifier = Modifier,
+    /** docs/redesign/13 §3.10: opens the PC extension server screen; null hides its entry card. */
+    onOpenExtensionServers: (() -> Unit)? = null,
 ) {
     val viewModel: LinkViewModel = koinViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -152,6 +155,7 @@ fun LinkedDeviceScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (onOpenExtensionServers != null) ExtensionServerCard(onOpen = onOpenExtensionServers)
                 when (val link = state.link) {
                     LinkState.Unpaired, LinkState.Pairing -> UnpairedContent(
                         pairing = state.pairing || link == LinkState.Pairing,
@@ -507,6 +511,19 @@ private fun EnhancePanel(state: LinkUiState, onStart: (String) -> Unit) {
         ) {
             if (state.startingSession) LoadingIndicator(Modifier.padding(end = 8.dp).size(20.dp))
             Text(stringResource(if (state.startingSession) R.string.linked_enhance_starting else R.string.linked_enhance_start))
+        }
+    }
+}
+
+// ---------------------------------------------------------------- PC extension server entry (docs/redesign/13 §3.10)
+
+@Composable
+private fun ExtensionServerCard(onOpen: () -> Unit) {
+    Panel(icon = Icons.Outlined.Extension, title = stringResource(R.string.extserver_entry_title)) {
+        Hint(stringResource(R.string.extserver_entry_body))
+        FilledTonalButton(onClick = onOpen) {
+            Icon(Icons.Outlined.QrCode, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+            Text(stringResource(R.string.extserver_entry_open), modifier = Modifier.padding(start = 8.dp))
         }
     }
 }

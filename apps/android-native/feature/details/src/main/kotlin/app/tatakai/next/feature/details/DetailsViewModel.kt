@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -164,9 +165,10 @@ class DetailsViewModel(
             }
         }
         viewModelScope.launch {
-            extensions.installed.catch { }.collect { list ->
-                _state.update { it.copy(hasExtensions = list.any { e -> e.enabled }) }
-            }
+            // docs/redesign/13 §3.10: a linked PC extension server also counts as a source.
+            combine(extensions.installed, extensions.externalSourcesAvailable) { list, external -> list.any { e -> e.enabled } || external }
+                .catch { }
+                .collect { has -> _state.update { it.copy(hasExtensions = has) } }
         }
     }
 

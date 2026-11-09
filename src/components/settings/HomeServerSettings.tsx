@@ -1,7 +1,8 @@
 import uiI18n from '@/lib/uiI18n';
 import { useUiTranslation } from '@/hooks/ui/useUiTranslation';
 import { useEffect, useState, useCallback } from 'react';
-import { Play, Square, Copy, Users, Shield, Share2, Check, X, ExternalLink } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { Play, Square, Copy, Users, Shield, Share2, Check, X, ExternalLink, Smartphone, RefreshCw, Puzzle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
@@ -33,6 +34,49 @@ type HomeStatus = {
   requireConsent?: boolean;
   clients?: Array<{ userId?: string; ip?: string; lastSeenAt?: number }>;
 };
+
+type ExtensionServerInfo = { name: string; sourceCount: number; ecosystems: string[] } | null;
+
+type ExtensionPairing = { deepLink: string; code: string; expiresIn: number; origin: string };
+
+const ECOSYSTEM_LABELS: Record<string, string> = {
+  aniyomi: 'Aniyomi',
+  mihon: 'Mihon',
+  cloudstream: 'CloudStream',
+  tatakai: 'Tatakai (.kai)',
+  stremio: 'Stremio',
+  seanime: 'Seanime',
+  sora: 'Sora',
+  mangayomi: 'Mangayomi',
+  kodi: 'Kodi',
+};
+
+/** IPC rejects with "Error invoking remote method '…': Error: <code>"; keep only the code. */
+function ipcErrorCode(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err ?? '');
+  const match = message.match(/Error:\s*([^\s:]+)\s*$/);
+  return (match?.[1] || message || 'unknown_error').trim();
+}
+
+function describeExtensionError(code: string): string {
+  switch (code) {
+    case 'home_server_stopped':
+      return uiI18n.t('extensionServerHost.statusStopped');
+    case 'extension_server_unavailable':
+      return uiI18n.t('extensionServerHost.statusUnavailable');
+    case 'no_reachable_address':
+      return uiI18n.t('extensionServerHost.sameNetworkHint');
+    default:
+      return code;
+  }
+}
+
+function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
 
 type ConsentRequest = {
   id: string;
@@ -83,8 +127,266 @@ function getHomeServerApi() {
     upsertUser: call('homeServerUpsertUser', 'home-server:upsert-user', 'upsertUser'),
     listConsent: call('homeServerListConsent', 'home-server:list-consent', 'listConsent'),
     decideConsent: call('homeServerDecideConsent', 'home-server:decide-consent', 'decideConsent'),
+    extensionPairing: call('extensionServerPairing', 'extension-server:pairing', 'extensionPairing'),
+    extensionInfo: call('extensionServerInfo', 'extension-server:info', 'extensionInfo'),
+    openExtensionDashboard: call('extensionServerOpenDashboard', 'extension-server:open-dashboard', 'openExtensionDashboard'),
     onStatus: electron?.onHomeServerStatus || runtime?.onHomeServerStatus,
   };
+}
+
+function ExtensionServerD8Info() {
+  const list = (prefix: string, keys: string[]) => (
+    <ul className="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+      {keys.map((key) => (
+        <li key={key}>{uiI18n.t(`extensionServerHost.${prefix}.${key}`)}</li>
+      ))}
+    </ul>
+  );
+  return (
+    <div className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+      <div className="text-sm font-semibold">{uiI18n.t('extensionServerHost.benefitsTitle')}</div>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-1">
+          <div className="text-xs font-semibold text-success">{uiI18n.t('extensionServerHost.prosTitle')}</div>
+          {list('pros', ['otherEcosystems', 'installOnce', 'pcScrapes', 'sharedCache', 'battery'])}
+        </div>
+        <div className="space-y-1">
+          <div className="text-xs font-semibold text-amber">{uiI18n.t('extensionServerHost.consTitle')}</div>
+          {list('cons', ['pcOn', 'tunnel', 'videoProxy', 'lanPort', 'latency'])}
+        </div>
+      </div>
+      <div className="space-y-1">
+        <div className="text-xs font-semibold">{uiI18n.t('extensionServerHost.extrasTitle')}</div>
+        {list('extras', ['qr', 'revocable', 'fallback', 'viewerPassword'])}
+      </div>
+      <div className="space-y-1">
+        <div className="text-xs font-semibold">{uiI18n.t('extensionServerHost.comingSoonTitle')}</div>
+        {list('comingSoon', ['desktopNext'])}
+      </div>
+    </div>
+  );
+}
+
+function ExtensionServerPanel({ status, bootstrap }: { status: HomeStatus; bootstrap: string }) {
+  const [info, setInfo] = useState<ExtensionServerInfo>(null);
+  const [infoLoaded, setInfoLoaded] = useState(false);
+  const [pairing, setPairing] = useState<ExtensionPairing | null>(null);
+  const [expiresAt, setExpiresAt] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+  const [pairingBusy, setPairingBusy] = useState(false);
+  const [pairingError, setPairingError] = useState('');
+  const running = Boolean(status.running);
+  const remoteOrigin = (() => {
+    try {
+      // Saved config (status), not the unsaved form fields: it is what pairing uses.
+      const url = new URL(status.remoteBaseUrl || '');
+      return status.remoteEnabled && url.protocol === 'https:' ? url.origin : '';
+    } catch {
+      return '';
+    }
+  })();
+
+  const loadInfo = useCallback(async () => {
+    try {
+      const api = getHomeServerApi();
+      const next = (await api?.extensionInfo()) as ExtensionServerInfo;
+      setInfo(next && typeof next === 'object' ? next : null);
+    } catch {
+      setInfo(null);
+    } finally {
+      setInfoLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadInfo();
+    const timer = window.setInterval(() => void loadInfo(), 15000);
+    return () => window.clearInterval(timer);
+  }, [loadInfo, running]);
+
+  useEffect(() => {
+    if (!pairing) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [pairing]);
+
+  useEffect(() => {
+    if (!running) setPairing(null);
+  }, [running]);
+
+  const generatePairing = async (prefer: 'lan' | 'remote' = 'lan') => {
+    setPairingBusy(true);
+    setPairingError('');
+    try {
+      const api = getHomeServerApi();
+      if (!api) throw new Error('extension_server_unavailable');
+      const next = (await api.extensionPairing({ prefer })) as ExtensionPairing;
+      if (!next?.deepLink) throw new Error('extension_server_unavailable');
+      setPairing(next);
+      setExpiresAt(Date.now() + (Number(next.expiresIn) || 300) * 1000);
+      setNow(Date.now());
+    } catch (err) {
+      const message = uiI18n.t('extensionServerHost.pairingFailed', { error: describeExtensionError(ipcErrorCode(err)) });
+      setPairing(null);
+      setPairingError(message);
+      toast.error(message);
+    } finally {
+      setPairingBusy(false);
+    }
+  };
+
+  const openDashboard = async () => {
+    try {
+      const api = getHomeServerApi();
+      if (!api) throw new Error('extension_server_unavailable');
+      await api.openExtensionDashboard();
+    } catch (err) {
+      toast.error(describeExtensionError(ipcErrorCode(err)));
+    }
+  };
+
+  const copy = (value: string, message: string) => {
+    void navigator.clipboard.writeText(value).then(() => toast.success(message));
+  };
+
+  const remaining = pairing ? expiresAt - now : 0;
+  const expired = Boolean(pairing) && remaining <= 0;
+  const available = Boolean(info);
+  const lanAddress = pairing && !pairing.origin.startsWith('https://') ? pairing.origin : status.urls?.[0] || '';
+  const ecosystems = (info?.ecosystems || []).map((id) => ECOSYSTEM_LABELS[id] || id).join(', ');
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Puzzle className="h-4 w-4" />
+            {uiI18n.t('extensionServerHost.title')}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{uiI18n.t('extensionServerHost.description')}</p>
+        </div>
+        <SettingsBadge tone={!available && infoLoaded ? 'warning' : running ? 'success' : 'muted'}>
+          {!available && infoLoaded
+            ? uiI18n.t('extensionServerHost.statusUnavailable')
+            : running
+              ? uiI18n.t('extensionServerHost.statusRunning')
+              : uiI18n.t('extensionServerHost.statusStopped')}
+        </SettingsBadge>
+      </div>
+
+      {info ? (
+        <div className="grid gap-1 text-xs text-muted-foreground">
+          {info.name ? (
+            <div>
+              {uiI18n.t('extensionServerHost.serverName')}: <span className="text-foreground">{info.name}</span>
+            </div>
+          ) : null}
+          <div>{uiI18n.t('extensionServerHost.sourceCount', { count: info.sourceCount })}</div>
+          {ecosystems ? <div>{uiI18n.t('extensionServerHost.ecosystems', { list: ecosystems })}</div> : null}
+        </div>
+      ) : null}
+
+      <div className="grid gap-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground">{uiI18n.t('extensionServerHost.lanAddress')}:</span>
+          {lanAddress ? <code className="break-all rounded bg-black/30 px-2 py-0.5">{lanAddress}</code> : <span>—</span>}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground">{uiI18n.t('extensionServerHost.remoteAddress')}:</span>
+          {remoteOrigin ? (
+            <code className="break-all rounded bg-black/30 px-2 py-0.5">{remoteOrigin}</code>
+          ) : (
+            <span className="text-muted-foreground">{uiI18n.t('extensionServerHost.noRemoteAddress')}</span>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" className="gap-1" disabled={!running || !available} onClick={() => void openDashboard()}>
+          <ExternalLink className="h-3.5 w-3.5" />
+          {uiI18n.t('extensionServerHost.openDashboard')}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1"
+          disabled={!bootstrap}
+          onClick={() => copy(bootstrap, uiI18n.t('extensionServerHost.setupSecretCopied'))}
+        >
+          <Copy className="h-3.5 w-3.5" />
+          {uiI18n.t('extensionServerHost.copySetupSecret')}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">{uiI18n.t('extensionServerHost.setupSecretHint')}</p>
+
+      <div className="space-y-3 rounded-lg border border-white/10 bg-black/20 p-3">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <Smartphone className="h-4 w-4" />
+          {uiI18n.t('extensionServerHost.linkPhone')}
+        </div>
+        <p className="text-xs text-muted-foreground">{uiI18n.t('extensionServerHost.linkPhoneDescription')}</p>
+        <p className="text-xs text-muted-foreground">{uiI18n.t('extensionServerHost.sameNetworkHint')}</p>
+
+        {pairing && !expired ? (
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="w-fit rounded-lg bg-white p-3">
+              <QRCodeSVG value={pairing.deepLink} size={176} level="M" />
+            </div>
+            <div className="min-w-0 space-y-2 text-sm">
+              <div>
+                <span className="text-muted-foreground">{uiI18n.t('extensionServerHost.pairingCode')}: </span>
+                <code className="rounded bg-black/30 px-2 py-0.5 font-mono tracking-wider">{pairing.code}</code>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {uiI18n.t('extensionServerHost.expiresIn', { time: formatCountdown(remaining) })}
+              </div>
+              <code className="block max-w-full break-all text-xs text-muted-foreground">{pairing.origin}</code>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1"
+                onClick={() => copy(pairing.deepLink, uiI18n.t('extensionServerHost.linkCopied'))}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {uiI18n.t('extensionServerHost.copyLink')}
+              </Button>
+            </div>
+          </div>
+        ) : expired ? (
+          <p className="text-xs text-amber">{uiI18n.t('extensionServerHost.expired')}</p>
+        ) : null}
+
+        {pairingError ? <p className="text-xs text-destructive">{pairingError}</p> : null}
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="gap-1"
+            disabled={!running || !available || pairingBusy}
+            onClick={() => void generatePairing('lan')}
+          >
+            <RefreshCw className={`h-3.5 w-3.5${pairingBusy ? ' animate-spin' : ''}`} />
+            {uiI18n.t('extensionServerHost.generateCode')}
+          </Button>
+          {remoteOrigin ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1"
+              disabled={!running || !available || pairingBusy}
+              onClick={() => void generatePairing('remote')}
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              {uiI18n.t('extensionServerHost.generateCode')} · {uiI18n.t('extensionServerHost.remoteAddress')}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      <ExtensionServerD8Info />
+    </div>
+  );
 }
 
 export function HomeServerSettings() {
@@ -261,10 +563,9 @@ export function HomeServerSettings() {
       }
     >
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled={!status.running} asChild><a href={primaryUrl} target="_blank" rel="noreferrer">Open extension setup</a></Button>
-        <Button variant="outline" disabled={!extensionBootstrap} onClick={() => { void navigator.clipboard.writeText(extensionBootstrap).then(() => toast.success('Bootstrap secret copied')); }}>Copy setup secret</Button>
         <Button variant="outline" disabled={!status.running} asChild><a href={`${primaryUrl}/home`} target="_blank" rel="noreferrer">Open shared library</a></Button>
       </div>
+      <ExtensionServerPanel status={status} bootstrap={extensionBootstrap} />
       <div className="flex flex-col">
 
         <SettingRow

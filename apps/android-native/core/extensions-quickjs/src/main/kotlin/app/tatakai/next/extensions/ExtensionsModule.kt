@@ -61,6 +61,8 @@ val extensionsModule: Module = module {
             settings = get<SettingsRepository>(),
             stats = get<SourceStatsStore>(),
             logStore = get(),
+            // docs/redesign/13 §3.10: linked PC extension servers (:core:extension-server binds ExternalCandidateSource).
+            external = getAll<ExternalCandidateSource>(),
         )
     }
 }
