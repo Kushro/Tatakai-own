@@ -1,0 +1,14 @@
+{
+  "$comment": "POST https://graphql.anilist.co  Page.mediaTrends(date_greater: now-7d, sort: [TRENDING_DESC]) of AniListQueries.TRENDS: one row per media and day; DiscoverMappers.trendsPage sums them per media. Trimmed by hand.",
+  "data": {
+    "Page": {
+      "pageInfo": { "currentPage": 1, "hasNextPage": true },
+      "mediaTrends": [
+        { "mediaId": 21, "trending": 300, "media": { "id": 21, "idMal": 21, "type": "ANIME", "status": "RELEASING", "season": "FALL", "seasonYear": 1999, "episodes": null, "title": { "romaji": "ONE PIECE", "english": "ONE PIECE", "native": "ONE PIECE" }, "coverImage": { "extraLarge": null, "large": null, "color": null }, "bannerImage": null, "averageScore": 88, "isAdult": false, "genres": ["Action"], "description": null } },
+        { "mediaId": 154587, "trending": 250, "media": { "id": 154587, "idMal": 52991, "type": "ANIME", "status": "FINISHED", "season": "FALL", "seasonYear": 2023, "episodes": 28, "title": { "romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End", "native": "葬送のフリーレン" }, "coverImage": { "extraLarge": null, "large": null, "color": null }, "bannerImage": null, "averageScore": 91, "isAdult": false, "genres": ["Fantasy"], "description": null } },
+        { "mediaId": 154587, "trending": 240, "media": { "id": 154587, "idMal": 52991, "type": "ANIME", "status": "FINISHED", "season": "FALL", "seasonYear": 2023, "episodes": 28, "title": { "romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End", "native": "葬送のフリーレン" }, "coverImage": { "extraLarge": null, "large": null, "color": null }, "bannerImage": null, "averageScore": 91, "isAdult": false, "genres": ["Fantasy"], "description": null } },
+        { "mediaId": 999, "trending": 500, "media": { "id": 999, "idMal": null, "type": "ANIME", "status": "FINISHED", "season": null, "seasonYear": null, "episodes": 2, "title": { "romaji": "Adult Sample", "english": null, "native": null }, "coverImage": { "extraLarge": null, "large": null, "color": null }, "bannerImage": null, "averageScore": null, "isAdult": true, "genres": ["Hentai"], "description": null } }
+      ]
+    }
+  }
+}
