@@ -96,6 +96,68 @@ impl DownloadPrefs {
     }
 }
 
+impl AutoProfileVm {
+    /// Quality label the profile asks the engine for (`None` = the best variant / source available).
+    pub fn quality(self) -> Option<&'static str> {
+        match self {
+            Self::Best => None,
+            Self::Balanced => Some("1080p"),
+            Self::DataSaver => Some("720p"),
+        }
+    }
+
+    /// Tallest resolution a source may have to be picked (`None` = no cap).
+    pub fn max_height(self) -> Option<u32> {
+        match self {
+            Self::Best => None,
+            Self::Balanced => Some(1080),
+            Self::DataSaver => Some(720),
+        }
+    }
+
+    pub fn from_id(id: &str) -> Self {
+        Self::ALL.into_iter().find(|p| p.id() == id).unwrap_or_default()
+    }
+}
+
+/// Most episodes of one title the auto-downloader queues per pass (a long backlog is caught up over several
+/// passes instead of flooding the queue).
+pub const AUTO_MAX_PER_TITLE: usize = 3;
+
+/// Whether an episode with `air_date` (ISO `YYYY-MM-DD...`) is out on `today` (ISO date). No date = out (most
+/// providers only date future episodes of airing shows).
+pub fn is_aired(air_date: Option<&str>, today: &str) -> bool {
+    match air_date.map(str::trim).filter(|d| d.len() >= 10) {
+        Some(d) => d[..10] <= today[..today.len().min(10)],
+        None => true,
+    }
+}
+
+/// Episodes the auto-downloader should queue for a title in "Watching": the aired ones after `progress` (episodes
+/// watched) that are not on disk / queued yet (`have`), in order, at most `max`.
+pub fn plan_new_episodes(progress: u32, aired: &[u32], have: &[u32], max: usize) -> Vec<u32> {
+    let mut out: Vec<u32> = aired.iter().copied().filter(|e| *e > progress && !have.contains(e)).collect();
+    out.sort_unstable();
+    out.dedup();
+    out.truncate(max);
+    out
+}
+
+/// `storage_limit_gib` reached (`downloads.storage-limit`): the auto-downloader stops queueing.
+pub fn storage_limit_reached(used_bytes: u64, limit_bytes: Option<u64>) -> bool {
+    limit_bytes.is_some_and(|l| l > 0 && used_bytes >= l)
+}
+
+/// Bytes of a GiB limit (`None` for 0 = no cap).
+pub fn limit_bytes(storage_limit_gib: u32) -> Option<u64> {
+    (storage_limit_gib > 0).then(|| u64::from(storage_limit_gib) * 1024 * 1024 * 1024)
+}
+
+/// Whether a row counts as "already downloaded" for its episode (completed, or on its way).
+pub fn counts_as_have(state: DownloadStateVm) -> bool {
+    matches!(state, DownloadStateVm::Completed | DownloadStateVm::Queued | DownloadStateVm::Downloading | DownloadStateVm::Paused)
+}
+
 /// What a queue row downloads. `id()` = i18n suffix `downloads.kind.<id>` and `data-kind`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DownloadKindVm {
@@ -254,6 +316,37 @@ mod tests {
     fn defaults_are_sanitized() {
         let d = DownloadPrefs::default();
         assert_eq!(d.clone().sanitized(), d);
+    }
+
+    #[test]
+    fn profiles() {
+        assert_eq!(AutoProfileVm::Balanced.quality(), Some("1080p"));
+        assert_eq!(AutoProfileVm::DataSaver.max_height(), Some(720));
+        assert_eq!(AutoProfileVm::Best.quality(), None);
+        assert_eq!(AutoProfileVm::from_id("data_saver"), AutoProfileVm::DataSaver);
+        assert_eq!(AutoProfileVm::from_id("nope"), AutoProfileVm::Balanced);
+    }
+
+    #[test]
+    fn airing_and_plan() {
+        assert!(is_aired(Some("2026-11-01"), "2026-11-09"));
+        assert!(is_aired(Some("2026-11-09T10:00:00Z"), "2026-11-09"));
+        assert!(!is_aired(Some("2026-11-16"), "2026-11-09"));
+        assert!(is_aired(None, "2026-11-09"));
+        assert_eq!(plan_new_episodes(3, &[1, 2, 3, 4, 5, 6, 7], &[5], 3), vec![4, 6, 7]);
+        assert_eq!(plan_new_episodes(7, &[1, 2, 3, 4, 5, 6, 7], &[], 3), Vec::<u32>::new());
+        assert_eq!(plan_new_episodes(0, &[2, 1, 1], &[], 5), vec![1, 2]);
+    }
+
+    #[test]
+    fn storage_limits() {
+        assert_eq!(limit_bytes(0), None);
+        assert_eq!(limit_bytes(1), Some(1 << 30));
+        assert!(storage_limit_reached(2 << 30, limit_bytes(1)));
+        assert!(!storage_limit_reached(1, limit_bytes(1)));
+        assert!(!storage_limit_reached(u64::MAX, None));
+        assert!(counts_as_have(DownloadStateVm::Paused));
+        assert!(!counts_as_have(DownloadStateVm::Broken));
     }
 
     #[test]
