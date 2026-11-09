@@ -16,6 +16,14 @@
 //! `challenges.cloudflare.com`), popups, downloads and (Linux) permission requests are denied, the current page must
 //! be on a provider domain before `evaluate`, each operation times out after `clamp(timeout, 1, 30)` s and a browser
 //! closes itself 150 s after creation.
+//!
+//! Wave B (worker **k**, `sources.embed-sniffer`, `.adblock`): [`WebviewBrowsers::sniff`] opens a hidden view of
+//! the same kind for an embed page with a capture script injected in every frame ([`ui::SNIFF_SCRIPT`]): `fetch`,
+//! `XMLHttpRequest`, `<video src>` and the resource timing entries report every `.m3u8` / `.mp4` (or HLS / MP4
+//! content type) the player requests, frames post theirs to the top window, and the app polls the list. While
+//! sniffing the view opens no windows (`window.open` is a no-op and new-window requests are denied), refuses
+//! navigations outside the embed / extension domains and to the ad hosts, drops ad `<script>` / `<iframe>` nodes,
+//! mutes media and is never shown.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,6 +57,99 @@ impl WebviewBrowsers {
 
     fn forget(&self, id: &BrowserId) {
         self.timeouts.lock().unwrap_or_else(|p| p.into_inner()).remove(id);
+    }
+}
+
+/// One media request the sniffer saw (`window.__tkSniff` entries; camelCase from the capture script).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Captured {
+    pub url: String,
+    /// `location.href` of the frame that made the request (the `Referer` the CDN saw).
+    #[serde(default)]
+    pub referer: String,
+    #[serde(default)]
+    pub origin: String,
+    #[serde(default)]
+    pub user_agent: String,
+    #[serde(default)]
+    pub content_type: String,
+}
+
+impl Captured {
+    /// HLS playlist (by extension or content type).
+    pub fn is_hls(&self) -> bool {
+        let path = self.url.split(['?', '#']).next().unwrap_or("").to_ascii_lowercase();
+        path.ends_with(".m3u8") || self.content_type.to_ascii_lowercase().contains("mpegurl")
+    }
+}
+
+/// What a sniff found and how long it took.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SniffOutcome {
+    pub captured: Vec<Captured>,
+    pub title: Option<String>,
+}
+
+/// How long the sniffer keeps waiting for an HLS playlist once only MP4 requests were seen.
+const MP4_GRACE: Duration = Duration::from_millis(1500);
+const SNIFF_POLL: Duration = Duration::from_millis(400);
+
+impl WebviewBrowsers {
+    /// Open `url` (with `referer`) in a hidden capture view limited to `domains` minus `blocked`, wait until it
+    /// requests an HLS playlist (or an MP4 and no playlist follows within 1.5 s) or `timeout` runs out, close the
+    /// view and return what it captured (HLS first). An empty result means the page played nothing in time.
+    pub async fn sniff(&self, url: &str, referer: Option<&str>, domains: Vec<String>, blocked: Vec<String>, timeout: Duration) -> Result<SniffOutcome, BrowserError> {
+        if domains.is_empty() {
+            return Err(BrowserError::NoDomains);
+        }
+        let id: BrowserId = format!("tk-sniff-{}", self.seq.fetch_add(1, Ordering::Relaxed));
+        {
+            // reclaimed even if this future is dropped mid-way
+            let ui = self.ui.clone();
+            let id = id.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(timeout + Duration::from_secs(10)).await;
+                ui.post(move || ui::close(&id));
+            });
+        }
+        let result = self.sniff_inner(&id, url, referer, domains, blocked, timeout).await;
+        let close_id = id.clone();
+        let _ = self.ui.run(move || ui::close(&close_id)).await;
+        result
+    }
+
+    async fn sniff_inner(&self, id: &BrowserId, url: &str, referer: Option<&str>, domains: Vec<String>, blocked: Vec<String>, timeout: Duration) -> Result<SniffOutcome, BrowserError> {
+        let started = tokio::time::Instant::now();
+        let deadline = started + timeout;
+        let open = {
+            let (id, url, referer) = (id.clone(), url.to_owned(), referer.map(str::to_owned));
+            move || ui::open_sniffer(id, domains, blocked, &url, referer.as_deref())
+        };
+        within(Duration::from_secs(10), async { self.ui.run(open).await.unwrap_or(Err(BrowserError::Unavailable)) }).await?;
+        let mut mp4_since: Option<tokio::time::Instant> = None;
+        let mut last = SniffOutcome::default();
+        while tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(SNIFF_POLL).await;
+            let poll_id = id.clone();
+            let raw = match within(Duration::from_secs(3), async { ui_then(&self.ui, move || ui::sniff_poll(&poll_id)).await }).await {
+                Ok(raw) => raw,
+                Err(BrowserError::Timeout) => continue, // a busy page; try again
+                Err(e) => return Err(e),
+            };
+            last = ui::parse_sniff(&raw);
+            if last.captured.iter().any(Captured::is_hls) {
+                break;
+            }
+            if !last.captured.is_empty() {
+                let since = *mp4_since.get_or_insert_with(tokio::time::Instant::now);
+                if since.elapsed() >= MP4_GRACE {
+                    break;
+                }
+            }
+        }
+        last.captured.sort_by_key(|c| !c.is_hls());
+        Ok(last)
     }
 }
 
@@ -189,15 +290,89 @@ mod ui {
         url == "about:blank" || url == "about:srcdoc" || browser_subresource_allowed(url, domains)
     }
 
-    fn configure<'a>(b: wry::WebViewBuilder<'a>, domains: Arc<Vec<String>>, loads: Loads, visible: bool) -> wry::WebViewBuilder<'a> {
+    /// Capture view settings (wave B, worker k): the ad hosts refused on top of the domain rule.
+    #[derive(Clone, Default)]
+    pub(super) struct SniffSetup {
+        pub blocked: Arc<Vec<String>>,
+    }
+
+    /// The sniffer's navigation rule: the extension browser rule, minus the ad hosts. Pure.
+    pub(super) fn sniff_navigation_allowed(url: &str, domains: &[String], blocked: &[String]) -> bool {
+        if url == "about:blank" || url == "about:srcdoc" {
+            return true;
+        }
+        let host = reqwest::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_ascii_lowercase)).unwrap_or_default();
+        let ad = blocked.iter().any(|b| host == *b || host.ends_with(&format!(".{b}")));
+        !ad && browser_subresource_allowed(url, domains)
+    }
+
+    /// Capture script injected at document start in every frame (see the module docs). `__BLOCKED__` is replaced
+    /// by the JSON array of ad hosts.
+    pub(super) const SNIFF_SCRIPT: &str = r#"(function(){
+if (window.__tkSniffInit) return; window.__tkSniffInit = true;
+var isTop = false; try { isTop = window.top === window; } catch (e) {}
+var found = []; if (isTop) window.__tkSniff = found;
+var blocked = __BLOCKED__;
+var mediaRe = /\.(m3u8|mp4)(\?|#|$)/i;
+function add(entry){ if (!found.some(function(x){ return x.url === entry.url; }) && found.length < 50) found.push(entry); }
+function report(u, ct){
+  try { u = new URL(String(u), location.href).href; } catch (e) { return; }
+  if (!/^https?:/i.test(u)) return;
+  if (!(mediaRe.test(u) || /mpegurl|video\/mp4/i.test(ct || ''))) return;
+  var entry = { url: u, referer: location.href, origin: location.origin, userAgent: navigator.userAgent, contentType: ct || '' };
+  if (isTop) add(entry); else { try { window.top.postMessage({ __tkSniff: entry }, '*'); } catch (e) {} }
+}
+if (isTop) window.addEventListener('message', function(ev){ var d = ev && ev.data && ev.data.__tkSniff; if (d && typeof d.url === 'string') add(d); });
+var of = window.fetch;
+if (of) window.fetch = function(input){ try { report(typeof input === 'string' ? input : (input && input.url)); } catch (e) {}
+  return of.apply(this, arguments).then(function(r){ try { report(r.url, r.headers.get('content-type')); } catch (e) {} return r; }); };
+var oo = XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open = function(m, u){ try { report(u); this.addEventListener('load', function(){ try { report(this.responseURL, this.getResponseHeader('content-type')); } catch (e) {} }); } catch (e) {} return oo.apply(this, arguments); };
+try { var d = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+  if (d && d.set) Object.defineProperty(HTMLMediaElement.prototype, 'src', { configurable: true, get: d.get, set: function(v){ report(v); return d.set.call(this, v); } }); } catch (e) {}
+try { new PerformanceObserver(function(l){ l.getEntries().forEach(function(e){ report(e.name); }); }).observe({ type: 'resource', buffered: true }); } catch (e) {}
+window.open = function(){ return null; };
+function isBlocked(src){ try { var h = new URL(src, location.href).hostname.toLowerCase(); return blocked.some(function(b){ return h === b || h.slice(-(b.length + 1)) === '.' + b; }); } catch (e) { return false; } }
+try { new MutationObserver(function(ms){ ms.forEach(function(m){ m.addedNodes.forEach(function(n){
+  var tag = n && n.tagName;
+  if ((tag === 'SCRIPT' || tag === 'IFRAME') && n.src && isBlocked(n.src)) { try { n.type = 'javascript/blocked'; n.remove(); } catch (e) {} }
+  if (tag === 'VIDEO' || tag === 'AUDIO') { try { n.muted = true; } catch (e) {} }
+}); }); }).observe(document, { childList: true, subtree: true }); } catch (e) {}
+setInterval(function(){ try {
+  document.querySelectorAll('video, audio').forEach(function(v){ v.muted = true; if (v.paused) { var p = v.play(); if (p && p.catch) p.catch(function(){}); } });
+  var b = document.querySelector('.vjs-big-play-button, .jw-display-icon-container, .plyr__control--overlaid, .play-button, [aria-label="Play"]');
+  if (b && !b.__tkClicked) { b.__tkClicked = true; b.click(); }
+} catch (e) {} }, 1000);
+})();"#;
+
+    /// `SNIFF_SCRIPT` with the ad hosts filled in. Pure.
+    pub(super) fn sniff_script(blocked: &[String]) -> String {
+        SNIFF_SCRIPT.replace("__BLOCKED__", &serde_json::to_string(blocked).unwrap_or_else(|_| "[]".into()))
+    }
+
+    fn configure<'a>(
+        b: wry::WebViewBuilder<'a>,
+        domains: Arc<Vec<String>>,
+        loads: Loads,
+        visible: bool,
+        sniff: Option<SniffSetup>,
+    ) -> wry::WebViewBuilder<'a> {
+        let b = match &sniff {
+            // muted autoplay lets the embed player request its playlist without a click
+            Some(setup) => b.with_autoplay(true).with_initialization_script_for_main_only(sniff_script(&setup.blocked), false),
+            None => b.with_autoplay(false),
+        };
+        let blocked = sniff.map(|s| s.blocked);
         b.with_incognito(true)
             .with_visible(visible)
             .with_focused(false)
             .with_devtools(false)
             .with_clipboard(false)
-            .with_autoplay(false)
             .with_navigation_handler(move |url: String| {
-                let ok = navigation_allowed(&url, &domains);
+                let ok = match &blocked {
+                    Some(ads) => sniff_navigation_allowed(&url, &domains, ads),
+                    None => navigation_allowed(&url, &domains),
+                };
                 if !ok {
                     tracing::debug!("extension browser: blocked navigation to {url}");
                 }
@@ -220,15 +395,76 @@ mod ui {
         if open_for_ext >= MAX_PER_EXTENSION {
             return Err(BrowserError::Limit);
         }
-        let session = build(ext_id, Arc::new(domains), Rc::default(), headless)?;
+        let session = build(ext_id, Arc::new(domains), Rc::default(), headless, None)?;
         SESSIONS.with(|s| {
             s.borrow_mut().insert(id, session);
         });
         Ok(())
     }
 
+    /// Hidden capture view for the embed sniffer (wave B, worker k), already navigating to `url` with `referer`.
+    pub(super) fn open_sniffer(id: BrowserId, domains: Vec<String>, blocked: Vec<String>, url: &str, referer: Option<&str>) -> Result<(), BrowserError> {
+        const SNIFF_OWNER: &str = "tk-sniffer";
+        let open = SESSIONS.with(|s| s.borrow().values().filter(|x| x.ext_id == SNIFF_OWNER).count());
+        if open >= MAX_PER_EXTENSION {
+            return Err(BrowserError::Limit);
+        }
+        if !browser_url_allowed(url, &domains) {
+            return Err(BrowserError::UrlNotAllowed(url.to_owned()));
+        }
+        let setup = SniffSetup { blocked: Arc::new(blocked) };
+        let session = build(SNIFF_OWNER.to_owned(), Arc::new(domains), Rc::default(), true, Some(setup))?;
+        let mut headers = wry::http::HeaderMap::new();
+        if let Some(r) = referer.filter(|r| r.starts_with("https://") || r.starts_with("http://"))
+            && let Ok(v) = wry::http::HeaderValue::from_str(r)
+        {
+            headers.insert(wry::http::header::REFERER, v);
+        }
+        let loaded = if headers.is_empty() { session.view.load_url(url) } else { session.view.load_url_with_headers(url, headers) };
+        if let Err(e) = loaded {
+            destroy(session);
+            return Err(failed(e));
+        }
+        SESSIONS.with(|s| {
+            s.borrow_mut().insert(id, session);
+        });
+        Ok(())
+    }
+
+    /// Read the capture list of a sniffer view (top frame) as the JSON the callback gets.
+    pub(super) fn sniff_poll(id: &str) -> Result<oneshot::Receiver<String>, BrowserError> {
+        with_session(id, |s| {
+            let (tx, rx) = oneshot::channel();
+            let tx = Mutex::new(Some(tx));
+            s.view
+                .evaluate_script_with_callback("JSON.stringify({ c: window.__tkSniff || [], t: document.title || '' })", move |raw| {
+                    if let Some(tx) = tx.lock().ok().and_then(|mut g| g.take()) {
+                        let _ = tx.send(raw);
+                    }
+                })
+                .map_err(failed)?;
+            Ok(rx)
+        })
+    }
+
+    /// Parse a `sniff_poll` answer (the returned string, JSON-encoded once more by the engine); garbage = nothing
+    /// captured. Pure.
+    pub(super) fn parse_sniff(raw: &str) -> super::SniffOutcome {
+        #[derive(serde::Deserialize, Default)]
+        struct Poll {
+            #[serde(default)]
+            c: Vec<super::Captured>,
+            #[serde(default)]
+            t: String,
+        }
+        let inner: String = serde_json::from_str(raw).unwrap_or_default();
+        let poll: Poll = serde_json::from_str(&inner).unwrap_or_default();
+        let title = Some(poll.t.trim().to_owned()).filter(|t| !t.is_empty());
+        super::SniffOutcome { captured: poll.c.into_iter().filter(|c| c.url.starts_with("https://") || c.url.starts_with("http://")).collect(), title }
+    }
+
     #[cfg(target_os = "linux")]
-    fn build(ext_id: String, domains: Arc<Vec<String>>, loads: Loads, headless: bool) -> Result<Session, BrowserError> {
+    fn build(ext_id: String, domains: Arc<Vec<String>>, loads: Loads, headless: bool, sniff: Option<SniffSetup>) -> Result<Session, BrowserError> {
         use gtk::prelude::*;
         use webkit2gtk::{PermissionRequestExt, WebViewExt};
         use wry::{WebViewBuilderExtUnix, WebViewExtUnix};
@@ -247,7 +483,7 @@ mod ui {
         window.set_default_size(1000, 760);
         let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
         window.add(&container);
-        let view = match configure(wry::WebViewBuilder::new(), domains.clone(), loads.clone(), true).build_gtk(&container) {
+        let view = match configure(wry::WebViewBuilder::new(), domains.clone(), loads.clone(), true, sniff).build_gtk(&container) {
             Ok(v) => v,
             Err(e) => {
                 // SAFETY: the window was created above and is not used after this.
@@ -264,7 +500,7 @@ mod ui {
     }
 
     #[cfg(windows)]
-    fn build(ext_id: String, domains: Arc<Vec<String>>, loads: Loads, headless: bool) -> Result<Session, BrowserError> {
+    fn build(ext_id: String, domains: Arc<Vec<String>>, loads: Loads, headless: bool, sniff: Option<SniffSetup>) -> Result<Session, BrowserError> {
         let dir = std::env::var_os("LOCALAPPDATA")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(std::env::temp_dir)
@@ -276,7 +512,7 @@ mod ui {
             position: wry::dpi::Position::Logical(wry::dpi::LogicalPosition::new(0.0, 0.0)),
             size: wry::dpi::Size::Logical(wry::dpi::LogicalSize::new(1000.0, 760.0)),
         };
-        let view = configure(wry::WebViewBuilder::new_with_web_context(&mut context), domains.clone(), loads.clone(), !headless)
+        let view = configure(wry::WebViewBuilder::new_with_web_context(&mut context), domains.clone(), loads.clone(), !headless, sniff)
             .with_bounds(bounds)
             .build_as_child(&*parent.window)
             .map_err(failed)?;
@@ -284,7 +520,7 @@ mod ui {
     }
 
     #[cfg(not(any(target_os = "linux", windows)))]
-    fn build(_ext_id: String, _domains: Arc<Vec<String>>, _loads: Loads, _headless: bool) -> Result<Session, BrowserError> {
+    fn build(_ext_id: String, _domains: Arc<Vec<String>>, _loads: Loads, _headless: bool, _sniff: Option<SniffSetup>) -> Result<Session, BrowserError> {
         Err(BrowserError::Unavailable)
     }
 
@@ -506,6 +742,25 @@ mod ui {
             assert_eq!(parse_evaluation(&err), Err(BrowserError::Failed("boom".into())));
             assert!(parse_evaluation("").is_err());
             assert!(wrap_expression("document.title;").contains("(\ndocument.title\n)"));
+        }
+
+        #[test]
+        fn sniffer_rules_and_script() {
+            let d = vec!["embed.example".to_owned()];
+            let ads = vec!["popads.net".to_owned()];
+            assert!(sniff_navigation_allowed("https://embed.example/e/1", &d, &ads));
+            assert!(sniff_navigation_allowed("https://player.embed.example/x", &d, &ads));
+            assert!(!sniff_navigation_allowed("https://c.popads.net/x", &d, &ads));
+            assert!(!sniff_navigation_allowed("https://other.example/", &d, &ads));
+            let js = sniff_script(&ads);
+            assert!(js.contains(r#"var blocked = ["popads.net"];"#));
+            assert!(js.contains("window.open = function(){ return null; };"));
+            let raw = serde_json::to_string(r#"{"c":[{"url":"https://cdn.x/a.m3u8","referer":"https://embed.example/e/1","origin":"https://embed.example","userAgent":"UA","contentType":""},{"url":"blob:x"}],"t":" Ep 1 "}"#).unwrap();
+            let out = parse_sniff(&raw);
+            assert_eq!(out.captured.len(), 1);
+            assert!(out.captured[0].is_hls());
+            assert_eq!(out.title.as_deref(), Some("Ep 1"));
+            assert!(parse_sniff("garbage").captured.is_empty());
         }
 
         #[test]
