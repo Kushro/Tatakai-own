@@ -386,6 +386,49 @@ class ExtensionRepositoryImpl(
         }
     }
 
+    /**
+     * Parity wave A (15 §3.1, worker o): Search › extension chip. Runs `custom/search` on every `watch` custom source of [extensionId]
+     * (page 1) and merges the cards; an extension without custom sources (or not runnable) returns nothing. Tapping a card searches its
+     * title in the metadata provider, like the Home extension rows.
+     */
+    override suspend fun searchExtension(extensionId: String, query: String): List<ExtensionHomeItem> {
+        val q = query.trim()
+        if (q.isEmpty()) return emptyList()
+        ready.await()
+        val (manifest, sources) = lock.withLock {
+            val r = records[extensionId]?.takeIf { it.runnable } ?: return emptyList()
+            r.manifest to r.manifest.customSources.filter { it.kind == ExtensionSearch.WATCH_KIND }
+        }
+        if (sources.isEmpty()) return emptyList()
+        val perSource = coroutineScope {
+            sources.map { src ->
+                async(io) {
+                    withTimeoutOrNull(budgetMs(manifest)) {
+                        try {
+                            ExtensionSearch.cards(
+                                host.call(
+                                    manifest.id,
+                                    "custom/search",
+                                    buildJsonObject {
+                                        put("sourceId", src.id)
+                                        put("query", q)
+                                        put("page", 1)
+                                    },
+                                ),
+                            )
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            logStore.err(manifest.id, "search", e.message ?: "custom search failed")
+                            null
+                        }
+                    }.orEmpty()
+                }
+            }.awaitAll()
+        }
+        return ExtensionSearch.merge(perSource)
+    }
+
     private fun homeRows(m: ExtensionManifest, src: CustomSourceDescriptor, body: JsonObject): List<ExtensionHomeRow> =
         (body["sections"] as? JsonArray).orEmpty().mapNotNull { section ->
             val o = section as? JsonObject ?: return@mapNotNull null

@@ -2,7 +2,13 @@
 
 package app.tatakai.next.feature.details
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.content.res.Resources
+import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,7 +30,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.NoAdultContent
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -45,10 +54,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.tatakai.next.designsystem.components.EmptyState
 import app.tatakai.next.designsystem.components.LocalAppSnackbar
 import app.tatakai.next.designsystem.components.TatakaiFloatingToolbar
 import app.tatakai.next.designsystem.theme.TatakaiSeedTheme
 import app.tatakai.next.designsystem.theme.parseHexColor
+import app.tatakai.next.feature.library.ListButton
 import app.tatakai.next.feature.player.sources.SourcePickerSheet
 import app.tatakai.next.feature.torrents.rememberDownloadGate
 import app.tatakai.next.model.AppError
@@ -94,7 +105,37 @@ fun DetailsScreen(
     /** Studio chip of the technical sheet -> Route.SearchFor(studio = name). */
     onOpenStudio: (String) -> Unit = {},
 ) {
+    // Related titles, seasons and recommendations open their own Details in place (the contract gives Details no "open title"
+    // callback): a stack of AniList ids, popped by back. Each level is a full DetailsScreen with its own ViewModel.
+    var stack by rememberSaveable(kind, anilistId) { mutableStateOf("") }
+    val ids = stack.split(',').mapNotNull { it.toIntOrNull() }
+    val top = ids.lastOrNull()
+    if (top != null) {
+        val pop = { stack = ids.dropLast(1).joinToString(",") }
+        BackHandler(onBack = pop)
+        DetailsScreen(
+            kind = kind,
+            anilistId = top,
+            onBack = pop,
+            onPlay = onPlay,
+            onOpenExtensions = onOpenExtensions,
+            modifier = modifier,
+            onOpenTorrent = onOpenTorrent,
+            onOpenSettings = onOpenSettings,
+            onOpenLinked = onOpenLinked,
+            onOpenDownloads = onOpenDownloads,
+            onOpenGenre = onOpenGenre,
+            onOpenCharacter = onOpenCharacter,
+            onOpenStudio = onOpenStudio,
+        )
+        return
+    }
+    val openMedia: (Media) -> Unit = { media ->
+        val id = media.ref.anilistId
+        if (id != null && id != anilistId) stack = (ids + id).joinToString(",")
+    }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     val resources = LocalContext.current.resources
     val snackbar = LocalAppSnackbar.current
     val currentOnPlay by rememberUpdatedState(onPlay)
@@ -146,6 +187,25 @@ fun DetailsScreen(
         onOpenSettings = onOpenSettings,
         onOpenGenre = onOpenGenre,
         onLoadRelated = viewModel::loadRelated,
+        onOpenMedia = openMedia,
+        onOpenCharacter = onOpenCharacter,
+        onOpenStudio = onOpenStudio,
+        onShare = { media ->
+            shareLink(media)?.let { link ->
+                context.copyToClipboard(link)
+                snackbar.show(
+                    message = resources.getString(R.string.details_share_copied),
+                    actionLabel = resources.getString(R.string.details_share_send),
+                    onAction = { context.shareText(link, resources.getString(R.string.details_share)) },
+                )
+            }
+        },
+        onOpenUrl = { url -> context.openUrl(url) },
+        onLoadCharacters = viewModel::loadCharacters,
+        onRetryDetails = viewModel::retryDetails,
+        onEpisodeQuery = viewModel::setEpisodeQuery,
+        onEpisodeView = viewModel::setEpisodeView,
+        onAcceptAdult = viewModel::acceptAdult,
     )
     val seed = parseHexColor((state.media as? LoadState.Ok)?.value?.color)
     TatakaiSeedTheme(seed = seed) {
@@ -204,6 +264,17 @@ internal data class DetailsActions(
     val onOpenSettings: (SettingsSection) -> Unit = {},
     val onOpenGenre: (String) -> Unit = {},
     val onLoadRelated: () -> Unit = {},
+    // --- parity wave A (15 §5 o.2) ---
+    val onOpenMedia: (Media) -> Unit = {},
+    val onOpenCharacter: (Int) -> Unit = {},
+    val onOpenStudio: (String) -> Unit = {},
+    val onShare: (Media) -> Unit = {},
+    val onOpenUrl: (String) -> Unit = {},
+    val onLoadCharacters: () -> Unit = {},
+    val onRetryDetails: () -> Unit = {},
+    val onEpisodeQuery: (String) -> Unit = {},
+    val onEpisodeView: (EpisodeView) -> Unit = {},
+    val onAcceptAdult: () -> Unit = {},
 )
 
 @Composable
@@ -214,12 +285,13 @@ internal fun DetailsContent(
 ) {
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LoadStateContent(state = state.media, onRetry = actions.onRetry) { media ->
-            DetailsBody(media, state, actions)
+            if (state.adultGate) AdultGate(actions) else DetailsBody(media, state, actions)
         }
         IconButton(onClick = actions.onBack, modifier = Modifier.statusBarsPadding().padding(4.dp)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back))
         }
-        if (state.media is LoadState.Ok) {
+        val loaded = (state.media as? LoadState.Ok)?.value
+        if (loaded != null && !state.adultGate) {
             // Floating toolbar (prototype `.ftb`): the main actions stay at hand while the episode list scrolls.
             TatakaiFloatingToolbar(
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),
@@ -232,6 +304,7 @@ internal fun DetailsContent(
                     Icon(Icons.Outlined.Cast, contentDescription = stringResource(R.string.details_send_device))
                 }
                 DownloadMenuButton(state, actions, icon = Icons.Outlined.Download)
+                ListButton(media = loaded, compact = true)
             }
         }
     }
@@ -317,7 +390,41 @@ internal fun AppError.describe(resources: Resources): String = when (this) {
     is AppError.Unknown -> resources.getString(UiR.string.ui_error_unknown, msg)
 }
 
-internal enum class DetailsTab { EPISODES, INFO, RELATED }
+/** Classic AdultWarningGate: an 18+ title asks once; "Mostrar" is remembered per title (DetailsPrefs). */
+@Composable
+private fun AdultGate(actions: DetailsActions) {
+    Column(
+        Modifier.fillMaxSize().statusBarsPadding().padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        EmptyState(
+            icon = Icons.Outlined.NoAdultContent,
+            title = stringResource(R.string.details_adult_title),
+            message = stringResource(R.string.details_adult_body),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = actions.onBack) { Text(stringResource(R.string.details_adult_back)) }
+            Button(onClick = actions.onAcceptAdult) { Text(stringResource(R.string.details_adult_show)) }
+        }
+    }
+}
+
+private fun Context.copyToClipboard(text: String) {
+    getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Tatakai", text))
+}
+
+private fun Context.shareText(text: String, title: String) {
+    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+    runCatching { startActivity(Intent.createChooser(send, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+}
+
+/** Trailer (YouTube / Dailymotion) and external links: the system picks the app (`ACTION_VIEW`). */
+private fun Context.openUrl(url: String) {
+    runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+}
+
+internal enum class DetailsTab { EPISODES, INFO, CHARACTERS, RELATED }
 
 internal const val RANGE_SIZE = 100
 private val WIDE_BREAKPOINT = 840.dp
