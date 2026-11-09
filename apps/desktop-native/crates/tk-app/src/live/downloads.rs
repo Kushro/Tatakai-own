@@ -1112,12 +1112,21 @@ pub async fn verify(b: &LiveBackend, id: i64) -> UiResult<DownloadVm> {
 
 /// Target of a manga chapter folder (`novel = false`) or a novel chapter file (`novel = true`, `.json`) under the
 /// download folder in use. `ext_id` / `chapter_id` are recovered from it when the chapter finishes.
+#[allow(dead_code)] // called by workers l / m (manga / novel chapter downloads)
 pub fn chapter_target(b: &LiveBackend, media_id: &str, ext_id: &str, chapter_id: &str, novel: bool) -> PathBuf {
     let t = files::chapter_target(&b.downloads.engine.dir(), media_id, ext_id, chapter_id);
-    if novel { t.with_extension("json") } else { t }
+    if novel { novel_file(t) } else { t }
+}
+
+/// `<chapter>.json` (appended: chapter ids may contain dots, `with_extension` would cut them).
+fn novel_file(t: PathBuf) -> PathBuf {
+    let mut s = t.into_os_string();
+    s.push(".json");
+    PathBuf::from(s)
 }
 
 /// Queue chapter (or episode) jobs built by workers l / m; the title comes from the titles opened this session.
+#[allow(dead_code)] // called by workers l / m
 pub async fn enqueue_jobs(b: &LiveBackend, jobs: Vec<Job>) -> UiResult<Vec<i64>> {
     let with: Vec<(Job, Meta)> = jobs
         .into_iter()
@@ -1131,6 +1140,7 @@ pub async fn enqueue_jobs(b: &LiveBackend, jobs: Vec<Job>) -> UiResult<Vec<i64>>
 }
 
 /// Queue jobs with their display data. A job whose target is already queued or downloaded returns that row.
+#[allow(dead_code)] // called by workers l / m (and `enqueue_jobs`)
 pub async fn enqueue_jobs_with(b: &LiveBackend, jobs: Vec<(Job, Meta)>) -> UiResult<Vec<i64>> {
     let rows = b.store.downloads(false).map_err(store_err)?;
     let mut ids = Vec::with_capacity(jobs.len());
@@ -1258,6 +1268,11 @@ mod tests {
         assert_eq!(torrent_state(TorrentStateVm::Paused, 0.4), DownloadStateVm::Paused);
         assert_eq!(torrent_state(TorrentStateVm::Paused, 1.0), DownloadStateVm::Completed);
         assert_eq!(torrent_state(TorrentStateVm::Error, 0.1), DownloadStateVm::Failed);
+    }
+
+    #[test]
+    fn novel_targets_keep_dotted_ids() {
+        assert_eq!(novel_file(PathBuf::from("/d/1/ext/ch-1.5")), PathBuf::from("/d/1/ext/ch-1.5.json"));
     }
 
     #[test]
