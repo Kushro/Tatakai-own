@@ -166,6 +166,20 @@
     <string name="settings_accounts_auto_progress_hint">Al terminar un episodio de un título de tu lista, su progreso avanza.</string>
     <string name="settings_accounts_auto_add">Añadir a Viendo al empezar</string>
     <string name="settings_accounts_auto_add_hint">Terminar un episodio de un título que no está en tu lista lo añade como Viendo.</string>
+    <!-- lists.import-export (parity wave A closure, worker q): hoja del modo de la primera sincronización -->
+    <string name="settings_accounts_sync_mode_title">Cómo sincronizar con %1$s</string>
+    <string name="settings_accounts_sync_mode_body_first">Tu lista en este teléfono ya tiene títulos. Elige cómo combinarla con tu lista de %1$s.</string>
+    <string name="settings_accounts_sync_mode_body">Elige cómo se combinan esta vez tu lista en este teléfono y tu lista de %1$s.</string>
+    <string name="settings_accounts_mode_merge">Fusionar (recomendado)</string>
+    <string name="settings_accounts_mode_merge_hint">Conserva las dos listas; los títulos que difieran quedan como conflictos para que los resuelvas.</string>
+    <string name="settings_accounts_mode_import">Importar de %1$s</string>
+    <string name="settings_accounts_mode_import_hint">Tu lista de %1$s sobrescribe los títulos que están en las dos; los que solo están en este teléfono se quedan aquí.</string>
+    <string name="settings_accounts_mode_export">Exportar a %1$s</string>
+    <string name="settings_accounts_mode_export_hint">La lista de este teléfono sobrescribe %1$s en los títulos que están en las dos; los que solo están en %1$s se añaden igual aquí.</string>
+    <string name="settings_accounts_mode_later">Más tarde</string>
+    <string name="settings_accounts_first_sync_pending">Primera sincronización pendiente</string>
+    <string name="settings_accounts_choose">Elegir</string>
+    <string name="settings_accounts_sync_mode">Importar / exportar</string>
     <string name="settings_accounts_transfer">Importar y exportar</string>
     <string name="settings_accounts_transfer_hint">Archivo JSON con tu lista, el mismo formato que Tatakai para PC.</string>
     <string name="settings_accounts_export">Exportar lista</string>

@@ -166,6 +166,20 @@
     <string name="settings_accounts_auto_progress_hint">When you finish an episode of a title on your list, its progress moves forward.</string>
     <string name="settings_accounts_auto_add">Add to Watching when I start</string>
     <string name="settings_accounts_auto_add_hint">Finishing an episode of a title not on your list adds it as Watching.</string>
+    <!-- lists.import-export (parity wave A closure, worker q): first-sync mode sheet -->
+    <string name="settings_accounts_sync_mode_title">How to sync with %1$s</string>
+    <string name="settings_accounts_sync_mode_body_first">Your list on this phone already has titles. Choose how to combine it with your %1$s list.</string>
+    <string name="settings_accounts_sync_mode_body">Choose how your list on this phone and your %1$s list are combined this time.</string>
+    <string name="settings_accounts_mode_merge">Merge (recommended)</string>
+    <string name="settings_accounts_mode_merge_hint">Keeps both lists; titles that differ become conflicts you resolve.</string>
+    <string name="settings_accounts_mode_import">Import from %1$s</string>
+    <string name="settings_accounts_mode_import_hint">Your %1$s list overwrites the titles that are in both; titles only on this phone stay here.</string>
+    <string name="settings_accounts_mode_export">Export to %1$s</string>
+    <string name="settings_accounts_mode_export_hint">This phone\'s list overwrites %1$s for the titles that are in both; titles only on %1$s are still added here.</string>
+    <string name="settings_accounts_mode_later">Later</string>
+    <string name="settings_accounts_first_sync_pending">First sync pending</string>
+    <string name="settings_accounts_choose">Choose</string>
+    <string name="settings_accounts_sync_mode">Import / export</string>
     <string name="settings_accounts_transfer">Import and export</string>
     <string name="settings_accounts_transfer_hint">JSON file with your list, the same format as Tatakai for PC.</string>
     <string name="settings_accounts_export">Export list</string>

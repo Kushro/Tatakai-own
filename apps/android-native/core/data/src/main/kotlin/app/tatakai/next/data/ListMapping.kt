@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.data
 
+import app.tatakai.next.database.LinkedAccountRow
 import app.tatakai.next.database.ListEntryRow
 import app.tatakai.next.model.HistoryEntry
 import app.tatakai.next.model.ListEntry
@@ -130,6 +131,24 @@ enum class InitialSyncMode {
 }
 
 enum class SyncAction { NOOP, PUSH, PULL, ADOPT, CONFLICT }
+
+/**
+ * `lists.import-export`: linking a provider asks how to do the first sync (import remote / export local / merge) only when the local
+ * list has something the choice can change (a listed title or a favorite). With an empty local list every mode pulls the same, so the
+ * first sync runs at once as MERGE.
+ */
+fun needsFirstSyncChoice(localRows: List<ListEntryRow>): Boolean = localRows.any { it.status != null || it.favorite }
+
+/**
+ * Providers whose first sync still waits for the user's choice after a restart: linked, never synced ([LinkedAccountRow.lastSyncedAtMs]
+ * null) and a local list the choice matters for. A provider whose first sync failed (offline) asks again, which is the same question.
+ */
+fun pendingFirstSyncs(accounts: List<LinkedAccountRow>, localRows: List<ListEntryRow>): Set<ListProvider> {
+    if (!needsFirstSyncChoice(localRows)) return emptySet()
+    return accounts.filter { it.lastSyncedAtMs == null }
+        .mapNotNull { row -> ListProvider.entries.firstOrNull { it.id == row.provider } }
+        .toSet()
+}
 
 /**
  * Three-way decision for one title and one provider (classic `listSync`): [local] / [remote] values (status null = absent), [base] = the
