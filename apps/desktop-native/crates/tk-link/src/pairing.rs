@@ -221,6 +221,9 @@ impl PairingWindow {
                 created_at: now.unix_timestamp(),
                 not_after: cert.not_after.unix_timestamp(),
                 revoked_at: None,
+                // `POST /v1/pairing` only accepts `platform: "android"` (server.rs); `touch` refines it later.
+                platform: "android".to_owned(),
+                last_seen_at: Some(now.unix_timestamp()),
             })
             .map_err(|_| PairingError::Internal("device registration failed"))?;
         tracing::info!(device = %cert.device_id, "device paired");

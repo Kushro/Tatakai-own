@@ -6,15 +6,69 @@
 //! `status` / `restart`: it is reported in `LinkStatusVm::error` so the screen can offer the fixes.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use tk_core::LocalStore;
 use tk_ext::ExtensionHost;
+use tk_link::control::{PhoneEvent, PlayerState};
+use tk_link::discovery::Announcer;
 use tk_link::media::capabilities::Sustain;
+use tk_link::sessions::{CreateRequest, SourceRequest};
 use tk_link::{Device, LinkConfig, LinkError, LinkHandle, LinkHost, Vendor};
-use tk_ui::backend::{DeviceVm, LinkCapsVm, LinkStatusVm, RemoteCommandVm, SendToDeviceVm, UiResult};
+use tk_ui::backend::{Backend, DeviceVm, LinkCapsVm, LinkStatusVm, PresenceVm, RemoteCommandVm, SendToDeviceVm, UiResult};
 use tk_ui::model::{ErrorKind, Pairing, UiError};
+
+use super::LiveBackend;
+
+/// A player state older than this is treated as "no player" (the player reports every 15 s and on every pause
+/// change, `screens/player/presence.rs`).
+const PLAYER_STALE: Duration = Duration::from_secs(45);
+
+/// What the PC's player shows, as last reported (`note_presence` / `note_progress`), for `GET /v1/player`.
+#[derive(Default)]
+struct PlayerTrack {
+    state: Option<(Instant, PlayerState)>,
+}
+
+type SharedPlayer = Arc<Mutex<PlayerTrack>>;
+
+/// `GET /v1/player` answer from the tracked state (`None` when stale or closed). Pure apart from the clock.
+fn current_player(track: &SharedPlayer) -> Option<PlayerState> {
+    let g = track.lock().ok()?;
+    g.state.as_ref().filter(|(at, _)| at.elapsed() < PLAYER_STALE).map(|(_, s)| s.clone())
+}
+
+/// Merge a presence report into the tracked state (`Watching` keeps the media id of the last progress row of
+/// the same title / episode; anything else closes the player). Pure.
+fn merge_presence(prev: Option<&PlayerState>, state: &PresenceVm) -> Option<PlayerState> {
+    match state {
+        PresenceVm::Watching { title, episode, position_secs, duration_secs, paused, .. } => {
+            let media_id = prev.filter(|p| p.episode == Some(*episode)).and_then(|p| p.media_id.clone());
+            Some(PlayerState {
+                playing: !*paused,
+                title: Some(title.clone()).filter(|t| !t.is_empty()),
+                episode: Some(*episode),
+                position_secs: *position_secs,
+                duration_secs: *duration_secs,
+                media_id,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Whether a transport command changes nothing given the player state (`play` while playing, `pause` while
+/// paused): it is accepted without reaching the player, whose only primitive is "toggle". Pure.
+fn redundant(cmd: &tk_link::control::ControlCommand, st: Option<&PlayerState>) -> bool {
+    use tk_link::control::ControlCommand as C;
+    match (cmd, st) {
+        (C::Play, Some(s)) => s.playing,
+        (C::Pause, Some(s)) => !s.playing,
+        _ => false,
+    }
+}
 
 /// What the Link server may ask of the app. M0: no library folder; FFmpeg only if `fetch-deps.ps1` ran.
 /// Extension permissions come from the installed extension, so `url` sources can only reach its declared domains.
@@ -24,6 +78,8 @@ struct AppLinkHost {
     store: Arc<LocalStore>,
     /// Wave B (worker k): commands from `POST /v1/control` for `LiveBackend::wait_remote_command`.
     remote: tokio::sync::mpsc::UnboundedSender<RemoteCommandVm>,
+    /// Wave B (worker k): the PC player as last reported, for `GET /v1/player`.
+    player: SharedPlayer,
 }
 
 impl LinkHost for AppLinkHost {
@@ -49,7 +105,49 @@ impl LinkHost for AppLinkHost {
         crate::paths::ffmpeg_path(None)
     }
     fn control(&self, cmd: tk_link::control::ControlCommand) -> bool {
+        let st = current_player(&self.player);
+        if redundant(&cmd, st.as_ref()) {
+            return true;
+        }
         self.remote.send(remote_vm(cmd)).is_ok()
+    }
+    fn player_state(&self) -> Option<PlayerState> {
+        current_player(&self.player)
+    }
+}
+
+/// The player reported its presence (`Backend::presence`; integrator line in `LiveBackend::presence`): track it for
+/// `GET /v1/player` and tell the remote-seek mapping where the player is (`screens/player/remote.rs`).
+pub fn note_presence(b: &LiveBackend, state: &PresenceVm) {
+    if let PresenceVm::Watching { position_secs, .. } = state {
+        tk_ui::screens::player::remote::note_position(*position_secs);
+    }
+    if let Ok(mut g) = b.link.player.lock() {
+        let prev = g.state.as_ref().map(|(_, s)| s.clone());
+        g.state = merge_presence(prev.as_ref(), state).map(|s| (Instant::now(), s));
+    }
+}
+
+/// The player saved progress (`Backend::record_progress`; integrator line in `LiveBackend::record_progress`): the
+/// media id and position of what is playing.
+pub fn note_progress(b: &LiveBackend, id: &str, episode: u32, progress_secs: u32, duration_secs: Option<u32>) {
+    tk_ui::screens::player::remote::note_position(progress_secs);
+    if let Ok(mut g) = b.link.player.lock() {
+        let mut st = g.state.as_ref().map(|(_, s)| s.clone()).unwrap_or(PlayerState {
+            playing: true,
+            title: None,
+            episode: Some(episode),
+            position_secs: progress_secs,
+            duration_secs,
+            media_id: None,
+        });
+        st.media_id = Some(id.to_owned());
+        st.episode = Some(episode);
+        st.position_secs = progress_secs;
+        if duration_secs.is_some() {
+            st.duration_secs = duration_secs;
+        }
+        g.state = Some((Instant::now(), st));
     }
 }
 
@@ -67,13 +165,84 @@ fn remote_vm(cmd: tk_link::control::ControlCommand) -> RemoteCommandVm {
     }
 }
 
-/// `Backend::send_to_device` (wave B, worker **k**; checklist `link.send-to-device`). Contract stub: k creates a Link
-/// session for the device (`tk-link::sessions`, the same path the phone uses when it asks for a stream) and pushes a
-/// `handoff` event the phone consumes (`/v1/events`, k adds it to `tk-link/src/server.rs`), then the phone opens the
-/// player at `position_secs`. Until then `NotWired`, which Details shows inline (KNOWN-ISSUES, wave A).
+/// The Link session source for a resolved stream: only public http(s) URLs travel (the phone's session fetches
+/// them through the SSRF-safe loopback fetcher of the PC). Pure.
+fn session_source(url: &str, headers: &[(String, String)]) -> Option<SourceRequest> {
+    let u = reqwest::Url::parse(url).ok()?;
+    if !matches!(u.scheme(), "http" | "https") {
+        return None;
+    }
+    let host = u.host_str()?;
+    if host == "localhost" || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.is_loopback()) {
+        return None;
+    }
+    Some(SourceRequest::Url {
+        url: url.to_owned(),
+        headers: headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+        extension_id: None,
+        container: None,
+    })
+}
+
+fn link_api_err(e: tk_link::api::ApiError) -> UiError {
+    let kind = match e.0 {
+        tk_link::api::ErrorCode::DeviceNotAuthorized => ErrorKind::Auth,
+        tk_link::api::ErrorCode::SourceUnavailable | tk_link::api::ErrorCode::UrlSourceDenied => ErrorKind::NoSource,
+        _ => ErrorKind::Other,
+    };
+    UiError::new(kind, format!("{}: {}", e.0.as_str(), e.0.message()))
+}
+
+/// `Backend::send_to_device` (wave B, worker **k**; checklist `link.send-to-device`): resolve the episode on the PC
+/// (`Backend::playback`, the same sources the PC player would use), start a Link session owned by the phone at
+/// `position_secs` (`tk-link::sessions`, the path the phone itself uses with `POST /v1/sessions`) and queue the
+/// `handoff` event its `GET /v1/events` long-poll delivers ("La PC te envió <título>" -> "Reproducir aquí").
 pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<()> {
-    let _ = (b, req);
-    Err(UiError::not_wired("send_to_device"))
+    let h = b.link.ensure().await?;
+    let device = h
+        .devices()
+        .into_iter()
+        .find(|d| d.id == req.device_id && d.is_active(now_unix()))
+        .ok_or_else(|| UiError::new(ErrorKind::Auth, format!("device {} is not paired", req.device_id)))?;
+    let playback = <LiveBackend as Backend>::playback(b, &req.media_id, req.episode).await?;
+    let mut last: Option<UiError> = None;
+    for stream in &playback.streams {
+        let Some(source) = session_source(&stream.url, &stream.headers) else { continue };
+        let create = CreateRequest { source, profile: None, audio_track: 0, start_secs: f64::from(req.position_secs) };
+        match h.create_session_for(&device.id, create).await {
+            Ok(created) => {
+                let event = PhoneEvent::Handoff {
+                    session_id: created.session_id,
+                    media_id: Some(req.media_id.clone()),
+                    episode: Some(req.episode),
+                    position_secs: req.position_secs,
+                    title: Some(playback.title.clone()).filter(|t| !t.is_empty()),
+                };
+                if !h.push_event(&device.id, event) {
+                    return Err(UiError::new(ErrorKind::Auth, format!("device {} is not paired", device.id)));
+                }
+                tracing::info!(device = %device.id, media = %req.media_id, episode = req.episode, "sent to device");
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::debug!(error = ?e.0, "send to device: session refused, trying the next stream");
+                last = Some(link_api_err(e));
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| UiError::new(ErrorKind::NoSource, "no stream of this episode can be sent to the phone")))
+}
+
+/// `Settings::server.link_announce` changed (or start-up): announce Link over mDNS or stop (`link.discovery`).
+pub async fn set_announce(b: &LiveBackend, on: bool) {
+    b.link.announce.store(on, Ordering::Relaxed);
+    let st = b.link.state.lock().await;
+    let handle = st.handle.clone();
+    drop(st);
+    match (on, handle) {
+        (true, Some(h)) => b.link.start_announcer(&h),
+        _ => b.link.stop_announcer(),
+    }
 }
 
 /// `Backend::wait_remote_command` (wave B, worker **k**; `link.remote-control`, `link.handoff`): the next command a
@@ -99,6 +268,11 @@ pub struct LinkService {
     state: tokio::sync::Mutex<LinkState>,
     /// Wave B (k): handed to every `AppLinkHost` so `/v1/control` reaches `LiveBackend::wait_remote_command`.
     remote: tokio::sync::mpsc::UnboundedSender<RemoteCommandVm>,
+    /// Wave B (k): the player state shared with every `AppLinkHost` (`GET /v1/player`).
+    player: SharedPlayer,
+    /// Wave B (k, `link.discovery`): announce over mDNS while the server runs (`Settings::server.link_announce`).
+    announce: AtomicBool,
+    announcer: Mutex<Option<Announcer>>,
 }
 
 /// The chosen port lives next to the Link identity (`<link>/port`); missing or invalid = the default.
@@ -145,9 +319,9 @@ fn start_err(e: &LinkError, port: u16) -> UiError {
 }
 
 fn device_vm(d: Device, online: &[String]) -> DeviceVm {
-    // tk-link tracks no platform / last-seen; the pairing date is not "last seen", so leave it empty.
+    // Wave B (k, `link.last-seen`): tk-link refreshes both on every authenticated request of the phone.
     let online = online.iter().any(|id| *id == d.id);
-    DeviceVm { id: d.id, name: d.name, platform: String::new(), last_seen_unix: None, online }
+    DeviceVm { id: d.id, name: d.name, platform: d.platform, last_seen_unix: d.last_seen_at, online }
 }
 
 /// `7A3F 91C2 0E5D B8A4`: the first 16 hex digits of the CA fingerprint, upper case, in groups of 4.
@@ -194,7 +368,39 @@ impl LinkService {
         remote: tokio::sync::mpsc::UnboundedSender<RemoteCommandVm>,
     ) -> Self {
         let port = load_port(&dir);
-        Self { dir, ext, store, anime4k_dir, anime4k_lock, state: tokio::sync::Mutex::new(LinkState { handle: None, port }), remote }
+        Self {
+            dir,
+            ext,
+            store,
+            anime4k_dir,
+            anime4k_lock,
+            state: tokio::sync::Mutex::new(LinkState { handle: None, port }),
+            remote,
+            player: SharedPlayer::default(),
+            announce: AtomicBool::new(true),
+            announcer: Mutex::new(None),
+        }
+    }
+
+    /// (Re)register the mDNS service for `h` (best effort: a failure only means phones must scan the QR).
+    fn start_announcer(&self, h: &LinkHandle) {
+        let ips: Vec<std::net::IpAddr> = h.local_addrs().iter().map(std::net::SocketAddr::ip).collect();
+        let next = match Announcer::start_on(&h.server_name(), &h.instance_id(), h.port(), &h.ca_fingerprint(), &ips) {
+            Ok(a) => Some(a),
+            Err(e) => {
+                tracing::warn!(error = %e, "mDNS announcement failed");
+                None
+            }
+        };
+        if let Ok(mut g) = self.announcer.lock() {
+            *g = next; // the previous one (if any) unregisters on drop
+        }
+    }
+
+    fn stop_announcer(&self) {
+        if let Ok(mut g) = self.announcer.lock() {
+            g.take();
+        }
     }
 
     /// Start on `st.port`.
@@ -203,11 +409,19 @@ impl LinkService {
         cfg.port = st.port;
         cfg.anime4k_dir = Some(self.anime4k_dir.clone());
         cfg.anime4k_lock = self.anime4k_lock.clone();
-        let host = Arc::new(AppLinkHost { ext: self.ext.clone(), store: self.store.clone(), remote: self.remote.clone() });
+        let host = Arc::new(AppLinkHost {
+            ext: self.ext.clone(),
+            store: self.store.clone(),
+            remote: self.remote.clone(),
+            player: self.player.clone(),
+        });
         match tk_link::start(cfg, host).await {
             Ok(h) => {
                 let h = Arc::new(h);
                 st.handle = Some(h.clone());
+                if self.announce.load(Ordering::Relaxed) {
+                    self.start_announcer(&h);
+                }
                 Ok(h)
             }
             Err(e) => {
@@ -266,6 +480,7 @@ impl LinkService {
         }
         let mut st = self.state.lock().await;
         if let Some(h) = st.handle.take() {
+            self.stop_announcer();
             stop_handle(h).await;
         }
         st.port = port;
@@ -347,6 +562,49 @@ mod tests {
             remote_vm(C::Open { media_id: "21".into(), episode: 3, position_secs: 120 }),
             RemoteCommandVm::Open { media_id: "21".into(), episode: 3, position_secs: 120 }
         );
+    }
+
+    #[test]
+    fn player_tracking_and_redundant_commands() {
+        use tk_link::control::ControlCommand as C;
+        let watching = PresenceVm::Watching {
+            title: "One Piece".into(),
+            episode: 3,
+            position_secs: 90,
+            duration_secs: Some(1440),
+            paused: true,
+            poster: None,
+        };
+        let prev = PlayerState { playing: true, title: None, episode: Some(3), position_secs: 80, duration_secs: None, media_id: Some("21".into()) };
+        let st = merge_presence(Some(&prev), &watching).unwrap();
+        assert!(!st.playing);
+        assert_eq!(st.media_id.as_deref(), Some("21"), "same episode keeps the media id");
+        assert_eq!(st.position_secs, 90);
+        let other_ep = PlayerState { episode: Some(2), ..prev.clone() };
+        assert_eq!(merge_presence(Some(&other_ep), &watching).unwrap().media_id, None);
+        assert_eq!(merge_presence(Some(&prev), &PresenceVm::Browsing), None, "leaving the player closes it");
+        assert!(redundant(&C::Pause, Some(&st)));
+        assert!(!redundant(&C::Play, Some(&st)));
+        assert!(!redundant(&C::Toggle, Some(&st)));
+        let track = SharedPlayer::default();
+        assert_eq!(current_player(&track), None);
+        track.lock().unwrap().state = Some((Instant::now(), st.clone()));
+        assert_eq!(current_player(&track), Some(st));
+    }
+
+    #[test]
+    fn only_public_streams_become_session_sources() {
+        let h = vec![("Referer".to_owned(), "https://site/".to_owned())];
+        match session_source("https://cdn.example/a.m3u8", &h) {
+            Some(SourceRequest::Url { url, headers, .. }) => {
+                assert_eq!(url, "https://cdn.example/a.m3u8");
+                assert_eq!(headers.get("Referer").map(String::as_str), Some("https://site/"));
+            }
+            _ => panic!("expected a url source"),
+        }
+        assert!(session_source("http://127.0.0.1:8099/api/server/v1/media/x/a.m3u8", &[]).is_none());
+        assert!(session_source("file:///home/a.mkv", &[]).is_none());
+        assert!(session_source("not a url", &[]).is_none());
     }
 
     #[test]

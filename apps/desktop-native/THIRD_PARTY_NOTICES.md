@@ -89,3 +89,11 @@ Anime4K shaders (MIT / Unlicense, bloc97), FSR.glsl (MIT, agyild), Space Grotesk
 | `tk-app/src/live/torrent_manual.rs` (episode alignment suggestion), `tk-ui/src/screens/torrents/library.rs` ("Add torrent" sheet) | `src/components/modals/{TorrentDownloadModal,MagnetAlignmentModal}.tsx` of this repository | MPL-2.0 | behaviour ported; alignment from `tk_core::release::parse_release` |
 | `tk-ui/src/screens/torrents/history.rs`, session rows in `tk-app/src/live/torrent.rs` | `src/components/settings/TorrentSessionHistory.tsx` of this repository | MPL-2.0 | sessions stored in `data.db` (`torrent_sessions`) |
 | `tk-torrent/src/tracker_probe.rs` (UDP BEP 15 / HTTP BEP 3 + BEP 48 scrape) | written for this app from the BEP texts | - | librqbit 9.1.0 exposes no per-tracker announce result; the engine asks the trackers itself |
+
+### Server, network, sniffer and Link extras (wave B, worker k)
+
+| Code | Origin | License | Notes |
+|---|---|---|---|
+| `tk-server/src/{api,auth,state,routes,proxy,logs}.rs` (`/api/server/v1` routes, envelope, error codes, pairing / tokens, NDJSON resolve, media tickets and HLS rewriting, lookup cache) | `server/src/{core,node,security,storage,proxy,cache,logs,lookup-cache,api-response}.mjs` of this repository | MPL-2.0 | re-implemented in Rust over axum 0.8; viewer password hashed with argon2id (`argon2` crate) instead of scrypt |
+| `tk-server/src/upstream.rs` (FlareSolverr `request.get` / clearance reuse, outbound proxy test) | `src/components/settings/{FlareSolverrSettings,ProxySettingsPanel}.tsx`, `desktop/runtime/proxy/local-proxy-server.cjs` of this repository | MPL-2.0 | SSRF rules from `tk_core::net` on every hop |
+| `tk-app/src/live/sniffer.rs` `ADBLOCK_HOSTS` (ad / popunder host suffixes), capture rules of `live/browser.rs` | `desktop/security/ad-blocker.cjs` and `android/app/src/main/java/app/tatakai/me/security/AdHosts.java` of this repository; `src/components/video/EmbedPlayer.tsx` | MPL-2.0 | only the ad-network tier of the host list; capture script written for the hidden wry view |

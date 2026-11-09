@@ -1,2 +1,44 @@
 /* server.css - wave B, worker k (Server page, Settings > Server & network, sniffer chip in the source picker). Registered in app.rs APP_CSS by the contract; tokens only (no color literals);
    animations through --md-sys-motion-* / --tk-mo-* and [data-reduce-motion="true"]. Prefix: .tk-server. */
+
+/* ---- Server page (/server) ---- */
+.tk-server { gap: var(--tk-space-24); }
+.tk-server__status {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--tk-space-16); align-items: center;
+  padding: var(--tk-space-16) var(--tk-space-20); border-radius: var(--md-sys-shape-corner-extra-large);
+  background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);
+}
+.tk-server__status[data-state="running"] { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+.tk-server__status-text { display: flex; flex-direction: column; gap: var(--tk-space-4); min-width: 0; }
+.tk-server__sub { font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); overflow-wrap: anywhere; }
+.tk-server__pills { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); }
+.tk-server__urls { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-server__copy { display: flex; align-items: center; gap: var(--tk-space-8); min-width: 0; }
+.tk-server__mono { font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-body-small-size); overflow-wrap: anywhere; user-select: text; }
+.tk-server__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: var(--tk-space-16); }
+.tk-server__proxy, .tk-server__password { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-server__row { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); align-items: center; }
+.tk-server__log {
+  list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--tk-space-4);
+  max-height: 360px; overflow-y: auto;
+}
+.tk-server__log-line {
+  display: flex; flex-wrap: wrap; gap: var(--tk-space-8); align-items: baseline; padding: var(--tk-space-4) var(--tk-space-8);
+  border-radius: var(--md-sys-shape-corner-small); font-size: var(--md-sys-typescale-body-small-size);
+}
+.tk-server__log-line[data-error="true"] { background: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container); }
+.tk-server__log-time { color: var(--md-sys-color-on-surface-variant); }
+.tk-server__log-err { color: var(--md-sys-color-error); }
+.tk-server__log-line[data-error="true"] .tk-server__log-err { color: inherit; }
+
+/* ---- Settings > Server & network ---- */
+.tk-settings__subtitle {
+  margin: var(--tk-space-16) 0 var(--tk-space-4); font-size: var(--md-sys-typescale-body-large-size);
+  color: var(--md-sys-color-on-surface-variant);
+}
+.tk-server__test { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-server__test-result { margin: 0; font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-error); }
+.tk-server__test-result[data-ok="true"] { color: var(--md-sys-color-primary); }
+
+/* ---- Embed chip in the source picker (`components/sources.rs`, data-embed) ---- */
+.tk-srow[data-embed="true"] .tk-srow__ico { color: var(--md-sys-color-tertiary); }

@@ -1,6 +1,7 @@
 //! JSON envelope and error catalogue of `/api/server/v1` (docs/redesign/13 section 3.2; classic
-//! `server/src/api-response.mjs`). Every error is `{ "error": "<code>", "message"?: string }` with the HTTP status the
-//! classic server uses, so the Android client's error mapping keeps working.
+//! `server/src/api-response.mjs`, `core.mjs::handle`). Success is `{ "success": true, "data": ... }` ([`ok`]); every error
+//! is `{ "success": false, "error": { "code", "message" } }` ([`Failure`]) with the HTTP status the classic server uses,
+//! so the Android client's error mapping keeps working.
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -73,12 +74,57 @@ impl ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let mut body = serde_json::json!({ "error": self.code() });
-        if let Some(m) = self.message() {
-            body["message"] = serde_json::Value::String(m.to_owned());
-        }
-        (self.status(), axum::Json(body)).into_response()
+        Failure::from(self).into_response()
     }
+}
+
+/// Any error answer of the API: the classic envelope `{ "success": false, "error": { "code", "message" } }` (what the
+/// Android client `ExtensionServerClient.errorCode` and the TS client read). [`ApiError`] covers the catalogue of
+/// docs/redesign/13; the few extra codes the classic server also emits (`invalid_password`, `login_throttled`,
+/// `proxy_disabled`, `media_expired`, ...) go through [`Failure::new`] with the same status the classic uses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Failure {
+    pub status: StatusCode,
+    pub code: &'static str,
+    pub message: Option<String>,
+}
+
+impl Failure {
+    pub fn new(status: StatusCode, code: &'static str) -> Self {
+        Self { status, code, message: None }
+    }
+
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
+    }
+
+    /// The JSON body (without the status).
+    pub fn body(&self) -> serde_json::Value {
+        serde_json::json!({
+            "success": false,
+            "error": { "code": self.code, "message": self.message.clone().unwrap_or_else(|| self.code.to_owned()) },
+        })
+    }
+}
+
+impl From<ApiError> for Failure {
+    fn from(e: ApiError) -> Self {
+        Self { status: e.status(), code: e.code(), message: e.message().map(str::to_owned) }
+    }
+}
+
+impl IntoResponse for Failure {
+    fn into_response(self) -> Response {
+        let mut r = (self.status, axum::Json(self.body())).into_response();
+        r.headers_mut().insert(axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-store"));
+        r
+    }
+}
+
+/// The success envelope `{ "success": true, "data": <value> }`.
+pub fn ok<T: serde::Serialize>(value: T) -> Response {
+    axum::Json(serde_json::json!({ "success": true, "data": value })).into_response()
 }
 
 #[cfg(test)]
@@ -90,5 +136,14 @@ mod tests {
         assert_eq!(ApiError::PairingExpired.code(), "pairing_expired");
         assert_eq!(ApiError::PairingExpired.status(), StatusCode::UNAUTHORIZED);
         assert_eq!(ApiError::PairingLimit.status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn errors_use_the_classic_envelope() {
+        let f = Failure::from(ApiError::BadRequest("missing code".into()));
+        assert_eq!(f.status, StatusCode::BAD_REQUEST);
+        assert_eq!(f.body(), serde_json::json!({ "success": false, "error": { "code": "bad_request", "message": "missing code" } }));
+        let g = Failure::new(StatusCode::TOO_MANY_REQUESTS, "login_throttled");
+        assert_eq!(g.body()["error"]["message"], "login_throttled");
     }
 }
