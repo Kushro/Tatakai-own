@@ -1211,7 +1211,7 @@
     "next": "apps/desktop-native/crates/tk-app/src/live/browser.rs",
     "accept": "Una fuente embed se abre en la WebView oculta, se captura la primera URL m3u8 / mp4 que pide (con sus cabeceras) y se reproduce en mpv; si en 20 s no aparece ninguna, la fuente falla con un error claro y se pasa a la siguiente",
     "status": "todo",
-    "note": "Plan §0.1.13 (enmiendas 2026-11-09): k (escritorio) y r (Android)"
+    "note": "Plan §0.1.13 (enmiendas 2026-11-09): k (escritorio) y r (Android). Una fuente embed solo llega al sniffer si ninguna fuente HLS / MP4 / torrent válida la precede en el ranking (sources.embed-sniffer.ranking)"
   },
   {
     "id": "sources.embed-sniffer.ranking",
@@ -1224,6 +1224,43 @@
     "accept": "Las fuentes embed aparecen en el selector con una etiqueta \"embed\", puntúan por debajo de HLS / MP4 directos y se pueden desactivar en las preferencias de fuente",
     "status": "todo",
     "note": "Plan §0.1.13 (enmiendas 2026-11-09)"
+  },
+  {
+    "wave": "B",
+    "status": "todo",
+    "id": "sources.embed-sniffer.adblock",
+    "area": "k",
+    "android": "r",
+    "title": "Bloqueo de anuncios y popunders en la WebView del sniffer",
+    "classic": "src/components/video/EmbedPlayer.tsx",
+    "next": "apps/desktop-native/crates/tk-app/src/live/browser.rs",
+    "accept": "Mientras el sniffer abre un embed, la WebView oculta no abre ventanas ni pestañas nuevas, bloquea los hosts de anuncios conocidos (la lista del AntiHijackWebViewClient / AdHosts del APK clásico) y las navegaciones fuera del dominio del embed, y el usuario nunca la ve",
+    "note": "Plan §0.1.13 (enmiendas 2026-11-09): parte del sniffer. El bloqueador del clásico para el navegador (system.ad-blocker) sigue out; esto es solo la WebView oculta"
+  },
+  {
+    "wave": "B",
+    "status": "todo",
+    "id": "sources.embed-sniffer.timeout-setting",
+    "area": "k",
+    "android": "r",
+    "title": "Interruptor y tiempo máximo del sniffer",
+    "classic": "src/components/video/EmbedPlayer.tsx",
+    "next": null,
+    "accept": "Ajustes › Fuentes tiene \"Fuentes embed (sniffer)\" con interruptor y tiempo máximo (5-60 s, 20 por defecto); apagado, las fuentes embed no aparecen en el selector",
+    "note": "Plan §0.1.13 (enmiendas 2026-11-09)"
+  },
+  {
+    "wave": "B",
+    "status": "todo",
+    "id": "sources.debrid.episode-context",
+    "area": "k",
+    "android": null,
+    "platform": "desktop",
+    "title": "La sonda de caché de debrid recibe id y episodio",
+    "classic": "src/core/providers/debrid-orchestrator.ts",
+    "next": "apps/desktop-native/crates/tk-app/src/live/debrid.rs",
+    "accept": "LiveBackend::sources pasa (id, episodio) a live::debrid::mark_cached; con dos fichas abiertas seguidas la insignia cacheado / no cacheado de la segunda nunca toma los candidatos de la primera",
+    "note": "KNOWN-ISSUES (ola A, debrid escritorio): \"propuesta para la ola B: pasar (id, episode) desde LiveBackend::sources\". Código de i heredado por k porque live/sources.rs es suyo en la ola B"
   },
   {
     "id": "sources.report-issue",
@@ -2572,7 +2609,7 @@
     "title": "Página Descargas",
     "classic": "src/pages/profile/OfflineLibraryPage.tsx",
     "next": null,
-    "accept": "Una ruta Descargas en el rail une descargas web y torrents con pestañas Anime, Activas e Historial, búsqueda, ETA y progreso",
+    "accept": "Una ruta Descargas en el rail une descargas web y torrents con pestañas Anime, Manga, Novelas, Activas e Historial, búsqueda, ETA y progreso",
     "status": "todo",
     "audit": "Falta"
   },
@@ -2668,6 +2705,17 @@
     "next": null,
     "accept": "Un archivo mal emparejado se puede asignar a otra serie o episodio y la biblioteca se actualiza",
     "status": "todo"
+  },
+  {
+    "wave": "B",
+    "status": "todo",
+    "id": "downloads.integrity-check",
+    "area": "h",
+    "android": "r",
+    "title": "Detección de archivos rotos",
+    "classic": "src/components/mobile/MobileDownloadsUI.tsx",
+    "next": null,
+    "accept": "Un episodio descargado cuyo archivo falta o está truncado se marca \"roto\" en Descargas y ofrece volver a descargarlo o quitarlo de la biblioteca"
   },
   {
     "id": "downloads.local-library.play-offline",
@@ -3213,6 +3261,17 @@
     "status": "todo"
   },
   {
+    "wave": "B",
+    "status": "todo",
+    "id": "ext.kill-switch",
+    "area": "j",
+    "android": "r",
+    "title": "Desactivar todas las extensiones de golpe",
+    "classic": "desktop/runtime/extension/extension-registry.cjs",
+    "next": "apps/desktop-native/crates/tk-ui/src/screens/extensions.rs",
+    "accept": "Extensiones tiene \"Desactivar todas\": las apaga sin desinstalarlas, la ficha muestra el aviso sin extensiones y \"Activar todas\" las devuelve al estado anterior"
+  },
+  {
     "id": "ext.custom-providers.list",
     "wave": "B",
     "area": "j",
@@ -3256,7 +3315,8 @@
     "classic": "src/pages/custom/CustomInfoPage.tsx",
     "next": null,
     "accept": "La ficha de un título de proveedor lista episodios o capítulos con filtro y orden",
-    "status": "todo"
+    "status": "todo",
+    "note": "KNOWN-ISSUES (ola A): los ids ext:<extensión>:<fuente>:<item> que salen de buscar dentro de una extensión muestran extras vacíos; j pide custom/info al host y la ficha se rellena"
   },
   {
     "id": "ext.custom-providers.watch",
@@ -3268,6 +3328,17 @@
     "next": null,
     "accept": "Un episodio de proveedor se reproduce en el reproductor normal con progreso guardado",
     "status": "todo"
+  },
+  {
+    "wave": "B",
+    "status": "todo",
+    "id": "ext.custom-providers.continue",
+    "area": "j",
+    "android": "r",
+    "title": "Continuar viendo títulos de proveedor",
+    "classic": "src/components/extensions/ExtensionContinue.tsx",
+    "next": null,
+    "accept": "Con progreso guardado en un título de proveedor, \"Continuar viendo\" de Inicio también lo muestra y pulsarlo retoma el episodio en el reproductor"
   },
   {
     "id": "ext.custom-providers.read",
@@ -3388,6 +3459,30 @@
     "note": "Solo externo en el clásico"
   },
   {
+    "id": "ext.sideload-audit",
+    "wave": "B",
+    "area": "j",
+    "android": "r",
+    "title": "Registro de auditoría de sideloads",
+    "classic": "desktop/ipc/ipc-runtime.cjs",
+    "next": null,
+    "accept": "Excluido: el registro por extensión (ext.log) y el SHA-256 de ext.kai.manage cubren el caso",
+    "status": "out",
+    "note": "Cubierto por ext.log y ext.kai.manage"
+  },
+  {
+    "id": "ext.usage-events-slot",
+    "wave": "B",
+    "area": "j",
+    "android": "r",
+    "title": "Slot de eventos de uso para extensiones",
+    "classic": "src/core/extensions/ExtensionSlot.tsx",
+    "next": null,
+    "accept": "Excluido: las extensiones no reciben eventos de uso",
+    "status": "out",
+    "note": "Telemetría prohibida en Next (ver system.telemetry)"
+  },
+  {
     "id": "link.pairing",
     "wave": "B",
     "area": "k",
@@ -3461,6 +3556,42 @@
     "note": "KNOWN-ISSUES"
   },
   {
+    "wave": "B",
+    "status": "todo",
+    "id": "link.remote-control",
+    "area": "k",
+    "android": "r",
+    "title": "Control remoto de la reproducción de la PC",
+    "classic": "desktop/runtime/home-server/server.cjs",
+    "next": "apps/android-native/feature/link/src/main/kotlin/app/tatakai/next/feature/link/LinkedDeviceScreen.kt",
+    "accept": "En Dispositivo enlazado, Anterior / Reproducir-pausa / Siguiente controlan el reproductor de la PC por Link y ya no están deshabilitados ni muestran \"M1\"",
+    "note": "No es del clásico (el Home Server heredado tenía un reproductor web): cierra el stub \"M1\" de Android (inventory-next §3). Eventos por el canal Link existente; tk-link es de k en la ola B"
+  },
+  {
+    "wave": "B",
+    "status": "todo",
+    "id": "link.handoff",
+    "area": "k",
+    "android": "r",
+    "title": "\"Continuar en la PC\" desde el teléfono",
+    "classic": "src/routes/AppRoutes.tsx",
+    "next": "apps/android-native/feature/link/src/main/kotlin/app/tatakai/next/feature/link/LinkedDeviceScreen.kt",
+    "accept": "\"Continuar en la PC\" abre en la PC el mismo episodio en la posición actual del teléfono (por Link, sobre el historial ya sincronizado) y desaparece el snackbar \"M1\"",
+    "note": "Sustituye al traspaso entre dispositivos por Supabase Realtime del clásico (GlobalListeners), ya excluido en library.cloud-sync; aquí va por Tatakai Link"
+  },
+  {
+    "wave": "B",
+    "status": "todo",
+    "id": "link.discovery",
+    "area": "k",
+    "android": "r",
+    "title": "Descubrir la PC en la red (mDNS)",
+    "classic": "src/core/extensions/server/pairingLink.ts",
+    "next": "apps/android-native/feature/link/src/main/kotlin/app/tatakai/next/feature/link/LinkedDeviceScreen.kt",
+    "accept": "La PC anuncia Tatakai Link por mDNS (_tatakai-link._tcp) y el teléfono lista las PCs encontradas para emparejar con un toque (TOFU: confirma la huella de la CA); desaparece la pista \"M1\"",
+    "note": "No es del clásico (allí se emparejaba solo por QR / enlace): cierra el stub \"M1\" de Android (inventory-next §3, doc 03 M1). Crate / librería nueva por NOTES-deps.md"
+  },
+  {
     "id": "server.native-mode",
     "wave": "B",
     "area": "k",
@@ -3481,7 +3612,7 @@
     "title": "API de fuentes compatible",
     "classic": "server/src/node.mjs",
     "next": null,
-    "accept": "Un teléfono con TatakaiServer emparejado obtiene fuentes de /api/server/v1/sources con las extensiones .kai de la PC",
+    "accept": "Un teléfono con TatakaiServer emparejado obtiene fuentes de /api/server/v1/sources con las extensiones .kai de la PC; cada fuente lleva sourceType (sin él el cliente Android la descarta, KNOWN-ISSUES)",
     "status": "todo"
   },
   {
@@ -3494,6 +3625,28 @@
     "next": null,
     "accept": "El teléfono reproduce un stream resuelto y proxificado por la PC con cabeceras correctas",
     "status": "todo"
+  },
+  {
+    "wave": "B",
+    "status": "todo",
+    "id": "server.api.invoke",
+    "area": "k",
+    "android": "r",
+    "title": "Invoke de extensiones del servidor (catálogo, manga, novelas)",
+    "classic": "server/src/core.mjs",
+    "next": null,
+    "accept": "POST /api/server/v1/invoke del servidor nativo ejecuta custom/home, catálogo, ficha, capítulos y páginas de una extensión .kai de la PC, y el teléfono emparejado los usa para proveedores remotos, manga y novelas (KNOWN-ISSUES: hoy solo anime/watch)"
+  },
+  {
+    "wave": "B",
+    "status": "todo",
+    "id": "server.api.extensions",
+    "area": "k",
+    "android": "r",
+    "title": "Lista de extensiones del servidor",
+    "classic": "server/src/extensions.mjs",
+    "next": null,
+    "accept": "GET /api/server/v1/extensions devuelve las extensiones .kai de la PC con nombre, versión, tipo y fuentes, y el teléfono las muestra en la pantalla del servidor emparejado"
   },
   {
     "id": "server.pairing",
@@ -3634,6 +3787,18 @@
     "accept": "Excluido: la UI nativa (server.settings-ui) lo reemplaza",
     "status": "out",
     "note": "Reemplazado"
+  },
+  {
+    "id": "server.interpreted-extensions",
+    "wave": "B",
+    "area": "k",
+    "android": "r",
+    "title": "Ecosistemas interpretados dentro de tk-server (Sora, Mangayomi, Seanime, Java)",
+    "classic": "server/src/interpreter.ts",
+    "next": null,
+    "accept": "Excluido: tk-server sirve solo las extensiones .kai de la PC; Sora / Mangayomi / Seanime / Aniyomi / Mihon / CloudStream se usan a través del servidor Node (server/) emparejado (ext.ecosystems.via-server)",
+    "status": "out",
+    "note": "D4: Next es cliente de esos ecosistemas, no los reimplementa"
   },
   {
     "id": "server.status-page",
@@ -4325,6 +4490,18 @@
     "audit": "Parcial"
   },
   {
+    "wave": "B",
+    "status": "todo",
+    "id": "settings.privacy.mature-content",
+    "area": "b",
+    "android": "r",
+    "title": "Ajuste de contenido maduro",
+    "classic": "src/components/settings/panels/PrivacyPanel.tsx",
+    "next": null,
+    "accept": "Ajustes ofrece Contenido maduro con tres modos (mostrar, difuminar en resultados, avisar antes); Inicio, Buscar, la ficha y Manga lo respetan (details.adult-gate y manga.adult-gate leen este ajuste)",
+    "note": "Única parte de Privacidad del clásico que no dependía del perfil propio (el resto está out, social.settings.privacy). Dueño b porque afecta a Inicio y descubrir; l y s lo leen"
+  },
+  {
     "id": "settings.display.language",
     "wave": "A",
     "area": "f",
@@ -4478,6 +4655,18 @@
     "accept": "Con Tenrai activo, el router usa sus datos como último recurso para títulos que no están en AniList / Kitsu; si la API no responde, se descarta con nota",
     "status": "todo",
     "note": "Plan §0.1.13 (enmiendas 2026-11-09): se descarta con nota si el proveedor ya no responde"
+  },
+  {
+    "wave": "B",
+    "status": "todo",
+    "id": "settings.metadata.provider-status",
+    "area": "b",
+    "android": "r",
+    "title": "Estado y enfriamiento por proveedor de metadatos",
+    "classic": "src/components/settings/MetadataSourcesPanel.tsx",
+    "next": "apps/desktop-native/crates/tk-ui/src/screens/settings/metadata.rs",
+    "accept": "Ajustes › Metadatos muestra por proveedor el último resultado (ok / error / en pausa N min); un proveedor que falla entra en enfriamiento y el router lo salta hasta que vence",
+    "note": "Plan §0.1.13 (enmiendas 2026-11-09): acompaña a settings.metadata.extra-providers; \"en pausa\" es lo que la re-revisión mira para decidir si un proveedor se descarta con nota"
   },
   {
     "id": "settings.search-in-settings",
@@ -4840,7 +5029,7 @@
     "title": "Zona 18+ de manga",
     "classic": "src/pages/manga/MangaHomePage.tsx",
     "next": null,
-    "accept": "La zona 18+ y los títulos isAdult piden confirmación y se ocultan con el ajuste de contenido maduro",
+    "accept": "La zona 18+ y los títulos isAdult piden confirmación y se ocultan o difuminan según settings.privacy.mature-content",
     "status": "todo"
   },
   {
@@ -5141,6 +5330,19 @@
     "status": "todo",
     "platform": "desktop",
     "note": "Plan §0.1.13 (enmiendas 2026-11-09): opcional, solo escritorio (daemon Python local); dueño m"
+  },
+  {
+    "id": "novel.tts.kitten.android",
+    "wave": "B",
+    "area": "m",
+    "android": "s",
+    "platform": "android",
+    "title": "KittenTTS local en Android",
+    "classic": "src/lib/novel/kittenLocal.ts",
+    "next": null,
+    "accept": "Excluido: en Android la narración local es la voz del sistema (novel.tts.system)",
+    "status": "out",
+    "note": "Plan §0.1.13 (enmiendas 2026-11-09): KittenTTS es opcional y solo escritorio (m, daemon Python). El clásico lo corría también en el navegador con WASM; llevarlo a Android (ONNX) queda como pregunta abierta para el usuario"
   },
   {
     "id": "novel.diagnostics",
@@ -5609,9 +5811,9 @@
     "title": "Selector de avatar desde AniList / GIF",
     "classic": "src/components/profile/AvatarPickerSheet.tsx",
     "next": null,
-    "accept": "Excluido: social.profile.edit acepta subir o URL",
+    "accept": "Excluido: no hay avatar propio; el avatar es el de AniList y se cambia en anilist.co/settings",
     "status": "out",
-    "note": "Simplificado"
+    "note": "Plan §0.1.10 (enmiendas 2026-11-09): perfiles propios fuera; el avatar es el de AniList"
   },
   {
     "id": "social.reports",

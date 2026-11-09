@@ -165,3 +165,67 @@ test('parity checklist: plan §0.1 amendments (2026-11-09) are applied', () => {
   expect('system.update-check', (x) => /Kushro\/Tatakai-own/.test(x.accept), 'update feed is GitHub Releases of Kushro/Tatakai-own');
   for (const id of ['home.recs.atlas', 'player.android.upscaling-shaders']) expect(id, (x) => PLANNED.has(x.status), 'kept in the plan');
 });
+
+// Wave B contract (2026-11-09): the checklist is the only shared artifact between the 10 wave B workers, so its
+// wave B rows must be unambiguous: one Android owner per desktop area (plan §2), no excluded backend named as work,
+// every `todo` with an observable `accept`, and the ids the wave B contracts cite present with the right owners.
+const ANDROID_FOR_B_AREA = { b: 'r', h: 'r', j: 'r', k: 'r', l: 's', m: 's', n: 't' };
+// Assembled from parts so the E8 guard (guard.test.mjs) does not match this file.
+const EXCLUDED_BACKENDS = new RegExp(['supabase', 'cloudflared', '\\bwarp\\b', 'realtime', 'giphy', 'turnstile', 'sen' + 'try', 'data' + 'dog'].join('|'), 'i');
+
+test('parity checklist: wave B rows are ready for the workers', () => {
+  const byId = new Map(list.map((x) => [x.id, x]));
+  const waveB = list.filter((x) => x.wave === 'B');
+  for (const x of waveB) {
+    if (!PLANNED.has(x.status)) continue;
+    // plan §2: b, h, j, k -> r; l, m -> s; n -> t (or desktop-only)
+    if (x.android !== null) assert.equal(x.android, ANDROID_FOR_B_AREA[x.area], `${x.id}: wave B area ${x.area} pairs with Android ${ANDROID_FOR_B_AREA[x.area]} (plan §2), got ${x.android}`);
+    // §0.1.9 / §0.1.10 / §0.1.14: nothing excluded is described as the thing to build
+    assert.ok(!EXCLUDED_BACKENDS.test(`${x.title} ${x.accept}`), `${x.id}: a planned wave B entry names an excluded backend or service (plan §0.1)`);
+    assert.ok(!/comentarios por episodio|ver juntos|salas?\b/i.test(x.accept), `${x.id}: own comments / watch rooms are out (plan §0.1.10)`);
+    // `accept` is what the auditor (F4) and the re-review (F8) check: never an exclusion text, never "coming soon"
+    assert.ok(!/^Excluido/.test(x.accept), `${x.id}: a planned entry cannot have an exclusion accept`);
+    assert.ok(!/Próximamente|Coming (soon|in M\d)/i.test(x.accept) || /sin|ya no|desaparece|no (muestran|aparece)/i.test(x.accept), `${x.id}: accept must not promise a placeholder`);
+  }
+  // every wave B owner has todo work; Android s and t too
+  for (const o of ['b', 'h', 'j', 'k', 'l', 'm', 'n']) assert.ok(waveB.some((x) => x.area === o && PLANNED.has(x.status)), `wave B owner ${o} has no planned entries`);
+  for (const o of ['r', 's', 't']) assert.ok(waveB.some((x) => x.android === o && PLANNED.has(x.status)), `wave B Android owner ${o} has no planned entries`);
+  const expectOwner = (id, area, android, extra = () => true) => {
+    assert.ok(byId.has(id), `missing wave B id ${id}`);
+    const x = byId.get(id);
+    assert.ok(x.wave === 'B' && x.area === area && x.android === android && PLANNED.has(x.status) && extra(x), `${id}: expected wave B ${area}/${android} planned, got ${x.wave} ${x.area}/${x.android} ${x.status}`);
+  };
+  // §0.1.13 sniffer (k / r) and its two companions
+  expectOwner('sources.embed-sniffer.ranking', 'k', 'r');
+  expectOwner('sources.embed-sniffer.adblock', 'k', 'r');
+  expectOwner('sources.embed-sniffer.timeout-setting', 'k', 'r');
+  // KNOWN-ISSUES (wave A) items deferred to wave B
+  expectOwner('sources.debrid.episode-context', 'k', null, (x) => x.platform === 'desktop');
+  expectOwner('link.send-to-device', 'k', null, (x) => x.platform === 'desktop');
+  expectOwner('link.last-seen', 'k', 'r');
+  // Android "M1" stubs of Dispositivo enlazado (inventory-next §3) close in wave B
+  for (const id of ['link.remote-control', 'link.handoff', 'link.discovery']) expectOwner(id, 'k', 'r', (x) => /M1/.test(x.accept));
+  // tk-server (doc 13) serves .kai only; interpreted ecosystems stay in server/ (D4)
+  for (const id of ['server.native-mode', 'server.api.sources', 'server.api.resolve-proxy', 'server.api.invoke', 'server.api.extensions', 'server.pairing']) expectOwner(id, 'k', 'r');
+  assert.equal(byId.get('server.interpreted-extensions')?.status, 'out', 'server.interpreted-extensions must be out (D4)');
+  // metadata providers (b / r) with per-provider status
+  for (const id of ['metadata.providers.mal', 'metadata.providers.shikimori', 'metadata.providers.tenrai', 'settings.metadata.extra-providers', 'settings.metadata.provider-status']) expectOwner(id, 'b', 'r');
+  // mature-content setting is b and the two adult gates read it
+  expectOwner('settings.privacy.mature-content', 'b', 'r');
+  assert.match(byId.get('manga.adult-gate').accept, /mature-content/, 'manga.adult-gate must read settings.privacy.mature-content');
+  // downloads (h / r): page unites web + torrents and lists manga / novel chapters too
+  expectOwner('downloads.page', 'h', 'r', (x) => /Manga/.test(x.accept) && /Novelas/.test(x.accept));
+  expectOwner('downloads.integrity-check', 'h', 'r');
+  expectOwner('downloads.android.workmanager', 'h', 'r', (x) => x.platform === 'android');
+  // extensions (j / r)
+  for (const id of ['ext.kill-switch', 'ext.custom-providers.continue', 'ext.stremio', 'ext.repositories', 'ext.custom-providers.home-rows']) expectOwner(id, 'j', 'r');
+  for (const id of ['ext.server-client.pair', 'ext.server-client.manage', 'ext.server-client.sources', 'ext.deep-link.server']) expectOwner(id, 'j', null, (x) => x.platform === 'desktop');
+  // manga / novels (l, m / s); KittenTTS stays desktop-only, Android is an open question (out)
+  expectOwner('manga.route', 'l', 's');
+  expectOwner('novel.route', 'm', 's');
+  expectOwner('novel.tts.system', 'm', 's');
+  assert.equal(byId.get('novel.tts.kitten.android')?.status, 'out', 'KittenTTS on Android is out (plan §0.1.13: desktop only)');
+  // home (b / r): the audit "Parcial" rows of Inicio are planned
+  for (const id of ['home.latest-episodes', 'home.top10', 'home.upcoming', 'home.most-favorite', 'home.because-you-watched', 'home.genre-cloud', 'home.infinite-genre-rows',
+    'home.calendar.schedule', 'home.recs.for-you', 'settings.appearance.more-palettes']) expectOwner(id, 'b', 'r');
+});
