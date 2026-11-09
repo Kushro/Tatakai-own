@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- parity wave B (16 §3.11, worker r): notificación "Enviar a dispositivo" de :core:link. Los textos de pantalla están en :feature:link (linked_*). -->
+<resources>
+    <string name="link_handoff_channel">Enviado desde la PC</string>
+    <string name="link_handoff_channel_desc">Episodios que tu PC envía a este teléfono</string>
+    <string name="link_handoff_title">La PC te envió %1$s</string>
+    <string name="link_handoff_title_generic">La PC te envió un episodio</string>
+    <string name="link_handoff_body">Toca para reproducirlo aquí.</string>
+    <string name="link_handoff_body_episode">Episodio %1$d · toca para reproducirlo aquí.</string>
+</resources>

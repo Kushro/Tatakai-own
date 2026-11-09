@@ -13,8 +13,8 @@ import java.io.File
 
 /**
  * Koin bindings of the calendar and the recommendations (docs/redesign/16-parity-wave-b-contract-android.md §3.8). Requires
- * `androidContext()`, dataModule (MetadataRepository, HistoryRepository, ListsRepository, SettingsRepository). Worker r adds here the
- * `AiringReminderWorker.schedule / cancel` reaction to `AppSettings.airingReminders` (collect `SettingsRepository.settings` in an app scope).
+ * `androidContext()`, dataModule (MetadataRepository, HistoryRepository, ListsRepository, SettingsRepository). [DiscoverScheduler] is
+ * eager: it schedules / cancels [AiringReminderWorker] following `AppSettings.airingReminders`.
  */
 val discoverModule: Module = module {
     single {
@@ -36,4 +36,5 @@ val discoverModule: Module = module {
         )
     } bind AppDataWiper::class
     single<RecsRepository> { get<RecsRepositoryImpl>() }
+    single(createdAtStart = true) { DiscoverScheduler(androidContext(), get()) }
 }

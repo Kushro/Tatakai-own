@@ -127,8 +127,28 @@ fun HomeScreen(
             onSearchQuery = onSearchQuery,
             onOpenLibrary = onOpenLibrary,
             onLoadExtensionRows = viewModel::loadExtensionRows,
+            onOpenCalendar = {
+                viewModel.markFollowedSeen()
+                onOpenCalendar()
+            },
+            onOpenForYou = onOpenForYou,
+            onOpenManga = onOpenManga,
+            onOpenNovels = onOpenNovels,
+            onOpenNotifications = onOpenNotifications,
+            onOpenProvider = onOpenProvider,
+            onOpenProviderItem = onOpenProviderItem,
+            onTopWindow = viewModel::loadTop10,
+            onRetryLatest = viewModel::loadLatest,
+            onRetryUpcoming = viewModel::loadUpcoming,
+            onRetryFavourites = viewModel::loadFavourites,
+            onRetryFollowed = viewModel::loadFollowed,
+            onRetryForYou = viewModel::loadForYou,
+            onRetryBecause = viewModel::retryBecause,
+            onNextGenreRow = viewModel::loadNextGenreRow,
+            onRetryGenre = viewModel::retryGenre,
         ),
         modifier = modifier,
+        unreadNotifications = rememberUnreadNotifications(),
     )
 }
 
@@ -144,6 +164,23 @@ internal data class HomeActions(
     val onSearchQuery: (String) -> Unit = {},
     val onOpenLibrary: () -> Unit = {},
     val onLoadExtensionRows: () -> Unit = {},
+    // parity wave B (16 §3.1)
+    val onOpenCalendar: () -> Unit = {},
+    val onOpenForYou: () -> Unit = {},
+    val onOpenManga: () -> Unit = {},
+    val onOpenNovels: () -> Unit = {},
+    val onOpenNotifications: () -> Unit = {},
+    val onOpenProvider: (String, String) -> Unit = { _, _ -> },
+    val onOpenProviderItem: (String, String, String) -> Unit = { _, _, _ -> },
+    val onTopWindow: (TopWindow) -> Unit = {},
+    val onRetryLatest: () -> Unit = {},
+    val onRetryUpcoming: () -> Unit = {},
+    val onRetryFavourites: () -> Unit = {},
+    val onRetryFollowed: () -> Unit = {},
+    val onRetryForYou: () -> Unit = {},
+    val onRetryBecause: () -> Unit = {},
+    val onNextGenreRow: (List<String>) -> Unit = {},
+    val onRetryGenre: (String) -> Unit = {},
 )
 
 @Composable
@@ -151,7 +188,10 @@ internal fun HomeContent(
     state: HomeUiState,
     actions: HomeActions,
     modifier: Modifier = Modifier,
+    unreadNotifications: Int = 0,
 ) {
+    val gate = rememberMatureGate(state.discover.matureContent)
+    val discover = state.discover
     Scaffold(modifier = modifier, contentWindowInsets = screenInsets) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -162,7 +202,7 @@ internal fun HomeContent(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item(key = "greeting", contentType = "greeting") {
-                Greeting(state.providers)
+                Greeting(state.providers, unreadNotifications, actions)
             }
             item(key = "search", contentType = "search") {
                 SearchEntry(onClick = actions.onSearchClick)
@@ -187,10 +227,25 @@ internal fun HomeContent(
             }
             if (state.continueWatching.isNotEmpty()) {
                 item(key = "continue", contentType = "continue") {
-                    ContinueWatchingRow(state.continueWatching, actions.onContinueClick, actions.onOpenLibrary)
+                    ContinueWatchingRow(
+                        state.continueWatching,
+                        onClick = { entry ->
+                            val provider = HomeLogic.parseProviderHistoryId(entry.animeId)
+                            if (provider != null) {
+                                actions.onOpenProviderItem(provider.first, provider.second, provider.third)
+                            } else {
+                                actions.onContinueClick(entry)
+                            }
+                        },
+                        onSeeAll = actions.onOpenLibrary,
+                    )
                 }
             }
-            val genres = state.genres
+            discover.activity?.takeIf { it.total > 0 }?.let { activity ->
+                item(key = "downloading", contentType = "downloading") { DownloadingRow(activity) }
+            }
+            homeDiscoverTop(discover, gate, actions)
+            val genres = discover.genreCloud.ifEmpty { state.genres }
             if (genres.isNotEmpty()) {
                 item(key = "genres", contentType = "genres") {
                     GenreChips(genres, actions.onOpenGenre)
@@ -199,22 +254,31 @@ internal fun HomeContent(
             items(state.rows, key = { it.kind.name }, contentType = { "row" }) { row ->
                 FeedRowSection(
                     row = row,
+                    gate = gate,
                     onMediaClick = actions.onMediaClick,
                     onRetry = { actions.onRetry(row.kind) },
                     onSeeAll = { actions.onOpenFeed(row.kind) },
                 )
             }
+            homeDiscoverBottom(discover, gate, actions)
             item(key = "extension-rows", contentType = "extension-rows") {
                 // Composed only when scrolled into view: the lazy request of customHomeRows() (07 §1, prototype IntersectionObserver).
                 LaunchedEffect(Unit) { actions.onLoadExtensionRows() }
-                ExtensionRows(state.extensionRows, onRetry = actions.onLoadExtensionRows, onItemClick = actions.onSearchQuery)
+                ExtensionRows(
+                    state.extensionRows,
+                    names = discover.extensionNames,
+                    onRetry = actions.onLoadExtensionRows,
+                    onOpenProvider = actions.onOpenProvider,
+                    onItemClick = actions.onOpenProviderItem,
+                )
             }
+            homeGenreRows(discover, gate, actions, fallbackGenres = genres)
         }
     }
 }
 
 @Composable
-private fun Greeting(providers: List<String>) {
+private fun Greeting(providers: List<String>, unread: Int, actions: HomeActions) {
     val hour = remember { LocalTime.now().hour }
     val greeting = stringResource(
         when {
@@ -228,7 +292,11 @@ private fun Greeting(providers: List<String>) {
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(greeting, style = MaterialTheme.typography.headlineMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(greeting, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+            NotificationBell(unread, actions.onOpenNotifications)
+        }
+        QuickChips(actions)
         if (providers.isNotEmpty()) {
             Row(
                 Modifier.horizontalScroll(rememberScrollState()).semantics { contentDescription = sourcesLabel },
@@ -247,6 +315,9 @@ private fun providerLabel(id: String): String = when (id) {
     "anilist" -> stringResource(R.string.home_provider_anilist)
     "kitsu" -> stringResource(R.string.home_provider_kitsu)
     "anizip" -> stringResource(R.string.home_provider_anizip)
+    "mal" -> stringResource(R.string.home_provider_mal)
+    "shikimori" -> stringResource(R.string.home_provider_shikimori)
+    "tenrai" -> stringResource(R.string.home_provider_tenrai)
     else -> id
 }
 
@@ -383,7 +454,7 @@ private fun statusLabel(status: String?): Pair<String, PillTone>? = when (status
 }
 
 @Composable
-private fun SectionHeader(title: String, onSeeAll: (() -> Unit)?) {
+internal fun SectionHeader(title: String, onSeeAll: (() -> Unit)?) {
     Row(Modifier.fillMaxWidth().padding(end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         ListGroupHeader(title, Modifier.weight(1f))
         if (onSeeAll != null) {
@@ -469,7 +540,7 @@ private fun GenreChips(genres: List<String>, onGenre: (String) -> Unit) {
 }
 
 @Composable
-private fun FeedRowSection(row: FeedRow, onMediaClick: (Media) -> Unit, onRetry: () -> Unit, onSeeAll: () -> Unit) {
+private fun FeedRowSection(row: FeedRow, gate: MatureGate, onMediaClick: (Media) -> Unit, onRetry: () -> Unit, onSeeAll: () -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         SectionHeader(stringResource(row.kind.labelRes()), onSeeAll)
         when (val s = row.state) {
@@ -485,7 +556,7 @@ private fun FeedRowSection(row: FeedRow, onMediaClick: (Media) -> Unit, onRetry:
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(s.value, key = { mediaKey(it) }, contentType = { "media" }) { media ->
-                    MediaCard(media = media, onClick = { onMediaClick(media) }, modifier = Modifier.width(CARD_WIDTH))
+                    GatedMediaCard(media = media, gate = gate, onClick = { onMediaClick(media) }, width = CARD_WIDTH)
                 }
             }
         }
@@ -493,7 +564,7 @@ private fun FeedRowSection(row: FeedRow, onMediaClick: (Media) -> Unit, onRetry:
 }
 
 @Composable
-private fun SkeletonRow() {
+internal fun SkeletonRow() {
     if (!rememberAfterDelay()) {
         Box(Modifier.fillMaxWidth().posterHeight())
         return
@@ -513,8 +584,10 @@ private fun SkeletonRow() {
 @Composable
 private fun ExtensionRows(
     state: LoadState<List<ExtensionHomeRow>>?,
+    names: Map<String, String>,
     onRetry: () -> Unit,
-    onItemClick: (String) -> Unit,
+    onOpenProvider: (String, String) -> Unit,
+    onItemClick: (String, String, String) -> Unit,
 ) {
     when (state) {
         null, LoadState.Loading -> Column(Modifier.fillMaxWidth()) {
@@ -533,9 +606,9 @@ private fun ExtensionRows(
         is LoadState.Ok -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             state.value.forEach { row ->
                 Column(Modifier.fillMaxWidth()) {
-                    SectionHeader(row.title, onSeeAll = null)
+                    SectionHeader(row.title, onSeeAll = { onOpenProvider(row.extensionId, row.sourceId) })
                     Text(
-                        stringResource(R.string.home_ext_row_from, row.extensionId),
+                        stringResource(R.string.home_ext_row_from, HomeLogic.extensionRowSubtitle(row, names)),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp),
@@ -548,7 +621,7 @@ private fun ExtensionRows(
                             MediaCard(
                                 title = item.title,
                                 coverUrl = item.poster,
-                                onClick = { onItemClick(item.title) },
+                                onClick = { onItemClick(row.extensionId, row.sourceId, item.id) },
                                 modifier = Modifier.width(CARD_WIDTH),
                             )
                         }
@@ -559,7 +632,7 @@ private fun ExtensionRows(
     }
 }
 
-private fun Modifier.posterHeight(): Modifier = this.then(Modifier.height(CARD_WIDTH / COVER_ASPECT_RATIO))
+internal fun Modifier.posterHeight(): Modifier = this.then(Modifier.height(CARD_WIDTH / COVER_ASPECT_RATIO))
 
 internal fun FeedKind.labelRes(): Int = when (this) {
     FeedKind.TRENDING -> R.string.home_feed_trending
@@ -572,7 +645,7 @@ internal fun FeedKind.labelRes(): Int = when (this) {
 }
 
 private val HERO_HEIGHT = 260.dp
-private val CARD_WIDTH = 120.dp
+internal val CARD_WIDTH = 120.dp
 private val CONTINUE_WIDTH = 280.dp
 private const val SKELETON_COUNT = 6
 private const val HERO_AUTOPLAY_MS = 9_000L

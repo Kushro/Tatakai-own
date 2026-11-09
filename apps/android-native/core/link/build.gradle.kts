@@ -6,6 +6,8 @@ plugins { id("tatakai.android.library") }
 dependencies {
     implementation(projects.core.model)
     implementation(libs.okhttp)
+    // parity wave B (worker r): NotificationCompat of the "Enviar a dispositivo" notification
+    implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(platform(libs.koin.bom))
