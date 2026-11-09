@@ -83,7 +83,10 @@
     <string name="extserver_remove_body">Remove %1$s from this device? This phone is logged out of it; pair again to come back.</string>
     <string name="extserver_refresh">Check servers</string>
     <string name="extserver_online">Online</string>
-    <string name="extserver_online_sources">Online · %1$d sources</string>
+    <plurals name="extserver_online_sources">
+        <item quantity="one">Online · %1$d source</item>
+        <item quantity="other">Online · %1$d sources</item>
+    </plurals>
     <string name="extserver_offline">Offline</string>
     <string name="extserver_checking">Checking…</string>
     <string name="extserver_unknown">Not checked yet</string>

@@ -83,7 +83,10 @@
     <string name="extserver_remove_body">¿Quitar %1$s de este dispositivo? Este teléfono cierra su sesión en él; vuelve a emparejar para recuperarlo.</string>
     <string name="extserver_refresh">Comprobar servidores</string>
     <string name="extserver_online">En línea</string>
-    <string name="extserver_online_sources">En línea · %1$d fuentes</string>
+    <plurals name="extserver_online_sources">
+        <item quantity="one">En línea · %1$d fuente</item>
+        <item quantity="other">En línea · %1$d fuentes</item>
+    </plurals>
     <string name="extserver_offline">Sin conexión</string>
     <string name="extserver_checking">Comprobando…</string>
     <string name="extserver_unknown">Sin comprobar</string>

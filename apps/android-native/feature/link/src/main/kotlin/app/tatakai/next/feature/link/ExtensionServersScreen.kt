@@ -65,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -401,7 +402,7 @@ private fun StatusPill(enabled: Boolean, status: ServerStatus) {
     }
     when (status) {
         is ServerStatus.Online -> Pill(
-            status.sourceCount?.let { stringResource(R.string.extserver_online_sources, it) } ?: stringResource(R.string.extserver_online),
+            status.sourceCount?.let { pluralStringResource(R.plurals.extserver_online_sources, it, it) } ?: stringResource(R.string.extserver_online),
             tone = PillTone.OK,
         )
         ServerStatus.Offline -> Pill(stringResource(R.string.extserver_offline), tone = PillTone.ERR)
