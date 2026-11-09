@@ -86,10 +86,23 @@ fun rememberMatureGate(mode: MatureContentMode): MatureGate {
 
 /** [MediaCard] that honours [gate]: blurred poster + label while hidden in BLUR mode. */
 @Composable
-fun GatedMediaCard(media: Media, gate: MatureGate, onClick: () -> Unit, modifier: Modifier = Modifier, width: Dp = 120.dp) {
+fun GatedMediaCard(
+    media: Media,
+    gate: MatureGate,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    width: Dp = 120.dp,
+    subtitle: String? = null,
+) {
     val hidden = gate.isHidden(media) && gate.mode == MatureContentMode.BLUR
     Box(modifier.width(width)) {
-        MediaCard(media = media, onClick = { gate.open(media, onClick) }, modifier = Modifier.fillMaxWidth().then(if (hidden) Modifier.blur(18.dp) else Modifier))
+        MediaCard(
+            title = media.displayTitle(LocalTitleLanguage.current),
+            coverUrl = media.cover,
+            onClick = { gate.open(media, onClick) },
+            modifier = Modifier.fillMaxWidth().then(if (hidden) Modifier.blur(18.dp) else Modifier),
+            subtitle = subtitle,
+        )
         if (hidden) {
             Column(Modifier.align(Alignment.Center).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Outlined.NoAdultContent, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
