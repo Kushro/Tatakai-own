@@ -160,3 +160,10 @@
 .tk-taste__fill { display: block; height: 100%; background: var(--md-sys-color-primary); border-radius: inherit; }
 .tk-taste__pct { font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); }
 .tk-taste__accuracy { font-weight: 600; }
+
+/* settings.privacy.mature-content "Blur in results": 18+ cards wrapped in [data-blurred="true"] (Search, Home rows with
+   Show, Manga) keep the poster blurred until hovered or focused. */
+.tk-blur-wrap { display: contents; }
+[data-blurred="true"] .tk-cover img { filter: blur(16px) saturate(.6); transform: scale(1.08); transition: filter var(--tk-mo-fx); }
+[data-blurred="true"]:hover .tk-cover img, [data-blurred="true"]:focus-within .tk-cover img { filter: none; transform: none; }
+[data-reduce-motion="true"] [data-blurred="true"] .tk-cover img { transition: none; }
