@@ -13,7 +13,11 @@
 //! position) between the user's own devices, replacing the removed cloud history. See [`history`].
 
 pub mod api;
+/// Wave B (worker k): `POST /v1/control` wire form (remote control / hand-off from a paired phone).
+pub mod control;
 pub mod devices;
+/// Wave B (worker k): mDNS announcement `_tatakai-link._tcp` (`link.discovery`).
+pub mod discovery;
 pub mod fetcher;
 pub mod firewall;
 pub mod history;
@@ -77,6 +81,17 @@ pub trait LinkHost: Send + Sync + 'static {
     /// host cannot (no store): the route then answers `internal`. Default: `false`.
     fn history_clear(&self) -> bool {
         false
+    }
+    /// Wave B (worker k; checklist `link.remote-control`, `link.handoff`): a paired phone drives this PC's player
+    /// (`POST /v1/control`, see [`control`]). Returns `false` when no player can take it (the route answers `409
+    /// no_player`). Default: not accepted.
+    fn control(&self, _cmd: control::ControlCommand) -> bool {
+        false
+    }
+    /// Wave B (worker k; `link.remote-control`): what the player shows now, for `GET /v1/player`; `None` = no player
+    /// open (the route answers `404 no_player`). Default: `None`.
+    fn player_state(&self) -> Option<control::PlayerState> {
+        None
     }
 }
 

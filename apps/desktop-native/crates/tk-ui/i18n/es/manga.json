@@ -1,0 +1,8 @@
+{
+  "manga.title": "Manga",
+  "manga.details.title": "Ficha de manga",
+  "manga.reader.title": "Lector",
+  "settings.reader": "Lector de manga",
+  "settings.reader.hint": "Modo de lectura, ajuste, dirección, fondo, precarga y atajos del lector.",
+  "settings.reader.placeholder": "Ajustes del lector de manga"
+}

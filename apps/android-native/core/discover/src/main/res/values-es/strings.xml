@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="airing_channel">Recordatorios de emisión</string>
+    <string name="airing_channel_desc">Se emitió un episodio de una serie que sigues</string>
+    <string name="airing_notification_title">%1$s · episodio %2$d</string>
+    <string name="airing_notification_body">Acaba de emitirse. Toca para abrir la serie.</string>
+</resources>

@@ -20,10 +20,22 @@ pub mod anilist;
 pub mod anizip;
 pub mod kitsu;
 pub mod mapping;
+// wave B (docs/redesign/16 section 3.5): MAL, Shikimori, Tenrai (worker b; plan 14 section 0.1 #13) and the manga-only
+// MangaDex / MangaUpdates (worker l). Each file is its owner's; this file only registers them.
+pub mod mal;
+pub mod mangadex;
+pub mod mangaupdates;
+pub mod shikimori;
+pub mod tenrai;
 
 pub use anilist::AniList;
 pub use anizip::AniZip;
 pub use kitsu::Kitsu;
+pub use mal::Mal;
+pub use mangadex::MangaDex;
+pub use mangaupdates::MangaUpdates;
+pub use shikimori::Shikimori;
+pub use tenrai::Tenrai;
 
 /// How long a provider is skipped after a transport/server failure.
 pub const COOLDOWN: Duration = Duration::from_secs(60);
@@ -75,12 +87,20 @@ impl MetadataRouter {
         }
     }
 
-    /// The three M0 providers with the default priority.
+    /// Every known provider (M0 three + wave B five) with the user's priority. A provider absent from `priority`
+    /// (the user removed it in Settings > Metadata, or `tk_ui::model::sanitize_priority` did not list it yet) is
+    /// never asked: `ordered` ranks unknown ids last but `set_priority` callers pass the full list, so "disabled"
+    /// = filtered out here by id.
     pub fn with_defaults(client: reqwest::Client, priority: Vec<String>) -> Self {
         let providers: Vec<Arc<dyn MetadataProvider>> = vec![
             Arc::new(AniList::new(client.clone())),
             Arc::new(Kitsu::new(client.clone())),
-            Arc::new(AniZip::new(client)),
+            Arc::new(AniZip::new(client.clone())),
+            Arc::new(Mal::new(client.clone())),
+            Arc::new(Shikimori::new(client.clone())),
+            Arc::new(Tenrai::new(client.clone())),
+            Arc::new(MangaDex::new(client.clone())),
+            Arc::new(MangaUpdates::new(client)),
         ];
         Self::new(providers, priority)
     }

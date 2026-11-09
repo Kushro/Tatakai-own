@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- parity wave B (16 §3.1, worker r): notification texts of the airing reminders. Screen texts live in :feature:home. -->
+<resources>
+    <string name="airing_channel">Airing reminders</string>
+    <string name="airing_channel_desc">An episode of a show you follow has aired</string>
+    <string name="airing_notification_title">%1$s · episode %2$d</string>
+    <string name="airing_notification_body">Aired now. Tap to open the show.</string>
+</resources>

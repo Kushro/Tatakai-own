@@ -57,6 +57,8 @@ import app.tatakai.next.designsystem.components.LocalAppSnackbar
 import app.tatakai.next.designsystem.components.Pill
 import app.tatakai.next.designsystem.components.PillTone
 import app.tatakai.next.designsystem.components.rememberAfterDelay
+import app.tatakai.next.feature.manga.MangaLibraryTab
+import app.tatakai.next.feature.novel.NovelLibraryTab
 import app.tatakai.next.feature.torrents.TorrentsLibraryTab
 import app.tatakai.next.model.HistoryEntry
 import app.tatakai.next.model.LoadState
@@ -85,6 +87,11 @@ fun LibraryScreen(
     // --- parity wave A (15 §3.3, worker q) ---
     /** Lists / Favorites empty state "Vincular AniList o MAL" -> Route.SettingsSection(ACCOUNTS). */
     onOpenAccounts: () -> Unit = {},
+    // --- parity wave B (16 §3.5 / §3.6, worker s; wired by :app) ---
+    /** Manga readlist row -> Route.Details(MediaKind.MANGA, anilistId). */
+    onOpenMangaDetails: (anilistId: Int) -> Unit = {},
+    /** Novel readlist row -> Route.NovelDetails(anilistId). */
+    onOpenNovelDetails: (anilistId: Int) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = LocalAppSnackbar.current
@@ -108,6 +115,8 @@ fun LibraryScreen(
             onExplore = onExplore,
             onOpenTorrent = onOpenTorrent,
             onOpenAccounts = onOpenAccounts,
+            onOpenMangaDetails = onOpenMangaDetails,
+            onOpenNovelDetails = onOpenNovelDetails,
         ),
         modifier = modifier,
     )
@@ -122,6 +131,9 @@ internal data class LibraryActions(
     val onOpenTorrent: (String) -> Unit = {},
     /** parity wave A (worker q) */
     val onOpenAccounts: () -> Unit = {},
+    /** parity wave B (worker s) */
+    val onOpenMangaDetails: (Int) -> Unit = {},
+    val onOpenNovelDetails: (Int) -> Unit = {},
 )
 
 @Composable
@@ -162,6 +174,18 @@ internal fun LibraryContent(
                 LibraryTab.TORRENTS -> TorrentsLibraryTab(
                     onOpenTorrent = actions.onOpenTorrent,
                     onPlay = actions.onPlay,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // parity wave B (16 §3.5 / §3.6, worker s): readlists; the same `onOpenDetails` opens Route.Details(MANGA, id) / NovelDetails
+                // through `actions.onOpenMangaDetails` / `onOpenNovelDetails` (wired by :app).
+                LibraryTab.MANGA -> MangaLibraryTab(
+                    onOpenDetails = actions.onOpenMangaDetails,
+                    onOpenAccounts = actions.onOpenAccounts,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                LibraryTab.NOVELS -> NovelLibraryTab(
+                    onOpenDetails = actions.onOpenNovelDetails,
+                    onOpenAccounts = actions.onOpenAccounts,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -232,6 +256,8 @@ private fun LibraryTab.labelRes(): Int = when (this) {
     LibraryTab.HISTORY -> R.string.library_tab_history
     LibraryTab.LISTS -> R.string.library_tab_lists
     LibraryTab.FAVORITES -> R.string.library_tab_favorites
+    LibraryTab.MANGA -> R.string.library_tab_manga
+    LibraryTab.NOVELS -> R.string.library_tab_novels
     LibraryTab.TORRENTS -> R.string.library_tab_torrents
 }
 

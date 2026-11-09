@@ -12,10 +12,13 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 /// Namespace files, in the order they are merged. Keep both lists in sync (same names, same order).
-pub const NAMESPACES: [&str; 9] =
-    ["common", "search", "details", "player", "settings_player", "subs", "system", "library", "torrent"];
+pub const NAMESPACES: [&str; 16] = [
+    "common", "search", "details", "player", "settings_player", "subs", "system", "library", "torrent",
+    // wave B (docs/redesign/16 section 2.1): one namespace per owner: b, h, j, k, l, m, n
+    "home", "downloads", "extensions", "server", "manga", "novel", "social",
+];
 
-const EN_FILES: [&str; 9] = [
+const EN_FILES: [&str; 16] = [
     include_str!("../i18n/en/common.json"),
     include_str!("../i18n/en/search.json"),
     include_str!("../i18n/en/details.json"),
@@ -25,8 +28,15 @@ const EN_FILES: [&str; 9] = [
     include_str!("../i18n/en/system.json"),
     include_str!("../i18n/en/library.json"),
     include_str!("../i18n/en/torrent.json"),
+    include_str!("../i18n/en/home.json"),
+    include_str!("../i18n/en/downloads.json"),
+    include_str!("../i18n/en/extensions.json"),
+    include_str!("../i18n/en/server.json"),
+    include_str!("../i18n/en/manga.json"),
+    include_str!("../i18n/en/novel.json"),
+    include_str!("../i18n/en/social.json"),
 ];
-const ES_FILES: [&str; 9] = [
+const ES_FILES: [&str; 16] = [
     include_str!("../i18n/es/common.json"),
     include_str!("../i18n/es/search.json"),
     include_str!("../i18n/es/details.json"),
@@ -36,10 +46,17 @@ const ES_FILES: [&str; 9] = [
     include_str!("../i18n/es/system.json"),
     include_str!("../i18n/es/library.json"),
     include_str!("../i18n/es/torrent.json"),
+    include_str!("../i18n/es/home.json"),
+    include_str!("../i18n/es/downloads.json"),
+    include_str!("../i18n/es/extensions.json"),
+    include_str!("../i18n/es/server.json"),
+    include_str!("../i18n/es/manga.json"),
+    include_str!("../i18n/es/novel.json"),
+    include_str!("../i18n/es/social.json"),
 ];
 
 /// The namespace files of a language (`NAMESPACES` order).
-pub fn files(lang: Lang) -> &'static [&'static str; 9] {
+pub fn files(lang: Lang) -> &'static [&'static str; 16] {
     match lang {
         Lang::En => &EN_FILES,
         Lang::Es => &ES_FILES,

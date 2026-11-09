@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
 import app.tatakai.next.metadata.ProviderPriority
+import app.tatakai.next.model.AppDataWiper
 import app.tatakai.next.model.AppLog
 import app.tatakai.next.model.AppReset
 import app.tatakai.next.model.HistoryRepository
@@ -113,6 +114,8 @@ val dataModule: Module = module {
             link = getOrNull(),
             logs = getOrNull(),
             history = getOrNull(),
+            // parity wave B (16 §3.8): private stores of :core:download / :core:discover / :core:manga / :core:novel / :core:social
+            wipers = getAll<AppDataWiper>(),
         )
     }
 }

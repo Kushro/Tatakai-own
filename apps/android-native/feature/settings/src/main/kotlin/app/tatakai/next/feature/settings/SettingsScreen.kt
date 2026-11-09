@@ -25,9 +25,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Bookmarks
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Storage
@@ -62,6 +64,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.tatakai.next.designsystem.components.LocalAppSnackbar
 import app.tatakai.next.designsystem.theme.LocalReduceMotion
+import app.tatakai.next.feature.downloads.DownloadsSettingsSection
+import app.tatakai.next.feature.manga.ReaderSettingsSection
+import app.tatakai.next.feature.novel.NovelReaderSettingsSection
 import app.tatakai.next.feature.torrents.TorrentSettingsPage
 import app.tatakai.next.model.SettingsSection
 import app.tatakai.next.ui.format.formatBytes
@@ -148,6 +153,9 @@ internal val SETTINGS_SECTIONS: List<SettingsSection> = listOf(
     SettingsSection.ACCOUNTS,
     SettingsSection.LINK,
     SettingsSection.TORRENTS,
+    // parity wave B (16 §3.9): web downloads (r) and the readers (s), between Torrents and Data.
+    SettingsSection.DOWNLOADS,
+    SettingsSection.READER,
     SettingsSection.DATA,
     SettingsSection.ABOUT,
 )
@@ -159,6 +167,8 @@ internal fun SettingsSection.icon(): ImageVector = when (this) {
     SettingsSection.ACCOUNTS -> Icons.Outlined.Bookmarks
     SettingsSection.LINK -> Icons.Outlined.Link
     SettingsSection.TORRENTS -> Icons.Outlined.Download
+    SettingsSection.DOWNLOADS -> Icons.Outlined.CloudDownload
+    SettingsSection.READER -> Icons.Outlined.MenuBook
     SettingsSection.DATA -> Icons.Outlined.Storage
     SettingsSection.ABOUT -> Icons.Outlined.Info
 }
@@ -170,6 +180,8 @@ internal fun SettingsSection.titleRes(): Int = when (this) {
     SettingsSection.ACCOUNTS -> R.string.settings_accounts
     SettingsSection.LINK -> R.string.settings_link
     SettingsSection.TORRENTS -> UiR.string.nav_torrents
+    SettingsSection.DOWNLOADS -> UiR.string.nav_downloads
+    SettingsSection.READER -> R.string.settings_reader
     SettingsSection.DATA -> R.string.settings_data
     SettingsSection.ABOUT -> R.string.settings_about
 }
@@ -314,6 +326,12 @@ private fun SettingsList(
                     SettingsSection.ACCOUNTS -> AccountsSection(state, viewModel)
                     SettingsSection.LINK -> LinkSection(state, viewModel, onOpenLinked)
                     SettingsSection.TORRENTS -> TorrentsSection(onOpenTorrents)
+                    // parity wave B (16 §3.9): r / s own the rows; the contract only mounts them (same shape as PlayerSettingsExtras).
+                    SettingsSection.DOWNLOADS -> DownloadsSettingsSection(settings = state.settings, onUpdate = viewModel::updateSettings)
+                    SettingsSection.READER -> {
+                        ReaderSettingsSection(settings = state.settings, onUpdate = viewModel::updateSettings)
+                        NovelReaderSettingsSection(settings = state.settings, onUpdate = viewModel::updateSettings)
+                    }
                     SettingsSection.DATA -> DataSection(state, viewModel)
                     SettingsSection.ABOUT -> AboutSection(state, viewModel)
                 }

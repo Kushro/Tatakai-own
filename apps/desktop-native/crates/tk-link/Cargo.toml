@@ -28,6 +28,8 @@ hyper = { workspace = true }
 hyper-util = { workspace = true }
 ipnet = { workspace = true }
 m3u8-rs = { workspace = true }
+# wave B (worker k): mDNS announcement (discovery.rs)
+mdns-sd = { workspace = true }
 qrcode = { workspace = true }
 rcgen = { workspace = true }
 reqwest = { workspace = true }

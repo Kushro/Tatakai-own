@@ -744,6 +744,7 @@ mod tests {
             picked: false,
             tags,
             debrid: None,
+            embed: false,
         }
     }
 

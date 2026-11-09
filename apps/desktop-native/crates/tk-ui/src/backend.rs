@@ -10,6 +10,36 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{CompatLevel, ListServiceVm, Pairing, PlatformVm, Settings, UiError};
 
+// Wave B (docs/redesign/16-parity-wave-b-contract.md section 3): the view-models of each owner live in
+// `model/<area>.rs` next to its prefs and are re-exported here so `tk_ui::backend::X` keeps working for every VM.
+pub use crate::model::downloads::{
+    AutoDownloadRunVm, DownloadKindVm, DownloadRequestVm, DownloadStateVm, DownloadStorageVm, DownloadVm, LibraryScanVm,
+    LocalItemVm,
+};
+pub use crate::model::ext::{
+    CustomProviderVm, ExtCatalogItemVm, ExtPrefFieldVm, ExtPrefKindVm, ExtRepoVm, ExtServerPairVm, ExtServerVm, ExtSourceVm,
+    ExtUpdateVm, ProviderItemVm, StremioAddonVm,
+};
+pub use crate::model::home::{
+    AiringSlotVm, AtlasPointVm, BecauseVm, LatestEpisodeVm, MatureContentVm, ProviderHealthVm, RecommendationVm,
+    RecsFeedbackVm, TasteProfileVm, TopRangeVm, TorrentActivityVm,
+};
+pub use crate::model::manga::{
+    ChapterProviderVm, ChapterRefVm, ChapterVm, ContinueReadVm, MangaDetailsVm, PageVm, ReadHomeVm, ReadKindVm,
+    ReadProgressVm,
+};
+pub use crate::model::novel::{
+    KittenStatusVm, NovelContentVm, NovelDetailsVm, TtsClipVm, TtsProviderVm, TtsRequestVm, TtsSpeakVm, TtsVoiceVm,
+};
+pub use crate::model::server::{
+    FlareSolverrVm, ProxyStatusVm, RemoteCommandVm, SendToDeviceVm, ServerDeviceVm, ServerLogPageVm, ServerLogVm,
+    ServerPairingVm, ServerStatusVm, SniffRequestVm, SniffResultVm,
+};
+pub use crate::model::social::{
+    ActivityFeedVm, ActivityKindVm, ActivityReplyVm, ActivityVm, NotificationPageVm, NotificationVm, ProfileStatsVm,
+    ProfileVm, ReviewVm, UserPageVm, UserVm,
+};
+
 /// A poster card. `id` is the AniList id as text (`"mal:<id>"` when only MAL is known).
 #[derive(Debug, Clone, PartialEq)]
 pub struct MediaVm {
@@ -200,6 +230,10 @@ pub struct SourceVm {
     /// Torrent only (wave A, worker i): whether a connected debrid service has this torrent cached. `None` = no
     /// debrid account or not checked. A cached torrent plays through `Backend::debrid_play` instead of the engine.
     pub debrid: Option<DebridStatusVm>,
+    /// Web only (wave B, worker k; plan 14 section 0.1 #13): the URL is an embed page, not a media URL. Playing it
+    /// goes through the hidden web view sniffer (`Backend::sniff_embed`), which costs a few seconds, so
+    /// `tk_core::sources::score` ranks it below direct streams. The picker shows an "Embed" chip (`data-embed`).
+    pub embed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1688,6 +1722,493 @@ pub trait Backend: Send + Sync + 'static {
     /// direct HTTPS link, returned like a web stream.
     async fn debrid_play(&self, _source: &str, _id: &str, _episode: u32) -> UiResult<PlaybackVm> {
         Err(UiError::not_wired("debrid_play"))
+    }
+
+    // --- wave B (docs/redesign/16-parity-wave-b-contract.md section 3). Same rule: defaults return `NotWired`;
+    // `LiveBackend` delegates each one to `live/<area>.rs`; nobody edits the signatures. ---
+
+    // ----- b: home, discover, calendar, recommendations, metadata providers (`live/home.rs`) -----
+
+    /// Recently aired episodes, newest first (AniList `airingSchedules(notYetAired: false)`), paginated.
+    async fn latest_episodes(&self, _page: u32) -> UiResult<Vec<LatestEpisodeVm>> {
+        Err(UiError::not_wired("latest_episodes"))
+    }
+    /// Top 10 of the range (trending today / week / month), ranked.
+    async fn top10(&self, _range: TopRangeVm) -> UiResult<Vec<MediaVm>> {
+        Err(UiError::not_wired("top10"))
+    }
+    /// "Because you watched" rows: up to 3 seeds from the local history with AniList recommendations each.
+    async fn because_you_watched(&self) -> UiResult<Vec<BecauseVm>> {
+        Err(UiError::not_wired("because_you_watched"))
+    }
+    /// AniList `GenreCollection` (cached a day).
+    async fn genres(&self) -> UiResult<Vec<String>> {
+        Err(UiError::not_wired("genres"))
+    }
+    /// One page of titles of a genre (infinite genre rows; "See all" of a genre row reuses `Route::BrowsePage` with
+    /// `feed = "genre:<name>"`, which worker a's `feed()` does not know: b routes it here).
+    async fn genre_feed(&self, _genre: &str, _page: u32) -> UiResult<SearchPageVm> {
+        Err(UiError::not_wired("genre_feed"))
+    }
+    /// Episodes aired since the last Home visit for titles in the Watching list (`home.followed-updates`).
+    async fn followed_updates(&self) -> UiResult<Vec<LatestEpisodeVm>> {
+        Err(UiError::not_wired("followed_updates"))
+    }
+    /// Airing schedule of the 7 days starting at `week_start_unix` (local midnight), `tracked` from `tracked_shows`.
+    async fn airing_schedule(&self, _week_start_unix: i64) -> UiResult<Vec<AiringSlotVm>> {
+        Err(UiError::not_wired("airing_schedule"))
+    }
+    /// "My shows" of the calendar (`tracked_shows` table; `details.track-show`, `home.calendar.my-shows`).
+    async fn tracked_shows(&self) -> UiResult<Vec<MediaVm>> {
+        Err(UiError::not_wired("tracked_shows"))
+    }
+    async fn is_tracked(&self, _media_id: &str) -> UiResult<bool> {
+        Err(UiError::not_wired("is_tracked"))
+    }
+    async fn set_tracked(&self, _media_id: &str, _tracked: bool) -> UiResult<()> {
+        Err(UiError::not_wired("set_tracked"))
+    }
+    /// Tracked episodes airing within `Settings::home.reminder_minutes` that were not announced yet (the shell shows
+    /// a snackbar / tray notice; `home.calendar.reminders`). Marks them announced.
+    async fn reminders_due(&self) -> UiResult<Vec<AiringSlotVm>> {
+        Err(UiError::not_wired("reminders_due"))
+    }
+    /// "For you" page, scored against the local taste profile (`tk_core::recs`), with explanations.
+    async fn recommendations(&self, _page: u32) -> UiResult<Vec<RecommendationVm>> {
+        Err(UiError::not_wired("recommendations"))
+    }
+    /// Store feedback on a recommendation (`recs_feedback` table; local only).
+    async fn recs_feedback(&self, _media_id: &str, _feedback: RecsFeedbackVm) -> UiResult<()> {
+        Err(UiError::not_wired("recs_feedback"))
+    }
+    async fn taste_profile(&self) -> UiResult<TasteProfileVm> {
+        Err(UiError::not_wired("taste_profile"))
+    }
+    /// Points of the Anime Atlas map (`home.recs.atlas`): the user's titles + recommendations, 2-D projected.
+    async fn atlas_points(&self) -> UiResult<Vec<AtlasPointVm>> {
+        Err(UiError::not_wired("atlas_points"))
+    }
+    /// Torrent engine summary for the Home banner (`home.torrent-activity`); `active == 0` hides it.
+    async fn torrent_activity(&self) -> UiResult<TorrentActivityVm> {
+        Err(UiError::not_wired("torrent_activity"))
+    }
+    /// Health of every metadata provider (Settings > Metadata; `settings.metadata.extra-providers`).
+    async fn provider_health(&self) -> UiResult<Vec<ProviderHealthVm>> {
+        Err(UiError::not_wired("provider_health"))
+    }
+
+    // ----- h: downloads engine, Downloads page, local library, auto-download (`live/downloads.rs`) -----
+
+    /// Queue + history rows, active first then newest first (`downloads` table, torrents mirrored in).
+    async fn downloads(&self) -> UiResult<Vec<DownloadVm>> {
+        Err(UiError::not_wired("downloads"))
+    }
+    /// Queue one episode (HLS or MP4 picked from the ranked sources). Returns the row id.
+    async fn download_enqueue(&self, _media_id: &str, _episode: u32, _req: &DownloadRequestVm) -> UiResult<i64> {
+        Err(UiError::not_wired("download_enqueue"))
+    }
+    /// Queue several episodes of a title ("Download season" sheet). Returns the rows created.
+    async fn download_enqueue_many(&self, _media_id: &str, _episodes: &[u32], _req: &DownloadRequestVm) -> UiResult<Vec<i64>> {
+        Err(UiError::not_wired("download_enqueue_many"))
+    }
+    async fn download_pause(&self, _id: i64) -> UiResult<()> {
+        Err(UiError::not_wired("download_pause"))
+    }
+    /// Resume a paused / failed row from its last completed segment (`downloads.resume`).
+    async fn download_resume(&self, _id: i64) -> UiResult<()> {
+        Err(UiError::not_wired("download_resume"))
+    }
+    async fn download_cancel(&self, _id: i64, _delete_file: bool) -> UiResult<()> {
+        Err(UiError::not_wired("download_cancel"))
+    }
+    /// Remove a finished / cancelled row from the history (`delete_file` also removes the data).
+    async fn download_remove(&self, _id: i64, _delete_file: bool) -> UiResult<()> {
+        Err(UiError::not_wired("download_remove"))
+    }
+    /// Drop every non-active row; returns how many went.
+    async fn download_clear_history(&self) -> UiResult<u32> {
+        Err(UiError::not_wired("download_clear_history"))
+    }
+    async fn download_open_folder(&self, _id: i64) -> UiResult<()> {
+        Err(UiError::not_wired("download_open_folder"))
+    }
+    async fn download_storage(&self) -> UiResult<DownloadStorageVm> {
+        Err(UiError::not_wired("download_storage"))
+    }
+    /// A completed download or local-library file of `episode`, as a playable local stream (`file://` or the
+    /// loopback URL the engine serves); `None` when nothing is on disk. The player asks before resolving online.
+    async fn local_playback(&self, _media_id: &str, _episode: u32) -> UiResult<Option<PlaybackVm>> {
+        Err(UiError::not_wired("local_playback"))
+    }
+    async fn local_library(&self) -> UiResult<Vec<LocalItemVm>> {
+        Err(UiError::not_wired("local_library"))
+    }
+    /// Scan `Settings::downloads.library_dirs` (or `dir` when given) for video files; new files are matched by their
+    /// release name (`tk_core::release`) and the title search.
+    async fn library_scan(&self, _dir: Option<&str>) -> UiResult<LibraryScanVm> {
+        Err(UiError::not_wired("library_scan"))
+    }
+    /// Import files picked by the user (absolute paths) into the local library.
+    async fn library_import(&self, _paths: &[String]) -> UiResult<LibraryScanVm> {
+        Err(UiError::not_wired("library_import"))
+    }
+    /// Set / fix the title + episode of a local file (`downloads.local-library.match`).
+    async fn local_match(&self, _item_id: i64, _media_id: &str, _episode: u32) -> UiResult<()> {
+        Err(UiError::not_wired("local_match"))
+    }
+    async fn local_remove(&self, _item_id: i64, _delete_file: bool) -> UiResult<()> {
+        Err(UiError::not_wired("local_remove"))
+    }
+    /// Run the auto-downloader now (`downloads.auto.new-episodes`); also runs on the schedule when enabled.
+    async fn auto_download_check_now(&self) -> UiResult<AutoDownloadRunVm> {
+        Err(UiError::not_wired("auto_download_check_now"))
+    }
+    /// The last pass, if any.
+    async fn auto_download_last_run(&self) -> UiResult<Option<AutoDownloadRunVm>> {
+        Err(UiError::not_wired("auto_download_last_run"))
+    }
+    /// Re-check a completed row on disk (`downloads.integrity-check`): missing / truncated -> `Broken`. The engine
+    /// also runs this over every completed row at start-up.
+    async fn download_verify(&self, _id: i64) -> UiResult<DownloadVm> {
+        Err(UiError::not_wired("download_verify"))
+    }
+
+    // ----- j: extension servers, Stremio, updates, preferences, repositories, custom providers
+    // (`live/ext_server.rs`, `live/ext_catalog.rs`) -----
+
+    async fn ext_servers(&self) -> UiResult<Vec<ExtServerVm>> {
+        Err(UiError::not_wired("ext_servers"))
+    }
+    /// Pair with a PC's extension server (`POST /api/server/v1/auth/pair` with a code, `/auth/login` with a
+    /// password, or `/health` only when anonymous viewers are allowed). The token goes to `Secrets`.
+    async fn ext_server_pair(&self, _req: &ExtServerPairVm) -> UiResult<ExtServerVm> {
+        Err(UiError::not_wired("ext_server_pair"))
+    }
+    async fn ext_server_set_enabled(&self, _id: &str, _enabled: bool) -> UiResult<()> {
+        Err(UiError::not_wired("ext_server_set_enabled"))
+    }
+    /// Remove the server and its token (also `POST /auth/logout` when reachable).
+    async fn ext_server_remove(&self, _id: &str) -> UiResult<()> {
+        Err(UiError::not_wired("ext_server_remove"))
+    }
+    /// `GET /health` + `GET /sources`: updates `online`, `sources`, `last_error`.
+    async fn ext_server_test(&self, _id: &str) -> UiResult<ExtServerVm> {
+        Err(UiError::not_wired("ext_server_test"))
+    }
+    async fn ext_server_sources(&self, _id: &str) -> UiResult<Vec<ExtSourceVm>> {
+        Err(UiError::not_wired("ext_server_sources"))
+    }
+    /// A `tatakai://extensionserver/connect?server=...&code=...` link handed to the app (command line or second
+    /// instance), not consumed yet; the Extensions page opens the pairing sheet with it after confirmation.
+    async fn take_pending_server_link(&self) -> UiResult<Option<String>> {
+        Err(UiError::not_wired("take_pending_server_link"))
+    }
+    async fn stremio_addons(&self) -> UiResult<Vec<StremioAddonVm>> {
+        Err(UiError::not_wired("stremio_addons"))
+    }
+    /// Fetch `manifest.json` of a Stremio add-on and store it.
+    async fn stremio_add(&self, _manifest_url: &str) -> UiResult<StremioAddonVm> {
+        Err(UiError::not_wired("stremio_add"))
+    }
+    async fn stremio_remove(&self, _id: &str) -> UiResult<()> {
+        Err(UiError::not_wired("stremio_remove"))
+    }
+    async fn stremio_set_enabled(&self, _id: &str, _enabled: bool) -> UiResult<()> {
+        Err(UiError::not_wired("stremio_set_enabled"))
+    }
+    /// Compare installed extensions with their origin (repository catalogue or install URL); cached a day.
+    async fn ext_updates_check(&self) -> UiResult<Vec<ExtUpdateVm>> {
+        Err(UiError::not_wired("ext_updates_check"))
+    }
+    /// Download and install the newer package of one extension, keeping its preferences and enabled state.
+    async fn ext_update(&self, _id: &str) -> UiResult<ExtensionVm> {
+        Err(UiError::not_wired("ext_update"))
+    }
+    /// Update everything with a known newer version; returns how many were updated.
+    async fn ext_update_all(&self) -> UiResult<u32> {
+        Err(UiError::not_wired("ext_update_all"))
+    }
+    /// "Disable all" / "Enable all" without uninstalling (`ext.kill-switch`); returns how many changed. Disabling
+    /// remembers which ones were on (`settings` key `ext.kill_switch.previous`) so enabling restores exactly those.
+    async fn set_all_extensions_enabled(&self, _enabled: bool) -> UiResult<u32> {
+        Err(UiError::not_wired("set_all_extensions_enabled"))
+    }
+    /// Install a `.kai` (or a package the host understands) from an `https` URL (`ext.install-url`).
+    async fn install_extension_url(&self, _url: &str) -> UiResult<ExtensionVm> {
+        Err(UiError::not_wired("install_extension_url"))
+    }
+    /// Fields the extension declares + stored values (`ext_prefs` table; exposed to the bundle as `preferences`).
+    async fn ext_preferences(&self, _id: &str) -> UiResult<Vec<ExtPrefFieldVm>> {
+        Err(UiError::not_wired("ext_preferences"))
+    }
+    async fn set_ext_preference(&self, _id: &str, _key: &str, _value: &str) -> UiResult<()> {
+        Err(UiError::not_wired("set_ext_preference"))
+    }
+    async fn ext_repos(&self) -> UiResult<Vec<ExtRepoVm>> {
+        Err(UiError::not_wired("ext_repos"))
+    }
+    /// Add a repository by URL (JSON index of packages) and fetch its catalogue.
+    async fn ext_repo_add(&self, _url: &str) -> UiResult<ExtRepoVm> {
+        Err(UiError::not_wired("ext_repo_add"))
+    }
+    async fn ext_repo_remove(&self, _id: &str) -> UiResult<()> {
+        Err(UiError::not_wired("ext_repo_remove"))
+    }
+    /// Catalogue of a repository (cached; `refresh` fetches again).
+    async fn ext_repo_catalog(&self, _id: &str, _refresh: bool) -> UiResult<Vec<ExtCatalogItemVm>> {
+        Err(UiError::not_wired("ext_repo_catalog"))
+    }
+    /// Installed extensions that declare custom providers (manifest `customSources`).
+    async fn custom_providers(&self) -> UiResult<Vec<CustomProviderVm>> {
+        Err(UiError::not_wired("custom_providers"))
+    }
+    /// Home rows of one provider (`custom/home` route): `SectionVm::title_key` = `ext:<name>:<row>` (display text
+    /// after the prefix, like the existing `ext:` rows of Home).
+    async fn provider_home(&self, _ext_id: &str) -> UiResult<Vec<SectionVm>> {
+        Err(UiError::not_wired("provider_home"))
+    }
+    /// One page of a provider row ("See all" on a provider page).
+    async fn provider_feed(&self, _ext_id: &str, _row: &str, _page: u32) -> UiResult<SearchPageVm> {
+        Err(UiError::not_wired("provider_feed"))
+    }
+    /// A provider title (`custom/info`): `item_key` is the part after `ext:<ext_id>:` of the id.
+    async fn provider_item(&self, _ext_id: &str, _item_key: &str) -> UiResult<ProviderItemVm> {
+        Err(UiError::not_wired("provider_item"))
+    }
+    /// Bookmarked provider titles (`provider_bookmarks` table; `ext.custom-providers.bookmark`).
+    async fn provider_bookmarks(&self) -> UiResult<Vec<MediaVm>> {
+        Err(UiError::not_wired("provider_bookmarks"))
+    }
+    async fn set_provider_bookmark(&self, _ext_id: &str, _item_key: &str, _bookmarked: bool) -> UiResult<()> {
+        Err(UiError::not_wired("set_provider_bookmark"))
+    }
+
+    // ----- k: native extension server, proxy, FlareSolverr, embed sniffer, Link extras (`live/server.rs`,
+    // `live/sniffer.rs`, `live/link.rs`) -----
+
+    async fn server_status(&self) -> UiResult<ServerStatusVm> {
+        Err(UiError::not_wired("server_status"))
+    }
+    /// Start `tk-server` on `Settings::server.port` (a taken port is reported in `ServerStatusVm::error`).
+    async fn server_start(&self) -> UiResult<ServerStatusVm> {
+        Err(UiError::not_wired("server_start"))
+    }
+    async fn server_stop(&self) -> UiResult<()> {
+        Err(UiError::not_wired("server_stop"))
+    }
+    /// One-time pairing code + deep link + QR for a phone (`server.pairing`).
+    async fn server_open_pairing(&self) -> UiResult<ServerPairingVm> {
+        Err(UiError::not_wired("server_open_pairing"))
+    }
+    async fn server_devices(&self) -> UiResult<Vec<ServerDeviceVm>> {
+        Err(UiError::not_wired("server_devices"))
+    }
+    async fn server_revoke(&self, _device_id: &str) -> UiResult<()> {
+        Err(UiError::not_wired("server_revoke"))
+    }
+    /// Set (`Some`) or clear (`None`) the viewer password (argon2 hash in the server state; never in settings).
+    async fn server_set_viewer_password(&self, _password: Option<&str>) -> UiResult<()> {
+        Err(UiError::not_wired("server_set_viewer_password"))
+    }
+    /// Server log lines newer than `after` (`server.logs`).
+    async fn server_logs(&self, _after: u64) -> UiResult<ServerLogPageVm> {
+        Err(UiError::not_wired("server_logs"))
+    }
+    async fn server_proxy_status(&self) -> UiResult<ProxyStatusVm> {
+        Err(UiError::not_wired("server_proxy_status"))
+    }
+    /// Empty the server's lookup + media caches.
+    async fn server_clear_cache(&self) -> UiResult<()> {
+        Err(UiError::not_wired("server_clear_cache"))
+    }
+    /// `GET <flaresolverr>/` health + a `request.get` round trip to `url` when given (`server.flaresolverr`).
+    async fn flaresolverr_test(&self, _url: Option<&str>) -> UiResult<FlareSolverrVm> {
+        Err(UiError::not_wired("flaresolverr_test"))
+    }
+    /// Open an embed page in a hidden web view and capture the media URL it requests (`sources.embed-sniffer`).
+    /// `LiveBackend::playback_source` calls this for `SourceVm::embed` sources; the picker's "Sniff" action too.
+    async fn sniff_embed(&self, _req: &SniffRequestVm) -> UiResult<SniffResultVm> {
+        Err(UiError::not_wired("sniff_embed"))
+    }
+    /// Hand a title / episode / position to a paired phone over Tatakai Link (`link.send-to-device`).
+    async fn send_to_device(&self, _req: &SendToDeviceVm) -> UiResult<()> {
+        Err(UiError::not_wired("send_to_device"))
+    }
+    /// Long-poll: the next command a paired phone sent (`POST /v1/control`, `link.remote-control` /
+    /// `link.handoff`). `app.rs::Shell` loops on it and stops looping on `ErrorKind::NotWired`.
+    async fn wait_remote_command(&self) -> UiResult<RemoteCommandVm> {
+        Err(UiError::not_wired("wait_remote_command"))
+    }
+
+    // ----- l: manga (`live/manga.rs`); the `read_*` calls are shared with novels (m consumes them) -----
+
+    async fn manga_home(&self) -> UiResult<ReadHomeVm> {
+        Err(UiError::not_wired("manga_home"))
+    }
+    /// Filtered manga search (`MediaKind::Manga` on AniList, MangaDex / MangaUpdates as fallbacks).
+    async fn manga_search(&self, _q: &SearchQueryVm) -> UiResult<SearchPageVm> {
+        Err(UiError::not_wired("manga_search"))
+    }
+    async fn manga_details(&self, _id: &str) -> UiResult<MangaDetailsVm> {
+        Err(UiError::not_wired("manga_details"))
+    }
+    /// Chapters per provider (installed extensions with the `manga` capability + enabled extension servers),
+    /// cached in `chapter_lists`; `refresh` asks the providers again.
+    async fn manga_chapters(&self, _id: &str, _refresh: bool) -> UiResult<Vec<ChapterProviderVm>> {
+        Err(UiError::not_wired("manga_chapters"))
+    }
+    /// Pages of a chapter (`pages` route), offline copy first (`offline_chapters`).
+    async fn manga_pages(&self, _chapter: &ChapterRefVm) -> UiResult<Vec<PageVm>> {
+        Err(UiError::not_wired("manga_pages"))
+    }
+    /// Reading position of a manga / novel title (`read_progress`), newest chapter first.
+    async fn read_progress(&self, _kind: ReadKindVm, _media_id: &str) -> UiResult<Vec<ReadProgressVm>> {
+        Err(UiError::not_wired("read_progress"))
+    }
+    /// Write a reading position (local; also advances the AniList manga list when `Settings::lists.auto_progress`).
+    async fn set_read_progress(&self, _kind: ReadKindVm, _media_id: &str, _progress: &ReadProgressVm) -> UiResult<()> {
+        Err(UiError::not_wired("set_read_progress"))
+    }
+    /// AniList manga list entry of a manga or novel (`MediaListCollection(type: MANGA)`); `None` = not listed.
+    async fn read_list_entry(&self, _kind: ReadKindVm, _media_id: &str) -> UiResult<Option<ListEntryVm>> {
+        Err(UiError::not_wired("read_list_entry"))
+    }
+    /// Create / update the manga list entry (`progress` = chapters read). Local mirror `read_list_entries` + queue.
+    async fn set_read_list_entry(&self, _kind: ReadKindVm, _media_id: &str, _update: &ListEntryUpdateVm) -> UiResult<ListEntryVm> {
+        Err(UiError::not_wired("set_read_list_entry"))
+    }
+    async fn remove_read_list_entry(&self, _kind: ReadKindVm, _media_id: &str) -> UiResult<()> {
+        Err(UiError::not_wired("remove_read_list_entry"))
+    }
+    /// Entries of the local manga-list mirror of one kind, newest update first; `status: None` = every status.
+    async fn read_list_entries(&self, _kind: ReadKindVm, _status: Option<ListStatusVm>) -> UiResult<Vec<ListEntryVm>> {
+        Err(UiError::not_wired("read_list_entries"))
+    }
+    /// Queue chapters for offline reading through the download engine (worker h's queue, kind `MangaChapter`).
+    async fn manga_download_chapters(&self, _id: &str, _chapters: &[ChapterRefVm]) -> UiResult<u32> {
+        Err(UiError::not_wired("manga_download_chapters"))
+    }
+    /// Remove the offline copy of a chapter.
+    async fn read_remove_offline(&self, _kind: ReadKindVm, _chapter: &ChapterRefVm) -> UiResult<()> {
+        Err(UiError::not_wired("read_remove_offline"))
+    }
+    /// Drop the cached chapter lists / pages of a title (`manga.chapters.tools` "Clear cache").
+    async fn read_clear_cache(&self, _kind: ReadKindVm, _media_id: &str) -> UiResult<()> {
+        Err(UiError::not_wired("read_clear_cache"))
+    }
+
+    // ----- m: novels + TTS (`live/novel.rs`, `tk-app/src/tts.rs`) -----
+
+    async fn novel_home(&self) -> UiResult<ReadHomeVm> {
+        Err(UiError::not_wired("novel_home"))
+    }
+    /// Novel search (AniList `MANGA` with format `NOVEL`, plus the novel extensions' `search`).
+    async fn novel_search(&self, _q: &SearchQueryVm) -> UiResult<SearchPageVm> {
+        Err(UiError::not_wired("novel_search"))
+    }
+    async fn novel_details(&self, _id: &str) -> UiResult<NovelDetailsVm> {
+        Err(UiError::not_wired("novel_details"))
+    }
+    /// Chapters per provider (`novelChapters`); `translator` filters by group when given.
+    async fn novel_chapters(&self, _id: &str, _translator: Option<&str>, _refresh: bool) -> UiResult<Vec<ChapterProviderVm>> {
+        Err(UiError::not_wired("novel_chapters"))
+    }
+    /// Text of a chapter (`novelContent`), offline copy first.
+    async fn novel_content(&self, _chapter: &ChapterRefVm) -> UiResult<NovelContentVm> {
+        Err(UiError::not_wired("novel_content"))
+    }
+    /// Ask every provider whether it has the title (`novel.details.check-sources`): `(ext name, chapters found)`.
+    async fn novel_check_sources(&self, _id: &str) -> UiResult<Vec<(String, u32)>> {
+        Err(UiError::not_wired("novel_check_sources"))
+    }
+    async fn novel_download_chapters(&self, _id: &str, _chapters: &[ChapterRefVm]) -> UiResult<u32> {
+        Err(UiError::not_wired("novel_download_chapters"))
+    }
+    /// Voices of a provider (system voices enumerated from the OS; cloud voices from the API when a key exists).
+    async fn tts_voices(&self, _provider: TtsProviderVm) -> UiResult<Vec<TtsVoiceVm>> {
+        Err(UiError::not_wired("tts_voices"))
+    }
+    /// Synthesize `text` (cached in `tts_cache` by provider + voice + rate + text hash) or speak it natively.
+    async fn tts_speak(&self, _req: &TtsRequestVm) -> UiResult<TtsSpeakVm> {
+        Err(UiError::not_wired("tts_speak"))
+    }
+    /// Stop native speech (no-op for clips: the UI stops its `<audio>`).
+    async fn tts_stop(&self) -> UiResult<()> {
+        Err(UiError::not_wired("tts_stop"))
+    }
+    /// Store (`Some`) / remove (`None`) a provider API key in `Secrets` (`keys::tts(provider.id())`).
+    async fn set_tts_key(&self, _provider: TtsProviderVm, _key: Option<&str>) -> UiResult<()> {
+        Err(UiError::not_wired("set_tts_key"))
+    }
+    async fn tts_key_present(&self, _provider: TtsProviderVm) -> UiResult<bool> {
+        Err(UiError::not_wired("tts_key_present"))
+    }
+    /// Local KittenTTS availability (`novel.tts.kitten`).
+    async fn kitten_status(&self) -> UiResult<KittenStatusVm> {
+        Err(UiError::not_wired("kitten_status"))
+    }
+    /// Download the KittenTTS model into `<data>/tts/kitten` (user-triggered; never automatic).
+    async fn kitten_install(&self) -> UiResult<KittenStatusVm> {
+        Err(UiError::not_wired("kitten_install"))
+    }
+    async fn kitten_remove(&self) -> UiResult<()> {
+        Err(UiError::not_wired("kitten_remove"))
+    }
+
+    // ----- n: AniList social (`live/social.rs`) -----
+
+    /// The viewer's profile (`None`) or another user's by name (`social.profile.page` / `public`).
+    async fn anilist_profile(&self, _name: Option<&str>) -> UiResult<ProfileVm> {
+        Err(UiError::not_wired("anilist_profile"))
+    }
+    async fn anilist_follow(&self, _user_id: u64, _follow: bool) -> UiResult<()> {
+        Err(UiError::not_wired("anilist_follow"))
+    }
+    async fn anilist_followers(&self, _user_id: u64, _page: u32) -> UiResult<UserPageVm> {
+        Err(UiError::not_wired("anilist_followers"))
+    }
+    async fn anilist_following(&self, _user_id: u64, _page: u32) -> UiResult<UserPageVm> {
+        Err(UiError::not_wired("anilist_following"))
+    }
+    /// Activity feed page (`social.activity.feed`).
+    async fn anilist_activity(&self, _feed: &ActivityFeedVm, _page: u32) -> UiResult<Vec<ActivityVm>> {
+        Err(UiError::not_wired("anilist_activity"))
+    }
+    async fn anilist_activity_replies(&self, _activity_id: u64) -> UiResult<Vec<ActivityReplyVm>> {
+        Err(UiError::not_wired("anilist_activity_replies"))
+    }
+    async fn anilist_like_activity(&self, _activity_id: u64, _like: bool) -> UiResult<()> {
+        Err(UiError::not_wired("anilist_like_activity"))
+    }
+    async fn anilist_reply(&self, _activity_id: u64, _text: &str) -> UiResult<ActivityReplyVm> {
+        Err(UiError::not_wired("anilist_reply"))
+    }
+    /// Post a status (TextActivity) on the viewer's AniList profile.
+    async fn anilist_post_status(&self, _text: &str) -> UiResult<ActivityVm> {
+        Err(UiError::not_wired("anilist_post_status"))
+    }
+    async fn anilist_delete_activity(&self, _activity_id: u64) -> UiResult<()> {
+        Err(UiError::not_wired("anilist_delete_activity"))
+    }
+    /// Notifications page (`social.notifications.list`); `unread_only` filters client-side.
+    async fn anilist_notifications(&self, _page: u32, _unread_only: bool) -> UiResult<NotificationPageVm> {
+        Err(UiError::not_wired("anilist_notifications"))
+    }
+    /// `Viewer.unreadNotificationCount` (rail badge, polled every `Settings::social.notifications_poll_minutes`).
+    async fn anilist_unread_count(&self) -> UiResult<u32> {
+        Err(UiError::not_wired("anilist_unread_count"))
+    }
+    /// Reset AniList's unread count (`Page.notifications(resetNotificationCount: true)`).
+    async fn anilist_mark_notifications_read(&self) -> UiResult<()> {
+        Err(UiError::not_wired("anilist_mark_notifications_read"))
+    }
+    /// Reviews of a title (`details.reviews`), newest first.
+    async fn anilist_reviews(&self, _media_id: &str, _page: u32) -> UiResult<Vec<ReviewVm>> {
+        Err(UiError::not_wired("anilist_reviews"))
+    }
+    /// Full body of one review (summary comes with the list).
+    async fn anilist_review(&self, _review_id: u64) -> UiResult<ReviewVm> {
+        Err(UiError::not_wired("anilist_review"))
     }
 }
 

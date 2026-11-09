@@ -52,6 +52,15 @@
                     android:host="oauth"
                     android:scheme="tatakai" />
             </intent-filter>
+            <!-- parity wave B (docs/redesign/16 §3.12, worker t; checklist social.profile.public): tatakai://user/<name> opens that AniList profile. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="user"
+                    android:scheme="tatakai" />
+            </intent-filter>
             <!-- parity wave A (docs/redesign/15 §3.1, worker o): share a picture to the app = image search (trace.moe). -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

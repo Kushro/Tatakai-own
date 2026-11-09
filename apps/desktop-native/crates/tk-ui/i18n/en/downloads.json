@@ -1,0 +1,6 @@
+{
+  "downloads.title": "Downloads",
+  "settings.downloads": "Downloads",
+  "settings.downloads.hint": "Download folder, queue limits, automatic downloads of new episodes and the local library.",
+  "settings.downloads.placeholder": "Download settings"
+}

@@ -41,4 +41,17 @@ data class PlayerArgs(
     val fileIndex: Int? = null,
     /** A completed download (file path or `content://`): play offline, no network, no source resolution. */
     val localUri: String? = null,
+    /**
+     * parity wave B (16 §3.4, worker r, checklist ext.custom-providers.watch / .continue): a `watch` entry of a custom provider page. The
+     * player resolves it with `ExtensionRepository.providerWatch` instead of `resolveCandidates`; history is recorded under
+     * `HistoryEntry.animeId = "ext:<extensionId>:<sourceId>:<itemId>"` (anilistId / malId null) unless [media] has an AniList id.
+     */
+    val provider: ProviderEntryRef? = null,
 )
+
+/** parity wave B (16 §3.4): coordinates of one entry of a custom provider title (see [PlayerArgs.provider], `MangaReaderArgs`). */
+@Serializable
+data class ProviderEntryRef(val extensionId: String, val sourceId: String, val itemId: String, val entryId: String) {
+    /** `HistoryEntry.animeId` of a provider title (KNOWN-ISSUES ola A: ids `ext:<extensión>:<fuente>:<item>`). */
+    val historyId: String get() = "ext:$extensionId:$sourceId:$itemId"
+}

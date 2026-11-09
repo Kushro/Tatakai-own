@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- parity wave B (16 §3.7, worker t): social screens (social_*). nav_profile is in core/ui (shell label). -->
+<resources>
+    <string name="social_profile_title">Profile</string>
+    <string name="social_activity_title">Activity</string>
+    <string name="social_notifications_title">Notifications</string>
+</resources>

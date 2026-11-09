@@ -75,6 +75,7 @@ import app.tatakai.next.designsystem.components.rememberAfterDelay
 import app.tatakai.next.designsystem.generated.PaletteInfo
 import app.tatakai.next.designsystem.generated.TatakaiTokens
 import app.tatakai.next.designsystem.theme.TatakaiFonts
+import app.tatakai.next.feature.extensions.SourcesSettingsExtras
 import app.tatakai.next.feature.player.PlayerSettingsExtras
 import app.tatakai.next.feature.search.DiscoverSettingsExtras
 import app.tatakai.next.model.AppError
@@ -271,6 +272,8 @@ internal fun PlayerSection(state: SettingsUiState, vm: SettingsViewModel, onOpen
     SwitchRow(stringResource(R.string.settings_skip), s.skipIntro, vm::setSkipIntro, hint = stringResource(R.string.settings_skip_hint))
     // parity wave A (15 §3.2): worker p's rows (translation, secondary subtitle, countdown, stable volume, background playback, shortcuts).
     PlayerSettingsExtras(settings = s, onUpdate = vm::updateSettings)
+    // parity wave B (16 §3.3, worker r): embed sources (sniffer) switch + timeout; rows owned by r in :feature:extensions.
+    SourcesSettingsExtras(settings = s, onUpdate = vm::updateSettings)
     SettingRow(stringResource(R.string.settings_subs), subtitleSummary(s.subtitleStyle)) {
         FilledTonalButton(onClick = { editingSubs = true }) {
             Icon(Icons.Outlined.ClosedCaption, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))

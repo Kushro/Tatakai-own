@@ -15,7 +15,9 @@ import app.tatakai.next.extensionserver.DeepLink
 import app.tatakai.next.extensionserver.PendingServerLink
 import app.tatakai.next.model.torrent.TorrentSection
 import app.tatakai.next.nav.TatakaiApp
+import app.tatakai.next.nav.Route
 import app.tatakai.next.nav.TorrentLink
+import app.tatakai.next.nav.WaveBLinks
 import app.tatakai.next.torrent.PendingMagnetLink
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.koin.android.ext.android.inject
@@ -46,6 +48,9 @@ class MainActivity : ComponentActivity() {
     /** parity wave A (15 §3.9, worker q): `magnet:` / `.torrent` opened from the system waits here; the shell opens the Torrents client. */
     private val pendingMagnet: PendingMagnetLink by inject()
 
+    /** parity wave B (16 §3.12): notification taps of downloads / airing / AniList and `tatakai://user/<name>`, as a ready Route. */
+    private val routeLinks = MutableStateFlow<Route?>(null)
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLocale.wrap(newBase))
     }
@@ -62,6 +67,7 @@ class MainActivity : ComponentActivity() {
             offerOAuthRedirect(intent)
             offerSharedImage(intent)
             offerMagnet(intent)
+            WaveBLinks.from(intent)?.let { routeLinks.value = it }
         }
         addOnNewIntentListener { newIntent ->
             TorrentLink.from(newIntent)?.let { torrentLinks.value = it }
@@ -69,8 +75,9 @@ class MainActivity : ComponentActivity() {
             offerOAuthRedirect(newIntent)
             offerSharedImage(newIntent)
             offerMagnet(newIntent)
+            WaveBLinks.from(newIntent)?.let { routeLinks.value = it }
         }
-        setContent { TatakaiApp(torrentLinks, serverLinks, accountLinks, imageLinks) }
+        setContent { TatakaiApp(torrentLinks, serverLinks, accountLinks, imageLinks, routeLinks) }
     }
 
     /** Only `VIEW tatakai://extensionserver/connect…` intents; the link is validated (and confirmed by the user) by the screen. */

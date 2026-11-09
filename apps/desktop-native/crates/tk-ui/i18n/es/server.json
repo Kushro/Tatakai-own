@@ -1,0 +1,6 @@
+{
+  "server.title": "Servidor de extensiones",
+  "settings.server": "Servidor y red",
+  "settings.server.hint": "Comparte las extensiones de esta PC con tus teléfonos, proxy de medios, FlareSolverr y el sniffer de embeds.",
+  "settings.server.placeholder": "Ajustes de servidor y red"
+}

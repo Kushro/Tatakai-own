@@ -102,7 +102,10 @@ import app.tatakai.next.designsystem.components.SectionCard
 import app.tatakai.next.designsystem.components.Segmented
 import app.tatakai.next.designsystem.components.SegmentedOption
 import app.tatakai.next.designsystem.components.rememberAfterDelay
+import app.tatakai.next.feature.downloads.DownloadSeasonSlot
+import app.tatakai.next.feature.home.FollowShowRow
 import app.tatakai.next.feature.library.ListButton
+import app.tatakai.next.feature.social.AniListSocialSlot
 import app.tatakai.next.feature.player.sources.SourceRow
 import app.tatakai.next.model.CharacterEdge
 import app.tatakai.next.model.Episode
@@ -166,8 +169,11 @@ internal fun LazyListScope.detailsItems(
  */
 @Composable
 internal fun WaveBSlots(media: Media) {
-    // wave B (r): DownloadSeason mount
-    // wave B (t): AniListSocialSlot — AniList reviews / activity mount (no own comments)
+    // parity wave B (16 §3.1 / §3.2 / §3.7): the three slots are owned by r (FollowShowRow, DownloadSeasonSlot) and t (AniListSocialSlot);
+    // each draws nothing until its owner implements it. This file stays closed: nobody else edits it.
+    FollowShowRow(media)
+    DownloadSeasonSlot(media)
+    AniListSocialSlot(media)
 }
 
 /** Epoch seconds, refreshed every minute while composed (next-episode countdown). */

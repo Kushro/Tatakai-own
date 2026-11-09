@@ -291,7 +291,12 @@ async fn magnet_for(b: &LiveBackend, source: &str, id: &str, episode: u32, media
 
 /// Fill `SourceVm::debrid` of the torrent rows from the cache check of every connected service (best effort: on
 /// any error the rows stay `None`), put the manual torrents of this title / episode first, and re-rank (module docs).
-pub async fn mark_cached(b: &LiveBackend, sources: Vec<SourceVm>) -> Vec<SourceVm> {
+///
+/// Wave B (worker **k**, checklist `sources.debrid.episode-context`): `media_id` / `episode` are the title and episode
+/// the rows belong to, passed by `LiveBackend::sources`, so the manual rows and the cache badges are never taken from
+/// the most recent `candidates` entry any more (KNOWN-ISSUES, wave A). k rewires `with_manual_rows` to use them.
+pub async fn mark_cached(b: &LiveBackend, media_id: &str, episode: u32, sources: Vec<SourceVm>) -> Vec<SourceVm> {
+    let _ = (media_id, episode);
     let mut sources = with_manual_rows(b, sources);
     let services = connected(b);
     if services.is_empty() {
@@ -493,6 +498,7 @@ fn manual_row(source_id: &str, hash: &str, name: &str, size: Option<u64>, top: f
         picked: picked == Some(source_id),
         tags: ReleaseTagsVm { group: tags.group.clone(), episodes: tags.episodes, ..ReleaseTagsVm::default() },
         debrid: None,
+        embed: false,
     }
 }
 

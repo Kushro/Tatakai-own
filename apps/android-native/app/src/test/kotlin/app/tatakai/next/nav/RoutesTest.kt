@@ -12,12 +12,29 @@ import kotlin.test.assertTrue
 class RoutesTest {
 
     @Test
-    fun `compact has four destinations and wide has seven in prototype order`() {
+    fun `compact has four destinations and wide has eleven in rail order`() {
         assertEquals(listOf(Route.Home, Route.Search, Route.Library, Route.You), topLevelRoutes(wide = false))
+        // parity wave B (16 §3.12): Manga, Novelas, Descargas and Perfil join the rail.
         assertEquals(
-            listOf(Route.Home, Route.Search, Route.Library, Route.Torrents(), Route.Extensions, Route.Linked, Route.Settings),
+            listOf(
+                Route.Home, Route.Search, Route.Library, Route.Manga(), Route.Novels(), Route.Downloads(), Route.Torrents(),
+                Route.Extensions, Route.Linked, Route.Profile(), Route.Settings,
+            ),
             topLevelRoutes(wide = true),
         )
+    }
+
+    @Test
+    fun `wave B routes fold into their rail destination on wide and into home or you on compact`() {
+        assertEquals(Route.Manga(), Route.Manga("frieren").topLevel(wide = true))
+        assertEquals(Route.Home, Route.Manga("frieren").topLevel(wide = false))
+        assertEquals(Route.Novels(), Route.NovelDetails(1).topLevel(wide = true))
+        assertEquals(Route.Downloads(), Route.Downloads(app.tatakai.next.model.DownloadsTab.HISTORY).topLevel(wide = true))
+        assertEquals(Route.You, Route.Downloads().topLevel(wide = false))
+        assertEquals(Route.Profile(), Route.Notifications.topLevel(wide = true))
+        assertEquals(Route.You, Route.Profile("someone").topLevel(wide = false))
+        assertEquals(Route.Extensions, Route.Provider("ext", "src").topLevel(wide = true))
+        assertEquals(Route.Home, Route.Calendar.topLevel(wide = false))
     }
 
     @Test

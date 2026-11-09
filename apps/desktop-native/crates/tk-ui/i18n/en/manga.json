@@ -1,0 +1,8 @@
+{
+  "manga.title": "Manga",
+  "manga.details.title": "Manga details",
+  "manga.reader.title": "Reader",
+  "settings.reader": "Manga reader",
+  "settings.reader.hint": "Reading mode, fit, direction, background, prefetch and the reader's key bindings.",
+  "settings.reader.placeholder": "Manga reader settings"
+}

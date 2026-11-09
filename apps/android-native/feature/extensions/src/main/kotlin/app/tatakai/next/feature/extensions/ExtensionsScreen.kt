@@ -97,6 +97,8 @@ fun ExtensionsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ExtensionsViewModel = koinViewModel(),
+    // parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.4, worker r): "Proveedores" section (customSources) -> Route.Provider.
+    onOpenProvider: (extensionId: String, sourceId: String) -> Unit = { _, _ -> },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current

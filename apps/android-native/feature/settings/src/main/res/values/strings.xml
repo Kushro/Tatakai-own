@@ -110,6 +110,8 @@
     <string name="settings_torrents_hint">Speed limits, network, storage and background downloads of the torrent client.</string>
     <string name="settings_torrents_open">Torrent settings</string>
     <string name="settings_torrents_open_sub">Speed · Network · Storage · Background</string>
+    <!-- parity wave B (16 §3.9): section title of the manga / novel readers (worker s rows). -->
+    <string name="settings_reader">Reader</string>
     <string name="settings_data">Data &amp; storage</string>
     <string name="settings_data_hint">Everything stays on this device (Android/data/app.tatakai.own.next).</string>
     <string name="settings_data_images">Images on disk</string>

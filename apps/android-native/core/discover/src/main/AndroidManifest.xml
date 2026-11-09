@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.1, worker r): local reminders of followed shows
+     (AiringReminderWorker posts on channel `airing`). Merged into the app manifest. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+</manifest>

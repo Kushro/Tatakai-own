@@ -35,4 +35,7 @@
     <string name="home_status_upcoming">Upcoming</string>
     <string name="home_status_cancelled">Cancelled</string>
     <string name="home_status_hiatus">On hiatus</string>
+    <!-- parity wave B (16 §3.1, worker r): calendar and recommendations screens. -->
+    <string name="home_calendar_title">Airing calendar</string>
+    <string name="home_for_you_title">For you</string>
 </resources>

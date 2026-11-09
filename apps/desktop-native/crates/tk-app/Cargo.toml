@@ -14,7 +14,7 @@ workspace = true
 default = ["mpv", "live"]
 mpv = ["tk-player/mpv"]
 # `live` wires the real backend (src/live/*) over tk-core / tk-ext / tk-link; on by default.
-live = ["dep:tk-core", "dep:tk-ext", "dep:tk-link", "dep:tk-torrent", "dep:reqwest", "dep:time"]
+live = ["dep:tk-core", "dep:tk-ext", "dep:tk-link", "dep:tk-torrent", "dep:tk-server", "dep:reqwest", "dep:time"]
 
 [[bin]]
 name = "tatakai-next"
@@ -39,6 +39,8 @@ tk-ext = { workspace = true, optional = true }
 tk-link = { workspace = true, optional = true }
 # torrent engine (wave 3, docs/redesign/10): live/torrent.rs, live/torrent_play.rs, live/torrent_settings.rs
 tk-torrent = { workspace = true, optional = true }
+# native extension server (wave B, worker k): live/server.rs
+tk-server = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 time = { workspace = true, optional = true }
 

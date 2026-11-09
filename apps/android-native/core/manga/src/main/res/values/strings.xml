@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- parity wave B (16 §3.5, worker s): texts of the chapter download notification (if any). Screen texts live in :feature:manga. -->
+<resources>
+    <string name="manga_download_channel">Chapter downloads</string>
+</resources>

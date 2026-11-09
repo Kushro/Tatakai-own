@@ -4,14 +4,18 @@ package app.tatakai.next.extensions
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import app.tatakai.next.model.AppDataWiper
+import app.tatakai.next.model.EmbedSniffer
 import app.tatakai.next.model.ExtLogLevel
 import app.tatakai.next.model.ExtensionRepository
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SourceStatsStore
+import app.tatakai.next.model.StremioAddonRepository
 import okhttp3.OkHttpClient
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.Module
 import org.koin.core.qualifier.named
+import org.koin.dsl.bind
 import org.koin.dsl.module
 import java.io.File
 import java.io.FileInputStream
@@ -45,6 +49,13 @@ val extensionsModule: Module = module {
             },
         )
     }
+    // parity wave B (16 §3.3 / §3.4, worker r): embed sniffer (hidden WebView), native Stremio addons (one more ExternalCandidateSource),
+    // their reset wiper. `StremioCandidateSource` is bound BEFORE the repository so `getAll<ExternalCandidateSource>()` below sees it.
+    single<EmbedSniffer> { WebViewEmbedSniffer(androidContext(), get()) }
+    single { StremioAddonRepositoryImpl(get(named("extensions-http")), File(androidContext().filesDir, StremioAddonRepositoryImpl.DIR_NAME), get()) }
+    single<StremioAddonRepository> { get<StremioAddonRepositoryImpl>() }
+    single { StremioCandidateSource(repository = get(), client = get(named("extensions-http"))) } bind ExternalCandidateSource::class
+    single(named("stremio-wiper")) { AppDataWiper { get<StremioAddonRepositoryImpl>().wipe() } } bind AppDataWiper::class
     single<ExtensionRepository> {
         val context: Context = androidContext()
         ExtensionRepositoryImpl(

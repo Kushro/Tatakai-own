@@ -125,6 +125,10 @@ pub struct WebInfo {
     pub latency_ms: Option<u32>,
     #[serde(default)]
     pub subtitles: Vec<SubtitleTrack>,
+    /// Wave B (worker k; plan 14 section 0.1 #13): `url` is an embed page (`type: "embed"`), not a media URL. The
+    /// app resolves it through the hidden web view sniffer before playing; `score` ranks it below direct streams.
+    #[serde(default)]
+    pub embed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -198,7 +202,7 @@ impl SourceCandidate {
             dubs: Vec::new(),
             reliability: INITIAL_RELIABILITY,
             note: None,
-            web: Some(WebInfo { url: s.url.clone(), headers: s.headers.clone(), latency_ms: None, subtitles: s.subtitles.clone() }),
+            web: Some(WebInfo { url: s.url.clone(), headers: s.headers.clone(), latency_ms: None, subtitles: s.subtitles.clone(), embed: false }),
             torrent: None,
             tags: ReleaseTags::default(),
         }
@@ -257,6 +261,10 @@ impl Default for SourcePrefs {
 /// Wave 3 (docs/redesign/10 section 3), torrent release tags: `+ SEADEX_BEST_BONUS` (4) when `tags.seadex_best`.
 /// Small on purpose: it reorders otherwise close torrents but never beats a seeder or preference gap. (A batch bonus
 /// would need the requested episode, which `score` does not get; batches are ranked like any other torrent.)
+/// Taken off an embed source (`WebInfo::embed`) so a direct HLS / MP4 of the same quality always wins
+/// (`sources.embed-sniffer.ranking`).
+pub const EMBED_PENALTY: f32 = 15.0;
+
 pub fn score(c: &SourceCandidate, prefs: &SourcePrefs, ext_enabled: bool) -> f32 {
     let mut v = c.reliability * 50.0;
     if let Some(kind) = prefs.prefer {
@@ -285,6 +293,10 @@ pub fn score(c: &SourceCandidate, prefs: &SourcePrefs, ext_enabled: bool) -> f32
             }
         }
         SourceKind::Web => {
+            // Embed pages cost a sniffing round trip (wave B, k): below any direct stream of the same quality.
+            if c.web.as_ref().is_some_and(|w| w.embed) {
+                v -= EMBED_PENALTY;
+            }
             // not measured yet = no penalty
             if let Some(ms) = c.web.as_ref().and_then(|w| w.latency_ms) {
                 v -= ms.min(1000) as f32 / 100.0;

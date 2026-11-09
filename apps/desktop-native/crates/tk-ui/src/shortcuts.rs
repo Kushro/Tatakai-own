@@ -26,7 +26,7 @@ pub enum Shortcut {
     /// Ctrl+1..Ctrl+6 -> 1-based preset index.
     Preset(u8),
     Escape,
-    /// 1..7 outside the player -> 1-based index into `NavDest::ALL` (7 destinations since wave 3).
+    /// `1`..`9` and `0` (= 10) outside the player -> 1-based index into `NavDest::ALL` (10 destinations since wave B).
     NavTo(u8),
     // --- wave A (worker e): player actions of the classic `keybindings.ts` (defaults in `default_binding`) ---
     /// `J` / `K` in the classic app.
@@ -284,7 +284,9 @@ pub fn shortcut_in(map: &ShortcutMapVm, key: &str, ctrl: bool, editable: bool, i
     }
     if !in_player {
         return match key {
-            "1" | "2" | "3" | "4" | "5" | "6" | "7" => key.parse().ok().map(Shortcut::NavTo),
+            // Wave B: ten rail destinations (`NavDest::ALL`): 1..=9, and `0` opens the tenth (Settings).
+            "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" => key.parse().ok().map(Shortcut::NavTo),
+            "0" => Some(Shortcut::NavTo(10)),
             _ => None,
         };
     }
@@ -370,7 +372,8 @@ mod tests {
         assert_eq!(shortcut("1", false, false, false), Some(Shortcut::NavTo(1)));
         assert_eq!(shortcut("6", false, false, false), Some(Shortcut::NavTo(6)));
         assert_eq!(shortcut("7", false, false, false), Some(Shortcut::NavTo(7)));
-        assert_eq!(shortcut("8", false, false, false), None);
+        assert_eq!(shortcut("9", false, false, false), Some(Shortcut::NavTo(9)));
+        assert_eq!(shortcut("0", false, false, false), Some(Shortcut::NavTo(10)));
         assert_eq!(shortcut("2", false, true, false), None);
         assert_eq!(shortcut("2", false, false, true), None);
     }

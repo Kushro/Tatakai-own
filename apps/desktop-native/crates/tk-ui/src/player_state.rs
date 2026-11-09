@@ -702,6 +702,7 @@ mod tests {
             picked: false,
             tags: Default::default(),
             debrid: None,
+            embed: false,
         }
     }
 

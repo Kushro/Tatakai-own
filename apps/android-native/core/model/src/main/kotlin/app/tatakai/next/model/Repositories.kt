@@ -64,7 +64,34 @@ interface MetadataRepository {
 
     /** trace.moe image search (classic `/image-search`): the picked image's bytes; results best first. */
     suspend fun searchByImage(image: ByteArray, mimeType: String): List<ImageMatch> = emptyList()
+
+    // --- parity wave B (16 §3.1, worker r: AniList `AiringSchedule` in :core:metadata + core/data/MetadataRepositoryImpl.kt). Default = "not available". ---
+    /**
+     * Episodes airing in `[fromEpochSec, toEpochSec)`, soonest first, one page of `PER_PAGE_AIRING` (AniList `Page.airingSchedules`).
+     * Used by the calendar (r, `AiringRepository`) and by the "Últimos episodios" row (last 7 days, newest first).
+     */
+    suspend fun airingSchedule(fromEpochSec: Long, toEpochSec: Long, page: Int = 1): List<AiringEpisode> = emptyList()
+
+    /**
+     * Checklist settings.metadata.provider-status (r): one row per provider of `AppSettings.KNOWN_PROVIDER_IDS` with its last result and
+     * cooldown (`MetadataRouter.isCoolingDown`). Default = nothing known (Settings shows the providers without status).
+     */
+    fun providerStatus(): Flow<List<ProviderStatus>> = emptyFlow()
 }
+
+/** Page size of [MetadataRepository.airingSchedule]. */
+const val PER_PAGE_AIRING: Int = 50
+
+/** Last outcome of a metadata provider for Settings › Metadatos (checklist settings.metadata.provider-status). */
+data class ProviderStatus(
+    val id: String,
+    val enabled: Boolean,
+    /** null = never called in this process. */
+    val lastOkAtMs: Long? = null,
+    val lastError: String? = null,
+    /** Epoch ms until which the router skips the provider ("en pausa N min"); null = not cooling down. */
+    val cooldownUntilMs: Long? = null,
+)
 
 data class MetadataCacheStats(val entries: Int, val bytes: Long)
 
@@ -164,6 +191,67 @@ interface ExtensionRepository {
      * [resolveCandidates], so screens do not show "no source installed" when only the PC provides sources.
      */
     val externalSourcesAvailable: Flow<Boolean> get() = flowOf(false)
+
+    // --- parity wave B (16 §3.4, worker r: overrides in core/extensions-quickjs/ExtensionRepositoryImpl.kt). Defaults = "not available". ---
+    /** Install from a URL of a `.kai` package or of a `manifest.json` next to one (checklist `ext.install-url`). */
+    suspend fun installFromUrl(url: String): Result<InstalledExtension> = Result.failure(NotImplementedError("installFromUrl"))
+
+    /** Newer versions known for the installed extensions (filled by [checkUpdates], at app start when `AppSettings.extensionUpdateCheck`). */
+    val updates: StateFlow<List<ExtensionUpdate>> get() = NO_UPDATES
+
+    /** Compares every installed extension with the repositories that list it; returns and publishes the updates. */
+    suspend fun checkUpdates(): List<ExtensionUpdate> = emptyList()
+
+    /** Downloads and installs the update of one extension (keeps its enabled flag and preferences). */
+    suspend fun update(extensionId: String): Result<InstalledExtension> = Result.failure(NotImplementedError("update"))
+
+    /** Manifest `preferences[]` of an installed extension; empty = no form. */
+    suspend fun preferences(extensionId: String): List<ExtensionPreference> = emptyList()
+
+    fun preferenceValues(extensionId: String): Flow<Map<String, String>> = emptyFlow()
+
+    /** null removes the value (back to the default). */
+    suspend fun setPreference(extensionId: String, key: String, value: String?) {}
+
+    val repositories: StateFlow<List<ExtensionRepo>> get() = NO_REPOS
+
+    /** Fetches the index of [url] and stores the repository (checklist `ext.repositories`). */
+    suspend fun addRepository(url: String): Result<ExtensionRepo> = Result.failure(NotImplementedError("addRepository"))
+
+    suspend fun removeRepository(url: String) {}
+
+    suspend fun refreshRepository(url: String): Result<ExtensionRepo> = Result.failure(NotImplementedError("refreshRepository"))
+
+    /** Custom sources of the enabled extensions; [kind] filters `watch` | `read` | `novel` (null = all). Consumed by r (providers), s (readers). */
+    suspend fun customSources(kind: String? = null): List<CustomSourceRef> = emptyList()
+
+    /** `custom/home` of ONE source (provider page rows). */
+    suspend fun providerHome(extensionId: String, sourceId: String): List<ExtensionHomeRow> = emptyList()
+
+    /** `custom/search` of ONE source. */
+    suspend fun providerSearch(extensionId: String, sourceId: String, query: String, page: Int = 1): List<ExtensionHomeItem> = emptyList()
+
+    /** `custom/info`: the title page with its episodes / chapters. */
+    suspend fun providerInfo(extensionId: String, sourceId: String, itemId: String): ProviderItem? = null
+
+    /** `custom/watch`: streams of one `watch` entry (played by the normal player, history under [ProviderItem.match] when present). */
+    suspend fun providerWatch(extensionId: String, sourceId: String, itemId: String, entryId: String): List<StreamSource> = emptyList()
+
+    /** `custom/read`: pages of one `read` entry (manga reader of s) or paragraphs of a `novel` entry (text joined by the caller). */
+    suspend fun providerRead(extensionId: String, sourceId: String, itemId: String, entryId: String): List<ChapterPage> = emptyList()
+
+    fun providerBookmarks(): Flow<List<ProviderBookmark>> = emptyFlow()
+
+    /** Adds / replaces a bookmark; [bookmark] with `completed = true` marks it done. */
+    suspend fun setProviderBookmark(bookmark: ProviderBookmark) {}
+
+    suspend fun removeProviderBookmark(extensionId: String, sourceId: String, itemId: String) {}
+
+    /**
+     * Checklist ext.kill-switch: "Desactivar todas" / "Activar todas" flips `enabled` of every installed extension without uninstalling
+     * (state files only; preferences kept). Implemented by r in ExtensionRepositoryImpl.
+     */
+    suspend fun setAllEnabled(enabled: Boolean) {}
 }
 
 interface LinkRepository {
@@ -183,7 +271,38 @@ interface LinkRepository {
 
     /** Enhance profile segmented of the Linked screen; null = the PC's default. Used by [startSession] when its profileId is null. */
     suspend fun setPreferredProfile(profileId: String?) {}
+
+    // --- parity wave B (16 §3.11, worker r; checklist link.remote-control / link.handoff / link.discovery). Defaults = "not available",
+    // the Linked screen keeps its buttons disabled while `GET /v1/player` answers 404. Canonical wire in §3.11 (= desktop tk-link/src/control.rs). ---
+
+    /** `GET /v1/player`: what the PC is playing; null = nothing open or no remote control on the PC (404). Polled every 2 s while the Linked screen is visible. */
+    suspend fun remoteState(): Result<RemotePlayerState?> = Result.success(null)
+
+    /** `POST /v1/control` `{ "command": "<RemoteAction.id>" }`. */
+    suspend fun remote(action: RemoteAction): Result<Unit> = Result.failure(NotImplementedError("remote"))
+
+    /**
+     * "Continuar en la PC" (`POST /v1/control` `{ "command": "open", "mediaId": animeId, "episode", "positionSecs": positionSec }`): the PC opens the same episode at the phone's position.
+     * The phone pushes its history first (`HistoryRepository.syncNow`) so the PC also has the row.
+     */
+    suspend fun handoff(animeId: String, episode: Int, positionSec: Int): Result<Unit> = Result.failure(NotImplementedError("handoff"))
 }
+
+/** Transport controls of the PC player over Link (desktop k serves them; Android r sends them). */
+enum class RemoteAction(val id: String) { PREV("prev"), PLAY_PAUSE("toggle"), NEXT("next") }
+
+/** `GET /v1/player` of the PC (null fields = the PC does not know). Wire keys: positionSecs, durationSecs, mediaId (mapped by LinkClient). */
+data class RemotePlayerState(
+    val playing: Boolean,
+    val title: String? = null,
+    val episode: Int? = null,
+    val positionSec: Int = 0,
+    val durationSec: Int? = null,
+    /** `HistoryEntry.animeId` of what is playing, when the PC knows it. */
+    val animeId: String? = null,
+)
 
 private val NO_SYNC: StateFlow<Long?> = MutableStateFlow<Long?>(null).asStateFlow()
 private val NO_LINKED_DEVICE: StateFlow<LinkedDevice?> = MutableStateFlow<LinkedDevice?>(null).asStateFlow()
+private val NO_UPDATES: StateFlow<List<ExtensionUpdate>> = MutableStateFlow<List<ExtensionUpdate>>(emptyList()).asStateFlow()
+private val NO_REPOS: StateFlow<List<ExtensionRepo>> = MutableStateFlow<List<ExtensionRepo>>(emptyList()).asStateFlow()

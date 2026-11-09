@@ -1,8 +1,11 @@
 package app.tatakai.next.nav
 
 import androidx.navigation3.runtime.NavKey
+import app.tatakai.next.model.DownloadsTab
 import app.tatakai.next.model.FeedKind
+import app.tatakai.next.model.MangaReaderArgs
 import app.tatakai.next.model.MediaKind
+import app.tatakai.next.model.NovelReaderArgs
 import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.model.torrent.TorrentSection
 import kotlinx.serialization.Serializable
@@ -67,14 +70,60 @@ sealed interface Route : NavKey {
 
     /** Image search with trace.moe (classic `/image-search`); [imageUri] when opened by sharing a picture to the app. Screen: worker o. */
     @Serializable data class ImageSearch(val imageUri: String? = null) : Route
+
+    // --- parity wave B contract (docs/redesign/16-parity-wave-b-contract-android.md §3.12). Owner: contract / integrator. ---
+
+    /** Downloads page (web + torrents + chapters + local library), rail destination on wide windows; You › Descargas on phones. Screen: r. */
+    @Serializable data class Downloads(val tab: DownloadsTab = DownloadsTab.ACTIVE) : Route
+
+    /** Airing calendar (plan §7 D6: inside Inicio), from the Home row header. Screen: r (:feature:home). */
+    @Serializable data object Calendar : Route
+
+    /** "Para ti" recommendations + atlas, from the Home row header. Screen: r (:feature:home). */
+    @Serializable data object ForYou : Route
+
+    /** Custom provider page of one extension source (`customSources`). Screen: r (:feature:extensions). */
+    @Serializable data class Provider(val extensionId: String, val sourceId: String) : Route
+
+    /** A provider title (`custom/info`) with its episodes / chapters. Screen: r (:feature:extensions). */
+    @Serializable data class ProviderItem(val extensionId: String, val sourceId: String, val itemId: String) : Route
+
+    /** Manga home (+ search when [query] is set: Search type chip). Rail destination on wide windows. Screen: s. Details: `Details(MANGA, id)`. */
+    @Serializable data class Manga(val query: String? = null) : Route
+
+    /** Manga reader; shown without the nav bar like Player. Screen: s. */
+    @Serializable data class MangaReader(val args: MangaReaderArgs) : Route
+
+    /** Novels home (+ search when [query] is set). Rail destination on wide windows. Screen: s. */
+    @Serializable data class Novels(val query: String? = null) : Route
+
+    /** Novel details (AniList MANGA with format NOVEL). Detail pane on expanded windows. Screen: s. */
+    @Serializable data class NovelDetails(val anilistId: Int) : Route
+
+    /** Novel reader; shown without the nav bar like Player. Screen: s. */
+    @Serializable data class NovelReader(val args: NovelReaderArgs) : Route
+
+    /** AniList profile: null = the linked viewer (rail destination on wide windows), else a public user. Screen: t. */
+    @Serializable data class Profile(val userName: String? = null) : Route
+
+    /** One AniList activity with its replies. Screen: t. */
+    @Serializable data class ActivityThread(val activityId: Int) : Route
+
+    /** AniList notifications. Screen: t. */
+    @Serializable data object Notifications : Route
 }
 
 /** Compact (bottom bar, 4 items): Inicio · Buscar · Biblioteca · Tú. Torrents is a tab inside Library (11 §3.1, 12 §0). */
 val TopLevelRoutesCompact: List<Route> = listOf(Route.Home, Route.Search, Route.Library, Route.You)
 
-/** Medium / expanded (rail): Inicio · Buscar · Biblioteca · Torrents · Extensiones · Enlace · Ajustes (desktop rail order). */
-val TopLevelRoutesWide: List<Route> =
-    listOf(Route.Home, Route.Search, Route.Library, Route.Torrents(), Route.Extensions, Route.Linked, Route.Settings)
+/**
+ * Medium / expanded (rail): Inicio · Buscar · Biblioteca · Manga · Novelas · Descargas · Torrents · Extensiones · Enlace · Perfil · Ajustes
+ * (desktop rail order; parity wave B adds Manga, Novelas, Descargas and Perfil).
+ */
+val TopLevelRoutesWide: List<Route> = listOf(
+    Route.Home, Route.Search, Route.Library, Route.Manga(), Route.Novels(), Route.Downloads(), Route.Torrents(),
+    Route.Extensions, Route.Linked, Route.Profile(), Route.Settings,
+)
 
 /** Top-level destinations for the current window class. */
 fun topLevelRoutes(wide: Boolean): List<Route> = if (wide) TopLevelRoutesWide else TopLevelRoutesCompact
@@ -95,9 +144,15 @@ fun Route.topLevel(wide: Boolean): Route = when (this) {
     is Route.SearchFor, is Route.ImageSearch -> Route.Search
     is Route.LibraryTab -> Route.Library
     is Route.Torrents -> if (wide) Route.Torrents() else Route.Library
-    Route.Extensions -> if (wide) Route.Extensions else Route.You
+    Route.Extensions, is Route.Provider, is Route.ProviderItem -> if (wide) Route.Extensions else Route.You
     Route.Link, Route.Linked, Route.ExtensionServers -> if (wide) Route.Linked else Route.You
     Route.Settings, is Route.SettingsSection -> if (wide) Route.Settings else Route.You
     Route.You -> if (wide) Route.Settings else Route.You
+    // parity wave B (16 §3.12): compact = where the user came from (Home chips / You rows); wide = own rail destination.
+    Route.Calendar, Route.ForYou -> Route.Home
+    is Route.Downloads -> if (wide) Route.Downloads() else Route.You
+    is Route.Manga, is Route.MangaReader -> if (wide) Route.Manga() else Route.Home
+    is Route.Novels, is Route.NovelDetails, is Route.NovelReader -> if (wide) Route.Novels() else Route.Home
+    is Route.Profile, is Route.ActivityThread, Route.Notifications -> if (wide) Route.Profile() else Route.You
     else -> this
 }

@@ -35,12 +35,14 @@ data class MediaSearchQuery(
     val adult: Boolean = false,
     /** Studio / producer name (`/search/producer/:name` of the classic app). */
     val studio: String? = null,
+    /** parity wave B (16 §3.5, worker s): AniList `countryOfOrigin` (`JP` / `KR` / `CN`), the manga origin filter. Anime search ignores it. */
+    val origin: String? = null,
 ) {
     /** Nothing to search or browse. */
     val isEmpty: Boolean
         get() = query.isNullOrBlank() && genres.isEmpty() && tags.isEmpty() && formats.isEmpty() && status == null && season == null &&
             seasonYear == null && yearFrom == null && yearTo == null && episodesFrom == null && episodesTo == null &&
-            scoreFrom == null && scoreTo == null && studio == null
+            scoreFrom == null && scoreTo == null && studio == null && origin == null
 }
 
 /** AniList tag with its relevance percentage. Spoiler tags are hidden unless the user opts in. */

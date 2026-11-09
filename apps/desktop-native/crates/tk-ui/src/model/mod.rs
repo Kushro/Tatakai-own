@@ -5,6 +5,10 @@
 //! `Settings` embeds live in their owner's file and are re-exported here, so a worker extends its own prefs
 //! (fields with serde defaults + `sanitized()`) without touching this module: [`subs`] (d), [`flow`] (e),
 //! [`system`] (f), [`lists`] (g). This file (`mod.rs`) stays frozen after the contract.
+//!
+//! Wave B (docs/redesign/16-parity-wave-b-contract.md section 3): same mechanism, one file per owner, each also
+//! holding that owner's view-models (re-exported from `backend.rs`): [`home`] (b), [`downloads`] (h), [`ext`] (j),
+//! [`server`] (k), [`manga`] (l), [`novel`] (m), [`social`] (n).
 
 use serde::{Deserialize, Serialize};
 use tk_player::ShaderPreset;
@@ -12,13 +16,27 @@ use tk_player::ShaderPreset;
 use crate::backend::SourceKindVm;
 use crate::i18n::LangChoice;
 
+pub mod downloads;
+pub mod ext;
 pub mod flow;
+pub mod home;
 pub mod lists;
+pub mod manga;
+pub mod novel;
+pub mod server;
+pub mod social;
 pub mod subs;
 pub mod system;
 
+pub use downloads::{AutoProfileVm, DownloadPrefs};
+pub use ext::ExtPrefs;
 pub use flow::{PlayerFlowPrefs, ShortcutMapVm};
+pub use home::HomePrefs;
 pub use lists::{ListPrefsVm, ListServiceVm};
+pub use manga::{MangaPrefs, MangaReaderPrefs, ReadKindVm, ReaderBackgroundVm, ReaderDirectionVm, ReaderFitVm, ReaderModeVm};
+pub use novel::{NovelPrefs, NovelThemeVm, TtsPrefs, TtsProviderVm};
+pub use server::ServerPrefs;
+pub use social::SocialPrefs;
 pub use subs::{SubtitlePrefs, SubtitleStyleVm, TranslationPrefs, TranslationProviderVm};
 pub use system::SystemPrefs;
 
@@ -50,7 +68,10 @@ pub const PALETTES: [PaletteInfo; 10] = [
 
 pub const DEFAULT_PALETTE: &str = "tatakai-violet";
 /// Metadata providers known to tk-core (default priority order).
-pub const PROVIDERS: [&str; 3] = ["anilist", "kitsu", "anizip"];
+/// Metadata provider ids in default priority order. Wave B adds MAL, Shikimori and Tenrai (worker b; plan 14
+/// section 0.1 #13) and the manga-only MangaDex / MangaUpdates (worker l); `tk_core::MetadataRouter::with_defaults`
+/// registers one provider per id. A provider that stops answering is dropped here with a note in the contract.
+pub const PROVIDERS: [&str; 8] = ["anilist", "kitsu", "anizip", "mal", "shikimori", "tenrai", "mangadex", "mangaupdates"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -130,6 +151,21 @@ pub struct Settings {
     pub lists: ListPrefsVm,
     /// Title language of cards, rows and Details (worker c, Settings > Appearance): one of [`TITLE_LANGUAGES`].
     pub title_language: String,
+    // --- wave B (docs/redesign/16): one prefs struct per owner, same rule. ---
+    /// Home blocks, airing calendar reminders, recommendations (worker b, `model/home.rs`).
+    pub home: HomePrefs,
+    /// Download engine, auto-download, local library (worker h, `model/downloads.rs`).
+    pub downloads: DownloadPrefs,
+    /// Extension updates, servers fallback, Stremio (worker j, `model/ext.rs`).
+    pub ext: ExtPrefs,
+    /// Native extension server, proxy, FlareSolverr, embed sniffer (worker k, `model/server.rs`).
+    pub server: ServerPrefs,
+    /// Manga reader defaults, chapter language / source (worker l, `model/manga.rs`).
+    pub manga: MangaPrefs,
+    /// Novel typography and TTS (worker m, `model/novel.rs`).
+    pub novel: NovelPrefs,
+    /// AniList notifications polling, details extras (worker n, `model/social.rs`).
+    pub social: SocialPrefs,
 }
 
 /// Values of `Settings::title_language`; the first one is the default.
@@ -155,6 +191,13 @@ impl Default for Settings {
             system: SystemPrefs::default(),
             lists: ListPrefsVm::default(),
             title_language: TITLE_LANGUAGES[0].to_owned(),
+            home: HomePrefs::default(),
+            downloads: DownloadPrefs::default(),
+            ext: ExtPrefs::default(),
+            server: ServerPrefs::default(),
+            manga: MangaPrefs::default(),
+            novel: NovelPrefs::default(),
+            social: SocialPrefs::default(),
         }
     }
 }
@@ -399,6 +442,13 @@ impl Settings {
         if !TITLE_LANGUAGES.contains(&self.title_language.as_str()) {
             self.title_language = TITLE_LANGUAGES[0].to_owned();
         }
+        self.home = self.home.sanitized();
+        self.downloads = self.downloads.sanitized();
+        self.ext = self.ext.sanitized();
+        self.server = self.server.sanitized();
+        self.manga = self.manga.sanitized();
+        self.novel = self.novel.sanitized();
+        self.social = self.social.sanitized();
         self
     }
 }
@@ -454,6 +504,21 @@ pub enum SettingsAction {
     SetLists(ListPrefsVm),
     /// Worker c. Ignored unless it is one of [`TITLE_LANGUAGES`].
     SetTitleLanguage(String),
+    // --- wave B: whole-struct setters, same rule as wave A. ---
+    /// Worker b.
+    SetHome(HomePrefs),
+    /// Worker h.
+    SetDownloads(DownloadPrefs),
+    /// Worker j.
+    SetExt(ExtPrefs),
+    /// Worker k.
+    SetServer(ServerPrefs),
+    /// Worker l.
+    SetManga(MangaPrefs),
+    /// Worker m.
+    SetNovel(NovelPrefs),
+    /// Worker n.
+    SetSocial(SocialPrefs),
 }
 
 pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
@@ -503,6 +568,13 @@ pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
                 n.title_language = l;
             }
         }
+        SettingsAction::SetHome(p) => n.home = p.sanitized(),
+        SettingsAction::SetDownloads(p) => n.downloads = p.sanitized(),
+        SettingsAction::SetExt(p) => n.ext = p.sanitized(),
+        SettingsAction::SetServer(p) => n.server = p.sanitized(),
+        SettingsAction::SetManga(p) => n.manga = p.sanitized(),
+        SettingsAction::SetNovel(p) => n.novel = p.sanitized(),
+        SettingsAction::SetSocial(p) => n.social = p.sanitized(),
     }
     n
 }
@@ -516,6 +588,12 @@ pub enum NavDest {
     Home,
     Search,
     Library,
+    /// Downloads: web (HLS / MP4) + torrent downloads, local library (wave B, worker h; classic "Descargas" entry).
+    Downloads,
+    /// Manga: home, details, reader (wave B, worker l; classic top-level section).
+    Manga,
+    /// Novels: home, details, reader + TTS (wave B, worker m; classic top-level section).
+    Novels,
     /// Torrent client (wave 3, docs/redesign/10 section 5).
     Torrents,
     Extensions,
@@ -524,9 +602,22 @@ pub enum NavDest {
 }
 
 impl NavDest {
-    /// Rail order; shortcut digit `n` (1..=7 outside the player) opens `ALL[n - 1]`.
-    pub const ALL: [NavDest; 7] =
-        [Self::Home, Self::Search, Self::Library, Self::Torrents, Self::Extensions, Self::Link, Self::Settings];
+    /// Rail order; shortcut digit `n` (1..=9, then `0` = 10, outside the player) opens `ALL[n - 1]`. Pages without
+    /// a rail entry hang under a destination (`app::Route::nav_dest`): `/calendar` and `/recommendations` (b) under
+    /// Home; the AniList social pages (`/profile`, `/user/:name`, `/notifications`, `/activity`, n) under Library;
+    /// provider pages (`/provider/:ext_id`, j) under Extensions; the Server page (`/server`, k) under Link.
+    pub const ALL: [NavDest; 10] = [
+        Self::Home,
+        Self::Search,
+        Self::Library,
+        Self::Downloads,
+        Self::Manga,
+        Self::Novels,
+        Self::Torrents,
+        Self::Extensions,
+        Self::Link,
+        Self::Settings,
+    ];
 
     /// i18n key of the label (`nav.<id>`).
     pub fn label_key(self) -> &'static str {
@@ -534,6 +625,9 @@ impl NavDest {
             Self::Home => "nav.home",
             Self::Search => "nav.search",
             Self::Library => "nav.library",
+            Self::Downloads => "nav.downloads",
+            Self::Manga => "nav.manga",
+            Self::Novels => "nav.novels",
             Self::Torrents => "nav.torrents",
             Self::Extensions => "nav.extensions",
             Self::Link => "nav.link",
@@ -1105,9 +1199,9 @@ mod tests {
     #[test]
     fn provider_priority_reorders_within_bounds() {
         let s = Settings::default();
-        assert_eq!(s.provider_priority, ["anilist", "kitsu", "anizip"]);
+        assert_eq!(&s.provider_priority[..3], ["anilist", "kitsu", "anizip"]);
         let s = reduce_settings(&s, SettingsAction::MoveProvider { index: 2, delta: -1 });
-        assert_eq!(s.provider_priority, ["anilist", "anizip", "kitsu"]);
+        assert_eq!(&s.provider_priority[..3], ["anilist", "anizip", "kitsu"]);
         let same = reduce_settings(&s, SettingsAction::MoveProvider { index: 0, delta: -1 });
         assert_eq!(same, s);
         let same = reduce_settings(&s, SettingsAction::MoveProvider { index: 2, delta: 1 });
@@ -1119,7 +1213,8 @@ mod tests {
     #[test]
     fn sanitize_priority_dedupes_and_completes() {
         let l = sanitize_priority(&["kitsu".into(), "bogus".into(), "kitsu".into()]);
-        assert_eq!(l, ["kitsu", "anilist", "anizip"]);
+        assert_eq!(&l[..3], ["kitsu", "anilist", "anizip"]);
+        assert_eq!(l.len(), PROVIDERS.len());
     }
 
     #[test]

@@ -6,9 +6,15 @@
 //! recommendations / facts query; [`lists`] (worker g) the authenticated viewer / `MediaList` queries and
 //! mutations. The three are child modules: they call the private `post` of this file.
 
+/// Wave B, worker b: airing schedule, genres, top ranges, upcoming / most-favourite feeds.
+pub mod airing;
 pub mod details;
 pub mod lists;
+/// Wave B, worker l (m reads): `MANGA` type search / details / list, `NOVEL` format.
+pub mod manga;
 pub mod search;
+/// Wave B, worker n: profile, follows, activity, notifications, reviews.
+pub mod social;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};

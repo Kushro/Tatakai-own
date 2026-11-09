@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.ui.labels
 
+import app.tatakai.next.model.ChapterKind
+import app.tatakai.next.model.DownloadState
 import app.tatakai.next.model.ListProvider
 import app.tatakai.next.model.ListStatus
 import app.tatakai.next.model.SkipKind
@@ -71,4 +73,32 @@ fun ListStatus.labelRes(): Int = when (this) {
 fun ListProvider.labelRes(): Int = when (this) {
     ListProvider.ANILIST -> R.string.list_provider_anilist
     ListProvider.MAL -> R.string.list_provider_mal
+}
+
+// parity wave B (docs/redesign/16 §3.10): download states (Downloads page of r, Details badges), readlist labels (readers of s, same
+// ListStatus enum as the anime list), chapter kinds. Implemented here (contract).
+
+fun DownloadState.labelRes(): Int = when (this) {
+    DownloadState.QUEUED -> R.string.download_state_queued
+    DownloadState.DOWNLOADING -> R.string.download_state_downloading
+    DownloadState.PAUSED -> R.string.download_state_paused
+    DownloadState.COMPLETED -> R.string.download_state_completed
+    DownloadState.FAILED -> R.string.download_state_failed
+    DownloadState.REMOVING -> R.string.download_state_removing
+    DownloadState.BROKEN -> R.string.download_state_broken
+}
+
+/** The manga / novel wording of a [ListStatus] ("Reading" instead of "Watching"). */
+fun ListStatus.readLabelRes(): Int = when (this) {
+    ListStatus.WATCHING -> R.string.read_status_watching
+    ListStatus.PLANNING -> R.string.read_status_planning
+    ListStatus.COMPLETED -> R.string.read_status_completed
+    ListStatus.PAUSED -> R.string.read_status_paused
+    ListStatus.DROPPED -> R.string.read_status_dropped
+    ListStatus.REPEATING -> R.string.read_status_repeating
+}
+
+fun ChapterKind.labelRes(): Int = when (this) {
+    ChapterKind.MANGA -> R.string.chapter_kind_manga
+    ChapterKind.NOVEL -> R.string.chapter_kind_novel
 }

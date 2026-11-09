@@ -49,4 +49,11 @@
     <string name="you_settings">Ajustes</string>
     <string name="you_settings_summary">Apariencia · Reproductor · Torrents</string>
     <string name="you_accounts_none">Las listas quedan en este teléfono · conecta AniList o MAL para sincronizarlas</string>
+    <!-- parity wave B (16 §3.12, contract): rows of You added by the contract (t: profile / notifications; s: manga / novels). -->
+    <string name="you_profile">Perfil de AniList</string>
+    <string name="you_profile_summary">Seguidores, actividad y favoritos</string>
+    <string name="you_notifications">Notificaciones</string>
+    <string name="you_notifications_summary">Episodios, seguidores, me gusta y respuestas de AniList</string>
+    <string name="you_manga_summary">Tendencias, lista de lectura y capítulos</string>
+    <string name="you_novels_summary">Tendencias, lista de lectura y narración</string>
 </resources>

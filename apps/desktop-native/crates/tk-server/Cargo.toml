@@ -1,0 +1,40 @@
+[package]
+name = "tk-server"
+description = "Native extension server (/api/server/v1, axum) so phones use this PC's .kai extensions - wave B, worker k"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Wave B (docs/redesign/16-parity-wave-b-contract.md section 3.6). Same axum / tokio as tk-link (no TLS here: plain HTTP
+# on the LAN like the classic server/; pairing codes + bearer tokens gate it). Pairing and the extension host come from
+# tk-ext / tk-core: nothing is duplicated.
+[dependencies]
+tk-core = { workspace = true }
+tk-ext = { workspace = true }
+anyhow = { workspace = true }
+argon2 = { workspace = true }
+axum = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+hex = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

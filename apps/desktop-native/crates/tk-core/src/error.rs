@@ -163,3 +163,79 @@ impl From<reqwest::Error> for DebridError {
         }
     }
 }
+
+// ---- wave B (docs/redesign/16-parity-wave-b-contract.md section 3.5): one error type per new area ----
+
+/// `download/**` (worker h): HLS / MP4 engine, local library.
+#[derive(Debug, Error)]
+pub enum DownloadError {
+    #[error("http status {0}")]
+    Http(u16),
+    #[error("network error: {0}")]
+    Network(String),
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("playlist: {0}")]
+    Playlist(String),
+    #[error("store: {0}")]
+    Store(#[from] StoreError),
+    #[error("storage limit reached ({limit_bytes} bytes)")]
+    StorageLimit { limit_bytes: u64 },
+    #[error("download {0} not found")]
+    NotFound(i64),
+    #[error("file missing or truncated: {0}")]
+    Broken(String),
+    #[error("cancelled")]
+    Cancelled,
+}
+
+impl From<reqwest::Error> for DownloadError {
+    fn from(e: reqwest::Error) -> Self {
+        match e.status() {
+            Some(s) => Self::Http(s.as_u16()),
+            None => Self::Network(e.without_url().to_string()),
+        }
+    }
+}
+
+/// `manga/**`, `novel/**` (workers l, m): chapter lists, pages, text, offline copies.
+#[derive(Debug, Error)]
+pub enum ReadError {
+    #[error("provider {0}")]
+    Provider(#[from] ProviderError),
+    #[error("extension: {0}")]
+    Extension(String),
+    #[error("chapter not found")]
+    ChapterNotFound,
+    #[error("no pages")]
+    NoPages,
+    #[error("store: {0}")]
+    Store(#[from] StoreError),
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+/// `extserver.rs`, `stremio.rs` (worker j): extension-server client and Stremio add-ons.
+#[derive(Debug, Error)]
+pub enum ExtServerError {
+    #[error("http status {0}")]
+    Http(u16),
+    #[error("network error: {0}")]
+    Network(String),
+    /// `pairing_required`, `pairing_expired`, `authentication_required`, `device_not_authorized` (docs/redesign/13 section 3.2).
+    #[error("server refused: {0}")]
+    Refused(String),
+    #[error("unexpected payload: {0}")]
+    Parse(String),
+    #[error("not paired: {0}")]
+    NotPaired(String),
+}
+
+impl From<reqwest::Error> for ExtServerError {
+    fn from(e: reqwest::Error) -> Self {
+        match e.status() {
+            Some(s) => Self::Http(s.as_u16()),
+            None => Self::Network(e.without_url().to_string()),
+        }
+    }
+}

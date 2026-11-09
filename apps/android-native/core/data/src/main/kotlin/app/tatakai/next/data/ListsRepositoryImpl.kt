@@ -780,6 +780,15 @@ class ListsRepositoryImpl(
         ListProvider.MAL -> mal
     }
 
+    /** parity wave B (16 §3.7, contract): the social layer (t) and the readlist sync (s) borrow the AniList / MAL token; null = not usable. */
+    override suspend fun accessToken(provider: ListProvider): String? = try {
+        if (isLinked(provider)) token(provider) else null
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
+
     /** A valid access token (MAL refreshes when expired); [AppError.Unknown] `oauth:expired` when the user must link again. */
     private suspend fun token(provider: ListProvider, forceRefresh: Boolean = false): String {
         val raw = secrets.get(SecretKeys.listToken(provider.id)) ?: throw AppException(AppError.Unknown(ListErrors.NOT_LINKED))

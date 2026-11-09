@@ -1,0 +1,8 @@
+{
+  "social.profile.title": "AniList profile",
+  "social.notifications.title": "Notifications",
+  "social.activity.title": "Activity",
+  "settings.social": "Social",
+  "settings.social.hint": "AniList notifications polling and what the details page shows from AniList. Profile and privacy are edited on anilist.co.",
+  "settings.social.placeholder": "Social settings"
+}

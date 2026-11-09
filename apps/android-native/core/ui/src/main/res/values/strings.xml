@@ -78,4 +78,32 @@
     <string name="list_remove">Remove from list</string>
     <string name="list_favorite">Favorite</string>
     <string name="list_queued_offline">Saved. It will sync when you are back online.</string>
+    <!-- parity wave B (docs/redesign/16 §3.10): shared keys of downloads (r), readers (s) and the shell. ui_wave_b_placeholder is for the
+         stubs of this wave only: no reference may remain when the wave closes. -->
+    <string name="ui_wave_b_placeholder">Coming in this wave</string>
+    <string name="nav_manga">Manga</string>
+    <string name="nav_novels">Novels</string>
+    <string name="nav_downloads">Downloads</string>
+    <string name="download_state_queued">Queued</string>
+    <string name="download_state_downloading">Downloading</string>
+    <string name="download_state_paused">Paused</string>
+    <string name="download_state_completed">Downloaded</string>
+    <string name="download_state_failed">Failed</string>
+    <string name="download_state_removing">Removing</string>
+    <string name="download_episode">Download episode</string>
+    <string name="download_season">Download season</string>
+    <string name="download_queued">Download added</string>
+    <string name="download_open">Downloads</string>
+    <string name="read_status_watching">Reading</string>
+    <string name="read_status_planning">Plan to read</string>
+    <string name="read_status_completed">Completed</string>
+    <string name="read_status_paused">On hold</string>
+    <string name="read_status_dropped">Dropped</string>
+    <string name="read_status_repeating">Rereading</string>
+    <string name="chapter_kind_manga">Manga</string>
+    <string name="chapter_kind_novel">Novel</string>
+    <string name="chapter_number">Chapter %1$s</string>
+    <string name="download_state_broken">Broken file</string>
+    <string name="nav_profile">Profile</string>
+    <string name="src_embed">Embed</string>
 </resources>

@@ -6,23 +6,32 @@ import app.tatakai.next.data.PROP_ANILIST_CLIENT_ID
 import app.tatakai.next.data.PROP_MAL_CLIENT_ID
 import app.tatakai.next.data.dataModule
 import app.tatakai.next.database.databaseModule
+import app.tatakai.next.discover.discoverModule
+import app.tatakai.next.download.downloadModule
 import app.tatakai.next.extensions.extensionsModule
 import app.tatakai.next.extensionserver.extensionServerModule
 import app.tatakai.next.feature.details.detailsModule
+import app.tatakai.next.feature.downloads.downloadsFeatureModule
 import app.tatakai.next.feature.extensions.extensionsFeatureModule
 import app.tatakai.next.feature.home.homeModule
 import app.tatakai.next.feature.library.libraryModule
 import app.tatakai.next.feature.link.linkFeatureModule
+import app.tatakai.next.feature.manga.mangaFeatureModule
+import app.tatakai.next.feature.novel.novelFeatureModule
 import app.tatakai.next.feature.search.searchModule
 import app.tatakai.next.feature.settings.settingsModule
+import app.tatakai.next.feature.social.socialFeatureModule
 import app.tatakai.next.feature.torrents.torrentsFeatureModule
 import app.tatakai.next.feature.you.youFeatureModule
 import app.tatakai.next.link.linkModule
+import app.tatakai.next.manga.mangaModule
 import app.tatakai.next.metadata.metadataModule
 import app.tatakai.next.network.networkModule
+import app.tatakai.next.novel.novelModule
 import app.tatakai.next.player.HistoryFlush
 import app.tatakai.next.player.mpv.mpvPlayerModule
 import app.tatakai.next.player.playerModule
+import app.tatakai.next.social.socialModule
 import app.tatakai.next.torrent.torrentModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
@@ -63,6 +72,11 @@ class TatakaiApplication : Application() {
                 torrentModule, mpvPlayerModule, torrentsFeatureModule, youFeatureModule,
                 // integrated extension server client (docs/redesign/13 §3.10)
                 extensionServerModule,
+                // parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.8): core modules of r / s / t (all after dataModule and
+                // extensionsModule, which they consume), then their feature modules. `getAll<AppDataWiper>()` of AppResetImpl and
+                // `getAll<ChapterDownloadSource>()` of DownloadsViewModel resolve lazily, so the order among these does not matter.
+                discoverModule, downloadModule, mangaModule, novelModule, socialModule,
+                downloadsFeatureModule, mangaFeatureModule, novelFeatureModule, socialFeatureModule,
             )
         }
     }

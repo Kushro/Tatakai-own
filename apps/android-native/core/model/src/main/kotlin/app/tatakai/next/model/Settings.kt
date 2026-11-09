@@ -61,10 +61,39 @@ data class AppSettings(
     val historySyncOverLink: Boolean = true,
     /** Worker q: the first-run wizard was completed (or skipped). The shell shows `OnboardingScreen` while false. */
     val onboardingDone: Boolean = false,
+    // --- parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.9); persisted by SettingsCodec (contract) ---
+    /** Worker r: web downloads (folder, concurrency, Wi-Fi only, storage limit, auto-download, auto-evict). */
+    val downloads: DownloadSettings = DownloadSettings(),
+    /** Worker r: local notification when a followed series airs an episode (`AiringRepository`). */
+    val airingReminders: Boolean = true,
+    /** Worker r: compare installed extensions with their repositories at app start (`ExtensionRepository.checkUpdates`). */
+    val extensionUpdateCheck: Boolean = true,
+    /** Worker s: manga reader (mode, fit, direction, loading, behaviour, keymap). */
+    val reader: ReaderSettings = ReaderSettings(),
+    /** Worker s: novel reader typography and flow. */
+    val novelReader: NovelReaderSettings = NovelReaderSettings(),
+    /** Worker s: narration engine (no API key here: `SecretKeys.ttsApiKey`). */
+    val tts: TtsSettings = TtsSettings(),
+    /** Worker s: separate title language for manga / novels (checklist manga.title-language). */
+    val mangaTitleLanguage: TitleLanguage = TitleLanguage.ROMAJI,
+    /** Worker t: poll AniList notifications (15 min + on foreground) and show the badge. */
+    val socialNotifications: Boolean = true,
+    /**
+     * Worker r (checklist settings.privacy.mature-content): how `isAdult` titles are presented once [showAdult] lets them in. Home, Search,
+     * Details and the manga home (s) all read it.
+     */
+    val matureContent: MatureContentMode = MatureContentMode.WARN,
 ) {
     companion object {
         const val DEFAULT_PALETTE_ID = "tatakai-violet"
         val DEFAULT_PROVIDER_PRIORITY: List<String> = listOf("anilist", "anizip", "kitsu")
+
+        /**
+         * parity wave B (16 §3.1, worker r, checklist settings.metadata.extra-providers): every metadata provider the app knows. Ids absent
+         * from [providerPriority] are disabled; Settings › Metadatos lets the user enable / order them. `mal` / `shikimori` / `tenrai` are
+         * `MetadataProvider`s of :core:metadata (a provider that no longer answers is dropped by r with a note in KNOWN-ISSUES).
+         */
+        val KNOWN_PROVIDER_IDS: List<String> = listOf("anilist", "anizip", "kitsu", "mal", "shikimori", "tenrai")
     }
 }
 
@@ -79,6 +108,13 @@ enum class AppLanguage(val tag: String?) { SYSTEM(null), EN("en"), ES("es") }
 enum class TitleLanguage(val key: String) { ROMAJI("romaji"), ENGLISH("english"), NATIVE("native") }
 
 /**
+ * parity wave B (16 §3.9, worker r, checklist settings.privacy.mature-content): presentation of `isAdult` titles (classic Privacy ›
+ * Mature content). SHOW = as any other title; BLUR = blurred poster in rows / results until tapped; WARN = confirmation dialog before
+ * opening the title (once per title, remembered privately by the screen). Persisted by SettingsCodec as the enum name.
+ */
+enum class MatureContentMode(val id: String) { SHOW("show"), BLUR("blur"), WARN("warn") }
+
+/**
  * Sections of the single Settings screen (prototype order) + the Torrents subpage. Deep links: `Route.SettingsSection(section)`.
  * 2026-11-09 amendment: the hosted-backend `ACCOUNT` section is gone; [ACCOUNTS] (AniList / MAL) takes its place in the order.
  */
@@ -91,6 +127,12 @@ enum class SettingsSection(val id: String) {
     ACCOUNTS("accounts"),
     LINK("link"),
     TORRENTS("torrents"),
+
+    /** Parity wave B (worker r): web downloads (`DownloadsSettingsSection` of :feature:downloads). */
+    DOWNLOADS("downloads"),
+
+    /** Parity wave B (worker s): manga reader + novel reader + narrator (`ReaderSettingsSection` / `NovelReaderSettingsSection`). */
+    READER("reader"),
     DATA("data"),
     ABOUT("about"),
 }

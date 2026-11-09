@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="download_service_channel">Descargas</string>
+    <string name="download_service_channel_desc">Progreso de las descargas de episodios</string>
+    <string name="download_service_progress">Descargando %1$d episodios</string>
+    <string name="download_service_done">%1$s · episodio %2$d descargado</string>
+    <string name="download_service_failed">%1$s · episodio %2$d falló</string>
+    <string name="download_service_waiting_wifi">Esperando Wi-Fi</string>
+</resources>
