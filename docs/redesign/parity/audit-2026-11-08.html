@@ -1,0 +1,419 @@
+<title>Paridad Tatakai Next</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: ledger page. Two app identities side by side (classic = pink, Next = violet); status chips carry the diff. */
+:root{
+  --bg:#f6f4f7; --surface:#ffffff; --sunk:#ece8ef; --fg:#1d1a22; --muted:#625c6b; --line:#d9d3df;
+  --classic:#c23a6b; --next:#6a3fd1;
+  --miss:#b4232f; --miss-bg:#fbe4e6; --stub:#9a5b00; --stub-bg:#fdf0d9; --part:#6b6300; --part-bg:#f4f1cf;
+  --ok:#1f7a45; --ok-bg:#dff3e7; --ahead:#5b34c2; --ahead-bg:#ebe4fb; --cut:#58535f; --cut-bg:#e9e6ec;
+  --f-display:"Sora", "Segoe UI", system-ui, sans-serif; --f-body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif; --f-mono:"IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141218; --surface:#1d1a23; --sunk:#25212c; --fg:#ece8f2; --muted:#a59fb0; --line:#353040;
+  --classic:#f07aa3; --next:#a98bff;
+  --miss:#ff8f98; --miss-bg:#3a1a1f; --stub:#ffc266; --stub-bg:#3a2a12; --part:#e2d873; --part-bg:#33301a;
+  --ok:#74d69c; --ok-bg:#16301f; --ahead:#c3aeff; --ahead-bg:#2a2140; --cut:#bdb6c7; --cut-bg:#2a2730; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141218; --surface:#1d1a23; --sunk:#25212c; --fg:#ece8f2; --muted:#a59fb0; --line:#353040;
+  --classic:#f07aa3; --next:#a98bff;
+  --miss:#ff8f98; --miss-bg:#3a1a1f; --stub:#ffc266; --stub-bg:#3a2a12; --part:#e2d873; --part-bg:#33301a;
+  --ok:#74d69c; --ok-bg:#16301f; --ahead:#c3aeff; --ahead-bg:#2a2140; --cut:#bdb6c7; --cut-bg:#2a2730; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:56px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(30px,5vw,48px);font-weight:800;letter-spacing:-.02em}
+h2{font-size:26px;font-weight:700;letter-spacing:-.01em}
+h3{font-size:18px;font-weight:700}
+p{margin:0;max-width:72ch}
+.lede{color:var(--muted);font-size:17px}
+.eyebrow{font:500 12px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.c{color:var(--classic)} .n{color:var(--next)}
+header{display:grid;gap:16px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 20px;font:13px var(--f-mono);color:var(--muted)}
+section{display:grid;gap:20px}
+.verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.verdict div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;display:grid;gap:6px;min-width:0}
+.verdict b{font-family:var(--f-display);font-size:15px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:13px;color:var(--muted);align-items:center}
+.chip{display:inline-block;font:600 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;padding:5px 7px;border-radius:5px;white-space:nowrap}
+.miss{color:var(--miss);background:var(--miss-bg)} .stub{color:var(--stub);background:var(--stub-bg)} .part{color:var(--part);background:var(--part-bg)}
+.ok{color:var(--ok);background:var(--ok-bg)} .ahead{color:var(--ahead);background:var(--ahead-bg)} .cut{color:var(--cut);background:var(--cut-bg)}
+/* screen pairs */
+.pair{display:grid;gap:12px;padding-top:20px;border-top:1px solid var(--line)}
+.pair-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:baseline}
+.shots{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.shots{grid-template-columns:1fr}}
+figure{margin:0;display:grid;gap:6px;min-width:0}
+figcaption{font:12px var(--f-mono);color:var(--muted);display:flex;gap:8px;align-items:center}
+figcaption::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--dot)}
+figure.cl{--dot:var(--classic)} figure.nx{--dot:var(--next)}
+.frame{border:1px solid var(--line);border-radius:8px;overflow:auto;max-height:520px;background:var(--sunk)}
+.frame img{display:block;width:100%;height:auto;cursor:zoom-in}
+.frame button{all:unset;display:block;width:100%}
+.frame button:focus-visible{outline:2px solid var(--next);outline-offset:-2px}
+.notes{display:grid;gap:6px;margin:0;padding:0;list-style:none;font-size:14px}
+.notes li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}
+.notes li > span:first-child{margin-top:2px}
+.alt{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.alt figure .frame{max-height:220px}
+/* table */
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:760px;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+thead th{font:600 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--sunk);position:sticky;top:0}
+tbody tr.area th{font:700 14px var(--f-display);background:var(--sunk);padding-top:14px}
+td.st{white-space:nowrap}
+td small{color:var(--muted);font-family:var(--f-mono);font-size:12px}
+.filters{display:flex;flex-wrap:wrap;gap:8px}
+.filters button{font:500 13px var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:6px 12px;border-radius:999px;cursor:pointer}
+.filters button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.filters button:focus-visible{outline:2px solid var(--next);outline-offset:2px}
+.list{display:grid;gap:12px;margin:0;padding:0;list-style:none}
+.list li{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:4px}
+.list li b{font-family:var(--f-display)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
+code{font:13px var(--f-mono);background:var(--sunk);padding:1px 5px;border-radius:4px}
+/* lightbox */
+#lb{position:fixed;inset:0;background:rgba(10,8,14,.88);display:grid;place-items:start center;overflow:auto;z-index:20;padding:calc(16px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px))}
+#lb img{max-width:min(1400px,100%);height:auto;border-radius:6px}
+#lb button{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:calc(12px + env(safe-area-inset-right,0px));font:600 14px var(--f-body);padding:8px 14px;border-radius:999px;border:0;background:#fff;color:#111;cursor:pointer}
+@media (prefers-reduced-motion:no-preference){.frame img{transition:opacity .15s}.frame img:hover{opacity:.92}}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">Auditoría de paridad · escritorio Linux · 8 nov 2026</span>
+  <h1><span class="c">Tatakai</span> 7.0.0 frente a <span class="n">Tatakai Next</span></h1>
+  <p class="lede">Lo que el Tatakai clásico (Electron) hace y Tatakai Next (Rust + Dioxus + libmpv) todavía no. Las dos apps se probaron con las mismas extensiones instaladas (Toko 4.5.5, Latino 1.0.1, HentaiDB) y con un capítulo reproduciéndose muteado en cada una.</p>
+  <div class="meta"><span>Clásico: AppImage 7.0.0 · 51 capturas</span><span>Next: <code>tk-app</code> debug de <code>main</code> 1a12f42 · 19 capturas</span><span>+ inventario de código de ambos</span></div>
+</header>
+
+<section>
+  <h2>Resumen</h2>
+  <div class="verdict">
+    <div><b>Next ya cubre el núcleo de ver anime</b><p>Inicio, buscar, ficha, selector de fuentes, reproductor, historial, extensiones <code>.kai</code> y torrents funcionan. Reproducir con Toko anduvo a la primera y retomó en 6:23.</p></div>
+    <div><b>Lo que más falta</b><p>Listas y sincronización con AniList/MAL, descargas que no sean torrent, manga y novelas, ecosistemas de extensiones fuera de <code>.kai</code>, servidor de extensiones para el teléfono y todo lo social.</p></div>
+    <div><b>Botones que no hacen nada</b><p>Hay varios: filtros de búsqueda, Relacionados, Añadir a lista, captura de pantalla, Enviar a dispositivo, limpiar caché, logs y actualizaciones. Conviene ocultarlos o terminarlos antes de pedir paridad.</p></div>
+    <div><b>Dónde Next ya gana</b><p>mpv integrado con mpv-anime-build y Anime4K/FSR, mpv externo, cliente de torrents completo, ranking de fuentes con etiquetas de release y Tatakai Link con transcodificación para el teléfono.</p></div>
+  </div>
+  <div class="legend">
+    <span class="chip miss">Falta</span> no existe en Next
+    <span class="chip stub">Stub</span> el control existe pero no hace nada
+    <span class="chip part">Parcial</span> existe con menos alcance
+    <span class="chip ok">Paridad</span>
+    <span class="chip ahead">Next mejor</span>
+    <span class="chip cut">Fuera de plan</span> recortado o fusionado en <code>docs/redesign/04</code>
+  </div>
+</section>
+
+<section id="pantallas">
+  <h2>Pantalla por pantalla</h2>
+  <p class="lede">Izquierda el clásico, derecha Next. Toca una captura para verla completa; las de página entera se desplazan dentro del marco.</p>
+
+  <div class="pair">
+    <div class="pair-head"><h3>Inicio</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-01-home.jpg" alt="Inicio del clásico, página completa"></button></div><figcaption>Clásico · ~20 secciones</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-01-home.jpg" alt="Inicio de Next, página completa"></button></div><figcaption>Next · hero + 5 filas</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip part">Parcial</span><span>Next tiene En emisión, Esta temporada, Populares y Mejor valorados. Faltan Últimos episodios, Top 10 (hoy/semana/mes), Próximos estrenos, Más favoritos, Mangas en tendencia, Explorar géneros, filas infinitas por género y Porque viste X.</span></li>
+      <li><span class="chip stub">Stub</span><span>"Ver todo" de cada fila abre Buscar vacío. La UI sabe pintar filas de extensiones (<code>customHome</code>), pero el backend nunca las entrega.</span></li>
+    </ul>
+  </div>
+
+  <div class="pair">
+    <div class="pair-head"><h3>Buscar</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-02-search.jpg" alt="Búsqueda del clásico"></button></div><figcaption>Clásico · anime, manga, novelas, personajes</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-03-search-results.jpg" alt="Búsqueda de Next con resultados de frieren y ficha embebida"></button></div><figcaption>Next · lista + ficha embebida</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip stub">Stub</span><span>La hoja de filtros de Next tiene género, temporada y estado, pero solo aplica el año. Los chips de extensión (Latino, Toko) dan error "not wired". Manga y Novela están deshabilitados (M1).</span></li>
+      <li><span class="chip miss">Falta</span><span>Paginación (solo página 1), formato, tags de AniList, rangos de año/episodios/puntaje, orden, búsqueda por imagen (trace.moe) y por estudio.</span></li>
+      <li><span class="chip ahead">Next mejor</span><span>Vista lista-detalle en ventanas anchas y Ctrl+K desde cualquier pantalla.</span></li>
+    </ul>
+  </div>
+
+  <div class="pair">
+    <div class="pair-head"><h3>Ficha de anime</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-51-anime-details.jpg" alt="Ficha de Takopii no Genzai en el clásico"></button></div><figcaption>Clásico · Takopii no Genzai</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-12-details.jpg" alt="Ficha de Frieren en Next"></button></div><figcaption>Next · Frieren</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip stub">Stub</span><span>Relacionados no está conectado. "Añadir a lista" y la descarga de la cabecera muestran "Próximamente en M1". "Enviar a dispositivo" termina en "not wired" al confirmar.</span></li>
+      <li><span class="chip miss">Falta</span><span>Personajes y staff con seiyuus, recomendaciones, árbol de temporadas y orden de visionado, tráiler, cuenta regresiva al próximo episodio, ficha técnica completa (estudio, fuente, puntaje medio, popularidad, tags con %), reseñas, comentarios y descargar temporada.</span></li>
+    </ul>
+  </div>
+
+  <div class="pair">
+    <div class="pair-head"><h3>Fuentes del episodio</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-04-watch-sources.jpg" alt="Panel de fuentes del clásico con lanzamientos de torrent"></button></div><figcaption>Clásico · 42 fuentes, torrents + servidores por idioma</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-16-source-picker.jpg" alt="Selector de fuentes de Next"></button></div><figcaption>Next · 22 fuentes rankeadas</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ahead">Next mejor</span><span>Modo automático con failover, preferencias de subs/audio/calidad mínima, etiquetas de release (WEB/BD/REMUX, códec, pack), fiabilidad por fuente y descarga para después desde la fila.</span></li>
+      <li><span class="chip miss">Falta</span><span>Debrid (Real-Debrid, TorBox, AllDebrid, Premiumize), fuentes embed (iframe) y "Reportar problema".</span></li>
+    </ul>
+  </div>
+
+  <div class="pair">
+    <div class="pair-head"><h3>Reproductor</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-03-watch.jpg" alt="Reproductor del clásico con Grand Blue S3"></button></div><figcaption>Clásico · Grand Blue S3 EP5, muteado</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-18-player-tatakai.jpg" alt="Reproductor de Next con controles de Tatakai"></button></div><figcaption>Next · Frieren EP1, controles de Tatakai, muteado</figcaption></figure>
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-07-player-cfg-video.jpg" alt="Panel de video del clásico"></button></div><figcaption>Clásico · ajustes de video en el reproductor</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-17-player-uosc.jpg" alt="Reproductor de Next con interfaz uosc"></button></div><figcaption>Next · modo mejorado con uosc (tu ajuste actual)</figcaption></figure>
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-08-player-cfg-subs.jpg" alt="Panel de subtítulos del clásico"></button></div><figcaption>Clásico · subtítulos, idioma y traducción</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-19-player-menus.jpg" alt="Menús de calidad, velocidad y subtítulos de Next"></button></div><figcaption>Next · calidad, velocidad, subtítulos</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ahead">Next mejor</span><span>libmpv integrado, mpv-anime-build, mpv externo por IPC, presets Anime4K A/A+A/B/C y FSR (Ctrl+1..6), suavizado, rangos descargados en la barra cuando es torrent.</span></li>
+      <li><span class="chip miss">Falta</span><span>Estilo de subtítulos (tamaño, fuente, color, posición), desfase, cargar SRT/ASS, fuentes propias, subtítulo secundario, traducción de subtítulos, modo teatro, modo entorno, volumen estable, temporizador de sueño, bucle, episodio anterior, atajos reasignables y Discord RPC.</span></li>
+      <li><span class="chip part">Parcial</span><span>Next siempre muestra el botón de saltar intro y la cuenta de 10 s, pero en escritorio no tiene los interruptores "auto saltar intro" ni "auto siguiente".</span></li>
+      <li><span class="chip stub">Stub</span><span>El botón de captura de pantalla solo muestra "not wired".</span></li>
+    </ul>
+  </div>
+
+  <div class="pair">
+    <div class="pair-head"><h3>Biblioteca y descargas</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-13-downloads.jpg" alt="Biblioteca fuera de línea del clásico"></button></div><figcaption>Clásico · biblioteca offline, auto-descarga, importar</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-04-library.jpg" alt="Biblioteca de Next"></button></div><figcaption>Next · continuar + historial</figcaption></figure>
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-19-favorites.jpg" alt="Favoritos del clásico, requiere sesión"></button></div><figcaption>Clásico · favoritos y watchlist (requiere sesión)</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-05-torrents.jpg" alt="Cliente de torrents de Next"></button></div><figcaption>Next · cliente de torrents</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip miss">Falta</span><span>Watchlist por estados, favoritos, sincronización con AniList/MAL (M1), descarga de episodios HLS/webstream, biblioteca offline (importar videos, reparar, carpeta sincronizada), reglas de auto-descarga y añadir magnet o .torrent a mano.</span></li>
+      <li><span class="chip ahead">Next mejor</span><span>Cliente de torrents con Resumen, Archivos, Pares, Trackers, Biblioteca, Descargas y Ajustes, con aviso previo antes de activar descargas en segundo plano.</span></li>
+    </ul>
+  </div>
+
+  <div class="pair">
+    <div class="pair-head"><h3>Extensiones</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-11-extensions.jpg" alt="Hub de extensiones del clásico"></button></div><figcaption>Clásico · hub (catálogo sin configurar en este build)</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-06-extensions.jpg" alt="Extensiones de Next"></button></div><figcaption>Next · .kai con permisos y compatibilidad</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ahead">Next mejor</span><span>Pastilla de compatibilidad (Completa/Parcial), permisos, dominios, SHA-256 y registro por extensión.</span></li>
+      <li><span class="chip miss">Falta</span><span>Ecosistemas Stremio, Seanime, Sora, Mangayomi y Aniyomi/Mihon/CloudStream (vía Java), tienda y página de detalle, actualizaciones, preferencias por extensión, proveedores personalizados (<code>/x/…</code>) y cliente de servidores de extensiones.</span></li>
+    </ul>
+  </div>
+
+  <div class="pair">
+    <div class="pair-head"><h3>Servidor y teléfono</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-46-settings-app.jpg" alt="Ajustes de la app del clásico con Tatakai Extension Server"></button></div><figcaption>Clásico · Ajustes de la app (debrid, torrent, Extension Server)</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-07-link.jpg" alt="Tatakai Link en Next"></button></div><figcaption>Next · Tatakai Link</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip miss">Falta</span><span>El servidor de extensiones integrado (el teléfono usa las extensiones de la PC) no existe en Next escritorio; el doc 13 lo marca "Próximamente". También faltan túnel cloudflared, WARP, proxies y FlareSolverr.</span></li>
+      <li><span class="chip ahead">Next mejor</span><span>Link con QR, mTLS, dispositivos revocables y transcodificación FFmpeg + Anime4K a HLS para el teléfono.</span></li>
+    </ul>
+  </div>
+
+  <div class="pair">
+    <div class="pair-head"><h3>Ajustes</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-43-settings-player.jpg" alt="Modal de ajustes del clásico"></button></div><figcaption>Clásico · 15 categorías en un modal</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="img/next-08-settings.jpg" alt="Ajustes de Next, página completa"></button></div><figcaption>Next · 7 secciones en una página</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip miss">Falta</span><span>Cuenta completa, Profile Store, Privacidad, Integraciones, Traducción, Lector, Lector de novela, inicio con el sistema, almacenamiento y memoria, modo desarrollador y diagnósticos.</span></li>
+      <li><span class="chip stub">Stub</span><span>Limpiar caché, Abrir carpeta, Exportar historial, Buscar actualizaciones y Abrir logs están deshabilitados. Licencias solo muestra un aviso con el nombre de archivo.</span></li>
+      <li><span class="chip part">Parcial</span><span>Temas: 10 paletas con modo, contraste y AMOLED frente a ~27 temas del clásico. Idiomas: en/es (el clásico también trae ja).</span></li>
+    </ul>
+  </div>
+</section>
+
+<section id="sin-equivalente">
+  <h2>Pantallas del clásico sin equivalente en Next</h2>
+  <p class="lede">Rutas reales del clásico (<code>src/routes/AppRoutes.tsx</code>) que Next no tiene. Varias piden sesión iniciada y se ven como pantalla de acceso.</p>
+  <div class="alt">
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-22-manga.jpg" alt="Manga"></button></div><figcaption>Manga</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-23-novel.jpg" alt="Novelas"></button></div><figcaption>Novelas</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-31-translate.jpg" alt="Yomi traductor"></button></div><figcaption>Yomi (traducir manga)</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-15-trending.jpg" alt="Tendencias"></button></div><figcaption>Tendencias</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-16-calendar.jpg" alt="Calendario"></button></div><figcaption>Calendario</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-17-genre.jpg" alt="Géneros"></button></div><figcaption>Géneros</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-18-collections.jpg" alt="Colecciones"></button></div><figcaption>Colecciones</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-26-recommendations.jpg" alt="Recomendaciones"></button></div><figcaption>Recomendaciones / Atlas</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-21-community.jpg" alt="Comunidad"></button></div><figcaption>Comunidad</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-24-isshoni.jpg" alt="Ver juntos"></button></div><figcaption>Isshoni (ver juntos)</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-20-playlists.jpg" alt="Playlists"></button></div><figcaption>Playlists</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-25-tierlists.jpg" alt="Tier lists"></button></div><figcaption>Tier lists</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-29-custom-providers.jpg" alt="Proveedores personalizados"></button></div><figcaption>Proveedores personalizados</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-14-browse.jpg" alt="Explorar"></button></div><figcaption>Explorar</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-32-image-search.jpg" alt="Búsqueda por imagen"></button></div><figcaption>Búsqueda por imagen</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-39-status.jpg" alt="Estado del servicio"></button></div><figcaption>Estado del servicio</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-36-auth.jpg" alt="Iniciar sesión y registro"></button></div><figcaption>Registro / acceso</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-35-profile.jpg" alt="Perfil"></button></div><figcaption>Perfil</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-42-settings-translation.jpg" alt="Ajustes de traducción"></button></div><figcaption>Ajustes · Traducción</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-44-settings-reader.jpg" alt="Ajustes del lector"></button></div><figcaption>Ajustes · Lector</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-45-settings-novel.jpg" alt="Ajustes del lector de novelas"></button></div><figcaption>Ajustes · Lector de novela</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-48-settings-integrations.jpg" alt="Integraciones"></button></div><figcaption>Ajustes · Integraciones</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-49-settings-privacy.jpg" alt="Privacidad"></button></div><figcaption>Ajustes · Privacidad</figcaption></figure>
+    <figure class="cl"><div class="frame"><button type="button"><img loading="lazy" src="img/classic-40-settings-appearance.jpg" alt="Apariencia"></button></div><figcaption>Ajustes · Apariencia</figcaption></figure>
+  </div>
+</section>
+
+<section id="diferencial">
+  <h2>Diferencial completo</h2>
+  <p class="lede">Comparación contra Next escritorio. La columna Hito usa el plan de <code>docs/redesign/04-implementation-plan.md</code>; un guion significa que el plan no lo menciona.</p>
+  <div class="filters" role="group" aria-label="Filtrar por estado">
+    <button type="button" data-f="all" aria-pressed="true">Todo</button>
+    <button type="button" data-f="miss" aria-pressed="false">Falta</button>
+    <button type="button" data-f="stub" aria-pressed="false">Stub</button>
+    <button type="button" data-f="part" aria-pressed="false">Parcial</button>
+    <button type="button" data-f="ahead" aria-pressed="false">Next mejor</button>
+    <button type="button" data-f="cut" aria-pressed="false">Fuera de plan</button>
+  </div>
+  <div class="tbl">
+  <table id="diff">
+    <thead><tr><th>Feature</th><th>Clásico</th><th>Next escritorio</th><th>Estado</th><th>Hito</th></tr></thead>
+    <tbody>
+      <tr class="area"><th colspan="5">Inicio y descubrimiento</th></tr>
+      <tr data-s="part"><td>Secciones del inicio</td><td>~20 secciones + filas infinitas por género</td><td>Hero + 5 filas</td><td class="st"><span class="chip part">Parcial</span></td><td>—</td></tr>
+      <tr data-s="stub"><td>Filas de extensiones en el inicio</td><td>Slots <code>home-top/bottom</code></td><td>UI lista, backend no las produce</td><td class="st"><span class="chip stub">Stub</span></td><td>—</td></tr>
+      <tr data-s="cut"><td>Tendencias, Calendario, Géneros, Colecciones</td><td>Páginas propias</td><td>No existen</td><td class="st"><span class="chip cut">Fuera de plan</span></td><td><small>fusionadas</small></td></tr>
+      <tr data-s="miss"><td>Recomendaciones y Atlas</td><td>Perfil de gustos, explicaciones</td><td>No existe</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Páginas de personaje</td><td><code>/character/:name</code></td><td>No existe</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="stub"><td>Filtros de búsqueda</td><td>Género, tags, formato, estado, temporada, rangos, orden, 18+</td><td>Solo aplica año</td><td class="st"><span class="chip stub">Stub</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Paginación de resultados</td><td>Sí</td><td>Solo página 1</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="stub"><td>Buscar dentro de una extensión</td><td>Sí</td><td>Chip con error "not wired"</td><td class="st"><span class="chip stub">Stub</span></td><td>M1</td></tr>
+      <tr data-s="miss"><td>Búsqueda por imagen y por estudio</td><td>trace.moe, productor</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+
+      <tr class="area"><th colspan="5">Ficha</th></tr>
+      <tr data-s="stub"><td>Relacionados</td><td>Anime y manga relacionados</td><td>Pestaña sin conectar</td><td class="st"><span class="chip stub">Stub</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Personajes, staff, recomendaciones</td><td>Sí</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td><small>spec 02</small></td></tr>
+      <tr data-s="miss"><td>Temporadas y orden de visionado, tráiler, próximo episodio</td><td>Sí</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="stub"><td>Añadir a lista</td><td>Watchlist con estados</td><td>"Próximamente en M1"</td><td class="st"><span class="chip stub">Stub</span></td><td>M1</td></tr>
+      <tr data-s="part"><td>Descargar temporada</td><td>Modal: episodios, idioma, servidor, auto-descarga</td><td>Solo "descargar para después" en filas torrent</td><td class="st"><span class="chip part">Parcial</span></td><td>M1</td></tr>
+      <tr data-s="stub"><td>Enviar a dispositivo</td><td>—</td><td>Confirmación termina en "not wired"</td><td class="st"><span class="chip stub">Stub</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Reseñas, puntuaciones, comentarios</td><td>Supabase</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M3</td></tr>
+
+      <tr class="area"><th colspan="5">Fuentes</th></tr>
+      <tr data-s="ahead"><td>Ranking y failover de fuentes</td><td>Agrupadas por idioma, torrents con seeders</td><td>Auto/manual, etiquetas de release, fiabilidad, recordada por episodio</td><td class="st"><span class="chip ahead">Next mejor</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Debrid</td><td>Real-Debrid, TorBox, AllDebrid, Premiumize</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M2</td></tr>
+      <tr data-s="miss"><td>Fuentes embed (iframe)</td><td>EmbedPlayer con bloqueo de anuncios</td><td>No (solo HLS/MP4/torrent)</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+
+      <tr class="area"><th colspan="5">Reproductor</th></tr>
+      <tr data-s="ahead"><td>Motor de reproducción</td><td>HTML5 + reproductor externo</td><td>libmpv integrado, mpv-anime-build, mpv externo por IPC</td><td class="st"><span class="chip ahead">Next mejor</span></td><td>—</td></tr>
+      <tr data-s="ahead"><td>Escalado</td><td>Anime4K WebGL (Luz/Estándar/Alto)</td><td>Anime4K A, A+A, B, C y FSR en mpv</td><td class="st"><span class="chip ahead">Next mejor</span></td><td>—</td></tr>
+      <tr data-s="ok"><td>Velocidad, calidad, audio, subtítulos, PiP, pantalla completa, saltar intro</td><td>Sí</td><td>Sí</td><td class="st"><span class="chip ok">Paridad</span></td><td>—</td></tr>
+      <tr data-s="part"><td>Auto saltar intro, auto siguiente (interruptores)</td><td>Sí, con cuenta regresiva configurable</td><td>Botón y cuenta fija de 10 s, sin interruptores</td><td class="st"><span class="chip part">Parcial</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Episodio anterior</td><td>Botón y tecla J</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Estilo de subtítulos, desfase, cargar SRT/ASS, fuentes, subtítulo secundario</td><td>Sí</td><td>No (Android sí tiene estilo)</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Traducción de subtítulos</td><td>En vivo y precargada</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M3</td></tr>
+      <tr data-s="miss"><td>Teatro, entorno, volumen estable, temporizador de sueño, bucle</td><td>Sí</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Atajos reasignables</td><td>Sí</td><td>Fijos</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="stub"><td>Captura de pantalla</td><td>Sí</td><td>Botón sin conectar</td><td class="st"><span class="chip stub">Stub</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Discord Rich Presence</td><td>Navegando, viendo, pausado</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+
+      <tr class="area"><th colspan="5">Biblioteca, listas y descargas</th></tr>
+      <tr data-s="ok"><td>Continuar viendo e historial</td><td>Local + nube</td><td>Local + sync Supabase</td><td class="st"><span class="chip ok">Paridad</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Watchlist por estados y favoritos</td><td>Sí</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M1</td></tr>
+      <tr data-s="miss"><td>Sincronización AniList / MAL / MangaBaka</td><td>OAuth, importar/exportar, auto-sync</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M1</td></tr>
+      <tr data-s="cut"><td>Playlists y tier lists</td><td>Colaborativas, públicas, comentarios</td><td>No</td><td class="st"><span class="chip cut">Fuera de plan</span></td><td><small>fusionadas</small></td></tr>
+      <tr data-s="ahead"><td>Cliente de torrents</td><td>WebTorrent con panel de sesión</td><td>librqbit con Resumen, Archivos, Pares, Trackers, Biblioteca, Descargas, Ajustes</td><td class="st"><span class="chip ahead">Next mejor</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Descargar episodios HLS/webstream</td><td>Gestor con checkpoints y recuperación</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="cut"><td>Biblioteca offline (importar, reparar, carpeta)</td><td>Sí</td><td>No</td><td class="st"><span class="chip cut">Fuera de plan</span></td><td><small>fusionada</small></td></tr>
+      <tr data-s="miss"><td>Reglas de auto-descarga</td><td>Perfiles, simular, revisar cada 30 min</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Añadir magnet o .torrent a mano</td><td>Modal + alineación de episodios</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="part"><td>Ajustes de torrent</td><td>Programación de ancho de banda, trackers propios, límite de caché, precarga del siguiente</td><td>Límites, puerto, UPnP, DHT/PEX/LSD, carpeta, borrar o conservar</td><td class="st"><span class="chip part">Parcial</span></td><td>—</td></tr>
+
+      <tr class="area"><th colspan="5">Extensiones</th></tr>
+      <tr data-s="ahead"><td>Gestión de .kai</td><td>Instalar, activar, auditoría</td><td>Compatibilidad, permisos, dominios, SHA-256, registro</td><td class="st"><span class="chip ahead">Next mejor</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Otros ecosistemas</td><td>Stremio, Seanime, Sora, Mangayomi, Aniyomi/Mihon/CloudStream</td><td>Solo .kai en QuickJS</td><td class="st"><span class="chip miss">Falta</span></td><td>M3</td></tr>
+      <tr data-s="cut"><td>Tienda y página de detalle</td><td>Catálogo (apagado en este AppImage)</td><td>No</td><td class="st"><span class="chip cut">Fuera de plan</span></td><td><small>marketplace</small></td></tr>
+      <tr data-s="miss"><td>Actualizaciones y preferencias por extensión</td><td>Hoja de actualizaciones, ajustes</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Proveedores personalizados (<code>/x/…</code>)</td><td>Home, info, ver y leer por proveedor</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+
+      <tr class="area"><th colspan="5">Servidor y red</th></tr>
+      <tr data-s="miss"><td>Servidor de extensiones para el teléfono</td><td>Integrado en Electron (PR #8)</td><td>No ("Próximamente")</td><td class="st"><span class="chip miss">Falta</span></td><td><small>doc 13</small></td></tr>
+      <tr data-s="ahead"><td>Tatakai Link</td><td>—</td><td>QR, mTLS, transcodificación + Anime4K a HLS</td><td class="st"><span class="chip ahead">Next mejor</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Túnel cloudflared, WARP, proxies, FlareSolverr</td><td>Sí</td><td>WebView oculta para Cloudflare</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+
+      <tr class="area"><th colspan="5">Cuenta y social</th></tr>
+      <tr data-s="part"><td>Iniciar sesión</td><td>Email/contraseña, OTP, sesión persistente</td><td>Email/contraseña; la sesión se pierde al reiniciar</td><td class="st"><span class="chip part">Parcial</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Registro, recuperar contraseña, onboarding, asistente inicial</td><td>Sí</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Perfil, seguir, notificaciones</td><td>Sí</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M2</td></tr>
+      <tr data-s="miss"><td>Comunidad, foros, comentarios</td><td>Sí</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M3</td></tr>
+      <tr data-s="miss"><td>Ver juntos (Isshoni)</td><td>Salas, chat, encuestas, cola</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M2</td></tr>
+      <tr data-s="miss"><td>Estadísticas y Wrapped</td><td>Sí</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M3</td></tr>
+
+      <tr class="area"><th colspan="5">Manga y novelas</th></tr>
+      <tr data-s="miss"><td>Manga: inicio, ficha, capítulos, lector</td><td>Sí, con descargas</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M1</td></tr>
+      <tr data-s="miss"><td>Novelas: lector y narración TTS</td><td>Sí (KittenTTS, OpenAI, ElevenLabs)</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M1</td></tr>
+      <tr data-s="miss"><td>Yomi: traducción de manga</td><td>Editor con modelos en la nube o locales</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>M3</td></tr>
+
+      <tr class="area"><th colspan="5">App y sistema</th></tr>
+      <tr data-s="miss"><td>Bandeja, actualizador, iniciar con el sistema</td><td>Sí</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="stub"><td>Limpiar caché, abrir carpeta, exportar historial, abrir logs, buscar actualizaciones</td><td>Sí</td><td>Botones deshabilitados</td><td class="st"><span class="chip stub">Stub</span></td><td>—</td></tr>
+      <tr data-s="part"><td>Temas</td><td>~27 temas + temas de extensiones</td><td>10 paletas, modo, contraste, AMOLED</td><td class="st"><span class="chip part">Parcial</span></td><td>—</td></tr>
+      <tr data-s="part"><td>Idiomas</td><td>en, es, ja</td><td>en, es</td><td class="st"><span class="chip part">Parcial</span></td><td>—</td></tr>
+      <tr data-s="miss"><td>Almacenamiento, memoria, diagnósticos, consola dev</td><td>Sí</td><td>No</td><td class="st"><span class="chip miss">Falta</span></td><td>—</td></tr>
+      <tr data-s="cut"><td>Modo TV con IPTV, panel de admin</td><td>Sí</td><td>No</td><td class="st"><span class="chip cut">Fuera de plan</span></td><td><small>TV: M2</small></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="hallazgos">
+  <h2>Cosas que vi durante la prueba</h2>
+  <div class="cols">
+    <div style="display:grid;gap:12px">
+      <h3 class="n">Tatakai Next</h3>
+      <ul class="list">
+        <li><b>No respetó el idioma de subtítulos</b><span>Con preferencia de subtítulos ES, Frieren EP1 desde Toko · anizone arrancó con subtítulos desactivados, aunque el stream traía ES-419 y ES.</span></li>
+        <li><b>La fuente recordada ganó a las preferencias</b><span>El selector tenía elegida una fuente torrent recordada de una sesión anterior: un pack 1–28 de 44,4 GB, con doblaje RU y sin subtítulos, aunque las preferencias pedían audio JA y subs ES. La recomendada era anizone.</span></li>
+        <li><b>Fuentes lentas</b><span>Pasaron más de 40 s hasta que la ficha mostró las 22 fuentes. Coincide con el problema conocido de dominios caídos en la ruta torrent de Toko.</span></li>
+        <li><b>Reproducción correcta</b><span>Retomó en 6:23 con uosc y con los controles de Tatakai. El cambio de controles se aplicó al reiniciar el episodio.</span></li>
+      </ul>
+    </div>
+    <div style="display:grid;gap:12px">
+      <h3 class="c">Tatakai clásico 7.0.0</h3>
+      <ul class="list">
+        <li><b>No cierra con SIGTERM</b><span>El proceso principal se quedó colgado en los handlers de <code>before-quit</code> y hubo que matarlo con SIGKILL para relanzarlo.</span></li>
+        <li><b>Catálogo de extensiones apagado</b><span>El hub muestra "Servicio de extensión no configurado" porque el AppImage no trae <code>VITE_EXTENSION_API_URL</code>. Las extensiones instaladas siguen funcionando.</span></li>
+        <li><b>El modal de Ajustes queda pegado</b><span>Al entrar por <code>/settings</code> el modal se abre sobre Inicio y sigue abierto al navegar a otras rutas.</span></li>
+        <li><b>Reproducción correcta</b><span>Grand Blue S3 EP5 reprodujo desde un servidor HLS de Toko, con 42 fuentes ya listadas.</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="metodo">
+  <h2>Cómo se hizo</h2>
+  <p>Las dos apps corrieron en la pantalla secundaria (DP-2) con sus datos reales. El clásico se relanzó con <code>--remote-debugging-port</code> y sus páginas se capturaron enteras por CDP; Next corrió con <code>WEBKIT_INSPECTOR_HTTP_SERVER</code> y se capturó por el inspector remoto de WebKit. El video de mpv no sale en esas capturas, así que el reproductor se fotografió desde el escritorio. El audio estuvo silenciado todo el tiempo y ambos reproductores quedaron en pausa. Los inventarios de features salen de leer <code>src/</code>, <code>desktop/</code> y <code>apps/</code>, y se cruzaron con lo visto en pantalla. Next Android no se probó: la tabla compara solo escritorio.</p>
+</section>
+</div>
+
+<div id="lb" hidden><button type="button" id="lbClose">Cerrar</button><img id="lbImg" alt=""></div>
+
+<script>
+(function(){
+  var lb=document.getElementById('lb'), img=document.getElementById('lbImg'), last=null;
+  function close(){lb.hidden=true; img.removeAttribute('src'); if(last) last.focus();}
+  document.querySelectorAll('.frame button').forEach(function(b){
+    b.addEventListener('click',function(){var i=b.querySelector('img'); last=b; img.src=i.src; img.alt=i.alt; lb.hidden=false; lb.scrollTop=0; document.getElementById('lbClose').focus();});
+  });
+  document.getElementById('lbClose').addEventListener('click',close);
+  lb.addEventListener('click',function(e){if(e.target===lb) close();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!lb.hidden) close();});
+  var btns=document.querySelectorAll('.filters button'), rows=document.querySelectorAll('#diff tbody tr');
+  btns.forEach(function(b){b.addEventListener('click',function(){
+    var f=b.dataset.f; btns.forEach(function(x){x.setAttribute('aria-pressed', String(x===b));});
+    rows.forEach(function(r){ if(r.classList.contains('area')) return; r.hidden = !(f==='all'||r.dataset.s===f); });
+    document.querySelectorAll('#diff tbody tr.area').forEach(function(a){
+      var n=a.nextElementSibling, any=false; while(n && !n.classList.contains('area')){ if(!n.hidden) any=true; n=n.nextElementSibling; } a.hidden=!any; });
+  });});
+})();
+</script>

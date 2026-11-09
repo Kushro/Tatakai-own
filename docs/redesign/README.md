@@ -17,6 +17,7 @@ Orden de precedencia cuando dos textos discrepan: **`06-user-decisions.md` > `05
 | [10-wave3-torrents-contract.md](10-wave3-torrents-contract.md) | Contrato de la ola 3: torrents en desktop (librqbit 9.1.0, streaming HTTP local, cliente estilo Hayase, etiquetas de release, batches), propiedad A-F |
 | [11-android-torrents-design.md](11-android-torrents-design.md) | Diseño de torrents en Android (pantallas, flujos, modelo compartido, motor, servicio, almacenamiento) |
 | [12-android-wave-contract.md](12-android-wave-contract.md) | Contrato de la ola Android (`android/revamp`): paridad con el prototipo teléfono/tablet, WebView para extensiones, motores Media3/libmpv/externo, torrents con libtorrent4j, propiedad a-f |
+| [14-parity-plan.md](14-parity-plan.md) | Plan de paridad clásico → Next en 2 olas de 10 programadores (7 desktop + 3 Android): contrato → programadores → integración → builds → auditoría → cierre por ola; testing y re-revisión de paridad al final; checklist de paridad |
 
 ## Qué existe después de B1 (`m3e/foundation`)
 
