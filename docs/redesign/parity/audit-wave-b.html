@@ -1,0 +1,336 @@
+<title>Paridad Ola B</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: ledger page. Two app identities side by side (classic = pink, Next = violet); status chips carry the diff. */
+:root{
+  --bg:#f6f4f7; --surface:#ffffff; --sunk:#ece8ef; --fg:#1d1a22; --muted:#625c6b; --line:#d9d3df;
+  --classic:#c23a6b; --next:#6a3fd1;
+  --miss:#b4232f; --miss-bg:#fbe4e6; --stub:#9a5b00; --stub-bg:#fdf0d9; --part:#6b6300; --part-bg:#f4f1cf;
+  --ok:#1f7a45; --ok-bg:#dff3e7; --ahead:#5b34c2; --ahead-bg:#ebe4fb; --cut:#58535f; --cut-bg:#e9e6ec;
+  --f-display:"Sora", "Segoe UI", system-ui, sans-serif; --f-body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif; --f-mono:"IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#141218; --surface:#1d1a23; --sunk:#25212c; --fg:#ece8f2; --muted:#a59fb0; --line:#353040;
+  --classic:#f07aa3; --next:#a98bff;
+  --miss:#ff8f98; --miss-bg:#3a1a1f; --stub:#ffc266; --stub-bg:#3a2a12; --part:#e2d873; --part-bg:#33301a;
+  --ok:#74d69c; --ok-bg:#16301f; --ahead:#c3aeff; --ahead-bg:#2a2140; --cut:#bdb6c7; --cut-bg:#2a2730; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#141218; --surface:#1d1a23; --sunk:#25212c; --fg:#ece8f2; --muted:#a59fb0; --line:#353040;
+  --classic:#f07aa3; --next:#a98bff;
+  --miss:#ff8f98; --miss-bg:#3a1a1f; --stub:#ffc266; --stub-bg:#3a2a12; --part:#e2d873; --part-bg:#33301a;
+  --ok:#74d69c; --ok-bg:#16301f; --ahead:#c3aeff; --ahead-bg:#2a2140; --cut:#bdb6c7; --cut-bg:#2a2730; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding-block:40px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:56px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(30px,5vw,48px);font-weight:800;letter-spacing:-.02em}
+h2{font-size:26px;font-weight:700;letter-spacing:-.01em}
+h3{font-size:18px;font-weight:700}
+p{margin:0;max-width:72ch}
+.lede{color:var(--muted);font-size:17px}
+.eyebrow{font:500 12px/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.c{color:var(--classic)} .n{color:var(--next)}
+header{display:grid;gap:16px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 20px;font:13px var(--f-mono);color:var(--muted)}
+section{display:grid;gap:20px}
+.verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.verdict div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;display:grid;gap:6px;min-width:0}
+.verdict b{font-family:var(--f-display);font-size:15px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:13px;color:var(--muted);align-items:center}
+.chip{display:inline-block;font:600 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;padding:5px 7px;border-radius:5px;white-space:nowrap}
+.miss{color:var(--miss);background:var(--miss-bg)} .stub{color:var(--stub);background:var(--stub-bg)} .part{color:var(--part);background:var(--part-bg)}
+.ok{color:var(--ok);background:var(--ok-bg)} .ahead{color:var(--ahead);background:var(--ahead-bg)} .cut{color:var(--cut);background:var(--cut-bg)}
+/* screen pairs */
+.pair{display:grid;gap:12px;padding-top:20px;border-top:1px solid var(--line)}
+.pair-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:baseline}
+.shots{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.shots{grid-template-columns:1fr}}
+figure{margin:0;display:grid;gap:6px;min-width:0}
+figcaption{font:12px var(--f-mono);color:var(--muted);display:flex;gap:8px;align-items:center}
+figcaption::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--dot)}
+figure.cl{--dot:var(--classic)} figure.nx{--dot:var(--next)}
+.frame{border:1px solid var(--line);border-radius:8px;overflow:auto;max-height:520px;background:var(--sunk)}
+.frame img{display:block;width:100%;height:auto;cursor:zoom-in}
+.frame button{all:unset;display:block;width:100%}
+.frame button:focus-visible{outline:2px solid var(--next);outline-offset:-2px}
+.notes{display:grid;gap:6px;margin:0;padding:0;list-style:none;font-size:14px}
+.notes li{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}
+.notes li > span:first-child{margin-top:2px}
+.alt{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.alt figure .frame{max-height:220px}
+/* table */
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:760px;font-size:14px}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+thead th{font:600 11px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--sunk);position:sticky;top:0}
+tbody tr.area th{font:700 14px var(--f-display);background:var(--sunk);padding-top:14px}
+td.st{white-space:nowrap}
+td small{color:var(--muted);font-family:var(--f-mono);font-size:12px}
+.filters{display:flex;flex-wrap:wrap;gap:8px}
+.filters button{font:500 13px var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:6px 12px;border-radius:999px;cursor:pointer}
+.filters button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.filters button:focus-visible{outline:2px solid var(--next);outline-offset:2px}
+.list{display:grid;gap:12px;margin:0;padding:0;list-style:none}
+.list li{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:4px}
+.list li b{font-family:var(--f-display)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:24px}
+code{font:13px var(--f-mono);background:var(--sunk);padding:1px 5px;border-radius:4px}
+/* lightbox */
+#lb{position:fixed;inset:0;background:rgba(10,8,14,.88);display:grid;place-items:start center;overflow:auto;z-index:20;padding:calc(16px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px))}
+#lb img{max-width:min(1400px,100%);height:auto;border-radius:6px}
+#lb button{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));right:calc(12px + env(safe-area-inset-right,0px));font:600 14px var(--f-body);padding:8px 14px;border-radius:999px;border:0;background:#fff;color:#111;cursor:pointer}
+@media (prefers-reduced-motion:no-preference){.frame img{transition:opacity .15s}.frame img:hover{opacity:.92}}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">Re-revisión F8 · escritorio Linux · 9 nov 2026</span>
+  <h1>Ola B de paridad: <span class="n">Tatakai Next</span> frente al <span class="c">clásico</span></h1>
+  <p class="lede">Humo end-to-end de <code>tk-app</code> (build debug de <code>parity/wave-b</code>) con <code>scripts/parity/wk.mjs</code>, y el estado de <code>contracts/parity/checklist.json</code> tras la auditoría F4. Perfil limpio, sin cuentas, sin extensiones, sin dispositivos emparejados.</p>
+  <div class="meta"><span>Next: 46 capturas en <code>wave-b/next/</code></span><span>Clásico: no se lanzó</span><span>Android: build rojo, sin humo</span></div>
+</header>
+
+<section>
+  <h2>Resumen</h2>
+  <div class="verdict">
+    <div><b>Escritorio compila y arranca</b><p>Inicio, calendario, Buscar con filtros y paginación, personaje, manga (ficha y lector, MangaDex real), novelas, Ajustes, torrents, extensiones y el servidor integrado responden con los <code>data-*</code> del contrato.</p></div>
+    <div><b>Dos fallos reales</b><p>Los extras de la ficha (información, personajes, relacionados, recomendaciones, orden, tráiler, próximo episodio) fallan por <code>idMal: null</code> en la consulta de AniList, y el asistente no persiste <code>setup_done</code> hasta el siguiente cambio de ajustes.</p></div>
+    <div><b>Mucho queda manual</b><p>Sin extensiones ni cuentas no se pudo ejercitar reproducción, descargas, lector de novela, TTS, social, emparejado de servidores ni Link. Se anotan como "manual", no como verificados.</p></div>
+    <div><b>Checklist</b><p>Tras F4 ningún id de las olas A y B está en <code>stub</code> ni <code>missing</code> (299 verified, 64 baseline, 121 out de 484). Esta pasada de humo contradice ese estado para los ids de la ficha.</p></div>
+  </div>
+  <div class="legend">
+    <span class="chip ok">Verificado</span> visto funcionando en esta pasada
+    <span class="chip miss">Falla</span> visto roto
+    <span class="chip part">Parcial</span>
+    <span class="chip cut">Manual</span> no ejercitado: necesita cuenta, extensión o dispositivo
+  </div>
+</section>
+
+<section id="pantallas">
+  <h2>Pantalla por pantalla</h2>
+  <p class="lede">A la izquierda iría el clásico; esta vez no se lanzó (en este repo <code>node_modules/electron</code> no trae el binario y instalarlo exige red). Toca una captura para verla completa.</p>
+  <div class="pair">
+    <div class="pair-head"><h3>Asistente inicial</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s01-setup.png" alt="Next · primer paso"></button></div><figcaption>Next · primer paso</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s02-setup-done.png" alt="Next · último paso"></button></div><figcaption>Next · último paso</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span>Perfil nuevo arranca en el asistente; seis <code>Siguiente</code> recorren appearance, player, downloads, extensions, accounts y system hasta <code>done</code>; <code>Empezar a ver</code> abre Inicio.</span></li><li><span class="chip miss">Falla</span><span>Al terminar el asistente <code>ui-settings.json</code> no se escribió: cerrar la app sin cambiar ningún otro ajuste volvió a mostrar el asistente. Tras cambiar otro ajuste el archivo trae <code>setup_done: true</code> y el reinicio ya no lo muestra.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Inicio</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s03-home.png" alt="Next · hero, proveedores y Últimos episodios"></button></div><figcaption>Next · hero, proveedores y Últimos episodios</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s04-home-full.png" alt="Next · página completa"></button></div><figcaption>Next · página completa</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s05-browse-genre.png" alt="Next · chip de género → Explorar"></button></div><figcaption>Next · chip de género → Explorar</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span><code>[data-row]</code>: latest (24 tarjetas con <code>data-episode</code>), top10 (10 <code>data-rank</code>, rangos Hoy / Semana / Mes), airing, seasonal, popular, top_rated, upcoming, most-favorite, calendar, genres. Nube de géneros con 18 chips; <code>Acción</code> abre "Género: Acción" con 5000 resultados. Al llegar al final se añaden <code>genre:Action</code> y <code>genre:Adventure</code>.</span></li><li><span class="chip cut">Manual</span><span><code>home.because-you-watched</code> (necesita historial), <code>home.torrent-activity</code> (necesita un torrent activo) y "Seguidos con novedades": sin datos en el perfil de prueba.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Calendario y seguimiento</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s06-calendar.png" alt="Next · calendario semanal"></button></div><figcaption>Next · calendario semanal</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s39-calendar-tracked.png" alt="Next · tras Seguir una serie"></button></div><figcaption>Next · tras Seguir una serie</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span><code>[data-calendar-week]</code> con 7 columnas; <code>Seguir</code> en la ficha pone <code>data-tracked="true"</code> y la serie aparece marcada en el calendario.</span></li><li><span class="chip cut">Manual</span><span>Aviso de recordatorio (<code>data-reminder</code>): requiere una emisión próxima dentro de <code>reminder_minutes</code>.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Recomendaciones y Atlas</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s35-recs.png" alt="Next · Para ti"></button></div><figcaption>Next · Para ti</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s36-atlas.png" alt="Next · Atlas"></button></div><figcaption>Next · Atlas</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip cut">Manual</span><span>Sin historial el perfil de prueba muestra el estado vacío ("Primero mira algo"); no hay <code>[data-score]</code> ni <code>[data-atlas-points]</code> que contar. La página se alcanza desde Ajustes › Inicio y descubrir; no hay entrada en el rail.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Buscar</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s30-search.png" alt="Next · Buscar"></button></div><figcaption>Next · Buscar</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s31-search-filters.png" alt="Next · hoja de filtros"></button></div><figcaption>Next · hoja de filtros</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s32-search-results.png" alt="Next · resultados con Cargar más"></button></div><figcaption>Next · resultados con Cargar más</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s33-search-characters.png" alt="Next · pestaña Personajes"></button></div><figcaption>Next · pestaña Personajes</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span>Filtro Acción → 30 tarjetas, <code>data-page</code> 1 y, tras <code>Cargar más</code>, 2; sin banner <code>not_wired</code>. Pestañas Anime / Personajes / Manga / Novela / Metadatos y feeds (Tendencias, En emisión, Próximamente, géneros…).</span></li><li><span class="chip part">Parcial</span><span><code>[data-filters]</code> no existe en la página de Buscar: el contrato lo usa para comprobar el filtro activo. La búsqueda de "Luffy" en Personajes devolvió primero resultados no relacionados con el texto.</span></li><li><span class="chip cut">Manual</span><span>Búsqueda por imagen (trace.moe) y por estudio, chip de extensión: no se ejercitaron (necesitan una URL externa o una extensión instalada).</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Personaje</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s34-character.png" alt="Next · Monkey D. Luffy"></button></div><figcaption>Next · Monkey D. Luffy</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span><code>[data-character-id="40"]</code>, 61 apariciones y 11 actores de voz.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Ficha de anime</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s07-details.png" alt="Next · One Piece"></button></div><figcaption>Next · One Piece</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s08-details-info.png" alt="Next · pestaña Información"></button></div><figcaption>Next · pestaña Información</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s09-details-related.png" alt="Next · Relacionados con errores"></button></div><figcaption>Next · Relacionados con errores</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s37-add-list.png" alt="Next · menú Añadir a lista"></button></div><figcaption>Next · menú Añadir a lista</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s38-download-sheet.png" alt="Next · hoja de descarga"></button></div><figcaption>Next · hoja de descarga</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip miss">Falla</span><span>Todos los extras de AniList fallan: Información, Personajes, Relacionados y orden de visionado muestran "21 was not found on AniList" y no existe ningún <code>[data-extra]</code>, <code>[data-next-airing]</code> ni <code>[data-trailer]</code>. Causa reproducida con curl: <code>id_vars</code> (<code>tk-core/src/metadata/anilist/details.rs</code>) envía <code>"idMal": null</code> junto a <code>id</code> y AniList responde 404 "Not Found."; la misma consulta sin <code>idMal</code> devuelve 200. Afecta <code>details.facts</code>, <code>related</code>, <code>characters-staff</code>, <code>recommendations</code>, <code>seasons-watch-order</code>, <code>next-episode</code> y <code>trailer</code>.</span></li><li><span class="chip ok">Verificado</span><span><code>Seguir</code> → <code>data-tracked="true"</code>; <code>Añadir a lista</code> abre estados (Viendo…Repitiendo) y "Conectar una cuenta"; la hoja de descarga trae <code>[data-episodes-selectable]</code>, "0 ya descargados o en cola", audio y servidor; el bloque de reseñas pide conectar AniList (<code>data-social="disconnected"</code>).</span></li><li><span class="chip cut">Manual</span><span>Sin extensión instalada no hay fuentes ("No hay ninguna fuente instalada"): no se pudo encolar la descarga ni probar <code>Enviar a dispositivo</code>.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Reproductor</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      
+    </div>
+    <ul class="notes">
+      <li><span class="chip cut">Manual</span><span>No se probó. El perfil de prueba no tiene extensiones ni fuentes, y la política del arnés prohíbe instalar extensiones desde la red. Quedan sin comprobar todos los IDs <code>player.*</code> de la ola A (subtítulos preferidos, estilo, traducción, captura, atajos, auto-siguiente, temporizador, Discord) y <code>sources.embed-sniffer*</code> en reproducción.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Manga</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s10-manga.png" alt="Next · Inicio de Manga"></button></div><figcaption>Next · Inicio de Manga</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s12-manga-details.png" alt="Next · ficha de manga"></button></div><figcaption>Next · ficha de manga</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s13-manga-reader.png" alt="Next · lector paginado"></button></div><figcaption>Next · lector paginado</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s14-manga-reader-settings.png" alt="Next · ajustes del lector"></button></div><figcaption>Next · ajustes del lector</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s15-manga-webtoon.png" alt="Next · modo webtoon"></button></div><figcaption>Next · modo webtoon</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span>Inicio con 144 tarjetas en 9 filas; ficha de Chainsaw Man con proveedor MangaDex (ES, 206 capítulos), <code>[data-best]</code>, <code>[data-anime-link]</code>; <code>Leyendo</code> → <code>data-read-status="reading"</code>. El lector abre sin rail, <code>.tk-reader[data-mode="paged"]</code>, <code>ArrowLeft</code> avanza <code>data-page</code>, 55 páginas cargan por <code>tkpage://</code>, y el ajuste Webtoon cambia <code>data-mode</code>.</span></li><li><span class="chip cut">Manual</span><span>Descarga de capítulos y lectura sin red (<code>data-offline</code>); retomar <code>data-page</code> al reabrir.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Novelas</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s11-novels.png" alt="Next · Inicio de Novelas"></button></div><figcaption>Next · Inicio de Novelas</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span>Inicio con 60 tarjetas, filtros Estado / Origen / Orden y géneros.</span></li><li><span class="chip cut">Manual</span><span>Ficha, lector, descarga y TTS necesitan una extensión de novelas. Ajustes muestra <code>data-kitten="missing"</code>, <code>data-kitten-runtime="missing"</code> y <code>data-kitten-phonemizer="missing"</code> (esta máquina no tiene <code>espeak-ng</code>); no se pulsó <code>Instalar</code> porque descarga runtime y modelo de la red.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Descargas</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s18-downloads.png" alt="Next · Descargas"></button></div><figcaption>Next · Descargas</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s44-downloads-manga.png" alt="Next · pestaña Manga"></button></div><figcaption>Next · pestaña Manga</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s43-downloads-local.png" alt="Next · Biblioteca local"></button></div><figcaption>Next · Biblioteca local</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span>Pestañas Activas, Historial, Anime, Manga, Novelas y Biblioteca local; <code>data-storage-limit</code>, <code>data-auto-download</code> y botón <code>Abrir carpeta</code> presentes.</span></li><li><span class="chip cut">Manual</span><span>Cola, pausa / reanudar tras reinicio, verificación de integridad, auto-descarga y emparejado de la biblioteca local: requieren fuentes o una carpeta con vídeos.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Torrents y debrid</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s20-torrents.png" alt="Next · Torrents"></button></div><figcaption>Next · Torrents</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s45-debrid.png" alt="Next · Debrid"></button></div><figcaption>Next · Debrid</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s46-torrent-settings.png" alt="Next · Ajustes de torrents"></button></div><figcaption>Next · Ajustes de torrents</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span>Subpáginas Resumen, Archivos, Pares, Trackers, Biblioteca, Descargas, Historial, Debrid y Ajustes; 4 <code>[data-service]</code> (real_debrid, torbox, alldebrid, premiumize) todos desconectados; <code>[name="trackers"]</code>, <code>[data-schedule]</code>, <code>[name="cache_limit_gib"]</code> y <code>[data-preload-next]</code> existen.</span></li><li><span class="chip cut">Manual</span><span>Añadir un magnet, sesión / trackers de un torrent activo, claves debrid y <code>xdg-open magnet:</code>.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Extensiones</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s21-extensions.png" alt="Next · Instaladas"></button></div><figcaption>Next · Instaladas</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s23-ext-servers.png" alt="Next · Servidores"></button></div><figcaption>Next · Servidores</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s24-ext-stremio.png" alt="Next · Stremio"></button></div><figcaption>Next · Stremio</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s25-ext-repos.png" alt="Next · Repositorios"></button></div><figcaption>Next · Repositorios</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s26-ext-providers.png" alt="Next · Proveedores"></button></div><figcaption>Next · Proveedores</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s27-ext-updates.png" alt="Next · Actualizaciones"></button></div><figcaption>Next · Actualizaciones</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span>Pestañas Instaladas, Servidores, Stremio, Repositorios, Proveedores y Actualizaciones, <code>Desactivar todas</code> con <code>[data-kill-switch="off"]</code>.</span></li><li><span class="chip cut">Manual</span><span>Emparejar un servidor, pegar un manifest de Stremio, actualizaciones reales y proveedores personalizados: requieren emparejar dispositivos o instalar desde la red.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Servidor integrado</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s28-settings-server.png" alt="Next · Ajustes › Servidor y red"></button></div><figcaption>Next · Ajustes › Servidor y red</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s29-server-page.png" alt="Next · página del servidor en marcha"></button></div><figcaption>Next · página del servidor en marcha</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span><code>Iniciar servidor</code> → <code>[data-server-running="true"][data-server-port="8099"]</code>; <code>GET /api/server/v1/health</code> devuelve <code>protocolVersion: 1</code>, <code>pairingRequired: true</code>, proxy HLS / range y capacidad <code>tatakai</code>; <code>GET /sources</code> sin token → 401; <code>[data-server-log-cursor]</code> crece con las peticiones; <code>Detener servidor</code> libera el puerto.</span></li><li><span class="chip cut">Manual</span><span>Emparejar (código, QR, <code>/auth/pair</code>), <code>/invoke</code>, <code>/resolve</code>, <code>/media</code>, revocar dispositivos, contraseña de viewer, FlareSolverr, proxy y sniffer en reproducción: emparejar dispositivos está fuera del alcance del arnés.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Ajustes</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s16-settings.png" alt="Next · Ajustes"></button></div><figcaption>Next · Ajustes</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s17-settings-full.png" alt="Next · página completa"></button></div><figcaption>Next · página completa</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span>21 <code>[data-palette]</code>; Contenido maduro <code>[data-mature]</code> conmuta (warn → blur); 8 <code>[data-provider]</code> con <code>data-provider-status</code>: AniList, Kitsu, ani.zip, Shikimori, Tenrai, MangaDex y MangaUpdates en <code>ok</code>, MAL en <code>error</code> ("esta versión no tiene client id de MAL"); 19 atajos; secciones Subtítulos, Traducción, Lector de manga, Lector de novela, Narrador, KittenTTS, Descargas, Social, Servidor y red, Fuentes embed, Datos y Sistema.</span></li><li><span class="chip part">Parcial</span><span>MAL solo responde con <code>TATAKAI_MAL_CLIENT_ID</code>; ningún proveedor quedó "en pausa" ni se descartó en esta pasada.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Biblioteca y social</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s19-library.png" alt="Next · Biblioteca"></button></div><figcaption>Next · Biblioteca</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s40-social-profile.png" alt="Next · Perfil"></button></div><figcaption>Next · Perfil</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s41-social-activity.png" alt="Next · Actividad"></button></div><figcaption>Next · Actividad</figcaption></figure><figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s42-social-notifications.png" alt="Next · Notificaciones"></button></div><figcaption>Next · Notificaciones</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip ok">Verificado</span><span>Biblioteca con 11 pestañas (Continuar, Historial, los 6 estados, Favoritos, Manga, Novelas) y navegación Perfil / Actividad / Notificaciones.</span></li><li><span class="chip cut">Manual</span><span>Sin cuenta de AniList las tres pantallas muestran "Conecta AniList"; seguir, me gusta, publicar y marcar leídas requieren iniciar sesión, que el arnés no hace.</span></li>
+    </ul>
+  </div>
+  <div class="pair">
+    <div class="pair-head"><h3>Tatakai Link</h3></div>
+    <div class="shots">
+      <figure class="cl"><div class="frame" style="padding:28px 16px;font-size:13px;color:var(--muted)">Clásico: no se lanzó (Electron no está instalado en node_modules de este repo)</div><figcaption>Clásico · sin captura</figcaption></figure>
+      <figure class="nx"><div class="frame"><button type="button"><img loading="lazy" src="wave-b/next/s22-link.png" alt="Next · Enlace"></button></div><figcaption>Next · Enlace</figcaption></figure>
+    </div>
+    <ul class="notes">
+      <li><span class="chip cut">Manual</span><span>Enviar a dispositivo, control remoto, continuar en la PC y mDNS requieren un teléfono emparejado. El rail muestra "Link :47321" activo.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section id="checklist">
+  <h2>Checklist por área</h2>
+  <p class="lede">Conteo de <code>contracts/parity/checklist.json</code> (estado después de la auditoría F4).</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Ola</th><th>Área</th><th>Ids</th><th>verified</th><th>baseline</th><th>out</th><th>stub / missing</th></tr></thead>
+    <tbody>
+<tr><td>A</td><td>a · Buscar</td><td>27</td><td>23</td><td>4</td><td>0</td><td>0</td></tr>
+<tr><td>A</td><td>c · Ficha</td><td>24</td><td>16</td><td>6</td><td>2</td><td>0</td></tr>
+<tr><td>A</td><td>d · Reproductor: subtítulos</td><td>25</td><td>22</td><td>3</td><td>0</td><td>0</td></tr>
+<tr><td>A</td><td>e · Reproductor: flujo y fuentes</td><td>53</td><td>22</td><td>25</td><td>6</td><td>0</td></tr>
+<tr><td>A</td><td>f · Cuenta, sistema y Link</td><td>61</td><td>23</td><td>5</td><td>33</td><td>0</td></tr>
+<tr><td>A</td><td>g · Listas y cuentas</td><td>32</td><td>24</td><td>1</td><td>7</td><td>0</td></tr>
+<tr><td>A</td><td>i · Torrents y debrid</td><td>28</td><td>18</td><td>7</td><td>3</td><td>0</td></tr>
+<tr><td>B</td><td>b · Inicio y descubrir</td><td>31</td><td>24</td><td>4</td><td>3</td><td>0</td></tr>
+<tr><td>B</td><td>h · Descargas</td><td>24</td><td>23</td><td>0</td><td>1</td><td>0</td></tr>
+<tr><td>B</td><td>j · Extensiones</td><td>35</td><td>22</td><td>5</td><td>8</td><td>0</td></tr>
+<tr><td>B</td><td>k · Servidor, sniffer y Link</td><td>33</td><td>23</td><td>4</td><td>6</td><td>0</td></tr>
+<tr><td>B</td><td>l · Manga</td><td>34</td><td>29</td><td>0</td><td>5</td><td>0</td></tr>
+<tr><td>B</td><td>m · Novelas</td><td>24</td><td>21</td><td>0</td><td>3</td><td>0</td></tr>
+<tr><td>B</td><td>n · Social (AniList)</td><td>53</td><td>9</td><td>0</td><td>44</td><td>0</td></tr>
+    </tbody></table></div>
+</section>
+
+<section id="metodo">
+  <h2>Cómo se hizo</h2>
+  <p>Se lanzó <code>apps/desktop-native/target/debug/tatakai-next</code> con <code>WEBKIT_INSPECTOR_HTTP_SERVER=127.0.0.1:9334</code>, <code>TATAKAI_NEXT_NO_KEYRING=1</code> y un <code>TATAKAI_NEXT_DATA_DIR</code> vacío en un directorio temporal (no el perfil real). El router de Dioxus es en memoria, así que la navegación fue por clics y no por <code>location.hash</code>. Se ejecutó el asistente, la app descargó datos públicos de AniList y MangaDex, y se arrancó el servidor integrado en el puerto 8099 solo para consultar <code>/health</code>. No se inició sesión, no se emparejó ningún dispositivo ni se instaló ninguna extensión. Android no compiló, así que no hubo humo. <code>scripts/parity/mute.sh</code> no hizo falta: nada reprodujo audio. Al terminar se cerró la app y el servidor.</p>
+  <p>El arnés tenía un fallo propio: <code>wk.mjs</code> con <code>FULL</code> dejaba estilos en línea en <code>#main</code> y <code>.tk-shell</code> y la pantalla siguiente salía vacía (el lector de manga parecía en blanco). Se corrigió para no sobrescribir los estilos guardados, pero Dioxus puede volver a pintarlos: después de un <code>FULL</code> conviene quitar los <code>style</code> que contienen <code>overflow: visible</code>.</p>
+</section>
+</div>
+
+<div id="lb" hidden><button type="button" id="lbClose">Cerrar</button><img id="lbImg" alt=""></div>
+
+<script>
+(function(){
+  var lb=document.getElementById('lb'), img=document.getElementById('lbImg'), last=null;
+  function close(){lb.hidden=true; img.removeAttribute('src'); if(last) last.focus();}
+  document.querySelectorAll('.frame button').forEach(function(b){
+    b.addEventListener('click',function(){var i=b.querySelector('img'); last=b; img.src=i.src; img.alt=i.alt; lb.hidden=false; lb.scrollTop=0; document.getElementById('lbClose').focus();});
+  });
+  document.getElementById('lbClose').addEventListener('click',close);
+  lb.addEventListener('click',function(e){if(e.target===lb) close();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'&&!lb.hidden) close();});
+  var btns=document.querySelectorAll('.filters button'), rows=document.querySelectorAll('#diff tbody tr');
+  btns.forEach(function(b){b.addEventListener('click',function(){
+    var f=b.dataset.f; btns.forEach(function(x){x.setAttribute('aria-pressed', String(x===b));});
+    rows.forEach(function(r){ if(r.classList.contains('area')) return; r.hidden = !(f==='all'||r.dataset.s===f); });
+    document.querySelectorAll('#diff tbody tr.area').forEach(function(a){
+      var n=a.nextElementSibling, any=false; while(n && !n.classList.contains('area')){ if(!n.hidden) any=true; n=n.nextElementSibling; } a.hidden=!any; });
+  });});
+})();
+</script>
