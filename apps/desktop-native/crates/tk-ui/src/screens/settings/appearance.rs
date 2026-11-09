@@ -1,4 +1,4 @@
-//! Settings > Appearance: palette, mode, contrast, language, reduce motion.
+//! Settings > Appearance: palette, mode, contrast, language, title language (wave A, worker c), reduce motion.
 //!
 //! Split out of `screens/settings.rs` by the wave-A contract (docs/redesign/15-parity-wave-a-contract.md
 //! section 2). Owner: nobody in wave A (integrator). The page shell (`mod.rs`: index, scroll spy, `SettingsPanel`, `SettingRow`) is frozen.
@@ -9,7 +9,7 @@ use super::{SettingRow, seg};
 use crate::app::Ui;
 use crate::components::{Segmented, Switch};
 use crate::i18n::{LangChoice, t};
-use crate::model::{Contrast, PALETTES, SettingsAction, ThemeMode};
+use crate::model::{Contrast, PALETTES, SettingsAction, TITLE_LANGUAGES, ThemeMode};
 
 #[component]
 pub fn AppearanceSection(commit: Callback<SettingsAction>, commit_saved: Callback<SettingsAction>) -> Element {
@@ -75,6 +75,14 @@ pub fn AppearanceSection(commit: Callback<SettingsAction>, commit_saved: Callbac
                         commit.call(SettingsAction::SetLanguage(l));
                     }
                 },
+            }
+        }
+        SettingRow { label: t("details.title_lang"), hint: t("details.title_lang.hint"),
+            Segmented {
+                options: seg(&TITLE_LANGUAGES, |l| l, "details.title_lang"),
+                selected: s.title_language.clone(),
+                label: t("details.title_lang"),
+                on_select: move |id: String| commit.call(SettingsAction::SetTitleLanguage(id)),
             }
         }
         SettingRow { label: t("settings.reduce_motion"), hint: t("settings.reduce_motion_hint"),

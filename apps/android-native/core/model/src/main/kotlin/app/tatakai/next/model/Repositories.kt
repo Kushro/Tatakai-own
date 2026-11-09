@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.flowOf
 // feature tests keep compiling; the real implementations (owners in 12 §2) override them.
 // parity wave A (docs/redesign/15-parity-wave-a-contract-android.md §3): same rule. New interfaces of the wave live in their own files
 // (Lists.kt: ListsRepository; Diagnostics.kt: LogRepository, UpdateRepository, SecretStore, AppReset; torrent/Debrid.kt: DebridRepository).
-// 2026-11-09 amendment (plan 14 §0.1 #9): the Supabase `AuthRepository` / `UserSession` are gone. Identity = AniList and/or MAL
+// 2026-11-09 amendment (plan 14 §0.1 #9): the hosted-backend `AuthRepository` / `UserSession` are gone. Identity = AniList and/or MAL
 // (`ListsRepository.accounts`); history syncs between the user's devices over Tatakai Link.
 
 interface MetadataRepository {

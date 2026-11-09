@@ -867,7 +867,7 @@ fn DetailsHeader(
         None => rsx! {},
     };
     rsx! {
-        div { class: "tk-dhead", "data-embedded": "{embedded}",
+        div { class: "tk-dhead", "data-embedded": "{embedded}", "data-resume-secs": "{vm.resume_secs}",
             div { class: "tk-dhead__cover", "data-images": "{images}",
                 MediaCover { src: cover, color: vm.media.color.clone(), title: vm.media.title.clone() }
             }

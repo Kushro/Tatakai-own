@@ -267,6 +267,16 @@ pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>
     let pct = (source.reliability.clamp(0.0, 1.0) * 100.0).round() as u32;
     let tone = reliability_tone(source.reliability);
     let rel_text = format!("{}: {} · {pct} %", t("src.reliability"), t(reliability_key(source.reliability)));
+    // Wave A, worker i: debrid cache status of a torrent row (`SourceVm::debrid`).
+    let debrid_attr = match source.debrid {
+        Some(d) if d.cached => "cached",
+        Some(_) => "not_cached",
+        None => "none",
+    };
+    let debrid_pill = source.debrid.map(|d| {
+        let key = if d.cached { "debrid.cached" } else { "debrid.not_cached" };
+        (tf(key, &[("service", d.service.label())]), d.cached)
+    });
     rsx! {
         button {
             class: "tk-srow",
@@ -274,6 +284,7 @@ pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>
             role: "radio",
             "aria-checked": "{selected}",
             "data-kind": "{kind}",
+            "data-debrid": "{debrid_attr}",
             disabled,
             onclick: move |_| on_pick.call(id.clone()),
             span { class: "tk-srow__ico", Icon { name: icon.to_string(), size: 20 } }
@@ -283,6 +294,9 @@ pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>
                     Pill { text: kind_text, tone: Tone::Neutral, plain: true }
                     if source.recommended {
                         Pill { text: t("src.recommended"), tone: Tone::Primary }
+                    }
+                    if let Some((text, cached)) = debrid_pill {
+                        Pill { text, tone: if cached { Tone::Ok } else { Tone::Neutral }, plain: !cached }
                     }
                     if disabled {
                         Pill { text: off_text, tone: Tone::Err, plain: true }

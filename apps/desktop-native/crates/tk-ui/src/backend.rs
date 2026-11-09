@@ -1513,6 +1513,22 @@ pub trait Backend: Send + Sync + 'static {
     async fn storage_usage(&self) -> UiResult<StorageUsageVm> {
         Err(UiError::not_wired("storage_usage"))
     }
+    /// Metadata cache rows and bytes `(rows, bytes)` (Settings > Data, metadata cache row).
+    async fn metadata_cache_usage(&self) -> UiResult<(u64, u64)> {
+        Err(UiError::not_wired("metadata_cache_usage"))
+    }
+    /// Empty the metadata cache; returns the rows removed.
+    async fn clear_metadata_cache(&self) -> UiResult<u64> {
+        Err(UiError::not_wired("clear_metadata_cache"))
+    }
+    /// "Clear watch history" (Settings > Data, after a confirmation); returns the entries removed.
+    async fn clear_watch_history(&self) -> UiResult<u32> {
+        Err(UiError::not_wired("clear_watch_history"))
+    }
+    /// Unix time of the last history sync with a phone over Tatakai Link (`None` = never).
+    async fn history_last_sync_unix(&self) -> UiResult<Option<i64>> {
+        Err(UiError::not_wired("history_last_sync_unix"))
+    }
     /// Remove the caches (metadata cache rows, images, translations, web view cache); returns the bytes freed.
     async fn clear_cache(&self) -> UiResult<u64> {
         Err(UiError::not_wired("clear_cache"))

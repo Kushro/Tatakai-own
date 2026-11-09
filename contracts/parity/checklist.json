@@ -329,7 +329,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Elegir el género Action devuelve solo resultados con ese género (la query a AniList lleva genre_in) y desaparece el aviso \"not wired\"",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -341,7 +341,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Elegir Invierno 2025 devuelve solo series de esa temporada y año",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -353,7 +353,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Elegir \"En emisión\" devuelve solo series RELEASING",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -365,7 +365,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "La hoja de filtros ofrece TV, Película, OVA, ONA y Especial y el resultado respeta el formato elegido",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -377,7 +377,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Se puede elegir uno o más tags de AniList; los tags marcados como spoiler solo aparecen con el interruptor activado",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -389,7 +389,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Un rango 2010-2015 devuelve solo series estrenadas en esos años, filtradas por la API y no sobre la página cargada",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -401,7 +401,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Un rango 1-13 episodios devuelve solo series con ese número de episodios",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -413,7 +413,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Un mínimo de 80 devuelve solo series con puntuación media igual o mayor",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -425,7 +425,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Se puede ordenar por popularidad, puntuación, tendencia, fecha y título y la lista cambia de orden",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -437,7 +437,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Con 18+ desactivado no aparece ningún resultado isAdult; activado, aparecen marcados",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -449,7 +449,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Con filtros activos el botón \"Limpiar\" los quita todos y relanza la búsqueda",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "search.pagination",
@@ -460,7 +460,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Al llegar al final de los resultados se carga la página siguiente hasta que AniList devuelve hasNextPage=false",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -472,7 +472,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Elegir el chip de una extensión (Toko) busca con su ruta de búsqueda y muestra sus resultados en vez del error \"not wired\"",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -484,7 +484,7 @@
     "classic": "src/pages/base/Index.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/home.rs",
     "accept": "\"Ver todo\" en la fila Populares abre Buscar con el feed Populares cargado y paginado, no vacío",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -496,7 +496,7 @@
     "classic": "src/pages/base/TrendingPage.tsx",
     "next": null,
     "accept": "Buscar ofrece el feed Tendencias con un selector de ventana temporal",
-    "status": "todo",
+    "status": "done",
     "audit": "Fuera de plan",
     "note": "D6: tendencias como feed de Buscar"
   },
@@ -509,7 +509,7 @@
     "classic": "src/pages/base/GenrePage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Llegar a Buscar con un género (desde una nube o chip) muestra su catálogo paginado con la barra de filtros",
-    "status": "todo",
+    "status": "done",
     "audit": "Fuera de plan",
     "note": "D6: géneros como feed de Buscar"
   },
@@ -522,7 +522,7 @@
     "classic": "src/pages/profile/CollectionsPage.tsx",
     "next": null,
     "accept": "Buscar ofrece las colecciones En emisión, Populares, Próximos, Esta temporada y Top como feeds elegibles",
-    "status": "todo",
+    "status": "done",
     "audit": "Fuera de plan",
     "note": "D6: colecciones como feed de Buscar"
   },
@@ -535,7 +535,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Arrastrar o elegir una captura devuelve la serie, episodio y minuto con un control de confianza mínima y vista previa de la escena",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -547,7 +547,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Pulsar un estudio en la ficha abre Buscar con todas las obras de ese estudio",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -559,7 +559,7 @@
     "classic": "src/components/settings/panels/PrivacyPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Existe una acción para borrar las búsquedas recientes y la lista queda vacía",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "search.types.character",
@@ -570,7 +570,7 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "El tipo Personajes devuelve personajes de AniList y abre su página",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "character.page",
@@ -581,7 +581,7 @@
     "classic": "src/pages/base/CharacterPage.tsx",
     "next": null,
     "accept": "Pulsar un personaje abre una página con imagen, nombre nativo, edad, cumpleaños, género, descripción y las obras en las que aparece",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -593,7 +593,7 @@
     "classic": "src/pages/base/CharacterPage.tsx",
     "next": null,
     "accept": "La página de personaje lista sus actores de voz por idioma",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "character.favorite",
@@ -604,7 +604,7 @@
     "classic": "src/pages/base/CharacterPage.tsx",
     "next": null,
     "accept": "Marcar un personaje como favorito lo guarda localmente (y en AniList si hay cuenta) y aparece en Favoritos",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "details.header",
@@ -663,7 +663,7 @@
     "classic": "src/pages/watch/AnimePage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "Escribir \"12\" o parte del título filtra la lista de episodios",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "details.episodes.view-mode",
@@ -674,7 +674,7 @@
     "classic": "src/pages/watch/AnimePage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "Se puede alternar entre lista con miniaturas y lista compacta y la elección se recuerda",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "details.episodes.unaired",
@@ -685,7 +685,7 @@
     "classic": "src/pages/watch/AnimePage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "Los episodios con fecha futura se muestran con \"Aún no emitido\" y no se pueden reproducir",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "details.facts",
@@ -696,7 +696,7 @@
     "classic": "src/components/anime/AnimeDetailLayout.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "Info muestra emisión, estado, duración, estudios, productores, fuente, país, puntuación media, popularidad, favoritos, tags con % y títulos alternativos",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -708,7 +708,7 @@
     "classic": "src/components/anime/AnimeDetailLayout.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "La pestaña Relacionados lista precuelas, secuelas, spin-offs y el manga de origen con su tipo de relación, y cada tarjeta abre otra ficha",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -720,7 +720,7 @@
     "classic": "src/components/anime/AnimeDetailLayout.tsx",
     "next": null,
     "accept": "Una pestaña Personajes muestra personajes con su rol y actor de voz japonés, y una lista de staff con su función",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -732,7 +732,7 @@
     "classic": "src/components/anime/AnimeDetailLayout.tsx",
     "next": null,
     "accept": "La ficha muestra una fila de recomendaciones de AniList para esa serie",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -744,7 +744,7 @@
     "classic": "src/components/anime/AnimeSeasons.tsx",
     "next": null,
     "accept": "La ficha muestra el árbol de temporadas de la franquicia en orden cronológico con la temporada actual resaltada",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -756,7 +756,7 @@
     "classic": "src/components/anime/NextEpisodeSchedule.tsx",
     "next": null,
     "accept": "En una serie en emisión la ficha muestra \"Episodio N en Xd Yh\" a partir de nextAiringEpisode",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -768,7 +768,7 @@
     "classic": "src/components/anime/VideoBackground.tsx",
     "next": null,
     "accept": "Si AniList trae tráiler, la ficha ofrece un botón que lo reproduce (YouTube en el navegador o mpv)",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -780,7 +780,7 @@
     "classic": "src/components/anime/ShareButton.tsx",
     "next": null,
     "accept": "Compartir copia al portapapeles el enlace de AniList de la serie y muestra un snackbar",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "details.adult-gate",
@@ -791,7 +791,7 @@
     "classic": "src/components/content/AdultWarningGate.tsx",
     "next": null,
     "accept": "Una ficha isAdult pide confirmación antes de mostrar imágenes y la decisión se recuerda",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "details.title-language",
@@ -813,7 +813,7 @@
     "classic": "src/components/anime/WatchlistButton.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "La cabecera y la barra flotante de la ficha montan ListButton de g en lugar del snackbar \"Próximamente en M1\"",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -825,7 +825,7 @@
     "classic": "src/components/anime/SeasonDownloadModal.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "El botón Descargar de la ficha abre el componente DownloadSeason (h); hasta la ola B muestra un estado vacío explícito, no \"M1\"",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -837,7 +837,7 @@
     "classic": "src/components/anime/RatingsSection.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "La ficha reserva una sección \"Actividad y reseñas\" (AniList) donde n (ola B) monta details.reviews y la actividad de la serie; mientras no exista, la sección no aparece",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.10 (enmiendas 2026-11-09): antes \"Comentarios\" (backend propio); renombrado, id estable"
   },
   {
@@ -1029,7 +1029,7 @@
     "classic": "src/components/video/SourcePanel.tsx",
     "next": "apps/desktop-native/crates/tk-core/src/sources.rs",
     "accept": "Con audio JA y subs ES preferidos, una fuente torrent RU sin subs recordada de otra sesión NO se preselecciona: se usa la recomendada y la recordada aparece como opción",
-    "status": "todo",
+    "status": "done",
     "audit": "Bug"
   },
   {
@@ -1065,7 +1065,7 @@
     "classic": "src/core/providers/realdebrid-client.ts",
     "next": null,
     "accept": "Con una API key de Real-Debrid guardada, una fuente torrent cacheada se reproduce por HTTPS desde Real-Debrid en vez de descargar el torrent",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1077,7 +1077,7 @@
     "classic": "src/core/providers/torbox-client.ts",
     "next": null,
     "accept": "Con TorBox configurado, las fuentes torrent muestran si están cacheadas y se reproducen por HTTPS",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1089,7 +1089,7 @@
     "classic": "src/core/providers/cloud-debrid-client.ts",
     "next": null,
     "accept": "Con AllDebrid configurado, una fuente torrent se resuelve a un enlace directo y se reproduce",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1101,7 +1101,7 @@
     "classic": "src/core/providers/cloud-debrid-client.ts",
     "next": null,
     "accept": "Con Premiumize configurado, una fuente torrent se resuelve a un enlace directo y se reproduce",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1113,7 +1113,7 @@
     "classic": "src/components/watch/TorrentSourcePanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/components/sources.rs",
     "accept": "Con un debrid activo, cada fila torrent indica si está cacheada en el servicio",
-    "status": "todo",
+    "status": "done",
     "note": "Default aceptado: SourceVm.debrid: Option<DebridStatusVm> (sin SourceKind nuevo)"
   },
   {
@@ -1137,7 +1137,7 @@
     "classic": "src/core/providers/debrid-orchestrator.ts",
     "next": "apps/desktop-native/crates/tk-core/src/sources.rs",
     "accept": "Una fuente torrent cacheada en debrid se rankea como web (sin penalización de seeders) y usa el enlace debrid al reproducir",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "sources.embed",
@@ -1412,7 +1412,7 @@
     "classic": "src/components/video/controls/SubtitleSelector.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/player.rs",
     "accept": "Con preferencia ES, un stream con pistas ES-419 y ES arranca con una de ellas activa en vez de subtítulos apagados",
-    "status": "todo",
+    "status": "done",
     "audit": "Bug"
   },
   {
@@ -1424,7 +1424,7 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "Cambiar el tamaño en Ajustes > Subtítulos cambia sub-font-size de mpv en caliente y se guarda",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1436,7 +1436,7 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "Se puede elegir una fuente instalada para los subtítulos (sub-font)",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1448,7 +1448,7 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "Color del texto, grosor y color del contorno cambian sub-color / sub-border-size / sub-border-color",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1460,7 +1460,7 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "La opacidad del fondo del subtítulo cambia sub-back-color",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1472,7 +1472,7 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "Un deslizador de posición vertical mueve los subtítulos (sub-pos)",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1484,7 +1484,7 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "La sección de estilo muestra una línea de ejemplo con el estilo actual",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "player.subs.offset",
@@ -1495,7 +1495,7 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "Un control ±0,1 s ajusta sub-delay en caliente y el valor se muestra en el menú de subtítulos",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1507,7 +1507,7 @@
     "classic": "src/components/video/controls/SubtitleSelector.tsx",
     "next": null,
     "accept": "\"Cargar archivo…\" en el menú de subtítulos añade la pista (sub-add) y la activa",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1519,7 +1519,7 @@
     "classic": "src/components/video/controls/SubtitleSelector.tsx",
     "next": null,
     "accept": "Las fuentes TTF/OTF copiadas a la carpeta de fuentes de la app están disponibles para libass (sub-fonts-dir)",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1531,7 +1531,7 @@
     "classic": "src/components/video/overlays/SecondarySubtitleOverlay.tsx",
     "next": null,
     "accept": "Se puede elegir una segunda pista que se muestra arriba (secondary-sid)",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1543,7 +1543,7 @@
     "classic": "src/components/video/hooks/useSubtitleTranslation.ts",
     "next": null,
     "accept": "Con traducción activada, cada línea de subtítulo se muestra traducida al idioma destino con un retraso menor a 2 s",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1555,7 +1555,7 @@
     "classic": "src/components/video/hooks/useSubtitlePretranslation.ts",
     "next": null,
     "accept": "\"Pretraducir\" traduce toda la pista antes de reproducir, muestra el progreso y luego reproduce sin retraso",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1567,7 +1567,7 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": null,
     "accept": "Con motor Google la traducción funciona sin clave usando el endpoint público",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "player.subs.translate.deepl",
@@ -1578,7 +1578,7 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": null,
     "accept": "Con DeepL (clave) o DeepLX (URL) configurado, el botón Probar devuelve una traducción de prueba",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "player.subs.translate.azure",
@@ -1589,7 +1589,7 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": null,
     "accept": "Con clave y región de Azure Translator el botón Probar devuelve una traducción de prueba",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "player.subs.translate.openai",
@@ -1600,7 +1600,7 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": null,
     "accept": "Con URL base, clave y modelo de un servidor OpenAI-compatible el botón Probar devuelve una traducción",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "player.subs.translate.settings",
@@ -1611,7 +1611,7 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": null,
     "accept": "Ajustes > Traducción tiene motor, URL, clave, modelo, región, idioma destino, interruptor de subtítulos, pretraducir y \"Vaciar caché\"; la clave se guarda en Secrets / Keystore (system.secrets-store), no en los ajustes",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1623,7 +1623,7 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": "apps/desktop-native/crates/tk-core/src/store.rs",
     "accept": "Volver a ver un episodio traducido no vuelve a llamar al proveedor; \"Vaciar caché\" borra la tabla",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "player.screenshot",
@@ -1634,7 +1634,7 @@
     "classic": "src/components/video/controls/ScreenshotButton.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/player.rs",
     "accept": "El botón de captura guarda un PNG del fotograma actual (screenshot-to-file) en la carpeta de capturas y muestra un snackbar con la ruta",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -1646,7 +1646,7 @@
     "classic": "src/lib/video/keybindings.ts",
     "next": "apps/desktop-native/crates/tk-ui/src/shortcuts.rs",
     "accept": "La tecla S toma una captura sin abrir menús",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "player.prev-episode",
@@ -1657,7 +1657,7 @@
     "classic": "src/components/video/controls/PlaybackControls.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/components/player_controls.rs",
     "accept": "El botón de episodio anterior (y la tecla J) abre el episodio N-1 con su mejor fuente",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1669,7 +1669,7 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Con el interruptor activado la intro se salta sola al llegar a la marca; desactivado, solo aparece el botón",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -1681,7 +1681,7 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Con auto-siguiente desactivado la tarjeta final no cuenta ni cambia de episodio",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -1693,7 +1693,7 @@
     "classic": "src/components/video/overlays/UpNextOverlay.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/player.rs",
     "accept": "Un ajuste de 3 a 30 s cambia la duración de la cuenta regresiva de la tarjeta final",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -1705,7 +1705,7 @@
     "classic": "src/components/video/hooks/usePlayerEnhancements.ts",
     "next": null,
     "accept": "El menú ofrece 15/30/60 min y \"fin del episodio\"; al vencer, el video se pausa y no se pasa al siguiente",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1717,7 +1717,7 @@
     "classic": "src/components/video/hooks/usePlayerEnhancements.ts",
     "next": null,
     "accept": "Con Bucle activo el episodio vuelve a empezar al terminar (loop-file) y no aparece la tarjeta de siguiente",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1729,7 +1729,7 @@
     "classic": "src/components/video/hooks/usePlayerEnhancements.ts",
     "next": null,
     "accept": "El interruptor Volumen estable activa un filtro de normalización de audio (af loudnorm/dynaudnorm) en mpv",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1741,7 +1741,7 @@
     "classic": "src/pages/watch/WatchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/player.rs",
     "accept": "Un botón abre la lista de episodios sobre el reproductor y elegir uno lo reproduce sin volver a la ficha",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "player.shortcuts.rebind",
@@ -1752,7 +1752,7 @@
     "classic": "src/lib/video/keybindings.ts",
     "next": "apps/desktop-native/crates/tk-ui/src/shortcuts.rs",
     "accept": "Ajustes > Reproductor > Atajos permite cambiar la tecla de cada acción, detecta conflictos y guarda",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1764,7 +1764,7 @@
     "classic": "src/lib/video/keybindings.ts",
     "next": "apps/desktop-native/crates/tk-ui/src/shortcuts.rs",
     "accept": "M silencia, P abre PiP, J/K cambian de episodio, ↑/↓ cambian el volumen, además de Espacio/←/→/F",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -1776,7 +1776,7 @@
     "classic": "src/components/video/controls/KeyboardShortcutOverlay.tsx",
     "next": null,
     "accept": "La tecla ? muestra un panel con todos los atajos actuales",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "player.shortcuts.reset",
@@ -1787,7 +1787,7 @@
     "classic": "src/lib/video/keybindings.ts",
     "next": null,
     "accept": "\"Restablecer\" vuelve a los atajos por defecto",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "player.discord.watching",
@@ -1798,7 +1798,7 @@
     "classic": "src/lib/discordRpc.ts",
     "next": null,
     "accept": "Con Discord abierto y el ajuste activo, reproducir muestra en Discord el título, el episodio y el tiempo restante",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta",
     "note": "Default aceptado: app id de Discord = client id público de desktop/services/discord-rpc.cjs Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop."
   },
@@ -1811,7 +1811,7 @@
     "classic": "desktop/services/discord-rpc.cjs",
     "next": null,
     "accept": "Pausar cambia la presencia a \"Pausado\" sin tiempo restante",
-    "status": "todo",
+    "status": "done",
     "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop."
   },
   {
@@ -1823,7 +1823,7 @@
     "classic": "src/lib/discordRpc.ts",
     "next": null,
     "accept": "Fuera del reproductor la presencia muestra \"Navegando\" o \"Viendo <título>\" en la ficha",
-    "status": "todo",
+    "status": "done",
     "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop."
   },
   {
@@ -1835,7 +1835,7 @@
     "classic": "src/components/settings/DesktopSettings.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Ajustes tiene \"Discord Rich Presence\" y apagarlo borra la presencia al instante",
-    "status": "todo",
+    "status": "done",
     "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop."
   },
   {
@@ -1931,7 +1931,7 @@
     "classic": "src/components/video/MobileVideoPlayer.tsx",
     "next": "apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerScreen.kt",
     "accept": "Un botón alterna inmersivo + orientación horizontal forzada y vuelve al salir",
-    "status": "todo",
+    "status": "done",
     "platform": "android"
   },
   {
@@ -1943,7 +1943,7 @@
     "classic": "src/components/video/MobileVideoPlayer.tsx",
     "next": null,
     "accept": "Con la app en segundo plano el audio sigue con ambos motores (Media3: MediaSessionService; libmpv: servicio propio con MediaSession que observa el core de mpv) y la notificación multimedia permite pausar, reanudar y saltar",
-    "status": "todo",
+    "status": "done",
     "platform": "android",
     "note": "Plan §0.1.12 (enmiendas 2026-11-09): referencia Enigmata app/src/main/java/app/enigmata/ui/player/MediaPlaybackService.kt; copiar conservando el aviso y añadiendo fila en THIRD_PARTY_NOTICES.md"
   },
@@ -1956,7 +1956,7 @@
     "classic": "src/components/video/MobileVideoPlayer.tsx",
     "next": null,
     "accept": "Un botón bloquea los gestos y controles hasta pulsar el candado",
-    "status": "todo",
+    "status": "done",
     "platform": "android"
   },
   {
@@ -1968,7 +1968,7 @@
     "classic": "src/components/video/controls/ScreenshotButton.tsx",
     "next": null,
     "accept": "El botón de captura guarda el fotograma en Imágenes/Tatakai y muestra un snackbar",
-    "status": "todo",
+    "status": "done",
     "platform": "android"
   },
   {
@@ -1980,7 +1980,7 @@
     "classic": "src/lib/video/anime4k/Anime4KRenderer.ts",
     "next": "apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt",
     "accept": "Con motor libmpv, elegir cualquier preset Anime4K / FSR aplica glsl-shaders reales empaquetados en la app (todos los presets, no solo los ligeros)",
-    "status": "todo",
+    "status": "done",
     "platform": "android",
     "note": "Se mantiene (enmiendas 2026-11-09): empaquetar todos los presets Anime4K / FSR"
   },
@@ -1993,7 +1993,7 @@
     "classic": "src/components/video/gestures/LongPressSpeed.tsx",
     "next": null,
     "accept": "Mantener pulsado el video reproduce a 2x y soltar vuelve a la velocidad anterior",
-    "status": "todo",
+    "status": "done",
     "platform": "android"
   },
   {
@@ -2053,7 +2053,7 @@
     "classic": "src/hooks/user/useWatchHistory.ts",
     "next": "apps/desktop-native/crates/tk-core/src/store/mod.rs",
     "accept": "El historial local guarda por (serie, episodio) la posición en segundos, la duración, si se completó y updated_at; cerrar a los 6:23 y reabrir retoma en 6:23 sin ninguna cuenta",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: reemplaza lo que daba library.cloud-sync; base de history.link-sync.*"
   },
   {
@@ -2065,7 +2065,7 @@
     "classic": "src/routes/AppRoutes.tsx",
     "next": "apps/desktop-native/crates/tk-link/src/api.rs",
     "accept": "tk-link expone sobre el Link mTLS existente una ruta de historial: un dispositivo emparejado lee el historial de la PC (paginado, desde un updated_at) y sube el suyo; sin emparejar responde 401",
-    "status": "todo",
+    "status": "done",
     "platform": "desktop",
     "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: la PC = servidor; misma autenticación que el resto del Link"
   },
@@ -2078,7 +2078,7 @@
     "classic": "src/hooks/user/useWatchHistory.ts",
     "next": "apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/HistorySync.kt",
     "accept": "Android emparejado por Link baja el historial de la PC y sube el suyo al abrir la app y al cerrar el reproductor; un episodio dejado en la PC a los 6:23 aparece en Continuar viendo del teléfono y retoma en 6:23",
-    "status": "todo",
+    "status": "done",
     "platform": "android",
     "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: reemplaza HistorySync (Supabase) de Android"
   },
@@ -2091,7 +2091,7 @@
     "classic": "src/hooks/user/useWatchHistory.ts",
     "next": "apps/desktop-native/crates/tk-core/src/store/mod.rs",
     "accept": "Al sincronizar gana por (serie, episodio) la entrada con updated_at más reciente; ninguna entrada se pierde en ningún sentido y un episodio completado no vuelve a \"en curso\" por una entrada vieja",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio"
   },
   {
@@ -2103,7 +2103,7 @@
     "classic": "src/components/settings/panels/AccountPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings/data.rs",
     "accept": "Ajustes › Datos (escritorio) y Ajustes (Android) muestran la última sincronización por Link, el dispositivo y \"Sincronizar ahora\"; sin dispositivo emparejado lo explica y enlaza a Tatakai Link",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: sustituye el \"Sincronizar ahora\" de Supabase"
   },
   {
@@ -2115,7 +2115,7 @@
     "classic": "src/pages/auth/AniListRedirectPage.tsx",
     "next": null,
     "accept": "\"Conectar AniList\" abre el navegador, el callback llega a 127.0.0.1:<puerto> y la sección Cuentas muestra el usuario conectado",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2127,7 +2127,7 @@
     "classic": "src/pages/auth/MalRedirectPage.tsx",
     "next": null,
     "accept": "\"Conectar MAL\" completa el flujo PKCE y la sección Cuentas muestra el usuario conectado",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2139,7 +2139,7 @@
     "classic": "src/lib/integrationTokens.ts",
     "next": "apps/desktop-native/crates/tk-core/src/store.rs",
     "accept": "Los tokens sobreviven al reinicio y el de MAL se renueva solo cuando caduca",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "lists.disconnect",
@@ -2150,7 +2150,7 @@
     "classic": "src/components/settings/panels/IntegrationsPanel.tsx",
     "next": null,
     "accept": "\"Desconectar\" borra el token y las listas remotas dejan de mostrarse",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "lists.read",
@@ -2161,7 +2161,7 @@
     "classic": "src/hooks/user/useWatchlist.ts",
     "next": null,
     "accept": "Biblioteca muestra Viendo, Planeado, Completado, En pausa y Abandonado con el progreso y la puntuación de la cuenta conectada",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2173,7 +2173,7 @@
     "classic": "src/components/anime/WatchlistButton.tsx",
     "next": null,
     "accept": "Cambiar una serie a Completado se refleja en AniList/MAL en menos de 5 s",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "lists.write.progress",
@@ -2184,7 +2184,7 @@
     "classic": "src/hooks/user/useWatchlist.ts",
     "next": null,
     "accept": "Editar el episodio visto en Biblioteca actualiza progress en el servicio",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "lists.write.score",
@@ -2195,7 +2195,7 @@
     "classic": "src/hooks/user/useWatchlist.ts",
     "next": null,
     "accept": "Poner nota a una serie la envía con el formato de puntuación de la cuenta (10, 100, estrellas)",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "lists.remove",
@@ -2206,7 +2206,7 @@
     "classic": "src/components/anime/WatchlistButton.tsx",
     "next": null,
     "accept": "\"Quitar de la lista\" borra la entrada en el servicio y en la caché local",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "lists.offline-queue",
@@ -2217,7 +2217,7 @@
     "classic": "src/lib/listSync.ts",
     "next": "apps/desktop-native/crates/tk-core/src/store.rs",
     "accept": "Cambiar un estado sin red lo deja en cola; al recuperar red se envía y Cuentas muestra el contador de pendientes en 0",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2229,7 +2229,7 @@
     "classic": "src/components/integrations/SyncPreviewModal.tsx",
     "next": null,
     "accept": "Si local y remoto difieren, una hoja muestra ambas versiones y permite elegir por entrada o para todo",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2241,7 +2241,7 @@
     "classic": "src/lib/listSync.ts",
     "next": null,
     "accept": "Al conectar se puede importar la lista remota al local, exportar la local al servicio o fusionar; además se puede exportar a JSON",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2253,7 +2253,7 @@
     "classic": "src/hooks/user/useIntegrationSync.ts",
     "next": null,
     "accept": "Ver el 90 % de un episodio de una serie en la lista sube progress en AniList/MAL sin preguntar (ajuste activable)",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2265,7 +2265,7 @@
     "classic": "src/hooks/user/useIntegrationSync.ts",
     "next": null,
     "accept": "Con el ajuste activo, reproducir una serie que no está en la lista la añade como Viendo",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "lists.library-tabs",
@@ -2276,7 +2276,7 @@
     "classic": "src/pages/profile/FavoritesPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/library.rs",
     "accept": "Biblioteca tiene pestañas Continuar, Historial, Viendo, Pendiente, Completado, En pausa, Abandonado, Repitiendo y Favoritos, sin el banner \"M1\"; en el teléfono: Continuar · Historial · Listas · Favoritos · Torrents, con los estados como control segmentado dentro de Listas",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta",
     "note": "Default aceptado: en compact los estados van en un Segmented dentro de la pestaña Listas"
   },
@@ -2289,7 +2289,7 @@
     "classic": "src/pages/profile/FavoritesPage.tsx",
     "next": null,
     "accept": "Cada pestaña se puede ordenar por título, puntuación, progreso o última actualización",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "lists.favorites",
@@ -2300,7 +2300,7 @@
     "classic": "src/pages/profile/FavoritesPage.tsx",
     "next": null,
     "accept": "El corazón de la ficha marca favorito (local y AniList si hay cuenta) y la pestaña Favoritos los lista",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2312,7 +2312,7 @@
     "classic": "src/components/anime/WatchlistButton.tsx",
     "next": null,
     "accept": "components/list_button.rs muestra el estado actual, abre un menú con los 5 estados + Quitar y funciona sin cuenta (solo local)",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "lists.local-only",
@@ -2323,7 +2323,7 @@
     "classic": "src/hooks/user/useWatchlist.ts",
     "next": "apps/desktop-native/crates/tk-core/src/store.rs",
     "accept": "Sin AniList ni MAL, las listas viven en SQLite y se suben al conectar una cuenta",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "lists.settings.accounts",
@@ -2334,7 +2334,7 @@
     "classic": "src/components/settings/panels/IntegrationsPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Ajustes > Cuentas muestra AniList y MAL con conectar/desconectar, último sync, pendientes y \"Sincronizar ahora\"",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2732,7 +2732,7 @@
     "classic": "src/components/modals/TorrentDownloadModal.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/torrents/library.rs",
     "accept": "Biblioteca de torrents tiene \"Añadir\" que acepta un magnet pegado, resuelve metadatos y lo añade",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2744,7 +2744,7 @@
     "classic": "src/components/modals/TorrentDownloadModal.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/torrents/library.rs",
     "accept": "Elegir o arrastrar un .torrent lo añade con selección de archivos",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "torrent.magnet-link-handler",
@@ -2755,7 +2755,7 @@
     "classic": "desktop/window/deep-link.cjs",
     "next": "apps/desktop-native/crates/tk-app/src/single_instance.rs",
     "accept": "Abrir un magnet: desde el sistema (escritorio: esquema registrado o instancia única; Android: intent filter magnet:) con la app abierta o cerrada muestra el diálogo de añadir con el magnet rellenado",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (i; Android q)"
   },
   {
@@ -2767,7 +2767,7 @@
     "classic": "src/components/modals/MagnetAlignmentModal.tsx",
     "next": null,
     "accept": "Al añadir un pack a mano, un diálogo propone qué archivo es cada episodio (con confianza) y permite corregirlo antes de guardar las etiquetas",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2779,7 +2779,7 @@
     "classic": "src/components/settings/TorrentSettings.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/torrents/settings.rs",
     "accept": "Una lista de trackers adicionales se anuncia en todos los torrents nuevos",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -2791,7 +2791,7 @@
     "classic": "src/components/settings/TorrentSettings.tsx",
     "next": null,
     "accept": "Un horario (p. ej. noche sin límite, día 1 MB/s) cambia los límites a la hora indicada",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -2803,7 +2803,7 @@
     "classic": "src/components/settings/TorrentSettings.tsx",
     "next": null,
     "accept": "Un máximo de GB borra los torrents vistos más antiguos al superarse si \"liberar espacio\" está activo",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -2815,7 +2815,7 @@
     "classic": "src/core/player/TorrentPreloadController.ts",
     "next": "apps/desktop-native/crates/tk-app/src/live/torrent_play.rs",
     "accept": "Al llegar al 80 % de un episodio torrent, el siguiente (misma fuente o pack) empieza a descargar en segundo plano",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -2827,7 +2827,7 @@
     "classic": "src/components/video/NativeTorrentPlayer.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/torrents/files.rs",
     "accept": "En Archivos, cada video tiene \"Reproducir\" y \"Descargar solo este\"",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "torrent.session-history",
@@ -2838,7 +2838,7 @@
     "classic": "src/components/settings/TorrentSessionHistory.tsx",
     "next": null,
     "accept": "Una lista muestra los torrents reproducidos con fecha y permite volver a abrirlos",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (i; Android q)"
   },
   {
@@ -2850,7 +2850,7 @@
     "classic": "desktop/runtime/torrent",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/torrents/trackers.rs",
     "accept": "La tabla Trackers muestra estado (ok/error) y pares anunciados en vez de siempre Unknown",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (i; Android q). Antes en KNOWN-ISSUES"
   },
   {
@@ -3536,7 +3536,7 @@
     "classic": "src/pages/auth/AuthPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs",
     "accept": "Ninguna pantalla pide email ni contraseña: Ajustes › Cuentas ofrece Conectar AniList y Conectar MAL y, conectado, muestra usuario y avatar; listas, progreso, favoritos y puntuación viven en esas cuentas",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio"
   },
   {
@@ -3548,7 +3548,7 @@
     "classic": "src/integrations/supabase/types.ts",
     "next": "apps/desktop-native/crates/tk-core/src/config.rs",
     "accept": "No queda código, dependencia, configuración (TATAKAI_SUPABASE_*) ni UI de Supabase en apps/desktop-native ni apps/android-native (incl. checkTatakaiConfig); la app arranca sin esas variables y sin pantalla de cuenta",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio. Regla \"analyze before removing\": se quita solo después de que history.link-sync.* y lists.* cubran lo que daba (historial con posición exacta, listas)"
   },
   {
@@ -3560,7 +3560,7 @@
     "classic": "src/lib/authErrors.ts",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs",
     "accept": "Sin TATAKAI_ANILIST_CLIENT_ID / TATAKAI_MAL_CLIENT_ID \"Conectar\" muestra un error claro con el motivo; callback cancelado, estado inválido y token caducado muestran mensajes distintos",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.10 (enmiendas 2026-11-09): los ids OAuth los registra el usuario; uno por plataforma"
   },
   {
@@ -3680,7 +3680,7 @@
     "classic": "src/pages/auth/SetupPage.tsx",
     "next": null,
     "accept": "En el primer arranque (sin datos) aparece un asistente de pocos pasos: idioma, motor y preferencias de fuente, conectar AniList / MAL (opcional) y permisos; se puede omitir y no vuelve a aparecer",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (f; Android q)"
   },
   {
@@ -3728,7 +3728,7 @@
     "classic": "src/lib/desktopOAuth.ts",
     "next": null,
     "accept": "En Android el callback OAuth llega por tatakai://oauth/<anilist|mal> (Custom Tab) y vincula la cuenta; en escritorio lo sustituye el loopback de lists.anilist.oauth / lists.mal.oauth",
-    "status": "todo",
+    "status": "done",
     "platform": "android",
     "note": "Contrato Android §0.4: Custom Tabs + intent filter; escritorio usa loopback. Un cliente OAuth por plataforma (AniList admite una sola redirección por cliente)"
   },
@@ -3741,7 +3741,7 @@
     "classic": "desktop/ipc/ipc-system.cjs",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Limpiar caché\" borra la tabla cache y las imágenes en disco, muestra el espacio liberado y el botón deja de estar deshabilitado",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -3753,7 +3753,7 @@
     "classic": "desktop/ipc/ipc-system.cjs",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Abrir carpeta\" abre el explorador en ~/.config/Tatakai-Next (o %APPDATA%)",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub",
     "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop."
   },
@@ -3766,7 +3766,7 @@
     "classic": "desktop/ipc/ipc-system.cjs",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Exportar historial\" escribe un JSON con el historial y muestra la ruta",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -3778,7 +3778,7 @@
     "classic": "desktop/ipc/ipc-system.cjs",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Abrir logs\" abre el archivo de log del día en el visor del sistema (escritorio) o lo comparte (Android)",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -3790,7 +3790,7 @@
     "classic": "src/lib/desktopOAuth.ts",
     "next": "apps/desktop-native/crates/tk-core/src/secrets.rs",
     "accept": "Tokens OAuth de AniList / MAL, claves de debrid y claves de traducción se guardan en el keyring del SO (Linux: Secret Service con fallback JSON 0600; Windows: Credential Manager; macOS: Keychain) o en almacenamiento cifrado con Android Keystore; nunca aparecen en ui-settings.json ni en el DataStore",
-    "status": "todo",
+    "status": "done",
     "note": "Default aceptado (enmiendas 2026-11-09): secretos en Secrets (escritorio) / Keystore (Android)"
   },
   {
@@ -3802,7 +3802,7 @@
     "classic": "src/components/settings/panels/AboutPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Licencias\" abre un diálogo con el contenido de THIRD_PARTY_NOTICES.md en vez de un snackbar",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -3814,7 +3814,7 @@
     "classic": "desktop/services/update-manager.cjs",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Buscar actualizaciones\" consulta la última release de GitHub de Kushro/Tatakai-own y muestra \"Al día\" o un enlace a la nueva versión",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub",
     "note": "Default aceptado: feed = GitHub Releases de Kushro/Tatakai-own"
   },
@@ -3827,7 +3827,7 @@
     "classic": "desktop/services/update-manager.cjs",
     "next": null,
     "accept": "Si hay versión nueva en GitHub Releases de Kushro/Tatakai-own, al arrancar aparece un snackbar con \"Ver\" (ajuste desactivable)",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "system.autostart",
@@ -3838,7 +3838,7 @@
     "classic": "desktop/ipc/ipc-system.cjs",
     "next": null,
     "accept": "El interruptor crea o borra la entrada de autoarranque del SO y refleja el estado real",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -3850,7 +3850,7 @@
     "classic": "desktop/window/tray.cjs",
     "next": null,
     "accept": "Con el ajuste activo, cerrar la ventana la oculta y la bandeja muestra el icono con Mostrar y Salir",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -3862,7 +3862,7 @@
     "classic": "desktop/window/tray.cjs",
     "next": null,
     "accept": "Clic en el icono de bandeja restaura la ventana",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "system.storage-usage",
@@ -3873,7 +3873,7 @@
     "classic": "src/components/settings/StorageSettingsPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Datos muestra el tamaño de caché, torrents y descargas y el espacio libre, como Android",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "system.clear-watch-history",
@@ -3884,7 +3884,7 @@
     "classic": "src/components/settings/panels/PrivacyPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Una acción con confirmación borra el historial local (y el remoto si hay sesión)",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "system.metadata-cache-control",
@@ -3895,7 +3895,7 @@
     "classic": "src/components/settings/MetadataSourcesPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "La fila de caché de Metadatos muestra tamaño y tiene Vaciar y selector de TTL, como Android",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -3988,7 +3988,7 @@
     "classic": "src/components/settings/DesktopSettings.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings/data.rs",
     "accept": "Ajustes › Datos › Zona de peligro: \"Restablecer la app\" pide confirmación escrita, borra ajustes, caché, historial, listas locales, secretos y dispositivos Link, y reinicia como primer arranque (vuelve el asistente)",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (f; Android q)"
   },
   {
@@ -4238,7 +4238,7 @@
     "classic": "src/lib/i18n.ts",
     "next": "apps/desktop-native/crates/tk-ui/src/i18n.rs",
     "accept": "tk-ui/i18n/{en,es}/<namespace>.json se fusionan en compilación y en.json y es.json tienen el mismo conjunto de claves",
-    "status": "todo",
+    "status": "done",
     "note": "Estructural, lo deja el contrato A"
   },
   {

@@ -11,7 +11,8 @@ use dioxus::prelude::*;
 use crate::app::{Route, Services};
 use crate::backend::{CharacterAppearanceVm, CharacterVm, PersonVm};
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, Chip, EmptyState, ErrorState, IconButton, MediaCover, Pill, SkeletonLines, Tone,
+    Button, ButtonSize, ButtonVariant, CharacterFavorite, Chip, EmptyState, ErrorState, IconButton, MediaCover, Pill,
+    SkeletonLines, Tone,
 };
 use crate::i18n::{lang, lookup, t, tf, tn};
 use crate::model::SKELETON_DELAY_MS;
@@ -192,6 +193,9 @@ fn CharacterBody(character: CharacterVm, back: Element) -> Element {
                     }
                 }
                 div { class: "tk-character__info",
+                    div { class: "tk-character__favorite", "data-favorite-slot": "true",
+                        CharacterFavorite { character_id: c.id.clone() }
+                    }
                     if let Some(n) = c.native_name.clone() {
                         p { class: "tk-character__native", lang: "ja", "{n}" }
                     }

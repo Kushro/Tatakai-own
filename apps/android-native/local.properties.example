@@ -4,6 +4,6 @@ sdk.dir=D:/Android-SDK
 # still not committed). Also readable from env. Both are OPTIONAL: without one, "Vincular" is disabled with the reason. Register the
 # Android client at each provider with redirect URI tatakai://oauth/anilist and tatakai://oauth/mal (one client per platform: AniList
 # allows a single redirect per client, desktop uses loopback).
-# There is no own login any more (2026-11-09): the former TATAKAI_SUPABASE_URL / TATAKAI_SUPABASE_ANON_KEY are gone.
+# There is no own login any more (2026-11-09): the former hosted-backend URL / anon key entries are gone.
 TATAKAI_ANILIST_CLIENT_ID=
 TATAKAI_MAL_CLIENT_ID=

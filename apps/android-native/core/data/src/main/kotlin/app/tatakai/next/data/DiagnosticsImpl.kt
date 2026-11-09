@@ -432,6 +432,8 @@ class AppResetImpl(
         step { database.clearAllTables() }
         step { logs?.clear() }
         step { File(context.filesDir, "shaders").deleteRecursively() }
+        // Subtitle fonts imported in the player settings (worker p, `SubtitleFonts`).
+        step { File(context.filesDir, "fonts").deleteRecursively() }
         step {
             val prefsDir = File(context.applicationInfo.dataDir, "shared_prefs")
             prefsDir.listFiles()?.filter { it.name.endsWith(".xml") }?.forEach { f ->

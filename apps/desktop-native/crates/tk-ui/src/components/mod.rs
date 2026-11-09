@@ -29,7 +29,7 @@ pub use dialog::ConfirmDialog;
 pub use download_season::DownloadSeasonSheet;
 pub use floating_toolbar::{FloatingToolbar, ToolbarSeparator};
 pub use form::{Switch, TextField, use_uncontrolled_input};
-pub use list_button::ListButton;
+pub use list_button::{CharacterFavorite, ConflictSheet, FavoriteToggle, ListButton};
 pub use loading::LoadingIndicator;
 pub use media::{EpisodeRow, MediaCard, MediaCover};
 pub use media::{ContinueCard, HeroCarousel, format_score, monogram, safe_css_color};

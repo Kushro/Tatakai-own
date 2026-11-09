@@ -19,7 +19,6 @@
   "player.error.no_player": "The video player could not start. Check the log in the logs folder of the app's data directory.",
   "player.shaders_missing": "Upscaling shaders are missing. Run packaging\\fetch-deps.ps1 and restart.",
   "player.fullscreen": "Full screen",
-  "player.shortcuts": "Space: play/pause. Left/Right: 5 s. F: fullscreen. Ctrl+1 to Ctrl+6: upscaling.",
   "preset.title": "Upscaling preset",
   "preset.off": "Off",
   "preset.anime4k-a": "Anime4K A",

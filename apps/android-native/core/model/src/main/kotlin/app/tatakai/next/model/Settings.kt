@@ -80,7 +80,7 @@ enum class TitleLanguage(val key: String) { ROMAJI("romaji"), ENGLISH("english")
 
 /**
  * Sections of the single Settings screen (prototype order) + the Torrents subpage. Deep links: `Route.SettingsSection(section)`.
- * 2026-11-09 amendment: the Supabase `ACCOUNT` section is gone; [ACCOUNTS] (AniList / MAL) takes its place in the order.
+ * 2026-11-09 amendment: the hosted-backend `ACCOUNT` section is gone; [ACCOUNTS] (AniList / MAL) takes its place in the order.
  */
 enum class SettingsSection(val id: String) {
     APPEARANCE("appearance"),

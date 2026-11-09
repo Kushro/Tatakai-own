@@ -1,9 +1,9 @@
 //! `Backend` details extras (wave A, worker **c**; docs/redesign/15 section 4).
 //!
 //! `details_extra` asks AniList directly (`tk_core::metadata::anilist::details`; the router has no generic call
-//! for it) with its own `reqwest::Client`, caches the raw `Media` object in `b.store` for 6 h and maps it to
+//! for it) with its own `reqwest::Client`, caches the raw `Media` object in `b.store` for the metadata cache lifetime set in Settings > Data and maps it to
 //! `DetailsExtraVm`. `watch_order` walks the PREQUEL / SEQUEL chain (at most `MAX_CHAIN_HOPS` each way) with the
-//! light chain query, each node cached 6 h, and lays it out with `watch_order_steps` (side stories / recaps after
+//! light chain query, each node cached the same way, and lays it out with `watch_order_steps` (side stories / recaps after
 //! their parent). Kitsu-only ids have no AniList data: both calls answer empty.
 
 use std::collections::HashSet;
@@ -25,9 +25,6 @@ use tk_ui::backend::{
 use tk_ui::model::{ErrorKind, UiError};
 
 use super::{LiveBackend, media_ref, provider_err, to_vm};
-
-/// Cache lifetime of the AniList answers (contract: 6 h).
-const CACHE_TTL_SECS: i64 = 6 * 60 * 60;
 
 fn anilist() -> &'static AniList {
     static CLIENT: OnceLock<AniList> = OnceLock::new();
@@ -66,8 +63,6 @@ fn person_vm(p: &Person) -> PersonVm {
 /// Title of a card in the preferred language (`english` | `romaji` | `native`; checklist
 /// `details.title-language`), falling back english -> romaji -> native -> the mapped title. tk-app's card mapper
 /// (`live/mod.rs::to_vm`) calls it once `Settings` carries the preference (integration note of worker c).
-// Unused until the integrator wires the preference (see the note above).
-#[allow(dead_code)]
 pub fn display_title(m: &Media, preferred: &str) -> String {
     pick_title(&m.titles, preferred).unwrap_or_else(|| m.title.clone())
 }
@@ -141,7 +136,7 @@ pub fn extra_vm(raw: &Value, x: MediaExtra, kitsu_id: Option<u32>) -> DetailsExt
     }
 }
 
-/// Raw object through the 6 h cache; `fetch` runs on a miss. Cache failures only log.
+/// Raw object through the metadata cache (lifetime from Settings > Data, default 24 h); `fetch` runs on a miss. Cache failures only log.
 async fn cached<F, Fut>(b: &LiveBackend, key: &str, fetch: F) -> UiResult<Option<Value>>
 where
     F: FnOnce() -> Fut,
@@ -154,7 +149,7 @@ where
     }
     let fresh = fetch().await.map_err(provider_err)?;
     if let Some(v) = &fresh
-        && let Err(e) = b.store.cache_put(key, v, CACHE_TTL_SECS)
+        && let Err(e) = b.store.cache_put(key, v, super::system::metadata_ttl_secs(b))
     {
         tracing::warn!(%e, key, "writing the AniList cache failed");
     }

@@ -548,7 +548,6 @@ pub fn system_caps(_b: &LiveBackend) -> SystemCapsVm {
 
 /// Seconds of the metadata TTL cache chosen in Settings (`Settings::system.metadata_cache_ttl_hours`), for the
 /// `b.store.cache_put` calls of the metadata paths (details, characters, watch order).
-#[allow(dead_code)] // used by the metadata cache writers (live/details.rs, live/search.rs) once the integrator wires it
 pub fn metadata_ttl_secs(b: &LiveBackend) -> i64 {
     i64::from(crate::settings_store::load(&b.settings_file).system.metadata_cache_ttl_hours) * 3600
 }

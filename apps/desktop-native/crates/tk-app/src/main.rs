@@ -22,6 +22,8 @@ mod magnet;
 #[cfg(not(feature = "live"))]
 mod offline;
 mod paths;
+#[cfg_attr(not(feature = "live"), allow(dead_code))] // wipe is used by worker f's live/system.rs
+mod reset;
 mod settings_store;
 mod single_instance;
 #[allow(dead_code)] // used by worker f's live/system.rs
@@ -104,6 +106,8 @@ fn main() -> anyhow::Result<()> {
         tracing::info!("another instance is running; asked it to show its window");
         return Ok(());
     };
+    // Wave A, worker f: finish a "Reset app" whose files were still locked (Windows) before anything opens them.
+    reset::finish_pending(&paths.root);
 
     // Wave A, worker i: a `magnet:` link on the command line (OS scheme handler) waits for the torrent client.
     if let Some(link) = magnet::from_args(std::env::args_os().map(|a| a.to_string_lossy().into_owned())) {

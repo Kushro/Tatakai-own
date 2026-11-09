@@ -1,4 +1,4 @@
-# Per-developer config (SDK path, Supabase URL/anon key) — never committed (E8)
+# Per-developer config (SDK path, OAuth client ids) — never committed (E8)
 local.properties
 keystore.properties
 *.jks

@@ -405,6 +405,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
 
                 let mut last_report = now_ms();
                 let mut last_pos = -1.0_f64;
+                // Worker i (torrent.preload-next): asked once per episode.
+                let mut preload_asked = false;
                 loop {
                     let ev = match rx.recv().await {
                         Ok(ev) => ev,
@@ -420,6 +422,20 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                                 last_pos = pos;
                                 dispatch(&mut pstate, PlayerAction::Position(pos));
                                 ctx.track_fraction(pstate.peek().fraction());
+                                // A single-file torrent preloads the next episode's best torrent at 80 % (a batch
+                                // selects its next file by itself, live/torrent_play.rs).
+                                if !preload_asked
+                                    && pstate.peek().fraction() >= 0.8
+                                    && ctx.tslot.session.borrow().as_ref().is_some_and(|s| !s.batch)
+                                {
+                                    preload_asked = true;
+                                    let (b, id, ep) = (backend.clone(), ctx.id.clone(), ctx.episode);
+                                    spawn(async move {
+                                        if let Err(e) = b.torrent_preload_next(&id, ep).await {
+                                            tracing::debug!(error = ?e, "next episode not preloaded");
+                                        }
+                                    });
+                                }
                             }
                             if phase == Phase::Buffering && pos > 0.0 && !pstate.peek().buffering
                                 && let Some(sid) = flow.write().started()
@@ -540,6 +556,20 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
             if auto_next && countdown_left(since, now, secs) == 0 {
                 next_since.set(None);
                 ctx.go_next();
+            }
+        }
+    });
+
+    // Worker d: tk-player only emits `PlayerEvent::Tracks` on file load, so re-read the list when the subtitle
+    // sheet adds or switches tracks (loaded file, pre-translated track).
+    use_effect(move || {
+        let _rev = *subs::TRACKS_REV.read();
+        if let Some(p) = player.peek().clone() {
+            let list = subs::read_tracks(&p);
+            if !list.is_empty() {
+                sub_track.set(subs::selected_id(&list, TrackKind::Sub));
+                audio_track.set(subs::selected_id(&list, TrackKind::Audio));
+                tracks.set(list);
             }
         }
     });
@@ -890,6 +920,15 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         _ => String::new(),
     };
     let source_icon = if current.as_ref().is_some_and(|s| s.kind == SourceKindVm::Torrent) { "download" } else { "language" };
+    // `.tk-pc[data-stream-kind]` (docs/redesign/15 section 5, sources.debrid.*): a cached torrent with no engine
+    // session played through `Backend::debrid_play` (Flow's debrid branch).
+    let stream_kind = match &current {
+        _ if torrent.read().is_some() => "torrent",
+        Some(s) if s.kind == SourceKindVm::Torrent && s.debrid.is_some_and(|d| d.cached) => "debrid",
+        Some(s) if s.kind == SourceKindVm::Torrent => "torrent",
+        Some(_) => "web",
+        None => "none",
+    };
     // Torrent: "Waiting for metadata…" while `torrent_play` adds the torrent, then the speed / peers / file line
     // while mpv waits for data (docs/redesign/10 section 5.5).
     let torrent_now = current.as_ref().is_some_and(|s| s.kind == SourceKindVm::Torrent);
@@ -1366,12 +1405,14 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                         dispatch(&mut pstate, PlayerAction::Position(target));
                     }
                 },
-                // Track selection itself is worker d's (`subs::select_sub` / `select_audio`, applied by the
-                // integrator); the menus keep the choice in the UI and confirm it.
+                // The menus switch mpv's track through worker d's `subs::select_sub` / `select_audio`, keep the
+                // choice in the UI and confirm it.
                 on_sub: {
                     let ctx = ctx.clone();
                     move |sid: i64| {
                         sub_track.set(sid);
+                        let p = player.peek().clone();
+                        subs::select_sub(p.as_ref(), sid);
                         let label = tracks.peek().iter().find(|tr| tr.kind == TrackKind::Sub && tr.id == sid).map(crate::components::player_controls::track_label);
                         ctx.flash(label.unwrap_or_else(|| t("player.off")));
                     }
@@ -1380,6 +1421,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     let ctx = ctx.clone();
                     move |aid: i64| {
                         audio_track.set(aid);
+                        let p = player.peek().clone();
+                        subs::select_audio(p.as_ref(), aid);
                         if let Some(label) = tracks.peek().iter().find(|tr| tr.kind == TrackKind::Audio && tr.id == aid).map(crate::components::player_controls::track_label) {
                             ctx.flash(label);
                         }
@@ -1493,6 +1536,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 auto_next_secs: flow_prefs.auto_next_secs,
                 auto_skip: flow_prefs.auto_skip_intro,
                 source_picked: fs.has_pick(),
+                stream_kind: stream_kind.to_string(),
             }
         }
     };

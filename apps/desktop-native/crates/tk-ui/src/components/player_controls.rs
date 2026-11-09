@@ -149,6 +149,9 @@ pub fn PlayerControls(
     #[props(default)] auto_skip: bool,
     /// A source is the user's pick (not the system choice).
     #[props(default)] source_picked: bool,
+    /// What the current stream is: `web`, `torrent` (local engine), `debrid` (cached torrent served over HTTPS by a
+    /// debrid service, wave A worker i) or `none` (`data-stream-kind`).
+    #[props(default = "none".to_string())] stream_kind: String,
 ) -> Element {
     let mut preset_open = use_signal(|| false);
     let mut subs_open = use_signal(|| false);
@@ -211,6 +214,7 @@ pub fn PlayerControls(
             "data-speed": "{speed_data}",
             "data-stable-volume": "{stable_volume}",
             "data-source-picked": "{source_picked}",
+            "data-stream-kind": "{stream_kind}",
             div { class: "tk-pc__top",
                 IconButton { icon: "back".to_string(), label: t("player.back"), onclick: move |_| on_back.call(()) }
                 div { class: "tk-pc__title",

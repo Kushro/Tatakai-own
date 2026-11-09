@@ -78,5 +78,4 @@
     <string name="list_remove">Quitar de la lista</string>
     <string name="list_favorite">Favorito</string>
     <string name="list_queued_offline">Guardado. Se sincronizará cuando vuelvas a tener conexión.</string>
-    <string name="ui_wave_a_placeholder">Esta parte se está construyendo.</string>
 </resources>

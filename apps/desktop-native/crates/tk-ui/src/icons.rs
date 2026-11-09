@@ -83,6 +83,10 @@ fn glyph(name: &str) -> Option<(&'static str, bool)> {
         "tablet" => ("M5 3h14v18H5zM11 18h2", false),
         // wave 3 (torrent client rail destination)
         "magnet" => ("M5 4h4v7a3 3 0 0 0 6 0V4h4v7a7 7 0 0 1-14 0zM5 8h4M15 8h4", false),
+        // parity wave A (worker g: list widgets)
+        "minus" => ("M5 12h14", false),
+        "heart" => ("M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z", false),
+        "heart-filled" => ("M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z", true),
         _ => return None,
     })
 }
@@ -131,6 +135,9 @@ mod tests {
             assert!(glyph(n).is_some(), "{n}");
         }
         assert!(glyph("magnet").is_some());
+        for n in ["minus", "heart", "heart-filled"] {
+            assert!(glyph(n).is_some(), "{n}");
+        }
         assert!(glyph("nope").is_none());
     }
 }
