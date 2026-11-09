@@ -90,7 +90,9 @@ import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.Media
 import app.tatakai.next.ui.labels.labelRes
+import app.tatakai.next.ui.media.LocalTitleLanguage
 import app.tatakai.next.ui.media.MediaCover
+import app.tatakai.next.ui.media.displayTitle
 import app.tatakai.next.ui.state.rememberIsOnline
 import app.tatakai.next.ui.state.userMessage
 import kotlinx.coroutines.launch
@@ -625,7 +627,7 @@ fun ListButton(
             onProgress = { p -> write { lists.setProgress(media.ref, p) } },
             onScore = { sc -> write { lists.setScore(media.ref, sc) } },
             onFavorite = { f -> write { lists.setFavorite(media, f) } },
-            title = media.title,
+            title = media.displayTitle(LocalTitleLanguage.current),
             totalEpisodes = current.totalEpisodes ?: media.episodes,
         )
     }

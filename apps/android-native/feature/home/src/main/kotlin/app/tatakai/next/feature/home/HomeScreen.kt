@@ -69,8 +69,10 @@ import app.tatakai.next.model.Media
 import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.ui.R as UiR
 import app.tatakai.next.ui.media.COVER_ASPECT_RATIO
+import app.tatakai.next.ui.media.LocalTitleLanguage
 import app.tatakai.next.ui.media.MediaCard
 import app.tatakai.next.ui.media.MediaCover
+import app.tatakai.next.ui.media.displayTitle
 import app.tatakai.next.ui.media.mediaKey
 import app.tatakai.next.ui.media.progressFraction
 import app.tatakai.next.ui.media.toResumeArgs
@@ -326,7 +328,7 @@ private fun HeroSlide(media: Media, index: Int, onMediaClick: (Media) -> Unit, o
                 statusLabel(media.status)?.let { (label, tone) -> Pill(label, tone = tone) }
             }
             Text(
-                media.title,
+                media.displayTitle(LocalTitleLanguage.current),
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,

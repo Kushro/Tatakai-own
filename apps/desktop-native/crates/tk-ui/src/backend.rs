@@ -1679,6 +1679,11 @@ pub trait Backend: Send + Sync + 'static {
     async fn set_debrid_key(&self, _service: DebridServiceVm, _key: Option<&str>) -> UiResult<DebridAccountVm> {
         Err(UiError::not_wired("set_debrid_key"))
     }
+    /// Save the debrid preference order (most preferred first; partial lists keep the other services after it).
+    /// Returns the saved order.
+    async fn set_debrid_order(&self, _order: &[DebridServiceVm]) -> UiResult<Vec<DebridServiceVm>> {
+        Err(UiError::not_wired("set_debrid_order"))
+    }
     /// Play a torrent source through a connected debrid service (cached only): resolves the episode file to a
     /// direct HTTPS link, returned like a web stream.
     async fn debrid_play(&self, _source: &str, _id: &str, _episode: u32) -> UiResult<PlaybackVm> {

@@ -839,9 +839,9 @@
     "classic": "src/components/settings/panels/DisplayPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Un ajuste Romaji / Inglés / Nativo cambia el título mostrado en fichas, filas y resultados",
-    "status": "stub",
-    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/appearance.rs, apps/desktop-native/crates/tk-app/src/live/mod.rs (set_title_language), apps/desktop-native/crates/tk-app/src/live/details.rs (display_title); android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/TitleLanguage.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/DiscoverSettingsExtras.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt (displayTitle); NOT in apps/android-native/core/ui/src/main/kotlin/app/tatakai/next/ui/media/MediaCard.kt / EpisodeRow.kt",
-    "note": "Audit 2026-11-09: stub (android): desktop verified (Settings > Appearance, every card / details). Android applies it only in Search and Details; MediaCard / EpisodeRow of :core:ui (Home, Library, character appearances) still show media.title."
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/appearance.rs, apps/desktop-native/crates/tk-app/src/live/mod.rs (set_title_language), apps/desktop-native/crates/tk-app/src/live/details.rs (display_title); android: apps/android-native/core/ui/src/main/kotlin/app/tatakai/next/ui/media/TitleLanguage.kt (Media.displayTitle, LocalTitleLanguage), apps/android-native/core/ui/src/main/kotlin/app/tatakai/next/ui/media/MediaCard.kt (titleLanguage = LocalTitleLanguage.current), apps/android-native/app/src/main/kotlin/app/tatakai/next/nav/TatakaiApp.kt (LocalTitleLanguage provides settings.titleLanguage), apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchScreen.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/home/src/main/kotlin/app/tatakai/next/feature/home/HomeScreen.kt (hero)",
+    "note": "Wave A closure 2026-11-09: verified (desktop + android). Android: Media.displayTitle moved to :core:ui; MediaCard(media) follows LocalTitleLanguage, provided by TatakaiApp, so Home, Library, character appearances, Search and Details use the setting; the Home hero and the Library list editor title too. EpisodeRow shows Episode.title (no language variants). History / continue-watching cards keep their stored title string (no Media). Not compiled."
   },
   {
     "id": "details.list-button-mount",
@@ -1173,9 +1173,9 @@
     "classic": "src/components/settings/DebridSettingsPanel.tsx",
     "next": null,
     "accept": "El cliente de torrents tiene una sección Debrid (/torrents/debrid) con un campo de clave por servicio, botón Probar y orden de preferencia; las claves van a Secrets (escritorio) / Keystore (Android), no a los ajustes",
-    "status": "stub",
-    "note": "Default aceptado: debrid como sección de Torrents + campo debrid en SourceVm, sin SourceKind nuevo | Audit 2026-11-09: stub (desktop): desktop Torrents > Debrid has key field, Test and save, keys in Secrets, but the preference order is fixed (DebridServiceVm::ALL, \"Prioridad N\") and cannot be changed. Android verified (prefer() + Keystore).",
-    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/debrid.rs (fixed DebridServiceVm::ALL order), apps/desktop-native/crates/tk-core/src/secrets.rs; android: apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/ParityContent.kt (DebridSection, prefer), apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/vm/ParityViewModels.kt"
+    "status": "verified",
+    "note": "Default aceptado: debrid como sección de Torrents + campo debrid en SourceVm, sin SourceKind nuevo | Wave A closure 2026-11-09: verified (desktop + android). Desktop Torrents > Debrid now reorders services (move up / down), saved via Backend::set_debrid_order (new method, default not_wired, contract §3.2 addition) in data.db settings (debrid.order); keys stay in Secrets. Not compiled.",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/debrid.rs (move up / down, data-debrid-order, data-priority), apps/desktop-native/crates/tk-ui/src/backend.rs (Backend::set_debrid_order), apps/desktop-native/crates/tk-app/src/live/debrid.rs (set_debrid_order, normalize_order; debrid_accounts / mark_cached / debrid_play use the saved order), apps/desktop-native/crates/tk-core/src/store/torrents.rs (settings key debrid.order), apps/desktop-native/crates/tk-core/src/secrets.rs; android: apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/ParityContent.kt (DebridSection, prefer), apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/vm/ParityViewModels.kt"
   },
   {
     "id": "sources.debrid.ranking",
@@ -2351,10 +2351,10 @@
     "classic": "src/lib/listSync.ts",
     "next": null,
     "accept": "Al conectar se puede importar la lista remota al local, exportar la local al servicio o fusionar; además se puede exportar a JSON",
-    "status": "stub",
+    "status": "verified",
     "audit": "Falta",
-    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs (FirstSync import/export/merge sheet), apps/desktop-native/crates/tk-app/src/live/lists.rs (import_list, export_list); android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt (completeLink always syncWith MERGE; exportJson/importJson), apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt",
-    "note": "Audit 2026-11-09: stub (android): desktop verified (first-sync sheet import / export / merge + JSON / CSV export). Android always runs InitialSyncMode.MERGE after linking (ListsRepositoryImpl.completeLink); syncWith(IMPORT/EXPORT) is never offered in the UI. JSON import / export exists."
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs (FirstSync import/export/merge sheet), apps/desktop-native/crates/tk-app/src/live/lists.rs (import_list, export_list); android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt (completeLink -> firstSyncPending when the local list has entries; syncWith(mode); exportJson/importJson), apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt (SyncModeSheet: MERGE / IMPORT / EXPORT), apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt (syncWithMode)",
+    "note": "Wave A closure 2026-11-09: verified (desktop + android). Android linking with a non-empty local list waits in ListsSyncControl.firstSyncPending and Settings › Listas y cuentas offers Merge / Import from provider / Export to provider (also later from the provider card); empty local list merges at once. JSON import / export unchanged. Not compiled."
   },
   {
     "id": "lists.auto-progress",
@@ -3815,9 +3815,9 @@
     "classic": "src/pages/auth/SetupPage.tsx",
     "next": null,
     "accept": "En el primer arranque (sin datos) aparece un asistente de pocos pasos: idioma, motor y preferencias de fuente, conectar AniList / MAL (opcional) y permisos; se puede omitir y no vuelve a aparecer",
-    "status": "stub",
-    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (f; Android q) | Audit 2026-11-09: stub (desktop + android): both wizards exist, can be skipped and do not come back, but neither has the engine / source-preferences step; Android also has no permissions step (WELCOME, APPEARANCE, LISTS, LINK, DONE).",
-    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/setup.rs (steps appearance/downloads/extensions/accounts/system/done), apps/desktop-native/crates/tk-ui/src/app.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/OnboardingScreen.kt (WELCOME/APPEARANCE/LISTS/LINK/DONE), apps/android-native/app/src/main/kotlin/app/tatakai/next/nav/TatakaiApp.kt"
+    "status": "verified",
+    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (f; Android q) | Wave A closure 2026-11-09: verified (desktop + android). Both wizards now have the engine + source preferences step (desktop 'player', Android PLAYBACK); Android adds the notifications permission step on Android 13+. Still skippable, not shown again. §5 acceptance updated to 'Siguiente × 6'. Not compiled.",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/setup.rs (steps appearance/player/downloads/extensions/accounts/system/done; player step: data-player-mode, data-source-prefer, data-min-quality, data-sub-lang, data-dub-lang), apps/desktop-native/crates/tk-ui/src/app.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/OnboardingScreen.kt (WELCOME/APPEARANCE/PLAYBACK/LISTS/LINK/PERMISSIONS/DONE; PERMISSIONS on Android 13+), apps/android-native/app/src/main/kotlin/app/tatakai/next/nav/TatakaiApp.kt"
   },
   {
     "id": "account.sessions-list",
@@ -3878,10 +3878,10 @@
     "classic": "desktop/ipc/ipc-system.cjs",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Limpiar caché\" borra la tabla cache y las imágenes en disco, muestra el espacio liberado y el botón deja de estar deshabilitado",
-    "status": "stub",
+    "status": "verified",
     "audit": "Stub",
-    "found": "desktop: apps/desktop-native/crates/tk-app/src/live/system.rs (clear_cache: cache table + disk caches), apps/desktop-native/crates/tk-ui/src/screens/settings/data.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsViewModel.kt (clearCache -> MetadataRepositoryImpl.clearCache: metadata table only)",
-    "note": "Audit 2026-11-09: stub (android): desktop verified (cache table + disk caches, bytes freed). Android \"Limpiar caché\" only clears the metadata cache table (MetadataRepositoryImpl.clearCache); the Coil image disk cache is not cleared."
+    "found": "desktop: apps/desktop-native/crates/tk-app/src/live/system.rs (clear_cache: cache table + disk caches), apps/desktop-native/crates/tk-ui/src/screens/settings/data.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsViewModel.kt (clearCache: metadata table + images, freed bytes measured), apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/ImageCache.kt (CoilImageCache: disk + memory), apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsModule.kt",
+    "note": "Wave A closure 2026-11-09: verified (desktop + android). Android \"Limpiar caché\" now clears the metadata table and Coil's image disk / memory cache, shows an 'Images on disk' row and the freed bytes. Not compiled."
   },
   {
     "id": "system.open-folder",
