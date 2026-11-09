@@ -163,3 +163,44 @@ Nada de esta ola se compiló ni se ejecutó al integrar (F2); el primer build es
 - **Android, Link**: el long-poll de `GET /v1/events` solo corre con la app en primer plano (sin servicio en segundo plano). La PC no expone su plataforma al teléfono (`link.last-seen` muestra la última vez vista real, no la plataforma del PC).
 - **Android, narración**: `TextToSpeech` no pausa a mitad de frase (Reanudar repite el párrafo actual); KittenTTS es solo escritorio. Lora y OpenDyslexic no van empaquetadas (caen a serif del sistema o sans con más espaciado; se puede importar un TTF/OTF). MangaDex solo es fuente de capítulos cuando no hay ninguna extensión `read`.
 - **Android, social**: la cuota de AniList (90 req/min) se comparte con el sondeo de notificaciones (worker cada 15 min, solo con la opción activa y AniList enlazado). "Escribir reseña" abre `https://anilist.co/review/editor/<anilistId>` (sin comprobar contra AniList).
+
+## Ola B de paridad
+
+Re-revisión F8 (2026-11-09, rama `parity/wave-b`). Página: `docs/redesign/parity/audit-wave-b.html`; capturas en `docs/redesign/parity/wave-b/next/`. Humo de escritorio con `scripts/parity/wk.mjs` sobre el binario debug, con un directorio de datos vacío, sin cuentas, sin extensiones y sin dispositivos emparejados.
+
+### Estado del build
+
+- **Desktop**: verde (`cargo build -p tk-app`); la app arranca y las pantallas de abajo responden.
+- **Android**: rojo. No se hizo humo de Android; todo lo de `16-parity-wave-b-contract-android.md` §5 queda sin ejecutar y sin verificar en dispositivo.
+- **Clásico**: no se lanzó. `node_modules/electron` no trae el binario (`dist/electron` no existe) y instalarlo exige red, así que no hay capturas de `cdp.mjs` en esta pasada.
+
+### Fallos vistos en el humo (desktop)
+
+- **Extras de la ficha rotos** (`details.facts`, `details.related`, `details.characters-staff`, `details.recommendations`, `details.seasons-watch-order`, `details.next-episode`, `details.trailer`): todas las pestañas Información / Personajes / Relacionados y el orden de visionado muestran "`<id>` was not found on AniList" y no aparece ningún `[data-extra]`, `[data-next-airing]` ni `[data-trailer]`. Causa reproducida con curl: `id_vars` en `tk-core/src/metadata/anilist/details.rs` envía `{"id": 21, "idMal": null}` y AniList responde 404 "Not Found." (sin la clave `idMal` responde 200). La rama MAL, `{"id": null, "idMal": N}`, probablemente falla igual. Pendiente de arreglo: omitir la clave nula. El test `id_vars_prefer_the_anilist_id` fija el comportamiento erróneo.
+- **El asistente no persiste `setup_done` al terminar**: tras `Empezar a ver` no se escribió `ui-settings.json`; cerrar y reabrir mostró el asistente otra vez. El archivo solo se creó al cambiar otro ajuste (entonces trae `setup_done: true` y el reinicio ya no lo muestra).
+- **Buscar**: no existe `[data-filters]` (el contrato lo usa para comprobar el filtro activo); una búsqueda de personajes por "Luffy" devolvió primero resultados sin relación con el texto.
+- **Arnés**: `wk.mjs FULL` dejaba estilos en línea en `#main`, `.tk-shell` y `.tk-shell__body`, y la pantalla siguiente salía vacía. Se corrigió para no sobrescribir los estilos guardados; Dioxus puede volver a pintarlos, así que tras un `FULL` hay que quitar los `style` con `overflow: visible`. `CLICK:Cerrar` coincide con el botón de cerrar la ventana de la app y la cierra.
+
+### Ids sin ejercitar (solo "manual")
+
+El checklist tras F4 no tiene ids en `stub` ni `missing`, pero estos pasos de aceptación no se pudieron ejecutar sin cuenta, extensión, dispositivo o red de instalación (y por la regla de no iniciar sesión, no emparejar y no instalar desde la red):
+
+- **Reproductor y fuentes** (ola A d / e, ola B k): `player.*` (subtítulos preferidos, estilo, traducción, captura, atajos, auto-siguiente, temporizador, Discord), `sources.remembered-vs-prefs`, `sources.embed-sniffer*` en reproducción, `sources.debrid.*` con clave y `sources.debrid.episode-context`.
+- **Descargas** (h): cola, pausa / reanudar tras reinicio, integridad, historial, límite de almacenamiento con uso real, auto-descarga, `downloads.local-library.*` (la hoja de descarga y las pestañas sí cargan; la hoja de la ficha dice "0 ya descargados").
+- **Extensiones** (j): emparejar servidores, Stremio con manifest, actualizaciones, preferencias por extensión, proveedores personalizados (`#/provider/<id>`), `ext.deep-link.server`.
+- **Servidor y Link** (k): `server.pairing`, `server.devices`, `server.viewer-password`, `/invoke`, `/resolve`, `/media`, `server.flaresolverr`, `server.proxy`, `link.send-to-device`, `link.remote-control`, `link.handoff`, `link.discovery`. Solo se comprobó `/health` (protocolVersion 1, pairingRequired true), `/sources` sin token (401) y que el cursor de logs crece.
+- **Manga y novelas** (l / m): descarga de capítulos y lectura sin red, reanudar `data-page`; ficha, lector, descarga y TTS de novelas (necesitan una extensión de novelas); `novel.tts.*` con clave de OpenAI.
+- **Inicio** (b): `home.because-you-watched`, `home.followed-updates`, `home.torrent-activity`, `home.recs.*` con historial (la página muestra el estado vacío) y `home.recs.atlas`, recordatorios de calendario (`data-reminder`).
+- **Social** (n): `social.*` y `details.reviews` con cuenta de AniList (sin cuenta solo se ve "Conecta AniList").
+- **Torrents** (i): añadir magnet, alineación de episodios, historial de sesiones, estado de trackers, `xdg-open magnet:`.
+- **Setup y sistema** (f): `system.reset-app`, autostart, bandeja, Licencias, Buscar actualizaciones.
+
+### Proveedores de metadata descartados
+
+Ninguno se descartó en esta pasada. `data-provider-status` de los 8 proveedores: AniList, Kitsu, ani.zip, Shikimori, Tenrai, MangaDex y MangaUpdates en `ok`; MAL en `error` por no haber `TATAKAI_MAL_CLIENT_ID` (la ficha no puede mostrar `[data-facts-source~="mal"]` sin él). Shikimori y Tenrai se descartarían con nota si dejaran de responder (checklist `metadata.providers.*`); hoy responden. Además el humo no pudo comprobar su enriquecimiento de la ficha por el fallo de extras de arriba.
+
+### Límites del sniffer, tk-server y KittenTTS
+
+- **Sniffer**: el interruptor y el tiempo máximo (5..60 s, 20 por defecto) están en Ajustes › Servidor y red (`data-sniffer`, `data-sniffer-timeout`), no en "Fuentes"; una fuente embed solo llega al sniffer si ninguna HLS / MP4 / torrent válida la precede. No se probó con una extensión que devuelva `type: "embed"`.
+- **tk-server**: solo sirve extensiones `.kai` (los ecosistemas Sora / Mangayomi / Seanime / Java se usan por el servidor Node emparejado). FlareSolverr y el proxy saliente solo cubren las peticiones del Upstream de tk-server y la reproducción por el proxy loopback; las peticiones de las extensiones (`SafeHttp`) se detallan en la nota de cierre de k en el checklist. En esta pasada solo se verificó arranque, `/health`, 401 sin token y parada.
+- **KittenTTS** (solo escritorio): en esta máquina `data-kitten`, `data-kitten-runtime` y `data-kitten-phonemizer` salen `missing` (no hay `espeak-ng`); no se pulsó `Instalar` porque descarga runtime y modelo de la red. Sin extensión de novelas tampoco hay texto que narrar.

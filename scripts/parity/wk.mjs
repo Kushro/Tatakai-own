@@ -17,7 +17,7 @@ const ev = async (expr) => { const r = await send('Runtime.evaluate', { expressi
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const EXPAND = `(()=>{const els=[...document.querySelectorAll('*')].filter(el=>{const s=getComputedStyle(el);return (s.overflowY==='auto'||s.overflowY==='scroll')&&el.scrollHeight>el.clientHeight+20&&el.clientHeight>300});let H=document.documentElement.clientHeight;window.__exp=[];for(const el of els){const extra=el.scrollHeight-el.clientHeight;H=Math.max(H,document.documentElement.clientHeight+extra);}
 document.documentElement.style.height=H+'px';document.body.style.height=H+'px';
-for(const el of els){window.__exp.push(el);el.dataset.oh=el.style.cssText;el.style.overflow='visible';el.style.height=el.scrollHeight+'px';el.style.maxHeight='none';let p=el.parentElement;while(p&&p!==document.documentElement){p.dataset.oh2=p.style.cssText;p.style.height='auto';p.style.maxHeight='none';p.style.overflow='visible';p=p.parentElement;}}
+for(const el of els){window.__exp.push(el);if(el.dataset.oh===undefined)el.dataset.oh=el.style.cssText;el.style.overflow='visible';el.style.height=el.scrollHeight+'px';el.style.maxHeight='none';let p=el.parentElement;while(p&&p!==document.documentElement){if(p.dataset.oh2===undefined)p.dataset.oh2=p.style.cssText;p.style.height='auto';p.style.maxHeight='none';p.style.overflow='visible';p=p.parentElement;}}
 return Math.min(H,9000)})()`;
 const RESTORE = `(()=>{document.querySelectorAll('[data-oh]').forEach(e=>{e.style.cssText=e.dataset.oh;delete e.dataset.oh});document.querySelectorAll('[data-oh2]').forEach(e=>{e.style.cssText=e.dataset.oh2;delete e.dataset.oh2});document.documentElement.style.height='';document.body.style.height='';return 1})()`;
 async function shot(name, full) {
