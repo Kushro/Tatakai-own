@@ -772,6 +772,9 @@ impl Backend for LiveBackend {
     async fn set_debrid_key(&self, service: DebridServiceVm, key: Option<&str>) -> UiResult<DebridAccountVm> {
         debrid::set_debrid_key(self, service, key).await
     }
+    async fn set_debrid_order(&self, order: &[DebridServiceVm]) -> UiResult<Vec<DebridServiceVm>> {
+        debrid::set_debrid_order(self, order).await
+    }
     async fn debrid_play(&self, source: &str, id: &str, episode: u32) -> UiResult<PlaybackVm> {
         debrid::debrid_play(self, source, id, episode).await
     }

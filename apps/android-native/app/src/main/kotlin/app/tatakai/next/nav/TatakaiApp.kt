@@ -122,6 +122,7 @@ import app.tatakai.next.model.UpdateRepository
 import app.tatakai.next.model.torrent.TorrentRepository
 import app.tatakai.next.model.torrent.TorrentSection
 import app.tatakai.next.model.torrent.TorrentServiceStatus
+import app.tatakai.next.ui.media.LocalTitleLanguage
 import app.tatakai.next.ui.state.contrastLevel
 import app.tatakai.next.ui.state.rememberIsOnline
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -164,6 +165,7 @@ fun TatakaiApp(
         CompositionLocalProvider(
             LocalReduceMotion provides reduceMotion,
             LocalAppSnackbar provides snackbar,
+            LocalTitleLanguage provides settings.titleLanguage,
         ) {
             // parity wave A, 2026-11-09 amendment (plan 14 §0.1 #11, worker q): first-run wizard until `AppSettings.onboardingDone`;
             // the wizard's ViewModel persists the flag (and "Restablecer la app" clears it), so this just reacts to the settings.
