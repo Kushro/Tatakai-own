@@ -1,7 +1,21 @@
 // Tatakai native extension host - bundle loader and route dispatcher (routes.v1.json). Evaluated after prelude.js.
 (function (G) {
   'use strict';
-  const state = { instance: null, manifest: null, cache: new Map(), result: null };
+  const state = { instance: null, manifest: null, cache: new Map(), result: null, preferences: Object.freeze({}) };
+
+  // Wave B (ext.preferences): values the user set in Extensions > Preferences, as strings ("true"/"false" for
+  // toggles). Set by the host right before the bundle loads; a change rebuilds the runtime.
+  G.__tk_set_prefs = function (json) {
+    let p = {};
+    try { p = JSON.parse(json || '{}') || {}; } catch (e) { p = {}; }
+    const out = {};
+    for (const k of Object.keys(p)) if (typeof p[k] === 'string') out[k] = p[k];
+    state.preferences = Object.freeze(out);
+    G.preferences = state.preferences;
+    G.getPreference = function (key, fallback) {
+      return Object.prototype.hasOwnProperty.call(state.preferences, key) ? state.preferences[key] : fallback;
+    };
+  };
 
   class HostError extends Error {
     constructor(status, message) { super(message); this.status = status; }
@@ -18,6 +32,11 @@
     if (typeof exp === 'function') inst = new exp();
     if (!inst || (typeof inst !== 'object' && typeof inst !== 'function')) throw new Error('Extension bundle produced no usable export');
     state.instance = inst;
+    if (typeof inst.setPreferences === 'function') {
+      inst.setPreferences(state.preferences);
+    } else if (typeof inst === 'object' && !('preferences' in inst)) {
+      try { inst.preferences = state.preferences; } catch (e) { /* frozen export */ }
+    }
     // Legacy host-server.cjs: hand the bundle a browser only when it has permitted browserDomains (Rust decides).
     if (typeof inst.configureBrowserRuntime === 'function') {
       const runtime = G.__tk_browser_runtime();

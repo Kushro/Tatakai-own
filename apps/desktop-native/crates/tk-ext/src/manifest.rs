@@ -50,6 +50,111 @@ pub struct Manifest {
     /// `network:domain:*` permission are honoured (`browser::browser_domains`).
     #[serde(default)]
     pub browser_domains: Vec<String>,
+    /// User preferences the bundle reads at run time (wave B, `ext.preferences`): a list of
+    /// `{ key, label|title, hint|summary, type: text|secret|password|toggle|boolean|switch|select|list, options |
+    /// entries + entryValues, default }`. `settings` is accepted as an alias.
+    #[serde(default)]
+    pub preferences: Vec<Value>,
+    #[serde(default)]
+    pub settings: Vec<Value>,
+    /// Optional update feed (`ext.updates.check`): a JSON `{ version, url, notes? }` (or a `.kai` URL) the host
+    /// compares with `version`.
+    #[serde(default)]
+    pub update_url: Option<String>,
+}
+
+/// Control of one declared preference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrefKind {
+    Text,
+    Secret,
+    Toggle,
+    Select,
+}
+
+/// One declared preference (normalized from `Manifest::preferences` / `settings`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrefField {
+    pub key: String,
+    pub label: String,
+    pub hint: Option<String>,
+    pub kind: PrefKind,
+    /// `(value, label)` of a `Select`.
+    pub options: Vec<(String, String)>,
+    /// Default as text (`"true"` / `"false"` for toggles); empty when none.
+    pub default: String,
+}
+
+/// Preference keys: `[A-Za-z0-9_.-]{1,64}`.
+pub fn valid_pref_key(k: &str) -> bool {
+    !k.is_empty() && k.len() <= 64 && k.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b'-'))
+}
+
+fn value_text(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Bool(b) => b.to_string(),
+        Value::Number(n) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn pref_field(v: &Value) -> Option<PrefField> {
+    let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::trim).filter(|x| !x.is_empty()).map(str::to_owned);
+    let key = s("key").or_else(|| s("id")).or_else(|| s("name")).filter(|k| valid_pref_key(k))?;
+    let label = s("label").or_else(|| s("title")).unwrap_or_else(|| key.clone());
+    let hint = s("hint").or_else(|| s("summary")).or_else(|| s("description"));
+    let ty = s("type").unwrap_or_default().to_ascii_lowercase();
+    let mut options: Vec<(String, String)> = Vec::new();
+    if let Some(list) = v.get("options").and_then(Value::as_array) {
+        for o in list {
+            match o {
+                Value::Object(_) => {
+                    let value = o.get("value").map(value_text).unwrap_or_default();
+                    let label = o.get("label").map(value_text).filter(|l| !l.is_empty()).unwrap_or_else(|| value.clone());
+                    if !value.is_empty() {
+                        options.push((value, label));
+                    }
+                }
+                other => {
+                    let t = value_text(other);
+                    if !t.is_empty() {
+                        options.push((t.clone(), t));
+                    }
+                }
+            }
+        }
+    } else if let Some(values) = v.get("entryValues").and_then(Value::as_array) {
+        let labels = v.get("entries").and_then(Value::as_array);
+        for (i, val) in values.iter().enumerate() {
+            let value = value_text(val);
+            let label = labels.and_then(|l| l.get(i)).map(value_text).filter(|l| !l.is_empty()).unwrap_or_else(|| value.clone());
+            if !value.is_empty() {
+                options.push((value, label));
+            }
+        }
+    }
+    let secret_name = {
+        let probe = format!("{key} {label}").to_ascii_lowercase();
+        ["password", "token", "secret", "apikey", "api_key", "api key", "api-key"].iter().any(|w| probe.contains(w))
+    };
+    let kind = match ty.as_str() {
+        "toggle" | "boolean" | "bool" | "switch" | "checkbox" => PrefKind::Toggle,
+        "select" | "list" | "enum" | "dropdown" => PrefKind::Select,
+        "secret" | "password" => PrefKind::Secret,
+        _ if !options.is_empty() => PrefKind::Select,
+        _ if secret_name || v.get("secret").and_then(Value::as_bool) == Some(true) => PrefKind::Secret,
+        _ => PrefKind::Text,
+    };
+    if kind == PrefKind::Select && options.is_empty() {
+        return None;
+    }
+    let default = v.get("default").or_else(|| v.get("defaultValue")).map(value_text).unwrap_or_default();
+    let default = match kind {
+        PrefKind::Toggle => (default == "true").to_string(),
+        _ => default,
+    };
+    Some(PrefField { key, label, hint, kind, options, default })
 }
 
 impl Manifest {
@@ -97,6 +202,18 @@ impl Manifest {
     pub fn priority(&self) -> f64 {
         self.priority.unwrap_or(100.0)
     }
+
+    /// Declared preferences (`preferences`, else `settings`), invalid entries skipped, first key wins.
+    pub fn preference_fields(&self) -> Vec<PrefField> {
+        let list = if self.preferences.is_empty() { &self.settings } else { &self.preferences };
+        let mut out: Vec<PrefField> = Vec::new();
+        for f in list.iter().filter_map(pref_field) {
+            if out.len() < 100 && !out.iter().any(|x| x.key == f.key) {
+                out.push(f);
+            }
+        }
+        out
+    }
 }
 
 /// `^[a-z0-9][a-z0-9._-]{0,63}$`
@@ -137,5 +254,30 @@ mod tests {
         }
         assert!(err(&OK.replace("my.ext", "UPPER")).contains("manifest.id"));
         assert!(valid_id(&"a".repeat(64)) && !valid_id(&"a".repeat(65)));
+    }
+
+    #[test]
+    fn preference_fields_are_normalized() {
+        let json = OK.replace(
+            r#""permissions""#,
+            r#""preferences":[
+                {"key":"quality","label":"Quality","type":"select","options":[{"value":"1080","label":"1080p"},"720"],"default":"1080"},
+                {"key":"apiKey","title":"API key"},
+                {"key":"dub","type":"boolean","default":true},
+                {"key":"lang","entries":["Spanish","English"],"entryValues":["es","en"]},
+                {"key":"bad key"},
+                {"key":"quality","type":"text"},
+                {"key":"empty","type":"select"}
+            ],"permissions""#,
+        );
+        let m = Manifest::parse(&json).unwrap();
+        let f = m.preference_fields();
+        assert_eq!(f.len(), 4);
+        assert_eq!((f[0].kind, f[0].options.len(), f[0].default.as_str()), (PrefKind::Select, 2, "1080"));
+        assert_eq!(f[0].options[1], ("720".to_owned(), "720".to_owned()));
+        assert_eq!(f[1].kind, PrefKind::Secret);
+        assert_eq!((f[2].kind, f[2].default.as_str()), (PrefKind::Toggle, "true"));
+        assert_eq!(f[3].options[0], ("es".to_owned(), "Spanish".to_owned()));
+        assert!(Manifest::parse(OK).unwrap().preference_fields().is_empty());
     }
 }
