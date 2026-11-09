@@ -66,6 +66,19 @@ pub fn paragraphs(text: &str) -> Vec<String> {
     text.split("\n\n").map(|p| p.trim().to_owned()).filter(|p| !p.is_empty()).collect()
 }
 
+/// Refresh the rail badge when the window regains focus (`social.notifications.badge`: "polled and when coming back
+/// to the app"): wakes `model::social::wait_unread_poll`. Meant for the component that runs the badge poll
+/// (`components::rail_badges::use_rail_badges`, integrator).
+pub fn use_unread_focus_wake() {
+    use dioxus::desktop::tao::event::Event;
+    use dioxus::desktop::WindowEvent;
+    let _handler = dioxus::desktop::use_wry_event_handler(|event, _| {
+        if let Event::WindowEvent { event: WindowEvent::Focused(true), .. } = event {
+            crate::model::social::wake_unread_poll();
+        }
+    });
+}
+
 /// Round avatar (image or monogram).
 #[component]
 pub fn Avatar(user: UserVm, #[props(default = 40)] size: u32) -> Element {
