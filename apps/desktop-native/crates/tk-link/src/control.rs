@@ -168,4 +168,71 @@ mod tests {
         let st = PlayerState { playing: true, title: Some("x".into()), episode: Some(3), position_secs: 90, duration_secs: None, media_id: Some("21".into()) };
         assert_eq!(serde_json::to_string(&st).unwrap(), r#"{"playing":true,"title":"x","episode":3,"positionSecs":90,"mediaId":"21"}"#);
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn open_bounds_are_exact() {
+        let open = |id: &str, ep: u32| ControlCommand::Open { media_id: id.into(), episode: ep, position_secs: 0 };
+        assert!(valid(&open(&"a".repeat(128), 1)));
+        assert!(!valid(&open(&"a".repeat(129), 1)));
+        assert!(!valid(&open("21\n", 1)));
+        assert!(!valid(&open("", 1)));
+        assert!(valid(&open("ext:toko:abc", u32::MAX)));
+        assert!(valid(&ControlCommand::Seek { seconds: 24 * 3600 }));
+        assert!(!valid(&ControlCommand::Seek { seconds: 24 * 3600 + 1 }));
+        for c in [ControlCommand::Play, ControlCommand::Pause, ControlCommand::Next, ControlCommand::Prev] {
+            assert!(valid(&c));
+        }
+    }
+
+    #[test]
+    fn every_simple_command_round_trips() {
+        for (c, name) in [
+            (ControlCommand::Play, "play"),
+            (ControlCommand::Pause, "pause"),
+            (ControlCommand::Toggle, "toggle"),
+            (ControlCommand::Next, "next"),
+            (ControlCommand::Prev, "prev"),
+        ] {
+            let wire = serde_json::to_string(&c).unwrap();
+            assert_eq!(wire, format!(r#"{{"command":"{name}"}}"#));
+            assert_eq!(serde_json::from_str::<ControlCommand>(&wire).unwrap(), c);
+        }
+    }
+
+    #[test]
+    fn malformed_commands_are_rejected() {
+        for bad in [
+            r#"{"command":"rewind"}"#,
+            r#"{"command":"seek"}"#,
+            r#"{"command":"open","episode":1}"#,
+            r#"{"command":"seek","seconds":-1}"#,
+            r#"{"seconds":5}"#,
+            r#"{"command":"Play"}"#,
+        ] {
+            assert!(serde_json::from_str::<ControlCommand>(bad).is_err(), "{bad}");
+        }
+        // positionSecs is optional on open
+        let c: ControlCommand = serde_json::from_str(r#"{"command":"open","mediaId":"21","episode":2}"#).unwrap();
+        assert_eq!(c, ControlCommand::Open { media_id: "21".into(), episode: 2, position_secs: 0 });
+    }
+
+    #[test]
+    fn player_state_defaults_and_minimal_wire() {
+        let st: PlayerState = serde_json::from_str(r#"{"playing":false}"#).unwrap();
+        assert_eq!(st, PlayerState { playing: false, title: None, episode: None, position_secs: 0, duration_secs: None, media_id: None });
+        assert_eq!(serde_json::to_string(&st).unwrap(), r#"{"playing":false,"positionSecs":0}"#);
+        assert!(serde_json::from_str::<PlayerState>("{}").is_err(), "playing is required");
+    }
+
+    #[test]
+    fn events_page_defaults_and_unknown_event_types() {
+        assert_eq!(serde_json::to_string(&EventsPage::default()).unwrap(), r#"{"events":[]}"#);
+        assert!(serde_json::from_str::<EventsPage>(r#"{"events":[{"type":"other"}]}"#).is_err());
+        let titled = PhoneEvent::Handoff { session_id: "s".into(), media_id: None, episode: None, position_secs: 0, title: Some("T".into()) };
+        assert_eq!(serde_json::to_string(&titled).unwrap(), r#"{"type":"handoff","sessionId":"s","positionSecs":0,"title":"T"}"#);
+        assert_eq!(clamp_wait(Some(1)), 1);
+        assert_eq!(clamp_wait(Some(EVENTS_MAX_WAIT_SECS)), EVENTS_MAX_WAIT_SECS);
+        assert_eq!(super::NO_PLAYER, "no_player");
+    }
 }
