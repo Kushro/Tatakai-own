@@ -16,8 +16,10 @@ import org.koin.dsl.module
  * [PendingMagnetLink] (system `magnet:` / `.torrent` handler).
  */
 val torrentModule: Module = module {
-    single { TorrentRepositoryImpl(context = androidContext(), settingsRepository = get()) }
+    single { TorrentRepositoryImpl(context = androidContext(), settingsRepository = get(), debrid = getOrNull()) }
     single<TorrentRepository> { get<TorrentRepositoryImpl>() }
-    single<DebridRepository> { DebridRepositoryImpl(client = get(), secrets = get()) }
+    // concrete type also bound so the engine (instant HTTPS playback) and the Debrid section (preference order) reach the same instance
+    single { DebridRepositoryImpl(client = get(), secrets = get()) }
+    single<DebridRepository> { get<DebridRepositoryImpl>() }
     single { PendingMagnetLink() }
 }

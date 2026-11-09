@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "node": { "id": 52991, "title": "Sousou no Frieren", "main_picture": { "medium": "https://cdn.myanimelist.net/m.jpg", "large": "https://cdn.myanimelist.net/l.jpg" }, "num_episodes": 28 },
+      "list_status": { "status": "watching", "score": 9, "num_episodes_watched": 7, "is_rewatching": false, "updated_at": "2026-11-05T10:00:00+00:00", "start_date": "2026-10-03" }
+    },
+    {
+      "node": { "id": 21, "title": "One Piece", "num_episodes": 0 },
+      "list_status": { "status": "completed", "score": 0, "num_episodes_watched": 1100, "is_rewatching": true, "updated_at": "2026-11-01T00:00:00Z" }
+    },
+    {
+      "node": { "id": 5114, "title": "Fullmetal Alchemist: Brotherhood" },
+      "list_status": { "status": "plan_to_watch", "score": 0, "num_episodes_watched": 0, "is_rewatching": false, "updated_at": "2026-01-01T00:00:00Z" }
+    },
+    { "node": { "id": 99 }, "list_status": { "status": "unknown" } }
+  ],
+  "paging": { "next": "https://api.myanimelist.net/v2/users/@me/animelist?offset=100" }
+}

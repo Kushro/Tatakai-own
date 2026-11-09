@@ -93,6 +93,7 @@ internal fun torrentErrorMessage(error: AppError): String {
         "incomplete" -> stringResource(R.string.torrent_android_incomplete)
         "export_unsupported" -> stringResource(R.string.torrent_android_export_unsupported)
         "invalid_source" -> stringResource(R.string.torrent_android_invalid_source)
+        "invalid_file" -> stringResource(R.string.torrent_add_invalid_file)
         else -> stringResource(R.string.torrent_overview_action_error)
     }
 }

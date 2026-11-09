@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.torrent.store
 
+import app.tatakai.next.model.torrent.EpisodeAlignment
 import app.tatakai.next.model.torrent.TorrentLabel
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +38,10 @@ data class StoredTorrent(
     val progress: Double = 0.0,
     /** `content://` of the SAF folder copy after move-on-complete (11 §6 a); the torrent then leaves the session. */
     val movedUri: String? = null,
+    /** parity wave A (worker q, torrent.episode-alignment): how the video files map to episodes; null = parsed names. */
+    val alignment: EpisodeAlignment? = null,
+    /** parity wave A (worker q, torrent.session-history): "play" | "download" | "manual" | "magnet". */
+    val origin: String = "play",
 )
 
 @Serializable

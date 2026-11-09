@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Extension
@@ -82,7 +83,7 @@ fun YouScreen(
     onOpenLinked: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
-    // --- parity wave A (docs/redesign/15 §3.3, worker q): wired by :app. 2026-11-09 amendment: the Supabase sign-in callback is
+    // --- parity wave A (docs/redesign/15 §3.3, worker q): wired by :app. 2026-11-09 amendment: the old sign-in callback is
     // gone; the account card's button and the "Listas y cuentas" row both lead here. ---
     /** AniList / MAL accounts -> Route.SettingsSection(ACCOUNTS). */
     onOpenAccounts: () -> Unit = {},
@@ -165,6 +166,7 @@ internal fun YouContent(
                             onOpenExtensions = onOpenExtensions,
                             onOpenLinked = onOpenLinked,
                             onOpenSettings = onOpenSettings,
+                            onOpenAccounts = onOpenAccounts,
                         )
                     }
                 }
@@ -195,7 +197,9 @@ private fun AccountCard(overview: YouOverview, syncing: Boolean, onSyncNow: () -
                     val subtitle = if (overview.accounts.isEmpty()) {
                         stringResource(R.string.you_guest)
                     } else {
-                        overview.accounts.joinToString(" · ") { stringResource(it.provider.labelRes()) }
+                        val anilist = stringResource(ListProvider.ANILIST.labelRes())
+                        val mal = stringResource(ListProvider.MAL.labelRes())
+                        overview.accounts.joinToString(" · ") { if (it.provider == ListProvider.ANILIST) anilist else mal }
                     }
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     val linked = overview.linked
@@ -257,9 +261,23 @@ private fun YouList(
     onOpenExtensions: () -> Unit,
     onOpenLinked: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenAccounts: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
         Column(Modifier.padding(vertical = 8.dp)) {
+            // parity wave A (15 §3.3, worker q): AniList / MAL lists and accounts (Settings › Listas y cuentas).
+            YouRow(
+                icon = Icons.Outlined.Bookmarks,
+                title = stringResource(R.string.you_accounts),
+                subtitle = if (overview.accounts.isEmpty()) {
+                    stringResource(R.string.you_accounts_none)
+                } else {
+                    val anilist = stringResource(ListProvider.ANILIST.labelRes())
+                    val mal = stringResource(ListProvider.MAL.labelRes())
+                    overview.accounts.joinToString(" · ") { "${if (it.provider == ListProvider.ANILIST) anilist else mal} · ${it.username}" }
+                },
+                onClick = onOpenAccounts,
+            )
             YouRow(
                 icon = Icons.Outlined.History,
                 title = stringResource(R.string.you_history),

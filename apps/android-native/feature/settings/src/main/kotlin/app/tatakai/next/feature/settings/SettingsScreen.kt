@@ -2,6 +2,7 @@
 
 package app.tatakai.next.feature.settings
 
+import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -95,7 +96,8 @@ fun SettingsScreen(
     var torrentsOpen by rememberSaveable { mutableStateOf(initialSection == SettingsSection.TORRENTS) }
 
     val snackbar = LocalAppSnackbar.current
-    val resources = LocalContext.current.resources
+    val context = LocalContext.current
+    val resources = context.resources
     val currentSnackbar by rememberUpdatedState(snackbar)
     LaunchedEffect(viewModel) {
         viewModel.refreshStorage()
@@ -105,8 +107,13 @@ fun SettingsScreen(
                 SettingsEvent.Synced -> resources.getString(R.string.settings_synced)
                 is SettingsEvent.CacheCleared -> resources.getString(R.string.settings_cache_cleared, formatBytes(event.freedBytes))
                 is SettingsEvent.Failed -> resources.getString(R.string.settings_action_failed)
+                // parity wave A (worker q, system.reset-app): recreate the activity; the shell shows the first-run wizard again
+                SettingsEvent.ResetDone -> {
+                    (context as? Activity)?.recreate()
+                    null
+                }
             }
-            currentSnackbar.show(message)
+            if (message != null) currentSnackbar.show(message)
         }
     }
 
@@ -308,7 +315,7 @@ private fun SettingsList(
                     SettingsSection.LINK -> LinkSection(state, viewModel, onOpenLinked)
                     SettingsSection.TORRENTS -> TorrentsSection(onOpenTorrents)
                     SettingsSection.DATA -> DataSection(state, viewModel)
-                    SettingsSection.ABOUT -> AboutSection()
+                    SettingsSection.ABOUT -> AboutSection(state, viewModel)
                 }
             }
         }

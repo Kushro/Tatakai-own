@@ -20,7 +20,7 @@ import org.koin.core.component.inject
 import java.util.concurrent.TimeUnit
 
 // parity wave A, 2026-11-09 amendment (plan 14 §0.1 #9): the server side of the history sync is the paired PC over Tatakai Link
-// (`LinkHistoryRemote`, :core:link), not Supabase. Same local-first model: Room is the source of truth, dirty rows are pushed in
+// (`LinkHistoryRemote`, :core:link), with no hosted backend. Same local-first model: Room is the source of truth, dirty rows are pushed in
 // coalesced WorkManager passes, recent PC rows are merged back. Owner: worker q.
 
 /** Asks for a (coalesced) push of dirty history rows. */
@@ -111,6 +111,17 @@ class HistorySyncer(
     }
 
     suspend fun hasPending(): Boolean = dao.dirtyCount() > 0
+
+    /**
+     * Settings › Datos › Borrar historial with "también en la PC": `DELETE /v1/history` on the paired PC, then the pull cursor restarts
+     * (the PC is empty, so a full pull brings nothing back). No-op without a pairing.
+     * @throws LinkHistoryUnavailableException, LinkException
+     */
+    suspend fun clearRemote() {
+        if (!remote.available) return
+        remote.clear()
+        saveCursor(0L)
+    }
 
     private companion object {
         /** <= `LinkClient.MAX_HISTORY_ROWS` (500) and comfortably under the 256 KiB body cap. */
