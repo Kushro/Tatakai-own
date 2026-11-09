@@ -1,5 +1,8 @@
 package app.tatakai.next.feature.settings
 
+import app.tatakai.next.data.PROP_ANILIST_CLIENT_ID
+import app.tatakai.next.data.PROP_MAL_CLIENT_ID
+import app.tatakai.next.model.ListProvider
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
@@ -19,4 +22,15 @@ val settingsModule = module {
             reset = getOrNull(),
         )
     }
+    // parity wave A (15 §3.3-3.4, worker q): Listas y cuentas (OAuth redirect from PendingOAuthRedirect), Acerca de / Datos actions,
+    // first-run wizard. A provider without a client id (TATAKAI_*_CLIENT_ID unset) shows "Vincular" disabled with the reason.
+    viewModel {
+        val configured = buildSet {
+            if (!getPropertyOrNull<String>(PROP_ANILIST_CLIENT_ID).isNullOrBlank()) add(ListProvider.ANILIST)
+            if (!getPropertyOrNull<String>(PROP_MAL_CLIENT_ID).isNullOrBlank()) add(ListProvider.MAL)
+        }
+        AccountsViewModel(lists = get(), settingsRepo = get(), redirects = getOrNull(), configured = configured)
+    }
+    viewModel { SystemViewModel(logs = getOrNull(), updates = getOrNull(), history = getOrNull()) }
+    viewModel { OnboardingViewModel(settingsRepo = get()) }
 }

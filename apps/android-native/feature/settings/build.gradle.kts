@@ -21,3 +21,10 @@ dependencies {
     implementation(projects.feature.search)
     implementation(libs.androidx.browser)
 }
+
+dependencies {
+    // parity wave A (worker q): PendingOAuthRedirect / ListErrors / OAuthRedirect of :core:data (Listas y cuentas) and the
+    // FileProvider of "Abrir registros" (androidx.core, already in the catalog). No cycle: :core:data depends on no feature module.
+    implementation(projects.core.data)
+    implementation(libs.androidx.core.ktx)
+}
