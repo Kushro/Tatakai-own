@@ -312,4 +312,81 @@ mod tests {
         assert_eq!(timeout_of(&r(20)), Duration::from_secs(20));
         assert_eq!(timeout_of(&r(200)), Duration::from_secs(60));
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn media_urls_look_at_the_path_only() {
+        assert!(is_media_url("https://cdn.example/a.m3u8#t=10"));
+        assert!(is_media_url("https://cdn.example/A/INDEX.M3U8"));
+        assert!(!is_media_url("https://cdn.example/a.m3u8.js"));
+        assert!(!is_media_url("https://cdn.example/play?file=a.mp4"), "query strings do not count");
+        assert!(!is_media_url("https://cdn.example/a.mp4x"));
+        assert!(!is_media_url(""));
+    }
+
+    #[test]
+    fn blocked_hosts_match_whole_labels_case_insensitively() {
+        assert!(is_blocked_host("ADS.DoubleClick.NET"));
+        assert!(is_blocked_host("doubleclick.net"));
+        assert!(!is_blocked_host("notdoubleclick.net"), "suffix must start at a label");
+        assert!(!is_blocked_host("doubleclick.net.example"));
+        assert!(is_blocked_host(&format!("www.{}", concat!("google-analy", "tics.com"))));
+        assert!(!is_blocked_host(""));
+    }
+
+    #[test]
+    fn block_list_is_lower_case_and_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for h in ADBLOCK_HOSTS {
+            assert_eq!(*h, h.to_ascii_lowercase(), "{h}");
+            assert!(!h.starts_with('.') && !h.contains('/') && !h.contains(' '), "{h}");
+            assert!(seen.insert(*h), "duplicate {h}");
+        }
+    }
+
+    #[test]
+    fn domains_skip_http_referers_blocked_hosts_and_duplicates() {
+        let d = sniff_domains(
+            "https://embed.example/e/1",
+            Some("http://site.example/ep"),
+            &["EMBED.EXAMPLE".into(), "".into(), "Cdn.Example".into(), "x.exoclick.com".into()],
+        );
+        assert_eq!(d, vec!["embed.example".to_owned(), "cdn.example".to_owned()]);
+        // a blocked embed host is never navigable, even when it is the page itself
+        assert!(sniff_domains("https://popads.net/e/1", None, &[]).is_empty());
+        assert!(sniff_domains("not a url", Some("also not"), &[]).is_empty());
+    }
+
+    #[test]
+    fn capture_headers_drop_unsafe_or_missing_values() {
+        let c = Captured {
+            url: "https://cdn.other/a.mp4".into(),
+            referer: "about:blank".into(),
+            origin: "null".into(),
+            user_agent: "UA\r\nX-Evil: 1".into(),
+            content_type: "video/mp4".into(),
+        };
+        assert!(capture_headers(&c).is_empty());
+        let empty = Captured { url: "https://cdn.other/a.mp4".into(), referer: String::new(), origin: String::new(), user_agent: String::new(), content_type: String::new() };
+        assert!(capture_headers(&empty).is_empty());
+        // an unparsable media url keeps the page origin (it cannot be the same origin)
+        let odd = Captured { url: "::".into(), origin: "https://embed.example".into(), ..empty };
+        assert_eq!(capture_headers(&odd), vec![("Origin".to_owned(), "https://embed.example".to_owned())]);
+    }
+
+    #[test]
+    fn https_hosts_only() {
+        assert_eq!(https_host("https://Embed.Example:8443/x").as_deref(), Some("embed.example"));
+        assert_eq!(https_host("http://embed.example/x"), None);
+        assert_eq!(https_host("file:///etc/passwd"), None);
+        assert_eq!(https_host("https://10.0.0.2/e").as_deref(), Some("10.0.0.2"));
+    }
+
+    #[test]
+    fn timeout_bounds_are_the_settings_bounds() {
+        let r = |s: u8| SniffRequestVm { url: String::new(), referer: None, ext_id: None, timeout_secs: s };
+        assert_eq!(timeout_of(&r(SNIFF_MIN_SECS)), Duration::from_secs(u64::from(SNIFF_MIN_SECS)));
+        assert_eq!(timeout_of(&r(SNIFF_MAX_SECS)), Duration::from_secs(u64::from(SNIFF_MAX_SECS)));
+        assert_eq!(timeout_of(&r(u8::MAX)), Duration::from_secs(u64::from(SNIFF_MAX_SECS)));
+    }
 }
