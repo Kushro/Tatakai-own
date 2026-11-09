@@ -10,3 +10,14 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.androidx.documentfile) // SAF tree name in Settings › Torrents › Almacenamiento
 }
+
+dependencies {
+    // parity wave A (worker q): PendingMagnetLink, DebridRepositoryImpl (preference order) and the alignment preview rules of :core:torrent.
+    // No cycle: :core:torrent depends only on :core:model and :core:release.
+    implementation(projects.core.torrent)
+}
+
+dependencies {
+    // parity wave A (worker q): release parser (episode numbers of the alignment preview, already a dependency of :core:torrent).
+    implementation(projects.core.release)
+}

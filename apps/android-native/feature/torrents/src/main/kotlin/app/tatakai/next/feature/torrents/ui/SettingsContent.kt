@@ -227,6 +227,9 @@ internal fun TorrentSettingsBody(
             )
         }
 
+        // --- parity wave A (worker q): horario, trackers propios, límite de caché, precarga ---
+        ParityTorrentSettings(settings, onChange)
+
         // --- Segundo plano ---
         SectionCard(title = stringResource(R.string.torrent_settings_background)) {
             SwitchRow(

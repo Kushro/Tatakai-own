@@ -259,6 +259,10 @@ internal fun FilesTab(viewModel: TorrentDetailViewModel, item: TorrentLibraryIte
     val state by viewModel.files.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
     var sheetFor by remember { mutableStateOf<TorrentFile?>(null) }
+    var aligning by rememberSaveable { mutableStateOf(false) }
+    @Suppress("UNCHECKED_CAST")
+    val loadedFiles = (state as? app.tatakai.next.model.LoadState.Ok<List<TorrentFile>>)?.value
+    if (aligning && loadedFiles != null) AlignmentSheet(loadedFiles, viewModel) { aligning = false }
     TorrentLoadState(state, viewModel::retryFiles, Modifier.fillMaxSize(), errorTitle = stringResource(R.string.torrent_files_error)) { files ->
         if (files.isEmpty()) {
             EmptyState(
@@ -286,6 +290,10 @@ internal fun FilesTab(viewModel: TorrentDetailViewModel, item: TorrentLibraryIte
                     }
                 },
             )
+            // parity wave A (worker q, torrent.episode-alignment)
+            TextButton(onClick = { aligning = true }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                Text(stringResource(R.string.torrent_align_title))
+            }
             val selected = files.count { it.selected }
             Text(
                 stringResource(
@@ -513,15 +521,21 @@ internal fun TrackersTab(viewModel: TorrentDetailViewModel) {
                 icon = Icons.Outlined.Podcasts,
                 title = stringResource(R.string.torrent_trackers_empty_title),
                 message = stringResource(R.string.torrent_trackers_empty_body),
+                actionLabel = stringResource(R.string.torrent_trackers_reannounce),
+                onAction = viewModel::reannounce,
             )
         } else {
             Column(Modifier.fillMaxSize()) {
-                Text(
-                    stringResource(R.string.torrent_trackers_summary, trackers.size, trackers.count { it.status == TrackerStatus.WORKING }),
-                    style = monoStyle(MaterialTheme.typography.labelMedium),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.torrent_trackers_summary, trackers.size, trackers.count { it.status == TrackerStatus.WORKING }),
+                        style = monoStyle(MaterialTheme.typography.labelMedium),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    // parity wave A (worker q, torrent.trackers.status)
+                    ReannounceButton(viewModel)
+                }
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
                     items(trackers, key = { it.url }, contentType = { "tracker" }) { TrackerRow(it) }
                 }
