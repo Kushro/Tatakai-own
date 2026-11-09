@@ -89,6 +89,8 @@ import app.tatakai.next.model.MediaSort
 import app.tatakai.next.model.TitleLanguage
 import app.tatakai.next.ui.R as UiR
 import app.tatakai.next.ui.media.MediaCover
+import app.tatakai.next.ui.media.alternativeTitle
+import app.tatakai.next.ui.media.displayTitle
 import app.tatakai.next.ui.media.mediaKey
 import app.tatakai.next.ui.state.screenInsets
 import app.tatakai.next.ui.state.userMessage
