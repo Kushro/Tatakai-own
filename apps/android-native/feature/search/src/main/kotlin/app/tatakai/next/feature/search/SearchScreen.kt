@@ -34,6 +34,7 @@ import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.ImageSearch
+import androidx.compose.material.icons.outlined.NoAdultContent
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
@@ -57,11 +58,14 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -86,6 +90,7 @@ import app.tatakai.next.metadata.TrendWindow
 import app.tatakai.next.model.CharacterRef
 import app.tatakai.next.model.ExtensionHomeItem
 import app.tatakai.next.model.FeedKind
+import app.tatakai.next.model.MatureContentMode
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaSort
 import app.tatakai.next.model.TitleLanguage
@@ -251,7 +256,7 @@ internal fun SearchContent(
                         onAction = { actions.onFiltersChange(SearchFilters()) },
                         modifier = Modifier.align(Alignment.Center),
                     )
-                    else -> ResultsList(state.shown, results, state.titleLanguage, actions)
+                    else -> ResultsList(state.shown, results, state.titleLanguage, state.matureContent, actions)
                 }
             }
         }
@@ -572,11 +577,26 @@ private fun LoadMoreFooter(results: SearchResults.Ok, onLoadMore: () -> Unit) {
 }
 
 @Composable
-private fun ResultsList(shown: List<Media>, results: SearchResults.Ok, language: TitleLanguage, actions: SearchActions) {
+private fun ResultsList(
+    shown: List<Media>,
+    results: SearchResults.Ok,
+    language: TitleLanguage,
+    matureContent: MatureContentMode,
+    actions: SearchActions,
+) {
+    // matureContent BLUR: keys of the adult results already uncovered on this screen (first tap reveals, the next one opens).
+    val revealed = remember { mutableStateListOf<String>() }
     LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
         item(key = "count", contentType = "count") { ResultsCount(shown.size) }
         items(shown, key = { mediaKey(it) }, contentType = { "media" }) { media ->
-            ResultRow(media, language, onClick = { actions.onMediaClick(media) })
+            val key = mediaKey(media)
+            val blurred = searchCoverBlurred(matureContent, media, key, revealed.toSet())
+            ResultRow(
+                media,
+                language,
+                blurred = blurred,
+                onClick = { if (blurred) revealed += key else actions.onMediaClick(media) },
+            )
         }
         if (results.hasNext) {
             item(key = "load-more", contentType = "load-more") { LoadMoreFooter(results, actions.onLoadMore) }
@@ -637,7 +657,7 @@ private fun ExtensionResults(items: List<ExtensionHomeItem>, actions: SearchActi
 
 /** Prototype `.result`: cover, title (preferred language), "alt · year · season", score, status and 18+ pills. */
 @Composable
-private fun ResultRow(media: Media, language: TitleLanguage, onClick: () -> Unit) {
+private fun ResultRow(media: Media, language: TitleLanguage, blurred: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -646,7 +666,10 @@ private fun ResultRow(media: Media, language: TitleLanguage, onClick: () -> Unit
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MediaCover(url = media.cover, modifier = Modifier.width(56.dp))
+        Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) {
+            MediaCover(url = media.cover, modifier = Modifier.fillMaxWidth().then(if (blurred) Modifier.blur(16.dp) else Modifier))
+            if (blurred) Icon(Icons.Outlined.NoAdultContent, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
+        }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             val title = media.displayTitle(language)
             Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -667,6 +690,13 @@ private fun ResultRow(media: Media, language: TitleLanguage, onClick: () -> Unit
                     statusLabel(status)?.let { Pill(it, tone = statusTone(status)) }
                 }
                 if (media.isProbablyAdult()) Pill(stringResource(R.string.search_adult_badge), tone = PillTone.ERR)
+            }
+            if (blurred) {
+                Text(
+                    stringResource(R.string.search_mature_tap),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

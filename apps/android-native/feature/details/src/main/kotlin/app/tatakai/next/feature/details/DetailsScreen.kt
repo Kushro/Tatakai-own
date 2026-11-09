@@ -206,6 +206,7 @@ fun DetailsScreen(
         onEpisodeQuery = viewModel::setEpisodeQuery,
         onEpisodeView = viewModel::setEpisodeView,
         onAcceptAdult = viewModel::acceptAdult,
+        onRevealCover = viewModel::revealCover,
     )
     val seed = parseHexColor((state.media as? LoadState.Ok)?.value?.color)
     TatakaiSeedTheme(seed = seed) {
@@ -275,6 +276,8 @@ internal data class DetailsActions(
     val onEpisodeQuery: (String) -> Unit = {},
     val onEpisodeView: (EpisodeView) -> Unit = {},
     val onAcceptAdult: () -> Unit = {},
+    /** matureContent BLUR: tap on the blurred banner / cover reveals them. */
+    val onRevealCover: () -> Unit = {},
 )
 
 @Composable
