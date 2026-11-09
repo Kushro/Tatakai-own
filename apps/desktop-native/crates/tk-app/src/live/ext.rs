@@ -148,6 +148,38 @@ impl Extensions {
         Ok(to_vm(info))
     }
 
+    /// Install a downloaded `.kai` (wave B, `ext.install-url`, `ext.updates.sheet`); `op` names the log line
+    /// (`install` / `update`). A replaced extension keeps its preferences (tk-ext).
+    pub async fn install_bytes(&self, bytes: Vec<u8>, op: &str) -> Result<ExtensionVm, UiError> {
+        let host = self.host.clone();
+        let info = tokio::task::spawn_blocking(move || host.install_kai_bytes(&bytes).map_err(err)).await.map_err(err)??;
+        self.noted_install(&info, op);
+        Ok(to_vm(info))
+    }
+
+    /// Install a hosted `manifest.json` + `bundle.js` pair (wave B, `ext.install-url`).
+    pub async fn install_unpacked(&self, manifest_json: String, bundle: String, op: &str) -> Result<ExtensionVm, UiError> {
+        let host = self.host.clone();
+        let info =
+            tokio::task::spawn_blocking(move || host.install_unpacked(&manifest_json, &bundle).map_err(err)).await.map_err(err)??;
+        self.noted_install(&info, op);
+        Ok(to_vm(info))
+    }
+
+    fn noted_install(&self, info: &InstalledExtension, op: &str) {
+        self.note(&info.id, ExtLogLevel::Ok, op, format!("{} {}", info.name, info.version));
+        match info.compat {
+            Compat::Full => {}
+            Compat::Partial => self.note(&info.id, ExtLogLevel::Warn, "compat", info.compat_reason.clone().unwrap_or_default()),
+            Compat::Unsupported => self.note(&info.id, ExtLogLevel::Err, "compat", info.compat_reason.clone().unwrap_or_default()),
+        }
+    }
+
+    /// App-side log line for an extension (wave B: preferences, updates, kill switch).
+    pub fn log(&self, id: &str, ok: bool, op: &str, message: impl Into<String>) {
+        self.note(id, if ok { ExtLogLevel::Ok } else { ExtLogLevel::Err }, op, message);
+    }
+
     pub async fn set_enabled(&self, id: &str, enabled: bool) -> Result<(), UiError> {
         let (host, owned) = (self.host.clone(), id.to_owned());
         let r = tokio::task::spawn_blocking(move || host.set_enabled(&owned, enabled).map_err(err)).await.map_err(err)?;

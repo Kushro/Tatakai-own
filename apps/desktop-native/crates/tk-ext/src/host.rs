@@ -179,6 +179,19 @@ impl ExtensionHost {
         self.install_package(read_kai_bytes(bytes)?)
     }
 
+    /// Install from a hosted `manifest.json` + `bundle.js` pair (wave B, `ext.install-url` with a manifest URL).
+    /// Same validation as a package (manifest rules, 10 MiB bundle).
+    pub fn install_unpacked(&self, manifest_json: &str, bundle: &str) -> Result<InstalledExtension, InstallError> {
+        if bundle.len() > 10 * 1024 * 1024 {
+            return Err(InstallError::invalid("bundle.js: larger than 10 MiB"));
+        }
+        if manifest_json.len() > 256 * 1024 {
+            return Err(InstallError::invalid("manifest.json: larger than 256 KiB"));
+        }
+        let manifest = Manifest::parse(manifest_json)?;
+        self.install_package(Package { manifest, manifest_json: manifest_json.to_owned(), bundle: bundle.to_owned() })
+    }
+
     fn install_package(&self, pkg: Package) -> Result<InstalledExtension, InstallError> {
         let Package { manifest, manifest_json, bundle } = pkg;
         let report = analyze_bundle(&bundle);
