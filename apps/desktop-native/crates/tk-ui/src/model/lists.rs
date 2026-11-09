@@ -87,4 +87,16 @@ mod tests {
         }
         assert_eq!(ListServiceVm::from_id("kitsu"), None);
     }
+    // ---- F6 (wave A gaps) ----
+
+    #[test]
+    fn labels_and_primary_service_wire() {
+        assert_eq!(ListServiceVm::AniList.label(), "AniList");
+        assert_eq!(ListServiceVm::Mal.label(), "MyAnimeList");
+        let p: ListPrefsVm = serde_json::from_str(r#"{"primary":"mal","progress_at":75}"#).unwrap();
+        assert_eq!(p, ListPrefsVm { primary: Some(ListServiceVm::Mal), progress_at: 75, ..ListPrefsVm::default() });
+        assert!(serde_json::from_str::<ListPrefsVm>(r#"{"primary":"AniList"}"#).is_err(), "ids are lower case");
+        let inside = ListPrefsVm { progress_at: PROGRESS_AT_MIN, auto_progress: false, write_back: false, primary: Some(ListServiceVm::AniList) };
+        assert_eq!(inside.clone().sanitized(), inside);
+    }
 }

@@ -190,4 +190,58 @@ mod tests {
         let r = HistoryRow { anilist_id: None, mal_id: None, ..HistoryRow::from(&row(1, 1)) };
         assert!(r.into_entry().is_none());
     }
+    // ---- F6 (wave A gaps) ----
+
+    #[test]
+    fn exact_limit_is_not_truncated_and_limit_zero_serves_one() {
+        let p = page(vec![row(1, 10), row(2, 20)], 2, 0);
+        assert!(!p.truncated);
+        assert_eq!(p.items.len(), 2);
+        assert_eq!(p.next_since_unix, 20);
+        let one = page(vec![row(1, 10), row(2, 20)], 0, 0);
+        assert_eq!(one.items.len(), 1);
+        assert!(one.truncated);
+        assert_eq!(one.next_since_unix, 10);
+    }
+
+    #[test]
+    fn unparsable_watched_at_is_refused() {
+        let r = HistoryRow { watched_at: "yesterday".into(), ..HistoryRow::from(&row(1, 1)) };
+        assert!(r.into_entry().is_none());
+        let r = HistoryRow { watched_at: String::new(), ..HistoryRow::from(&row(1, 1)) };
+        assert!(r.into_entry().is_none());
+    }
+
+    #[test]
+    fn empty_poster_and_zero_duration_are_unknown_both_ways() {
+        let mut e = row(4, 1_000);
+        e.poster = Some(String::new());
+        e.duration_sec = Some(0);
+        let r = HistoryRow::from(&e);
+        assert_eq!((r.poster.as_ref(), r.duration_sec), (None, None));
+        let v = serde_json::to_value(&r).unwrap();
+        assert!(v.get("poster").is_none() && v.get("durationSec").is_none());
+        let back = HistoryRow { poster: Some(String::new()), duration_sec: Some(0), ..r }.into_entry().unwrap();
+        assert_eq!((back.poster, back.duration_sec), (None, None));
+    }
+
+    #[test]
+    fn offsets_are_written_as_utc_and_read_back_to_the_same_instant() {
+        let mut e = row(1, 1_793_135_051);
+        e.watched_at = e.watched_at.to_offset(time::UtcOffset::from_hms(-3, 0, 0).unwrap());
+        let r = HistoryRow::from(&e);
+        assert_eq!(r.watched_at, "2026-10-27T21:04:11Z");
+        let parsed: HistoryRow = serde_json::from_str(
+            r#"{"animeId":"21","title":"x","episodeId":"21?ep=1","episode":1,"watchedAt":"2026-10-27T18:04:11-03:00","anilistId":21}"#,
+        )
+        .unwrap();
+        assert_eq!((parsed.progress_sec, parsed.completed), (0, false), "defaults");
+        assert_eq!(parsed.into_entry().unwrap().watched_at.unix_timestamp(), 1_793_135_051);
+    }
+
+    #[test]
+    fn page_wire_defaults_truncated() {
+        let p: HistoryPage = serde_json::from_str(r#"{"items":[],"next_since_unix":5}"#).unwrap();
+        assert_eq!(p, HistoryPage { items: Vec::new(), next_since_unix: 5, truncated: false });
+    }
 }
