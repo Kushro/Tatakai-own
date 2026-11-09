@@ -1,1 +1,89 @@
 /* system.css - wave A, worker f (first-run wizard `/setup`, Settings > Data / System / About rows, reset-app danger zone, update notice). Registered in app.rs APP_CSS by the contract; tokens only (no color literals). */
+
+/* ---- Settings > Data: storage bar ---- */
+.tk-storage { display: flex; flex-direction: column; gap: var(--tk-space-8); margin: var(--tk-space-8) 0 var(--tk-space-12); }
+.tk-storage__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--tk-space-8); flex-wrap: wrap; }
+.tk-storage__free { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-storage__bar {
+  display: flex; height: 12px; overflow: hidden;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-highest);
+}
+.tk-storage__seg { display: block; height: 100%; min-width: 0; transition: width var(--tk-mo-fx); }
+.tk-storage [data-part="cache"] { --tk-part: var(--md-sys-color-primary); }
+.tk-storage [data-part="torrents"] { --tk-part: var(--md-sys-color-tertiary); }
+.tk-storage [data-part="logs"] { --tk-part: var(--md-sys-color-secondary); }
+.tk-storage [data-part="extensions"] { --tk-part: var(--md-sys-color-outline); }
+.tk-storage__seg { background: var(--tk-part); }
+.tk-storage__legend { display: flex; flex-wrap: wrap; gap: var(--tk-space-8) var(--tk-space-16); margin: 0; padding: 0; list-style: none; font-size: var(--md-sys-typescale-body-small-size); }
+.tk-storage__legend li { display: flex; align-items: center; gap: var(--tk-space-4); }
+.tk-storage__dot { width: 8px; height: 8px; border-radius: var(--md-sys-shape-corner-full); background: var(--tk-part); }
+.tk-storage__size { color: var(--md-sys-color-on-surface-variant); font-family: var(--tk-font-mono); }
+
+/* metadata cache + history sync */
+.tk-meta-cache { display: flex; align-items: center; gap: var(--tk-space-12); flex-wrap: wrap; }
+.tk-meta-cache__size { font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-meta-cache__ttl { display: flex; flex-direction: column; gap: var(--tk-space-4); margin-top: var(--tk-space-8); }
+.tk-history-sync { display: flex; flex-direction: column; align-items: flex-start; gap: var(--tk-space-8); }
+.tk-history-sync__line { margin: 0; }
+
+/* ---- Settings > System: danger zone ---- */
+.tk-danger {
+  margin-top: var(--tk-space-16); padding: var(--tk-space-12) var(--tk-space-16);
+  border: 1px solid var(--md-sys-color-error);
+  border-radius: var(--md-sys-shape-corner-large);
+}
+.tk-danger__title { margin: 0 0 var(--tk-space-4); color: var(--md-sys-color-error); font-size: var(--md-sys-typescale-label-large-size); }
+.tk-danger__form { display: flex; flex-direction: column; gap: var(--tk-space-12); margin-top: var(--tk-space-12); }
+
+/* ---- Settings > About ---- */
+.tk-update { margin-top: var(--tk-space-8); }
+.tk-update__line { margin: 0 0 var(--tk-space-4); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-licenses {
+  margin: 0; white-space: pre-wrap; word-break: break-word;
+  font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-body-small-size);
+  color: var(--md-sys-color-on-surface);
+}
+
+/* ---- First-run wizard (/setup) ---- */
+.tk-page--setup { display: flex; justify-content: center; padding: var(--tk-space-24) var(--tk-space-16); overflow-y: auto; height: 100%; box-sizing: border-box; }
+.tk-setup { width: min(720px, 100%); display: flex; flex-direction: column; gap: var(--tk-space-16); }
+.tk-setup__head { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-setup__steps { display: flex; gap: var(--tk-space-8); margin: var(--tk-space-8) 0 0; padding: 0; list-style: none; flex-wrap: wrap; }
+.tk-setup__dot { display: flex; align-items: center; gap: var(--tk-space-4); color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-medium-size); }
+.tk-setup__dot-n {
+  display: inline-grid; place-items: center; width: 24px; height: 24px;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-surface-container-high);
+}
+.tk-setup__dot[data-state="current"] { color: var(--md-sys-color-on-surface); }
+.tk-setup__dot[data-state="current"] .tk-setup__dot-n { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
+.tk-setup__dot[data-state="done"] .tk-setup__dot-n { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.tk-setup__card {
+  display: flex; flex-direction: column; gap: var(--tk-space-12);
+  padding: var(--tk-space-24);
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  background: var(--md-sys-color-surface-container-low);
+}
+.tk-setup__title { margin: 0; font-family: var(--tk-font-display); font-size: var(--md-sys-typescale-title-medium-size); }
+.tk-setup__progress, .tk-setup__hint { margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-setup__field { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-setup__label { font-size: var(--md-sys-typescale-label-large-size); }
+.tk-setup__switch { display: flex; align-items: center; justify-content: space-between; gap: var(--tk-space-12); }
+.tk-setup__account {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--tk-space-12);
+  padding: var(--tk-space-8) var(--tk-space-12);
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-surface-container);
+}
+.tk-setup__count { margin: 0; }
+.tk-setup__list { margin: 0; padding-left: var(--tk-space-20); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-setup__error { margin: 0; color: var(--md-sys-color-error); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-setup__done { display: flex; flex-direction: column; align-items: center; gap: var(--tk-space-8); text-align: center; color: var(--md-sys-color-primary); }
+.tk-setup__done p { color: var(--md-sys-color-on-surface); margin: 0; }
+.tk-setup__foot { display: flex; align-items: center; gap: var(--tk-space-8); flex-wrap: wrap; }
+.tk-setup__spacer { flex: 1; }
+@media (max-width: 600px) {
+  .tk-setup__card { padding: var(--tk-space-16); }
+  .tk-setup__dot-label { display: none; }
+}
