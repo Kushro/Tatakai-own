@@ -2,8 +2,11 @@
 package app.tatakai.next.player.mpv
 
 import android.content.Context
+import android.os.Looper
 import android.os.SystemClock
+import androidx.media3.common.util.UnstableApi
 import app.tatakai.next.model.SubtitleStyle
+import app.tatakai.next.player.ActivePlayback
 import app.tatakai.next.player.AudioOption
 import app.tatakai.next.player.PlayableSource
 import app.tatakai.next.player.PlaybackError
@@ -12,6 +15,8 @@ import app.tatakai.next.player.PlaybackState
 import app.tatakai.next.player.PlayerSession
 import app.tatakai.next.player.PlayerSessionFactory
 import app.tatakai.next.player.SessionTicker
+import app.tatakai.next.player.SubtitleExtras
+import app.tatakai.next.player.SubtitleFonts
 import app.tatakai.next.player.SubtitleOption
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -27,6 +32,7 @@ private val ASS_CODECS = setOf("ass", "ssa")
  * [PlayerSession] over one [MpvEngine]: maps [MpvState] to the shared [PlaybackState] (so feature/player draws the same controls for
  * every engine) and reports progress like the Media3 engine. Create on the main thread; [release] exactly once.
  */
+@UnstableApi
 class MpvPlayerSession(
     context: Context,
     private val scope: CoroutineScope,
@@ -42,6 +48,12 @@ class MpvPlayerSession(
     private var loaded = false
     private var wasPlaying = false
     private val mirror: Job
+    private val fonts = SubtitleFonts(context)
+    private var style = SubtitleStyle()
+    private var extras: SubtitleExtras? = null
+
+    /** parity wave A (15 §3.2): the engine as a Media3 Player for PlaybackService (background, notification, headset buttons). */
+    val adapter: MpvPlayerAdapter = MpvPlayerAdapter(engine, Looper.getMainLooper())
 
     private val ticker = SessionTicker(
         scope = scope,
@@ -76,17 +88,23 @@ class MpvPlayerSession(
                     audioTracks = m.audio.map { t -> AudioOption(t.id, t.title ?: t.lang ?: "#${t.id}", t.lang, t.selected) },
                     fullAss = true,
                     error = m.error?.let { PlaybackError(-1, it, exhausted = true) },
+                    subText = m.subText,
+                    subtitleDelayMs = m.subDelayMs,
+                    loop = m.loop,
+                    secondarySubtitleId = m.secondarySid,
                 )
                 if (wasPlaying && !m.playing && loaded && !released) listener.onProgress(currentPositionMs(), _state.value.durationMs, true)
                 wasPlaying = m.playing
             }
         }
         ticker.start()
+        ActivePlayback.publish(adapter)
     }
 
     override fun load(source: PlayableSource, startMs: Long) {
         if (released) return
         loaded = true
+        ActivePlayback.publish(adapter)
         engine.load(source.url, source.headers, startMs.coerceAtLeast(0) / 1000.0, source.subtitles.map { it.url })
     }
 
@@ -111,8 +129,43 @@ class MpvPlayerSession(
 
     override fun setPreferredLanguages(subtitle: String?, audio: String?) = engine.setPreferredLanguages(subtitle, audio)
 
-    override fun setSubtitleStyle(style: SubtitleStyle) =
+    override fun setSubtitleStyle(style: SubtitleStyle) {
+        this.style = style
         engine.setSubtitleStyle(style.scale, style.backgroundOpacity, style.bold, style.outline)
+        extras?.let { applyExtras(it) }
+    }
+
+    override fun setSubtitleExtras(extras: SubtitleExtras) {
+        this.extras = extras
+        applyExtras(extras)
+    }
+
+    private fun applyExtras(e: SubtitleExtras) {
+        val family = e.fontFile?.let { fonts.familyName(it) }
+        engine.setSubtitleExtras(e, style.outline, family)
+    }
+
+    override fun setSubtitleDelay(ms: Long) = engine.setSubtitleDelay(ms)
+
+    override fun addSubtitleFile(path: String, title: String): Boolean {
+        engine.addSubtitleFile(path, title)
+        return true
+    }
+
+    override val supportsSecondaryTracks: Boolean get() = true
+
+    override fun selectSecondarySubtitle(id: Int?): Boolean {
+        engine.selectSecondarySubtitle(id)
+        return true
+    }
+
+    override fun setSubtitlesVisible(visible: Boolean) = engine.setSubtitlesVisible(visible)
+
+    override fun setLoop(loop: Boolean) = engine.setLoop(loop)
+
+    override fun setStableVolume(enabled: Boolean) = engine.setStableVolume(enabled)
+
+    override fun screenshotToFile(path: String): Boolean = engine.screenshotToFile(path)
 
     override fun currentPositionMs(): Long = (engine.currentPositionSecs() * 1000).toLong()
 
@@ -122,11 +175,14 @@ class MpvPlayerSession(
         released = true
         ticker.stop()
         mirror.cancel()
+        if (ActivePlayback.player.value === adapter) ActivePlayback.publish(null)
+        adapter.detach()
         engine.release()
     }
 }
 
 /** Koin-bound factory of mpv sessions (see `mpvPlayerModule`). [preset] is read at creation time. */
+@UnstableApi
 class MpvSessionFactory(private val context: Context, private val preset: () -> String) : PlayerSessionFactory {
     override fun create(scope: CoroutineScope, listener: PlaybackListener, remote: Boolean): PlayerSession =
         MpvPlayerSession(context, scope, listener, remote, preset())

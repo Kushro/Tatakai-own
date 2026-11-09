@@ -53,6 +53,38 @@ interface PlayerSession {
     fun currentPositionMs(): Long
 
     fun release()
+
+    // ---- parity wave A (docs/redesign/15 §3.2, worker p): private engine extensions --------------------------------------------------
+
+    /** Subtitle delay in ms (positive = later). mpv applies `sub-delay`; Media3 only records it (the screen shifts the cues it draws). */
+    fun setSubtitleDelay(ms: Long) = Unit
+
+    /** Colour / outline / position / custom font of text subtitles (mpv `sub-*`; Media3 draws them on screen from [SubtitleExtras]). */
+    fun setSubtitleExtras(extras: SubtitleExtras) = Unit
+
+    /**
+     * Adds a local subtitle file ([path] on disk) and selects it. Returns false when the engine cannot (Media3: the screen draws a loaded
+     * file itself from its parsed cues).
+     */
+    fun addSubtitleFile(path: String, title: String): Boolean = false
+
+    /** True when [selectSecondarySubtitle] works on any track of the stream (mpv `secondary-sid`). */
+    val supportsSecondaryTracks: Boolean get() = false
+
+    /** Second subtitle track shown at the top; null = off. Returns false when unsupported (Media3 draws an external track itself). */
+    fun selectSecondarySubtitle(id: Int?): Boolean = false
+
+    /** Engine-drawn subtitles on / off (mpv `sub-visibility`), used while the screen draws a translated line instead. */
+    fun setSubtitlesVisible(visible: Boolean) = Unit
+
+    /** Replay the episode when it ends (Media3 `REPEAT_MODE_ONE`, mpv `loop-file`): no "ended", no next-episode card. */
+    fun setLoop(loop: Boolean) = Unit
+
+    /** Loudness normalisation ("stable volume"): Media3 `DynamicsProcessing` / `LoudnessEnhancer`, mpv `af=dynaudnorm`. */
+    fun setStableVolume(enabled: Boolean) = Unit
+
+    /** Writes the current frame as PNG to [path] (mpv `screenshot-to-file`). False when the engine cannot (Media3: `PixelCopy`). */
+    fun screenshotToFile(path: String): Boolean = false
 }
 
 /**
