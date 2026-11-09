@@ -44,6 +44,12 @@ interface ExtensionServerRepository {
 
     /** Health + source count of one server (or all when [id] is null). */
     suspend fun refresh(id: String? = null)
+
+    /**
+     * parity wave B (16 §3.4, worker t; checklist server.api.extensions): the extensions installed on server [id] (`GET /extensions`),
+     * falling back to the extensions named by its `/sources` when the server keeps the list for its owner. Throws [ExtensionServerException].
+     */
+    suspend fun extensions(id: String): List<ServerExtension> = emptyList()
 }
 
 /**
@@ -118,6 +124,36 @@ class ExtensionServerRepositoryImpl(
         val targets = _servers.value.filter { it.enabled && (id == null || it.id == id) }
         coroutineScope {
             targets.map { conn -> async(io) { refreshOne(conn) } }.awaitAll()
+        }
+    }
+
+    override suspend fun extensions(id: String): List<ServerExtension> = withContext(io) {
+        ready.await()
+        val conn = _servers.value.firstOrNull { it.id == id } ?: throw ExtensionServerException(ExtensionServerException.INVALID_URL)
+        try {
+            val list = try {
+                client.extensions(conn)
+            } catch (e: ExtensionServerException) {
+                if (e.status != 403 && e.status != 404) throw e
+                // The Node server lists extensions to its owner only: rebuild the list from the viewer-visible sources.
+                client.sources(conn).groupBy { it.extensionId.ifBlank { it.id } }.map { (extId, rows) ->
+                    val first = rows.first()
+                    ServerExtension(
+                        id = extId,
+                        name = first.name.substringBefore(" · ").ifBlank { extId },
+                        ecosystem = first.ecosystem,
+                        kind = rows.joinToString(",") { it.kind },
+                        enabled = rows.any { it.enabled },
+                    )
+                }
+            }
+            noteSuccess(conn)
+            list
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            noteFailure(conn, e)
+            throw e
         }
     }
 
