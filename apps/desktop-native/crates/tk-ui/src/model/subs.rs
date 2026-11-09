@@ -67,7 +67,7 @@ pub fn is_hex_color(s: &str) -> bool {
     s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// Subtitle translation engines (classic `TranslationPanel`). Persisted as `snake_case`.
+/// Subtitle translation engines (classic `TranslationPanel`). Persisted as their [`id`](Self::id).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TranslationProviderVm {
@@ -75,10 +75,13 @@ pub enum TranslationProviderVm {
     #[default]
     Off,
     Google,
+    #[serde(rename = "deepl", alias = "deep_l")]
     DeepL,
+    #[serde(rename = "deeplx", alias = "deep_lx")]
     DeepLx,
     Azure,
     /// Any OpenAI-compatible chat endpoint (`endpoint` + `model`).
+    #[serde(rename = "openai", alias = "open_ai")]
     OpenAi,
 }
 

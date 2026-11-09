@@ -29,11 +29,37 @@ pub enum Parsed {
 }
 
 pub fn parse(body: &[u8]) -> Result<Parsed, DownloadError> {
-    match m3u8_rs::parse_playlist_res(body) {
+    let body = patch_method_none(body);
+    match m3u8_rs::parse_playlist_res(&body) {
         Ok(Playlist::MasterPlaylist(m)) => Ok(Parsed::Master(m)),
         Ok(Playlist::MediaPlaylist(m)) => Ok(Parsed::Media(m)),
         Err(e) => Err(DownloadError::Playlist(format!("invalid playlist: {e:?}").chars().take(200).collect())),
     }
+}
+
+/// m3u8-rs 6 rejects `#EXT-X-KEY:METHOD=NONE` without an `IV` (its check is inverted) and drops the tag, so the
+/// previous AES-128 key would leak onto the clear segments that follow. Give such lines a dummy IV (ignored for
+/// `NONE`) before parsing.
+fn patch_method_none(body: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    use std::borrow::Cow;
+    let Ok(text) = std::str::from_utf8(body) else { return Cow::Borrowed(body) };
+    if !text.contains("METHOD=NONE") {
+        return Cow::Borrowed(body);
+    }
+    let mut out = String::with_capacity(text.len() + 32);
+    for line in text.split_inclusive('\n') {
+        let content = line.trim_end_matches(['\r', '\n']);
+        let eol = &line[content.len()..];
+        let is_clear_key = content.strip_prefix("#EXT-X-KEY:").is_some_and(|attrs| {
+            attrs.split(',').any(|a| a.trim() == "METHOD=NONE") && !attrs.split(',').any(|a| a.trim().starts_with("IV="))
+        });
+        out.push_str(content);
+        if is_clear_key {
+            out.push_str(",IV=0x0");
+        }
+        out.push_str(eol);
+    }
+    Cow::Owned(out.into_bytes())
 }
 
 /// Wanted vertical resolution of a quality label (`"1080p"` -> 1080); `None` = the best available
