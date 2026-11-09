@@ -1,0 +1,50 @@
+{
+  "MediaListCollection": {
+    "hasNextChunk": false,
+    "lists": [
+      {
+        "name": "Watching",
+        "entries": [
+          {
+            "mediaId": 154587,
+            "status": "CURRENT",
+            "progress": 7,
+            "score": 85,
+            "updatedAt": 1762300000,
+            "notes": "",
+            "startedAt": { "year": 2026, "month": 10, "day": 3 },
+            "completedAt": { "year": null, "month": null, "day": null },
+            "media": {
+              "id": 154587,
+              "idMal": 52991,
+              "episodes": 28,
+              "isFavourite": true,
+              "title": { "userPreferred": "Sousou no Frieren", "romaji": "Sousou no Frieren", "english": "Frieren: Beyond Journey's End" },
+              "coverImage": { "large": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/frieren.jpg" }
+            }
+          }
+        ]
+      },
+      {
+        "name": "Rewatching",
+        "entries": [
+          {
+            "mediaId": 21,
+            "status": "REPEATING",
+            "progress": 0,
+            "score": 0,
+            "updatedAt": 1762200000,
+            "media": { "id": 21, "idMal": 21, "episodes": null, "title": { "romaji": "One Piece" }, "coverImage": { "medium": "https://s4.anilist.co/op.jpg" } }
+          },
+          {
+            "mediaId": 154587,
+            "status": "CURRENT",
+            "progress": 7,
+            "updatedAt": 1762300000,
+            "media": { "id": 154587, "title": { "romaji": "duplicate" } }
+          }
+        ]
+      }
+    ]
+  }
+}
