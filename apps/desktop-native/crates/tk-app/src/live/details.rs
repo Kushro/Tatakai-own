@@ -50,6 +50,11 @@ fn ref_key(r: &MediaRef) -> Option<String> {
     }
 }
 
+/// `ext:<extension id>:<key>`: a title found inside an extension without AniList / MAL mapping.
+fn is_extension_id(id: &str) -> bool {
+    id.starts_with("ext:")
+}
+
 fn not_found(id: &str) -> UiError {
     UiError::new(ErrorKind::Other, format!("{id} was not found on AniList"))
 }
@@ -149,6 +154,10 @@ where
 
 /// `Backend::details_extra`.
 pub async fn details_extra(b: &LiveBackend, id: &str) -> UiResult<DetailsExtraVm> {
+    if is_extension_id(id) {
+        // Extension-only title (`ext:<id>:<key>`, Search "in extension"): AniList knows nothing about it.
+        return Ok(DetailsExtraVm::default());
+    }
     let r = media_ref(id).ok_or_else(|| UiError::new(ErrorKind::Other, format!("invalid id {id}")))?;
     let Some(key) = ref_key(&r) else {
         // Kitsu-only title: AniList cannot be asked by that id.
@@ -191,6 +200,9 @@ async fn walk(b: &LiveBackend, start: &ChainNode, relation: &str, seen: &mut Has
 
 /// `Backend::watch_order`.
 pub async fn watch_order(b: &LiveBackend, id: &str) -> UiResult<Vec<WatchOrderEntryVm>> {
+    if is_extension_id(id) {
+        return Ok(Vec::new());
+    }
     let r = media_ref(id).ok_or_else(|| UiError::new(ErrorKind::Other, format!("invalid id {id}")))?;
     if ref_key(&r).is_none() {
         return Ok(Vec::new());
@@ -240,6 +252,13 @@ mod tests {
         assert_eq!(vm.relations[0].media.id, "9");
         assert_eq!(vm.trailer.unwrap().url(), "https://www.youtube.com/watch?v=abc");
         assert_eq!(vm.next_airing, Some(AiringVm { episode: 3, at_unix: 1_800_000_000 }));
+    }
+
+    #[test]
+    fn extension_ids_are_recognised() {
+        assert!(is_extension_id("ext:demo:abc"));
+        assert!(!is_extension_id("21"));
+        assert!(!is_extension_id("mal:21"));
     }
 
     #[test]
