@@ -22,3 +22,10 @@ No new dependencies needed beyond the frozen catalog. Wiring contract for `:app`
 - `:core:supabase` removed (module, `supabase-*` and `ktor-client-okhttp` catalog entries, `checkTatakaiConfig`, `TATAKAI_SUPABASE_*`).
 - New bindings in `dataModule`: `PendingOAuthRedirect`, `SecretStore` (`KeystoreSecretStore`), `ListsRepository`, `LogRepository` (+ `AppLog.sink`),
   `UpdateRepository`, `AppReset`. `HistorySyncer` now takes `LinkHistoryRemote` (bound in `linkModule`) and `AppSettings.historySyncOverLink`.
+
+## parity wave A, worker q
+
+- No new catalog entries. `:core:data` now declares `libs.androidx.core.ktx` (FileProvider of the app log, manifest of this module),
+  `libs.okhttp` (already transitive through `:core:network`) and `testImplementation(libs.mockwebserver3)` (already in the catalog).
+- Room v3 (lists tables): destructive migration as before.
+- New Koin-free helpers: `WorkManagerListSyncScheduler` / `ListSyncWorker` (KoinComponent, same rule as `HistorySyncWorker`).

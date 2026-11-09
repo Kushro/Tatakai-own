@@ -157,6 +157,10 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
         }
     }
 
+    /** `DELETE /v1/history` (204): the PC drops its whole history (only after the user confirmed "also on the PC"). */
+    suspend fun historyClear(): LinkResult<Unit> =
+        LinkHttp.exchange(client, LinkHttp.request(url("v1/history")).delete().build(), MAX_JSON) { _, _ -> Unit }
+
     /** Absolute URL of a `playback_path` returned by the PC (same origin as this client). */
     fun playbackUrl(playbackPath: String): String = baseUrl.newBuilder().encodedPath(playbackPath).build().toString()
 

@@ -112,6 +112,17 @@ class HistorySyncer(
 
     suspend fun hasPending(): Boolean = dao.dirtyCount() > 0
 
+    /**
+     * Settings › Datos › Borrar historial with "también en la PC": `DELETE /v1/history` on the paired PC, then the pull cursor restarts
+     * (the PC is empty, so a full pull brings nothing back). No-op without a pairing.
+     * @throws LinkHistoryUnavailableException, LinkException
+     */
+    suspend fun clearRemote() {
+        if (!remote.available) return
+        remote.clear()
+        saveCursor(0L)
+    }
+
     private companion object {
         /** <= `LinkClient.MAX_HISTORY_ROWS` (500) and comfortably under the 256 KiB body cap. */
         const val BATCH = 100
