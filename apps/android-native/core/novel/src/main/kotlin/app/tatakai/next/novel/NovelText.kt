@@ -7,6 +7,7 @@ import app.tatakai.next.model.ChapterPage
 import app.tatakai.next.model.NovelChapter
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.TextNode
 import java.util.Locale
 
 // Pure text logic of the novel reader (classic NovelReaderPage + src/lib/novel helpers): HTML cleaning, paragraph splitting, chapter
@@ -42,8 +43,8 @@ object NovelText {
         val out = if (ps.size >= 2) {
             ps.map { it.text() }
         } else {
-            root.select("br").forEach { it.after("\n") }
-            root.select("div, h1, h2, h3, h4, li").forEach { it.prepend("\n\n") }
+            root.select("br").forEach { it.after(TextNode("\n")) }
+            root.select("div, h1, h2, h3, h4, li").forEach { it.prependChild(TextNode("\n\n")) }
             splitPlain(root.wholeText())
         }
         return clean(out)
@@ -52,7 +53,7 @@ object NovelText {
     /** Plain text split on blank lines; a text without blank lines is split per line. */
     fun splitPlain(text: String): List<String> {
         val normalized = text.replace(' ', ' ')
-        val blocks = normalized.split(BLOCK_SPLIT)
+        val blocks = normalized.split(BLOCK_SPLIT).filter { it.isNotBlank() }
         val parts = if (blocks.size > 1) blocks else normalized.split(LINE_SPLIT)
         return clean(parts.map { it.replace(LINE_SPLIT, " ") })
     }
