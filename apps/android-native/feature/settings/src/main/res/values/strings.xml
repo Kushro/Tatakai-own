@@ -112,6 +112,7 @@
     <string name="settings_torrents_open_sub">Speed · Network · Storage · Background</string>
     <string name="settings_data">Data &amp; storage</string>
     <string name="settings_data_hint">Everything stays on this device (Android/data/app.tatakai.own.next).</string>
+    <string name="settings_data_images">Images on disk</string>
     <string name="settings_data_cache">Metadata cache</string>
     <string name="settings_data_torrents">Torrents</string>
     <string name="settings_data_free">Free</string>
@@ -122,8 +123,8 @@
     <string name="settings_telemetry_hint">This build sends nothing. There is no switch because there is nothing to turn off.</string>
     <string name="settings_telemetry_none">None</string>
     <string name="settings_clear_cache">Clear cache</string>
-    <string name="settings_clear_cache_body">Deletes %1$s of cached metadata. Your history and torrents are kept.</string>
-    <string name="settings_clear_cache_body_unknown">Deletes the cached metadata. Your history and torrents are kept.</string>
+    <string name="settings_clear_cache_body">Deletes %1$s of cached metadata and images. Your history and torrents are kept.</string>
+    <string name="settings_clear_cache_body_unknown">Deletes the cached metadata and images. Your history and torrents are kept.</string>
     <string name="settings_cache_cleared">Cache cleared (%1$s freed)</string>
     <string name="settings_action_failed">That did not work. Try again.</string>
     <string name="settings_about">About</string>

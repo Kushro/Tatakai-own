@@ -191,4 +191,66 @@ class SettingsViewModelTest {
             assertEquals(SettingsEvent.Failed(AppError.Unknown("disk")), awaitItem())
         }
     }
+
+    private class FakeImages(var bytes: Long? = 40_000_000) : ImageCache {
+        var cleared = false
+        var failClear = false
+        override suspend fun sizeBytes(): Long? = bytes
+        override suspend fun clear() {
+            if (failClear) throw AppException(AppError.Unknown("images"))
+            cleared = true
+            bytes = 0
+        }
+    }
+
+    @Test
+    fun `clearing the cache also empties the image disk cache and reports both as freed`() = runTest {
+        val metadata = FakeMetadata()
+        val images = FakeImages()
+        val vm = SettingsViewModel(FakeSettings(), metadata = metadata, images = images)
+
+        vm.refreshStorage()
+        val ok = vm.state.first { it.storage is LoadState.Ok }.storage as LoadState.Ok
+        assertEquals(40_000_000L, ok.value.imageBytes)
+        assertEquals(138_000_000L, ok.value.clearableBytes)
+
+        vm.events.test {
+            vm.clearCache()
+            assertEquals(SettingsEvent.CacheCleared(138_000_000), awaitItem())
+        }
+        assertEquals(true, metadata.cleared)
+        assertEquals(true, images.cleared)
+        val after = vm.state.first { (it.storage as? LoadState.Ok)?.value?.clearableBytes == 0L }
+        assertEquals(false, after.clearingCache)
+    }
+
+    @Test
+    fun `image cache is cleared even when the metadata clear fails`() = runTest {
+        val metadata = FakeMetadata().apply { failClear = true }
+        val images = FakeImages()
+        val vm = SettingsViewModel(FakeSettings(), metadata = metadata, images = images)
+        vm.events.test {
+            vm.clearCache()
+            assertEquals(SettingsEvent.Failed(AppError.Unknown("disk")), awaitItem())
+        }
+        assertEquals(true, images.cleared)
+    }
+
+    @Test
+    fun `image cache alone can be cleared`() = runTest {
+        val images = FakeImages(bytes = 5_000)
+        val vm = SettingsViewModel(FakeSettings(), images = images)
+        vm.events.test {
+            vm.clearCache()
+            assertEquals(SettingsEvent.CacheCleared(5_000), awaitItem())
+        }
+    }
+
+    @Test
+    fun `freed bytes never go negative and clearable bytes need one known figure`() {
+        assertEquals(0L, freedBytes(before = 10, after = 25))
+        assertEquals(15L, freedBytes(before = 25, after = 10))
+        assertNull(StorageInfo(cache = null, torrents = null).clearableBytes)
+        assertEquals(7L, StorageInfo(cache = null, torrents = null, imageBytes = 7).clearableBytes)
+    }
 }

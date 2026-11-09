@@ -40,8 +40,15 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** Data & storage figures (Settings › Datos y almacenamiento): metadata cache + torrent storage. Either may be unknown. */
-data class StorageInfo(val cache: MetadataCacheStats?, val torrents: TorrentStorage?)
+/**
+ * Data & storage figures (Settings › Datos y almacenamiento): metadata cache, image disk cache ([imageBytes], Coil) and torrent storage.
+ * Any of them may be unknown.
+ */
+data class StorageInfo(val cache: MetadataCacheStats?, val torrents: TorrentStorage?, val imageBytes: Long? = null) {
+    /** What "Limpiar caché" frees: metadata table + images on disk; null when neither is known. */
+    val clearableBytes: Long?
+        get() = if (cache == null && imageBytes == null) null else (cache?.bytes ?: 0L) + (imageBytes ?: 0L)
+}
 
 /**
  * 2026-11-09 amendment (plan 14 §0.1 #9): no own login. The identity shown in Settings is the list of linked AniList / MAL accounts
@@ -86,6 +93,8 @@ class SettingsViewModel(
     private val lists: ListsRepository? = null,
     private val link: LinkRepository? = null,
     private val reset: AppReset? = null,
+    // parity wave A closure (worker q, checklist system.clear-cache): Coil's disk cache of covers / banners
+    private val images: ImageCache? = null,
 ) : ViewModel() {
 
     private val extras = MutableStateFlow(Extras())
@@ -188,9 +197,11 @@ class SettingsViewModel(
         viewModelScope.launch {
             val cache = metadata?.let { repo -> runCatchingApp { repo.cacheStats() } }
             val torrent = torrents?.let { repo -> runCatchingApp { repo.storageUsage() } }
-            val failures = listOfNotNull(cache?.exceptionOrNull(), torrent?.exceptionOrNull())
-            val loaded = StorageInfo(cache?.getOrNull(), torrent?.getOrNull())
-            val result: LoadState<StorageInfo> = if (failures.isNotEmpty() && loaded.cache == null && loaded.torrents == null) {
+            val image = images?.let { cache -> runCatchingApp { cache.sizeBytes() } }
+            val failures = listOfNotNull(cache?.exceptionOrNull(), torrent?.exceptionOrNull(), image?.exceptionOrNull())
+            val loaded = StorageInfo(cache?.getOrNull(), torrent?.getOrNull(), image?.getOrNull())
+            val nothing = loaded.cache == null && loaded.torrents == null && loaded.imageBytes == null
+            val result: LoadState<StorageInfo> = if (failures.isNotEmpty() && nothing) {
                 LoadState.Err(failures.first().toAppError())
             } else {
                 LoadState.Ok(loaded)
@@ -199,19 +210,33 @@ class SettingsViewModel(
         }
     }
 
+    /**
+     * "Limpiar caché" (checklist system.clear-cache): the metadata cache table and the image disk cache (Coil). Both are tried even when
+     * one fails; the freed bytes are measured (before - after), the first failure is reported instead.
+     */
     fun clearCache() {
-        val repo = metadata ?: return
+        if (metadata == null && images == null) return
         if (extras.value.clearingCache) return
         extras.update { it.copy(clearingCache = true) }
         viewModelScope.launch {
-            val before = (extras.value.storage as? LoadState.Ok)?.value?.cache?.bytes ?: 0L
-            val result = runCatchingApp { repo.clearCache() }
+            val before = measureClearable()
+            val metaResult = metadata?.let { repo -> runCatchingApp { repo.clearCache() } }
+            val imageResult = images?.let { cache -> runCatchingApp { cache.clear() } }
+            val after = measureClearable()
             extras.update { it.copy(clearingCache = false) }
+            val failure = metaResult?.exceptionOrNull() ?: imageResult?.exceptionOrNull()
             _events.trySend(
-                result.fold(onSuccess = { SettingsEvent.CacheCleared(before) }, onFailure = { SettingsEvent.Failed(it.toAppError()) }),
+                if (failure != null) SettingsEvent.Failed(failure.toAppError()) else SettingsEvent.CacheCleared(freedBytes(before, after)),
             )
             refreshStorage()
         }
+    }
+
+    /** Metadata cache + image disk cache bytes right now (an unreadable figure counts as 0). */
+    private suspend fun measureClearable(): Long {
+        val meta = metadata?.let { repo -> runCatchingApp { repo.cacheStats().bytes }.getOrNull() } ?: 0L
+        val img = images?.let { cache -> runCatchingApp { cache.sizeBytes() }.getOrNull() } ?: 0L
+        return meta + img
     }
 
     /** parity wave A (worker q, checklist system.reset-app): wipe everything through [AppReset]; the UI confirmed first. */
