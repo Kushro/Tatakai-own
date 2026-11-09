@@ -3534,14 +3534,14 @@
     "id": "link.send-to-device",
     "wave": "B",
     "area": "k",
-    "android": null,
-    "title": "Enviar a dispositivo desde la ficha (escritorio)",
+    "android": "r",
+    "title": "Enviar a dispositivo desde la ficha (PC → teléfono)",
     "classic": "src/components/anime/AnimeDetailLayout.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
-    "accept": "Confirmar \"Enviar a dispositivo\" crea una sesión Link para el dispositivo elegido y el teléfono empieza a reproducir, sin error \"not wired\"",
+    "accept": "Confirmar \"Enviar a dispositivo\" crea una sesión Link para el dispositivo elegido, sin error \"not wired\"; el teléfono (app en primer plano, long-poll de GET /v1/events) muestra \"La PC te envió <título>\" y \"Reproducir aquí\" la reproduce",
     "status": "todo",
     "audit": "Stub",
-    "platform": "desktop"
+    "note": "Wire canónico GET /v1/events fijado por el orquestador 2026-11-09 (tk-link control.rs EventsPage / PhoneEvent); teléfono = r"
   },
   {
     "id": "link.last-seen",

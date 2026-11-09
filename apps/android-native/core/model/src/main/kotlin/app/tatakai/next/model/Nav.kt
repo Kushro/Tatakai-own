@@ -19,4 +19,7 @@ object NotificationExtras {
 
     /** `ChapterKind.name` + the chapter download id (worker s: "capítulo descargado") -> `Route.Downloads(MANGA | NOVELS)`. */
     const val CHAPTER_KIND: String = "app.tatakai.next.nav.CHAPTER_KIND"
+
+    /** Boolean true (worker r, :core:link: "La PC te envió <título>", `LinkRepository.pendingHandoff`) -> `Route.Linked`. */
+    const val LINK_HANDOFF: String = "app.tatakai.next.nav.LINK_HANDOFF"
 }

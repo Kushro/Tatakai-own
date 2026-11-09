@@ -286,7 +286,29 @@ interface LinkRepository {
      * The phone pushes its history first (`HistoryRepository.syncNow`) so the PC also has the row.
      */
     suspend fun handoff(animeId: String, episode: Int, positionSec: Int): Result<Unit> = Result.failure(NotImplementedError("handoff"))
+
+    /**
+     * PC -> phone "Enviar a dispositivo" (checklist link.send-to-device; canonical wire `GET /v1/events?wait=25`, §3.11 = desktop
+     * tk-link/src/control.rs `EventsPage`). The implementation long-polls while the app is in the foreground (and the Linked screen
+     * is open), keeps the newest [LinkHandoff] here and posts a local notification with `NotificationExtras.LINK_HANDOFF` whose tap
+     * opens `Route.Linked`; that screen shows "Reproducir aquí" (plays the PC's Link session with the normal player) and
+     * [dismissHandoff]. Default: never anything.
+     */
+    val pendingHandoff: StateFlow<LinkHandoff?> get() = NO_HANDOFF
+
+    fun dismissHandoff() {}
 }
+
+/** One `handoff` event of `GET /v1/events` (wire keys sessionId, mediaId, episode, positionSecs, title; mapped by LinkClient). */
+data class LinkHandoff(
+    val sessionId: String,
+    val animeId: String? = null,
+    val episode: Int? = null,
+    val positionSec: Int = 0,
+    val title: String? = null,
+)
+
+private val NO_HANDOFF: StateFlow<LinkHandoff?> = MutableStateFlow<LinkHandoff?>(null).asStateFlow()
 
 /** Transport controls of the PC player over Link (desktop k serves them; Android r sends them). */
 enum class RemoteAction(val id: String) { PREV("prev"), PLAY_PAUSE("toggle"), NEXT("next") }
