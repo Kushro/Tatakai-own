@@ -61,7 +61,7 @@ class ExtensionServersViewModelTest {
     @Test
     fun anOpenedLinkWaitsForConfirmation() = runTest {
         val repo = FakeRepo()
-        val pending = PendingServerLink().apply { offer(link) }
+        val pending = PendingServerLink().also { it.offer(link) }
         val vm = ExtensionServersViewModel(repo, pending)
         assertEquals(PairingLink("http://192.168.1.20:8787", "abc-123"), vm.state.value.pendingLink)
         assertTrue(repo.paired.isEmpty(), "opening a link never pairs on its own")
