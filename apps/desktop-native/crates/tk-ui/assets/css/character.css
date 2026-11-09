@@ -1,1 +1,57 @@
 /* character.css - wave A, worker a (search: character, browse, studio, image search pages). Registered in app.rs APP_CSS by the contract; tokens only (no color literals). */
+
+/* character page */
+.tk-character { gap: var(--tk-space-24); }
+.tk-character__hero { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--tk-space-24); align-items: start; }
+.tk-character__portrait { width: 200px; aspect-ratio: 2 / 3; border-radius: var(--md-sys-shape-corner-extra-large); overflow: hidden; background: var(--md-sys-color-surface-container-high); }
+.tk-character__portrait img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tk-character__info { display: flex; flex-direction: column; gap: var(--tk-space-16); min-width: 0; }
+.tk-character__native { font-size: var(--md-sys-typescale-title-large-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-character__alts { display: flex; flex-direction: column; gap: var(--tk-space-8); font-size: var(--md-sys-typescale-label-large-size); }
+.tk-character__facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--tk-space-12); margin: 0; }
+.tk-character__fact { display: flex; flex-direction: column; gap: 2px; padding: var(--tk-space-12); border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-low); }
+.tk-character__fact dt { font-size: var(--md-sys-typescale-label-medium-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-character__fact dd { margin: 0; font-size: var(--md-sys-typescale-title-small-size); }
+.tk-character__about { display: flex; flex-direction: column; gap: var(--tk-space-8); align-items: flex-start; }
+.tk-character__desc { display: flex; flex-direction: column; gap: var(--tk-space-12); max-width: 80ch; font-size: var(--md-sys-typescale-body-large-size); line-height: 1.55; white-space: pre-line; }
+.tk-character__media { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-character__list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--tk-space-12); }
+.tk-character__row { display: flex; flex-direction: column; gap: var(--tk-space-8); padding: var(--tk-space-12); border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-low); }
+.tk-character__title { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: var(--tk-space-12); align-items: center; padding: 0; border: 0; background: transparent; color: inherit; text-align: start; cursor: pointer; border-radius: var(--md-sys-shape-corner-medium); }
+.tk-character__title:hover b { text-decoration: underline; }
+.tk-character__cover .tk-cover { border-radius: var(--md-sys-shape-corner-small); }
+.tk-character__titletext { display: flex; flex-direction: column; gap: var(--tk-space-4); min-width: 0; align-items: flex-start; }
+.tk-character__titletext b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.tk-character__actors { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--tk-space-8); }
+.tk-character__actor { display: flex; align-items: center; gap: var(--tk-space-8); padding: var(--tk-space-4) var(--tk-space-12) var(--tk-space-4) var(--tk-space-4); border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-surface-container-high); }
+.tk-character__avatar { width: 32px; height: 32px; flex: none; border-radius: var(--md-sys-shape-corner-full); overflow: hidden; display: grid; place-items: center; background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); font-size: var(--md-sys-typescale-label-small-size); }
+.tk-character__avatar img { width: 100%; height: 100%; object-fit: cover; }
+.tk-character__actorname { display: flex; flex-direction: column; font-size: var(--md-sys-typescale-label-medium-size); line-height: 1.2; }
+.tk-character__noactors { font-size: var(--md-sys-typescale-body-small-size); }
+
+/* image search */
+.tk-imgsearch { gap: var(--tk-space-16); }
+.tk-imgsearch__intro { max-width: 70ch; }
+.tk-imgsearch__input { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-imgsearch__drop[data-picked="true"] { border-style: solid; }
+.tk-imgsearch__preview { max-width: 100%; max-height: 180px; border-radius: var(--md-sys-shape-corner-medium); object-fit: contain; }
+.tk-imgsearch__error { color: var(--md-sys-color-error); font-size: var(--md-sys-typescale-body-medium-size); }
+.tk-imgsearch__controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--tk-space-16); }
+.tk-imgsearch__slider { display: flex; flex-direction: column; gap: var(--tk-space-4); flex: 1 1 240px; font-size: var(--md-sys-typescale-label-large-size); }
+.tk-imgsearch__slider input { accent-color: var(--md-sys-color-primary); width: 100%; }
+.tk-imgsearch__loading { display: flex; flex-direction: column; align-items: center; gap: var(--tk-space-12); padding: var(--tk-space-40) 0; }
+.tk-imgsearch__results { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--tk-space-16); }
+.tk-imgsearch__match { display: flex; flex-direction: column; border-radius: var(--md-sys-shape-corner-large); overflow: hidden; background: var(--md-sys-color-surface-container-low); }
+.tk-imgsearch__scene { aspect-ratio: 16 / 9; background: var(--md-sys-color-surface-container-highest); display: grid; place-items: center; overflow: hidden; }
+.tk-imgsearch__scene video, .tk-imgsearch__scene img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tk-imgsearch__scene .tk-cover { height: 100%; width: auto; }
+.tk-imgsearch__meta { display: flex; flex-direction: column; gap: var(--tk-space-8); padding: var(--tk-space-12) var(--tk-space-16) var(--tk-space-16); }
+.tk-imgsearch__titlebar { display: flex; align-items: center; justify-content: space-between; gap: var(--tk-space-8); }
+.tk-imgsearch__title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tk-imgsearch__actions { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); }
+
+@media (max-width: 599px) {
+  .tk-character__hero { grid-template-columns: minmax(0, 1fr); }
+  .tk-character__portrait { width: 160px; }
+  .tk-character__list, .tk-imgsearch__results { grid-template-columns: minmax(0, 1fr); }
+}
