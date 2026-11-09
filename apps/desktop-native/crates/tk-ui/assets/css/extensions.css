@@ -44,3 +44,45 @@
   .tk-install__path { grid-template-columns: minmax(0, 1fr); }
   .tk-ext__ctl { margin-inline-start: 0; }
 }
+
+/* wave B (worker j): tabs + toolbar, preferences, updates sheet, servers, Stremio, repositories, providers */
+.tk-ext-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--tk-space-12); margin-block-end: var(--tk-space-16); }
+.tk-ext-toolbar__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); }
+.tk-ext-toolbar[data-kill-switch="on"] .tk-ext-toolbar__actions .tk-btn:last-child { border-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-tertiary); }
+
+.tk-extprefs { display: flex; flex-direction: column; gap: var(--tk-space-12); padding: var(--tk-space-16); border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container); }
+.tk-extprefs__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--tk-space-12); }
+.tk-extprefs__row[data-pref-kind="text"], .tk-extprefs__row[data-pref-kind="secret"] { display: block; }
+.tk-extprefs__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.tk-extprefs__label { font-size: var(--md-sys-typescale-body-large-size); color: var(--md-sys-color-on-surface); }
+.tk-extprefs__hint { font-size: var(--md-sys-typescale-body-small-size); }
+.tk-extprefs__ctl { display: flex; align-items: center; gap: var(--tk-space-8); }
+.tk-extprefs__select { min-height: 40px; padding-inline: var(--tk-space-12); border: 1px solid var(--md-sys-color-outline); border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); font: inherit; }
+
+.tk-extupd__body { display: flex; flex-direction: column; gap: var(--tk-space-16); }
+.tk-extupd { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-extupd__row { display: flex; align-items: center; gap: var(--tk-space-12); padding: var(--tk-space-12); border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container-low); }
+.tk-extupd__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tk-extupd__notes { margin: var(--tk-space-4) 0 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); white-space: pre-wrap; }
+.tk-extopts { display: flex; flex-direction: column; gap: var(--tk-space-8); padding-block-start: var(--tk-space-8); border-top: 1px solid var(--md-sys-color-outline-variant); }
+
+.tk-extsrv { gap: var(--tk-space-12); margin-block-end: var(--tk-space-12); }
+.tk-extsrv__head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: var(--tk-space-12); }
+.tk-extsrv__confirm { display: flex; flex-direction: column; gap: var(--tk-space-8); margin-block-start: var(--tk-space-8); }
+.tk-extsrv__confirm code, .tk-ext__ver { user-select: text; }
+.tk-extsrv__desc { margin: 0; font-size: var(--md-sys-typescale-body-medium-size); }
+.tk-ext[data-server-online="false"] { background: color-mix(in srgb, var(--md-sys-color-error-container) 18%, var(--md-sys-color-surface-container-low)); }
+.tk-ext[data-enabled="false"] .tk-ext__ico { background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant); }
+
+.tk-extsrc { display: flex; flex-direction: column; gap: var(--tk-space-4); margin: 0; padding: 0; list-style: none; }
+.tk-extsrc__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); padding: var(--tk-space-8) var(--tk-space-12); border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-lowest); }
+.tk-extsrc__row[data-available="false"] { opacity: 0.7; }
+.tk-extsrc__text { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 2px; }
+.tk-extsrc__text .tk-muted { font-size: var(--md-sys-typescale-body-small-size); }
+.tk-extpair { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-repocat { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+
+@media (max-width: 599px) {
+  .tk-ext-toolbar { flex-direction: column; align-items: stretch; }
+  .tk-extupd__row { flex-direction: column; align-items: stretch; }
+}
