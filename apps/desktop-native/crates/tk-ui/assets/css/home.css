@@ -165,5 +165,5 @@
    Show, Manga) keep the poster blurred until hovered or focused. */
 .tk-blur-wrap { display: contents; }
 [data-blurred="true"] .tk-cover img { filter: blur(16px) saturate(.6); transform: scale(1.08); transition: filter var(--tk-mo-fx); }
-[data-blurred="true"]:hover .tk-cover img, [data-blurred="true"]:focus-within .tk-cover img { filter: none; transform: none; }
+[data-blurred="true"] .tk-card:hover .tk-cover img, [data-blurred="true"] .tk-card:focus-visible .tk-cover img { filter: none; transform: none; }
 [data-reduce-motion="true"] [data-blurred="true"] .tk-cover img { transition: none; }
