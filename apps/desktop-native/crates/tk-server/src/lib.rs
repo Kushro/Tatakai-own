@@ -30,8 +30,10 @@ pub mod logs;
 pub mod proxy;
 pub mod routes;
 pub mod state;
+/// Outbound requests (SSRF re-validation, HTTP / SOCKS5 proxy, FlareSolverr).
+pub mod upstream;
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -62,6 +64,12 @@ pub struct ServerConfig {
     pub concurrency: usize,
     /// FlareSolverr endpoint for Cloudflare-protected fetches of the proxy (`server.flaresolverr`).
     pub flaresolverr_url: Option<String>,
+    /// Wave B (k, private addition): outbound HTTP / SOCKS5 proxy of the media proxy (`server.proxy`), e.g.
+    /// `socks5h://127.0.0.1:9050`. `None` = direct.
+    pub outbound_proxy: Option<String>,
+    /// Wave B (k, private addition): listen on 127.0.0.1 only. The app uses it for the loopback media proxy of mpv
+    /// (`server.cors-proxy-local`) while the LAN server is off.
+    pub loopback_only: bool,
 }
 
 impl ServerConfig {
@@ -76,6 +84,8 @@ impl ServerConfig {
             timeout: std::time::Duration::from_secs(45),
             concurrency: 4,
             flaresolverr_url: None,
+            outbound_proxy: None,
+            loopback_only: false,
         }
     }
 }
@@ -94,24 +104,58 @@ pub enum ServerError {
     NotRunning,
 }
 
+/// This PC's host name (`/health` `name` when none is configured).
+pub fn host_name() -> String {
+    let from_env = ["COMPUTERNAME", "HOSTNAME"].iter().find_map(|k| std::env::var(k).ok()).map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
+    let from_file = || std::fs::read_to_string("/etc/hostname").ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
+    from_env.or_else(from_file).map(|n| n.chars().filter(|c| !c.is_control()).take(60).collect()).unwrap_or_else(|| "Tatakai".to_owned())
+}
+
+/// Private LAN IPv4 addresses of this PC phones can reach (UDP "connect" trick: no packet is sent; same rule as
+/// `tk_link::detect_lan_ips`).
+pub fn lan_ips() -> Vec<Ipv4Addr> {
+    let Ok(sock) = std::net::UdpSocket::bind(("0.0.0.0", 0)) else { return Vec::new() };
+    if sock.connect(("192.0.2.1", 9)).is_err() {
+        return Vec::new();
+    }
+    match sock.local_addr() {
+        Ok(SocketAddr::V4(a)) if (a.ip().is_private() || a.ip().is_link_local()) && !a.ip().is_loopback() => vec![*a.ip()],
+        _ => Vec::new(),
+    }
+}
+
+/// `http://<ip>:<port>` for every address in `ips` (what phones type or scan), loopback last. Pure.
+pub fn urls_for(ips: &[Ipv4Addr], port: u16) -> Vec<String> {
+    let mut out: Vec<String> = ips.iter().filter(|ip| !ip.is_loopback() && !ip.is_unspecified()).map(|ip| format!("http://{ip}:{port}")).collect();
+    out.dedup();
+    out.push(format!("http://127.0.0.1:{port}"));
+    out
+}
+
 /// A running server. Dropping it does not stop the task: call [`ServerHandle::stop`].
 pub struct ServerHandle {
-    #[allow(dead_code)]
     cfg: ServerConfig,
     #[allow(dead_code)]
     ext: Arc<ExtensionHost>,
-    #[allow(dead_code)]
     state: Arc<state::ServerState>,
-    #[allow(dead_code)]
     logs: Arc<logs::LogBuffer>,
+    proxy: Arc<proxy::MediaProxy>,
+    lookups: Arc<routes::LookupCache>,
     shutdown: tokio_util::sync::CancellationToken,
+    task: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub addr: SocketAddr,
     pub started_unix: i64,
 }
 
 impl ServerHandle {
+    /// Stop listening (graceful: requests in flight finish) and wait for the listener task, so the port is free
+    /// when this returns.
     pub async fn stop(&self) {
         self.shutdown.cancel();
+        let task = self.task.lock().ok().and_then(|mut t| t.take());
+        if let Some(t) = task {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), t).await;
+        }
     }
     /// Snapshot for the app's Server page (`ServerStatusVm`): k maps it in `tk-app/src/live/server.rs`.
     pub fn status(&self) -> Status {
@@ -119,23 +163,72 @@ impl ServerHandle {
     }
     /// A new single-use pairing code (`POST /auth/pairing` of the classic server; `createPairing()` of docs/13 D4).
     pub fn create_pairing(&self, origin: &str) -> Result<auth::Pairing, ServerError> {
-        Ok(self.state.create_pairing(origin))
+        Ok(self.state.try_create_pairing(origin)?)
     }
     pub fn devices(&self) -> Vec<state::DeviceRecord> {
         self.state.devices()
     }
     pub fn revoke(&self, device_id: &str) -> Result<(), ServerError> {
-        self.state.revoke(device_id).map_err(ServerError::State)
+        self.state.revoke(device_id).map_err(ServerError::State)?;
+        self.logs.push(logs::LogEntry {
+            id: 0,
+            at_unix: auth::now_unix(),
+            event: "revoked".into(),
+            route: Some("/devices".into()),
+            name: None,
+            count: None,
+            duration_ms: None,
+            error: None,
+        });
+        Ok(())
     }
     /// `Some` sets (argon2id hash), `None` clears (`server.viewer-password`).
     pub fn set_viewer_password(&self, password: Option<&str>) -> Result<(), ServerError> {
         self.state.set_viewer_password(password).map_err(ServerError::State)
     }
+    pub fn viewer_password_set(&self) -> bool {
+        self.state.viewer_password_set()
+    }
+    /// Phones must pair: pairing required by the settings and no viewer password configured.
+    pub fn pairing_required(&self) -> bool {
+        self.cfg.require_pairing && !self.state.viewer_password_set()
+    }
     pub fn logs(&self, after: u64) -> (Vec<logs::LogEntry>, u64) {
         self.logs.since(after)
     }
     pub async fn clear_cache(&self) {
+        self.lookups.clear();
+        self.proxy.cache.clear();
         proxy::clear_cache(&self.cfg.dir).await;
+    }
+    /// The config the server runs with (`port` = the bound one).
+    pub fn config(&self) -> &ServerConfig {
+        &self.cfg
+    }
+    /// `(cached objects, bytes)` of the media cache.
+    pub fn cache_stats(&self) -> (u32, u64) {
+        self.proxy.cache.stats()
+    }
+    /// `http://127.0.0.1:<port>/api/server/v1/media/`.
+    pub fn local_media_base(&self) -> String {
+        format!("http://127.0.0.1:{}{API_PREFIX}/media/", self.addr.port())
+    }
+    /// Loopback proxy URL of `url` + `headers` for this PC's player (`server.cors-proxy-local`): only a loopback peer
+    /// may use the ticket ([`proxy::LOCAL_SESSION`]); HLS playlists are rewritten so segments and keys go through
+    /// the proxy with per-origin headers.
+    pub fn local_media_url(&self, url: &str, headers: &[(String, String)]) -> String {
+        self.proxy.mint(&format!("http://127.0.0.1:{}", self.addr.port()), url, headers, proxy::LOCAL_SESSION, None)
+    }
+    /// `http://<lan ip>:<port>` URLs phones can use (empty while listening on loopback only).
+    pub fn lan_urls(&self) -> Vec<String> {
+        if self.cfg.loopback_only {
+            return Vec::new();
+        }
+        let ips: Vec<Ipv4Addr> = match self.addr.ip() {
+            IpAddr::V4(ip) if !ip.is_unspecified() => vec![ip],
+            _ => lan_ips(),
+        };
+        urls_for(&ips, self.addr.port())
     }
 }
 
@@ -147,10 +240,71 @@ pub struct Status {
     pub devices: u32,
 }
 
-/// Bind and serve. Contract stub: k replaces the body (`TcpListener::bind`, `axum::serve` with the router of
-/// [`routes::router`] and graceful shutdown on the token). Until then it reports `Bind` with `Unsupported`.
+/// Bind `0.0.0.0:<port>` (`127.0.0.1` with [`ServerConfig::loopback_only`]; port `0` = ephemeral) and serve the
+/// router of [`routes::router`] until [`ServerHandle::stop`].
 pub async fn start(cfg: ServerConfig, ext: Arc<ExtensionHost>) -> Result<ServerHandle, ServerError> {
-    let addr = SocketAddr::from(([0, 0, 0, 0], cfg.port));
-    let _ = (ext, cfg);
-    Err(ServerError::Bind { addr, source: std::io::Error::new(std::io::ErrorKind::Unsupported, "tk-server is not wired yet (wave B, worker k)") })
+    let ip = if cfg.loopback_only { Ipv4Addr::LOCALHOST } else { Ipv4Addr::UNSPECIFIED };
+    let wanted = SocketAddr::from((ip, cfg.port));
+    let listener = tokio::net::TcpListener::bind(wanted).await.map_err(|source| ServerError::Bind { addr: wanted, source })?;
+    let addr = listener.local_addr().map_err(|source| ServerError::Bind { addr: wanted, source })?;
+    let state = Arc::new(state::ServerState::open(&cfg.dir)?);
+    let logs = Arc::new(logs::LogBuffer::new());
+    let upstream = upstream::Upstream::new(cfg.outbound_proxy.clone(), cfg.flaresolverr_url.clone(), cfg.timeout);
+    let proxy = Arc::new(proxy::MediaProxy::new(&cfg.dir, upstream));
+    let lookups = Arc::new(routes::LookupCache::default());
+    let started_unix = auth::now_unix();
+    let mut run_cfg = cfg;
+    run_cfg.port = addr.port();
+    let app = routes::router(routes::AppState {
+        cfg: Arc::new(run_cfg.clone()),
+        ext: ext.clone(),
+        state: state.clone(),
+        logs: logs.clone(),
+        proxy: proxy.clone(),
+        lookups: lookups.clone(),
+        started_unix,
+    });
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let stop = shutdown.clone();
+    let task = tokio::spawn(async move {
+        let svc = app.into_make_service_with_connect_info::<SocketAddr>();
+        if let Err(e) = axum::serve(listener, svc).with_graceful_shutdown(async move { stop.cancelled().await }).await {
+            tracing::warn!(error = %e, "extension server stopped with an error");
+        }
+    });
+    logs.push(logs::LogEntry {
+        id: 0,
+        at_unix: started_unix,
+        event: "started".into(),
+        route: None,
+        name: Some(addr.to_string()),
+        count: None,
+        duration_ms: None,
+        error: None,
+    });
+    tracing::info!(%addr, "extension server listening");
+    Ok(ServerHandle {
+        cfg: run_cfg,
+        ext,
+        state,
+        logs,
+        proxy,
+        lookups,
+        shutdown,
+        task: std::sync::Mutex::new(Some(task)),
+        addr,
+        started_unix,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn urls_list_lan_addresses_then_loopback() {
+        let ips = [Ipv4Addr::new(192, 168, 1, 10), Ipv4Addr::LOCALHOST, Ipv4Addr::UNSPECIFIED];
+        assert_eq!(urls_for(&ips, 8099), vec!["http://192.168.1.10:8099".to_owned(), "http://127.0.0.1:8099".to_owned()]);
+        assert!(!host_name().is_empty());
+    }
 }
