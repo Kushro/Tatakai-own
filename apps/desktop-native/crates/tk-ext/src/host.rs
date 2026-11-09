@@ -3,7 +3,7 @@
 //! Layout under the injected `root`: `<root>/<id>/{manifest.json, bundle.js, state.json}`. Nothing outside `root`
 //! is ever read or written (tests pass a tempdir; the app passes `%APPDATA%\Tatakai-Next\extensions`).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -18,7 +18,7 @@ use crate::candidates::{candidate_routes, map_candidates};
 use crate::compat::{CompatReport, analyze_bundle, deferred_permissions, exposes_torrent_all};
 use crate::error::{ExtError, InstallError};
 use crate::manifest::{Manifest, valid_id};
-use crate::package::{Package, read_kai};
+use crate::package::{Package, read_kai, read_kai_bytes};
 use crate::runtime::{BrowserCfg, CALL_TIMEOUT, CallKind, LogBuf, Worker, WorkerConfig};
 
 #[derive(Serialize, Deserialize)]
@@ -38,6 +38,9 @@ struct Entry {
     enabled: bool,
     logs: LogBuf,
     worker: Option<Arc<Worker>>,
+    /// User preferences (wave B, `ext.preferences`); the app keeps them in `ext_prefs` and pushes them with
+    /// [`ExtensionHost::set_preferences`]. Survive a reinstall (update) of the same id.
+    prefs: BTreeMap<String, String>,
 }
 
 impl Entry {
@@ -132,7 +135,17 @@ impl ExtensionHost {
             let torrent_all = exposes_torrent_all(&bundle);
             map.insert(
                 manifest.id.clone(),
-                Entry { manifest, manifest_json: mj, bundle: Arc::new(bundle), report, torrent_all, enabled, logs, worker: None },
+                Entry {
+                    manifest,
+                    manifest_json: mj,
+                    bundle: Arc::new(bundle),
+                    report,
+                    torrent_all,
+                    enabled,
+                    logs,
+                    worker: None,
+                    prefs: BTreeMap::new(),
+                },
             );
         }
         *self.entries.lock().map_err(|_| InstallError::invalid("extension registry poisoned"))? = map;
@@ -157,7 +170,17 @@ impl ExtensionHost {
     /// Install (or replace) a `.kai` package. A package whose compat level is `unsupported` installs successfully but
     /// stays disabled so the UI can explain why.
     pub fn install_kai(&self, path: &Path) -> Result<InstalledExtension, InstallError> {
-        let Package { manifest, manifest_json, bundle } = read_kai(path)?;
+        self.install_package(read_kai(path)?)
+    }
+
+    /// Install (or replace) a `.kai` held in memory (wave B, `ext.install-url` / `ext.updates.sheet`: the app
+    /// downloads it first). Same rules as [`Self::install_kai`]; a replaced extension keeps its preferences.
+    pub fn install_kai_bytes(&self, bytes: &[u8]) -> Result<InstalledExtension, InstallError> {
+        self.install_package(read_kai_bytes(bytes)?)
+    }
+
+    fn install_package(&self, pkg: Package) -> Result<InstalledExtension, InstallError> {
+        let Package { manifest, manifest_json, bundle } = pkg;
         let report = analyze_bundle(&bundle);
         let dir = self.root.join(&manifest.id); // id is validated by Manifest::parse (no separators)
         if !valid_id(&manifest.id) || dir.parent() != Some(self.root.as_path()) {
@@ -175,7 +198,12 @@ impl ExtensionHost {
             bundle: Arc::new(bundle),
             report,
             worker: None,
+            prefs: BTreeMap::new(),
         };
+        let mut entry = entry;
+        if let Some(prev) = self.lock().get(&entry.manifest.id) {
+            entry.prefs = prev.prefs.clone();
+        }
         self.persist(&entry)?;
         let info = entry.info();
         self.lock().insert(info.id.clone(), entry); // dropping a replaced entry stops its worker
@@ -190,6 +218,28 @@ impl ExtensionHost {
 
     pub fn get(&self, id: &str) -> Option<InstalledExtension> {
         self.lock().get(id).map(Entry::info)
+    }
+
+    /// The installed manifest (custom sources, declared preferences, update feed).
+    pub fn manifest(&self, id: &str) -> Option<Manifest> {
+        self.lock().get(id).map(|e| e.manifest.clone())
+    }
+
+    /// Replace the user preferences of an extension (wave B, `ext.preferences`). The running worker is dropped so
+    /// the next call rebuilds the runtime with the new `globalThis.preferences`.
+    pub fn set_preferences(&self, id: &str, prefs: BTreeMap<String, String>) -> Result<(), ExtError> {
+        let mut map = self.lock();
+        let e = map.get_mut(id).ok_or_else(|| ExtError::NotInstalled(id.to_owned()))?;
+        if e.prefs != prefs {
+            e.prefs = prefs;
+            e.worker = None;
+        }
+        Ok(())
+    }
+
+    /// Current preferences of an extension (empty when none or not installed).
+    pub fn preferences(&self, id: &str) -> BTreeMap<String, String> {
+        self.lock().get(id).map(|e| e.prefs.clone()).unwrap_or_default()
     }
 
     pub fn compat_report(&self, id: &str) -> Option<CompatReport> {
@@ -271,7 +321,13 @@ impl ExtensionHost {
             logs: e.logs.clone(),
             call_timeout: self.call_timeout,
             browser,
+            preferences: serde_json::to_string(&e.prefs).unwrap_or_else(|_| "{}".to_owned()),
         })?);
+        if !e.prefs.is_empty() {
+            // Keys only: values may be secrets.
+            let keys: Vec<&str> = e.prefs.keys().map(String::as_str).collect();
+            e.logs.push("log", &format!("preferences: {} value(s) loaded ({})", keys.len(), keys.join(", ")));
+        }
         e.worker = Some(worker.clone());
         Ok(worker)
     }
