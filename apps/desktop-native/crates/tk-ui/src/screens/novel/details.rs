@@ -11,10 +11,12 @@ use std::collections::HashSet;
 use dioxus::prelude::*;
 
 use crate::app::{Route, Services};
-use crate::backend::{ChapterProviderVm, ChapterRefVm, ChapterVm, ListEntryUpdateVm, ListStatusVm, NovelDetailsVm};
+use crate::backend::{
+    ChapterProviderVm, ChapterRefVm, ChapterVm, ListEntryUpdateVm, ListStatusVm, NovelDetailsVm,
+};
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, Chip, EmptyState, ErrorState, IconButton, LoadingIndicator, MediaCover, Pill,
-    SkeletonLines, Tone, use_snackbar,
+    Button, ButtonSize, ButtonVariant, Chip, EmptyState, ErrorState, IconButton, LoadingIndicator,
+    MediaCover, Pill, SkeletonLines, Tone, use_snackbar,
 };
 use crate::i18n::{t, tf};
 use crate::icons::Icon;
@@ -115,7 +117,12 @@ fn DetailsBody(vm: NovelDetailsVm) -> Element {
             async move { backend.novel_chapters(&id, tl.as_deref(), fresh).await }
         }
     });
-    let providers: Vec<ChapterProviderVm> = chapters.read().as_ref().and_then(|r| r.as_ref().ok()).cloned().unwrap_or_default();
+    let providers: Vec<ChapterProviderVm> = chapters
+        .read()
+        .as_ref()
+        .and_then(|r| r.as_ref().ok())
+        .cloned()
+        .unwrap_or_default();
     // Translators known from the details (cached lists) plus those of the loaded chapters.
     let mut translators: Vec<String> = vm.translators.clone();
     for c in providers.iter().flat_map(|p| p.chapters.iter()) {
@@ -129,15 +136,25 @@ fn DetailsBody(vm: NovelDetailsVm) -> Element {
     let resume = vm.resume.clone();
     let read_target = resume.as_ref().map(|r| r.chapter.clone()).or(first.clone());
     let resume_label = match &resume {
-        Some(r) if r.chapter_number > 0.0 => tf("novel.details.continue_n", &[("n", &chapter_label(r.chapter_number))]),
+        Some(r) if r.chapter_number > 0.0 => tf(
+            "novel.details.continue_n",
+            &[("n", &chapter_label(r.chapter_number))],
+        ),
         Some(_) => t("novel.details.continue"),
         None => t("novel.details.start"),
     };
     let synopsis = vm.synopsis.clone().unwrap_or_default();
     let meta: Vec<(String, String)> = [
-        vm.status.as_ref().map(|s| (t("novel.details.status"), t(&format!("novel.media_status.{}", s.to_ascii_lowercase())))),
-        vm.chapters_total.map(|n| (t("novel.details.chapters"), n.to_string())),
-        vm.volumes_total.map(|n| (t("novel.details.volumes"), n.to_string())),
+        vm.status.as_ref().map(|s| {
+            (
+                t("novel.details.status"),
+                t(&format!("novel.media_status.{}", s.to_ascii_lowercase())),
+            )
+        }),
+        vm.chapters_total
+            .map(|n| (t("novel.details.chapters"), n.to_string())),
+        vm.volumes_total
+            .map(|n| (t("novel.details.volumes"), n.to_string())),
         (!vm.authors.is_empty()).then(|| (t("novel.details.authors"), vm.authors.join(", "))),
     ]
     .into_iter()
@@ -145,7 +162,11 @@ fn DetailsBody(vm: NovelDetailsVm) -> Element {
     .collect();
     let tl_now = translator();
     let tl_attr = tl_now.clone().unwrap_or_else(|| "all".into());
-    let banner_style = vm.banner.as_ref().map(|b| format!("background-image:url('{}')", b.replace('\'', "%27"))).unwrap_or_default();
+    let banner_style = vm
+        .banner
+        .as_ref()
+        .map(|b| format!("background-image:url('{}')", b.replace('\'', "%27")))
+        .unwrap_or_default();
     let open_id = id.clone();
 
     rsx! {
@@ -274,7 +295,13 @@ fn ReadListControl(media_id: String) -> Element {
     });
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<UiError>);
-    let current = entry.read().as_ref().and_then(|r| r.as_ref().ok()).cloned().flatten().map(|e| e.status);
+    let current = entry
+        .read()
+        .as_ref()
+        .and_then(|r| r.as_ref().ok())
+        .cloned()
+        .flatten()
+        .map(|e| e.status);
     let status_id = read_status_id(current);
     let loading = entry.read().is_none();
     let read_err = entry.read().as_ref().and_then(|r| r.as_ref().err()).cloned();
@@ -289,8 +316,14 @@ fn ReadListControl(media_id: String) -> Element {
             spawn(async move {
                 let res = match ListStatusVm::ALL.into_iter().find(|s| s.id() == v) {
                     Some(s) => {
-                        let up = ListEntryUpdateVm { status: Some(s), ..ListEntryUpdateVm::default() };
-                        backend.set_read_list_entry(ReadKindVm::Novel, &id, &up).await.map(|_| ())
+                        let up = ListEntryUpdateVm {
+                            status: Some(s),
+                            ..ListEntryUpdateVm::default()
+                        };
+                        backend
+                            .set_read_list_entry(ReadKindVm::Novel, &id, &up)
+                            .await
+                            .map(|_| ())
                     }
                     None => backend.remove_read_list_entry(ReadKindVm::Novel, &id).await,
                 };
@@ -395,7 +428,11 @@ fn CheckSources(media_id: String) -> Element {
 
 /// Chapter lists per provider with selection for download.
 #[component]
-fn ChapterLists(media_id: String, providers: Vec<ChapterProviderVm>, on_changed: EventHandler<()>) -> Element {
+fn ChapterLists(
+    media_id: String,
+    providers: Vec<ChapterProviderVm>,
+    on_changed: EventHandler<()>,
+) -> Element {
     let services = use_context::<Services>();
     let snack = use_snackbar();
     let mut selecting = use_signal(|| false);
@@ -421,7 +458,10 @@ fn ChapterLists(media_id: String, providers: Vec<ChapterProviderVm>, on_changed:
                 downloading.set(false);
                 match res {
                     Ok(n) => {
-                        snack.show(tf("novel.download.done", &[("n", &n.to_string()), ("total", &total.to_string())]));
+                        snack.show(tf(
+                            "novel.download.done",
+                            &[("n", &n.to_string()), ("total", &total.to_string())],
+                        ));
                         selected.set(HashSet::new());
                         selecting.set(false);
                         on_changed.call(());
@@ -477,7 +517,12 @@ fn ChapterLists(media_id: String, providers: Vec<ChapterProviderVm>, on_changed:
 }
 
 #[component]
-fn ProviderRow(media_id: String, provider: ChapterProviderVm, selecting: bool, selected: Signal<HashSet<ChapterRefVm>>) -> Element {
+fn ProviderRow(
+    media_id: String,
+    provider: ChapterProviderVm,
+    selecting: bool,
+    selected: Signal<HashSet<ChapterRefVm>>,
+) -> Element {
     let mut open = use_signal(|| true);
     let mut newest_first = use_signal(|| false);
     let mut chapters: Vec<ChapterVm> = provider.chapters.clone();
@@ -533,7 +578,12 @@ fn ProviderRow(media_id: String, provider: ChapterProviderVm, selecting: bool, s
 }
 
 #[component]
-fn ChapterRow(media_id: String, chapter: ChapterVm, selecting: bool, selected: Signal<HashSet<ChapterRefVm>>) -> Element {
+fn ChapterRow(
+    media_id: String,
+    chapter: ChapterVm,
+    selecting: bool,
+    selected: Signal<HashSet<ChapterRefVm>>,
+) -> Element {
     let navigator = use_navigator();
     let r = chapter.reference.clone();
     let is_sel = selected.read().contains(&r);
@@ -541,7 +591,13 @@ fn ChapterRow(media_id: String, chapter: ChapterVm, selecting: bool, selected: S
     let title = chapter.title.clone().unwrap_or_default();
     let date = chapter.published_unix.map(date_of).unwrap_or_default();
     let bar = (chapter.read * 100.0).round();
-    let read_state = if chapter.read >= 0.99 { "read" } else if chapter.read > 0.0 { "partial" } else { "unread" };
+    let read_state = if chapter.read >= 0.99 {
+        "read"
+    } else if chapter.read > 0.0 {
+        "partial"
+    } else {
+        "unread"
+    };
     rsx! {
         li { class: "tk-novel-chapter", "data-read": "{read_state}", "data-downloaded": "{chapter.downloaded}", "data-chapter": "{chapter.number}",
             button {
@@ -605,7 +661,10 @@ mod tests {
     #[test]
     fn first_chapter_is_the_lowest_number() {
         let ch = |n: f32, id: &str| ChapterVm {
-            reference: ChapterRefVm { ext_id: "x".into(), chapter_id: id.into() },
+            reference: ChapterRefVm {
+                ext_id: "x".into(),
+                chapter_id: id.into(),
+            },
             number: n,
             volume: None,
             title: None,
@@ -617,8 +676,20 @@ mod tests {
             downloaded: false,
         };
         let p = vec![
-            ChapterProviderVm { ext_id: "x".into(), ext_name: "a".into(), lang: None, chapters: vec![ch(2.0, "b"), ch(1.0, "a")], error: None },
-            ChapterProviderVm { ext_id: "x".into(), ext_name: "b".into(), lang: None, chapters: vec![ch(3.0, "c")], error: None },
+            ChapterProviderVm {
+                ext_id: "x".into(),
+                ext_name: "a".into(),
+                lang: None,
+                chapters: vec![ch(2.0, "b"), ch(1.0, "a")],
+                error: None,
+            },
+            ChapterProviderVm {
+                ext_id: "x".into(),
+                ext_name: "b".into(),
+                lang: None,
+                chapters: vec![ch(3.0, "c")],
+                error: None,
+            },
         ];
         assert_eq!(first_chapter(&p).map(|r| r.chapter_id), Some("a".into()));
         assert_eq!(first_chapter(&[]), None);

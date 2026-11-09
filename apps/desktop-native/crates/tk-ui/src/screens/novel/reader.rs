@@ -16,15 +16,20 @@
 
 use std::time::{Duration, Instant};
 
+use dioxus::core::{Task, spawn_forever};
 use dioxus::desktop::use_window;
 use dioxus::prelude::*;
 use serde::Deserialize;
 
-use super::assets::{self, PAUSE_JS, RESUME_JS, STOP_JS, js_str, play_clip_js, use_novel_assets, wake_lock_js};
+use super::assets::{
+    self, PAUSE_JS, RESUME_JS, STOP_JS, js_str, play_clip_js, use_novel_assets, wake_lock_js,
+};
 use super::controls::{FlowControls, TypographyControls, commit_novel};
 use crate::app::{Route, Services, Ui};
 use crate::backend::{BackendRef, ChapterRefVm, NovelContentVm, ReadProgressVm, TtsRequestVm, TtsVoiceVm};
-use crate::components::{Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, Sheet, SkeletonLines};
+use crate::components::{
+    Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, Sheet, SkeletonLines,
+};
 use crate::i18n::{t, tf};
 use crate::model::novel::{chapter_label, chapter_number_of};
 use crate::model::{NovelPrefs, ReadKindVm, TtsProviderVm, UiError};
@@ -124,7 +129,9 @@ pub fn column_style(prefs: &NovelPrefs) -> String {
 }
 
 fn now_unix() -> i64 {
-    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 fn scroll_to_js(c: usize, p: usize, smooth: bool) -> String {
@@ -148,7 +155,10 @@ fn ReaderLoader(id: String, ext_id: String, chapter_id: String) -> Element {
     let services = use_context::<Services>();
     let navigator = use_navigator();
     use_novel_assets();
-    let reference = ChapterRefVm { ext_id: ext_id.clone(), chapter_id: chapter_id.clone() };
+    let reference = ChapterRefVm {
+        ext_id: ext_id.clone(),
+        chapter_id: chapter_id.clone(),
+    };
     let mut first = use_resource({
         let backend = services.backend.clone();
         let id = id.clone();
@@ -160,8 +170,14 @@ fn ReaderLoader(id: String, ext_id: String, chapter_id: String) -> Element {
             async move {
                 let content = backend.novel_content(&reference).await?;
                 // A missing position only means "start at the top".
-                let saved = backend.read_progress(ReadKindVm::Novel, &id).await.unwrap_or_default();
-                let at = saved.iter().find(|p| p.chapter == reference && !p.completed).map(|p| p.position);
+                let saved = backend
+                    .read_progress(ReadKindVm::Novel, &id)
+                    .await
+                    .unwrap_or_default();
+                let at = saved
+                    .iter()
+                    .find(|p| p.chapter == reference && !p.completed)
+                    .map(|p| p.position);
                 Ok::<_, UiError>((content, at))
             }
         }
@@ -209,7 +225,9 @@ async fn append_next(
     if *loading.peek() {
         return false;
     }
-    let Some(next) = chapters.peek().last().and_then(|c| c.next.clone()) else { return false };
+    let Some(next) = chapters.peek().last().and_then(|c| c.next.clone()) else {
+        return false;
+    };
     if chapters.peek().iter().any(|c| c.reference == next) {
         return false;
     }
@@ -239,7 +257,11 @@ struct Spot {
 }
 
 fn spot_of(chapters: &[NovelContentVm], c: usize, p: u32) -> Option<Spot> {
-    chapters.get(c).map(|ch| Spot { chapter: ch.reference.clone(), total: ch.paragraphs.len() as u32, paragraph: p })
+    chapters.get(c).map(|ch| Spot {
+        chapter: ch.reference.clone(),
+        total: ch.paragraphs.len() as u32,
+        paragraph: p,
+    })
 }
 
 /// Save a reading position (shared `read_progress`).
@@ -253,7 +275,9 @@ async fn save_position(backend: BackendRef, media_id: String, spot: Spot) -> Res
         completed: total > 0 && p + 1 >= total,
         updated_unix: now_unix(),
     };
-    backend.set_read_progress(ReadKindVm::Novel, &media_id, &progress).await
+    backend
+        .set_read_progress(ReadKindVm::Novel, &media_id, &progress)
+        .await
 }
 
 #[component]
@@ -274,9 +298,16 @@ fn ReaderView(media_id: String, first: NovelContentVm, resume: Option<u32>) -> E
     let mut fullscreen = use_signal(|| false);
     let mut save_error = use_signal(|| false);
     let mut wake_ok = use_signal(|| None::<bool>);
-    let last_saved = use_hook(|| std::rc::Rc::new(std::cell::Cell::new((usize::MAX, u32::MAX, Instant::now()))));
+    let last_saved =
+        use_hook(|| std::rc::Rc::new(std::cell::Cell::new((usize::MAX, u32::MAX, Instant::now()))));
     // Mirror of the position for `use_drop` (signals may already be gone when it runs).
-    let last_spot = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(spot_of(std::slice::from_ref(&first), 0, resume.unwrap_or(0)))));
+    let last_spot = use_hook(|| {
+        std::rc::Rc::new(std::cell::RefCell::new(spot_of(
+            std::slice::from_ref(&first),
+            0,
+            resume.unwrap_or(0),
+        )))
+    });
 
     // Narration.
     let tts_state = use_signal(|| TtsState::Idle);
@@ -318,7 +349,9 @@ fn ReaderView(media_id: String, first: NovelContentVm, resume: Option<u32>) -> E
                         if (lc != c || lp != msg.p) && (lc != c || at.elapsed() >= SAVE_EVERY) {
                             last_saved.set((c, msg.p, Instant::now()));
                             if let Some(spot) = spot {
-                                let ok = save_position(backend.clone(), media_id.clone(), spot).await.is_ok();
+                                let ok = save_position(backend.clone(), media_id.clone(), spot)
+                                    .await
+                                    .is_ok();
                                 save_error.set(!ok);
                             }
                         }
@@ -369,11 +402,18 @@ fn ReaderView(media_id: String, first: NovelContentVm, resume: Option<u32>) -> E
     let cur_chapter = list.get(cur_c).or(list.first()).cloned();
     let count = cur_chapter.as_ref().map_or(0, |c| c.paragraphs.len());
     let pct = percent(cur_p, count);
-    let number = cur_chapter.as_ref().and_then(|c| chapter_number_of(&c.reference.chapter_id));
-    let chapter_text = number.map(|n| tf("novel.chapter.n", &[("n", &chapter_label(n))])).unwrap_or_default();
+    let number = cur_chapter
+        .as_ref()
+        .and_then(|c| chapter_number_of(&c.reference.chapter_id));
+    let chapter_text = number
+        .map(|n| tf("novel.chapter.n", &[("n", &chapter_label(n))]))
+        .unwrap_or_default();
     let title = cur_chapter.as_ref().map(|c| c.title.clone()).unwrap_or_default();
     let offline = cur_chapter.as_ref().is_some_and(|c| c.offline);
-    let chapter_attr = cur_chapter.as_ref().map(|c| c.reference.chapter_id.clone()).unwrap_or_default();
+    let chapter_attr = cur_chapter
+        .as_ref()
+        .map(|c| c.reference.chapter_id.clone())
+        .unwrap_or_default();
     let number_attr = number.map(chapter_label).unwrap_or_default();
     let tts_now = tts_at();
     let highlight = prefs.tts.highlight;
@@ -384,7 +424,12 @@ fn ReaderView(media_id: String, first: NovelContentVm, resume: Option<u32>) -> E
         .then(|| prefs.custom_font_path.clone())
         .flatten()
         .and_then(|p| assets::register("font", std::path::Path::new(&p)));
-    let font_css = custom_font.map(|url| format!("@font-face {{ font-family: TkNovelCustom; src: url({}); font-display: swap; }}", js_str(&url)));
+    let font_css = custom_font.map(|url| {
+        format!(
+            "@font-face {{ font-family: TkNovelCustom; src: url({}); font-display: swap; }}",
+            js_str(&url)
+        )
+    });
     let last = list.last().cloned();
     let continuous = prefs.flow.continuous;
     let prev_ref = cur_chapter.as_ref().and_then(|c| c.prev.clone());
@@ -400,7 +445,11 @@ fn ReaderView(media_id: String, first: NovelContentVm, resume: Option<u32>) -> E
     let go = {
         let media_id = media_id.clone();
         move |r: ChapterRefVm| {
-            navigator.replace(Route::NovelReaderPage { id: media_id.clone(), ext_id: r.ext_id, chapter_id: r.chapter_id });
+            navigator.replace(Route::NovelReaderPage {
+                id: media_id.clone(),
+                ext_id: r.ext_id,
+                chapter_id: r.chapter_id,
+            });
         }
     };
     let go_prev = go.clone();
@@ -415,7 +464,20 @@ fn ReaderView(media_id: String, first: NovelContentVm, resume: Option<u32>) -> E
     let start_tts = {
         let backend = backend.clone();
         move |from: (usize, usize)| {
-            start_narration(backend.clone(), ui, chapters, next_loading, next_error, tts_state, tts_at, tts_native, tts_task, tts_error, from, reduce_motion);
+            start_narration(
+                backend.clone(),
+                ui,
+                chapters,
+                next_loading,
+                next_error,
+                tts_state,
+                tts_at,
+                tts_native,
+                tts_task,
+                tts_error,
+                from,
+                reduce_motion,
+            );
         }
     };
     let start_at_click = start_tts.clone();
@@ -688,7 +750,10 @@ fn start_narration(
     let handle = spawn(async move {
         let mut pos = Some(from);
         while let Some((c, p)) = pos {
-            let text = chapters.peek().get(c).and_then(|ch| ch.paragraphs.get(p).cloned());
+            let text = chapters
+                .peek()
+                .get(c)
+                .and_then(|ch| ch.paragraphs.get(p).cloned());
             let Some(text) = text else { break };
             let tts = ui.settings.peek().novel.tts.clone();
             at.set(Some((c, p)));
@@ -696,8 +761,17 @@ fn start_narration(
                 let _ = document::eval(&scroll_to_js(c, p, !reduce_motion));
             }
             let system = tts.provider == TtsProviderVm::System;
-            state.set(if system { TtsState::Playing } else { TtsState::Loading });
-            let req = TtsRequestVm { text, provider: tts.provider, voice: None, rate: tts.rate };
+            state.set(if system {
+                TtsState::Playing
+            } else {
+                TtsState::Loading
+            });
+            let req = TtsRequestVm {
+                text,
+                provider: tts.provider,
+                voice: None,
+                rate: tts.rate,
+            };
             match backend.tts_speak(&req).await {
                 Ok(vm) => match vm.clip {
                     Some(clip) => {
@@ -707,10 +781,18 @@ fn start_narration(
                         let lens: Vec<usize> = chapters.peek().iter().map(|ch| ch.paragraphs.len()).collect();
                         if !system
                             && let Some((nc, np)) = next_position(&lens, (c, p))
-                            && let Some(next_text) = chapters.peek().get(nc).and_then(|ch| ch.paragraphs.get(np).cloned())
+                            && let Some(next_text) = chapters
+                                .peek()
+                                .get(nc)
+                                .and_then(|ch| ch.paragraphs.get(np).cloned())
                         {
                             let b = backend.clone();
-                            let req = TtsRequestVm { text: next_text, provider: tts.provider, voice: None, rate: tts.rate };
+                            let req = TtsRequestVm {
+                                text: next_text,
+                                provider: tts.provider,
+                                voice: None,
+                                rate: tts.rate,
+                            };
                             spawn(async move {
                                 let _ = b.tts_speak(&req).await;
                             });
@@ -723,7 +805,10 @@ fn start_narration(
                             Ok("ended") => {}
                             Ok("stopped") => break,
                             _ => {
-                                error.set(Some(UiError::new(crate::model::ErrorKind::Other, t("novel.tts.play_failed"))));
+                                error.set(Some(UiError::new(
+                                    crate::model::ErrorKind::Other,
+                                    t("novel.tts.play_failed"),
+                                )));
                                 break;
                             }
                         }
@@ -737,7 +822,10 @@ fn start_narration(
             }
             let lens: Vec<usize> = chapters.peek().iter().map(|ch| ch.paragraphs.len()).collect();
             pos = next_position(&lens, (c, p));
-            if pos.is_none() && tts.auto_advance && append_next(backend.clone(), chapters, next_loading, next_error).await {
+            if pos.is_none()
+                && tts.auto_advance
+                && append_next(backend.clone(), chapters, next_loading, next_error).await
+            {
                 let lens: Vec<usize> = chapters.peek().iter().map(|ch| ch.paragraphs.len()).collect();
                 pos = next_position(&lens, (c, p));
             }
@@ -771,7 +859,12 @@ fn TtsBar(
             async move { backend.tts_voices(p).await }
         }
     });
-    let voice_list: Vec<TtsVoiceVm> = voices.read().as_ref().and_then(|r| r.as_ref().ok()).cloned().unwrap_or_default();
+    let voice_list: Vec<TtsVoiceVm> = voices
+        .read()
+        .as_ref()
+        .and_then(|r| r.as_ref().ok())
+        .cloned()
+        .unwrap_or_default();
     let voices_err = voices.read().as_ref().and_then(|r| r.as_ref().err()).cloned();
     let rate = tts.rate;
     let voice_now = tts.voice.clone();
@@ -869,8 +962,18 @@ mod tests {
 
     #[test]
     fn column_style_has_every_variable() {
-        let s = column_style(&NovelPrefs { justify: true, ..NovelPrefs::default() });
-        for v in ["--tk-novel-font:", "--tk-novel-size:18px", "--tk-novel-lh:1.6", "--tk-novel-gap:0.8em", "--tk-novel-width:760px", "justify"] {
+        let s = column_style(&NovelPrefs {
+            justify: true,
+            ..NovelPrefs::default()
+        });
+        for v in [
+            "--tk-novel-font:",
+            "--tk-novel-size:18px",
+            "--tk-novel-lh:1.6",
+            "--tk-novel-gap:0.8em",
+            "--tk-novel-width:760px",
+            "justify",
+        ] {
             assert!(s.contains(v), "{v} missing in {s}");
         }
         assert!(scroll_to_js(1, 2, false).contains("[data-c=\"1\"][data-p=\"2\"]"));

@@ -19,7 +19,10 @@ static FILES: Mutex<Option<HashMap<String, PathBuf>>> = Mutex::new(None);
 /// `<kind>/<file name>` key of a path; names keep only safe characters.
 pub fn asset_key(kind: &str, path: &Path) -> Option<String> {
     let name = path.file_name()?.to_string_lossy().into_owned();
-    let safe: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')).collect();
+    let safe: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        .collect();
     (!safe.is_empty() && !safe.starts_with('.')).then(|| format!("{kind}/{safe}"))
 }
 
@@ -37,11 +40,19 @@ pub fn register(kind: &str, path: &Path) -> Option<String> {
 }
 
 fn lookup(key: &str) -> Option<PathBuf> {
-    FILES.lock().ok().and_then(|g| g.as_ref().and_then(|m| m.get(key).cloned()))
+    FILES
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().and_then(|m| m.get(key).cloned()))
 }
 
 pub fn mime_of(path: &Path) -> &'static str {
-    match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("wav") => "audio/wav",
         Some("mp3") => "audio/mpeg",
         Some("ogg") => "audio/ogg",
@@ -65,7 +76,11 @@ pub fn parse_range(header: &str, len: usize) -> Option<(usize, usize)> {
         (len.saturating_sub(n), len - 1)
     } else {
         let start: usize = a.parse().ok()?;
-        let end = if b.is_empty() { len - 1 } else { b.parse::<usize>().ok()?.min(len - 1) };
+        let end = if b.is_empty() {
+            len - 1
+        } else {
+            b.parse::<usize>().ok()?.min(len - 1)
+        };
         (start, end)
     };
     (start <= end && start < len).then_some((start, end))
@@ -75,7 +90,11 @@ pub fn parse_range(header: &str, len: usize) -> Option<(usize, usize)> {
 pub fn use_novel_assets() {
     use_asset_handler(ASSET_HANDLER, move |req, responder| {
         let path = req.uri().path().trim_start_matches('/');
-        let key = path.strip_prefix(ASSET_HANDLER).unwrap_or(path).trim_start_matches('/').to_owned();
+        let key = path
+            .strip_prefix(ASSET_HANDLER)
+            .unwrap_or(path)
+            .trim_start_matches('/')
+            .to_owned();
         let file = lookup(&key);
         let bytes = file.as_ref().and_then(|p| std::fs::read(p).ok());
         let (Some(file), Some(bytes)) = (file, bytes) else {
@@ -86,7 +105,11 @@ pub fn use_novel_assets() {
             return;
         };
         let mime = mime_of(&file);
-        let range = req.headers().get("range").and_then(|v| v.to_str().ok()).and_then(|h| parse_range(h, bytes.len()));
+        let range = req
+            .headers()
+            .get("range")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|h| parse_range(h, bytes.len()));
         let built = match range {
             Some((start, end)) => Response::builder()
                 .status(206)
@@ -140,8 +163,7 @@ return outcome;"#,
 /// Pause / resume / stop the current clip.
 pub const PAUSE_JS: &str = "const a = window.__tkNovelAudio; if (a) { a.pause(); }";
 pub const RESUME_JS: &str = "const a = window.__tkNovelAudio; if (a) { a.play().catch(() => {}); }";
-pub const STOP_JS: &str =
-    "const a = window.__tkNovelAudio; if (a) { try { a.pause(); a.dispatchEvent(new Event('tkstop')); } catch (e) {} }";
+pub const STOP_JS: &str = "const a = window.__tkNovelAudio; if (a) { try { a.pause(); a.dispatchEvent(new Event('tkstop')); } catch (e) {} }";
 
 /// Screen Wake Lock on / off; answers whether the web view supports it.
 pub fn wake_lock_js(on: bool) -> String {
@@ -163,8 +185,14 @@ mod tests {
 
     #[test]
     fn keys_and_urls() {
-        assert_eq!(asset_key("clip", Path::new("/data/tts/cache/ab12.wav")).as_deref(), Some("clip/ab12.wav"));
-        assert_eq!(asset_key("font", Path::new("/f/My Font!.ttf")).as_deref(), Some("font/MyFont.ttf"));
+        assert_eq!(
+            asset_key("clip", Path::new("/data/tts/cache/ab12.wav")).as_deref(),
+            Some("clip/ab12.wav")
+        );
+        assert_eq!(
+            asset_key("font", Path::new("/f/My Font!.ttf")).as_deref(),
+            Some("font/MyFont.ttf")
+        );
         assert_eq!(asset_key("x", Path::new("/")), None);
         let url = register("clip", Path::new("/tmp/z.wav")).unwrap();
         assert_eq!(url, "/tk-novel/clip/z.wav");
