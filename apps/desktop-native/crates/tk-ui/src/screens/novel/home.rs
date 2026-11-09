@@ -10,10 +10,12 @@ use std::sync::Mutex;
 use dioxus::prelude::*;
 
 use crate::app::{Route, Services};
-use crate::backend::{ContinueReadVm, MediaVm, ReadHomeVm, SearchPageVm, SearchQueryVm, SearchSortVm, SectionVm};
+use crate::backend::{
+    ContinueReadVm, MediaVm, ReadHomeVm, SearchPageVm, SearchQueryVm, SearchSortVm, SectionVm,
+};
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, Chip, EmptyState, ErrorState, HeroCarousel, MediaCard, MediaCover, SkeletonGrid,
-    SkeletonRow,
+    Button, ButtonSize, ButtonVariant, Chip, EmptyState, ErrorState, HeroCarousel, MediaCard, MediaCover,
+    SkeletonGrid, SkeletonRow,
 };
 use crate::i18n::{t, tf};
 use crate::model::UiError;
@@ -21,8 +23,22 @@ use crate::model::novel::{chapter_label, chapter_number_of};
 
 /// AniList genres offered as chips (same list as `tk_core::novel::anilist::GENRES`).
 pub const GENRES: [&str; 16] = [
-    "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror", "Mahou Shoujo", "Mecha", "Mystery",
-    "Psychological", "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural",
+    "Action",
+    "Adventure",
+    "Comedy",
+    "Drama",
+    "Ecchi",
+    "Fantasy",
+    "Horror",
+    "Mahou Shoujo",
+    "Mecha",
+    "Mystery",
+    "Psychological",
+    "Romance",
+    "Sci-Fi",
+    "Slice of Life",
+    "Sports",
+    "Supernatural",
 ];
 /// Status filter ids (`search.status.<id>` texts of worker a's namespace).
 pub const STATUSES: [&str; 5] = ["releasing", "finished", "upcoming", "cancelled", "hiatus"];
@@ -55,7 +71,10 @@ pub struct NovelFilters {
 
 impl NovelFilters {
     pub fn is_active(&self) -> bool {
-        !self.query.trim().is_empty() || !self.genres.is_empty() || self.status.is_some() || self.origin.is_some()
+        !self.query.trim().is_empty()
+            || !self.genres.is_empty()
+            || self.status.is_some()
+            || self.origin.is_some()
     }
 
     /// The backend query of page `page`.
@@ -91,7 +110,10 @@ pub fn resume_route(c: &ContinueReadVm) -> Route {
 
 #[component]
 pub fn NovelHomePage() -> Element {
-    let mut filters = use_signal(|| NovelFilters { query: take_pending_query().unwrap_or_default(), ..NovelFilters::default() });
+    let mut filters = use_signal(|| NovelFilters {
+        query: take_pending_query().unwrap_or_default(),
+        ..NovelFilters::default()
+    });
     let f = filters();
     let active = f.is_active();
     let query_text = f.query.clone();
@@ -332,9 +354,15 @@ fn HomeContent(vm: ReadHomeVm, on_retry: EventHandler<()>) -> Element {
         .map(|items| items.iter().take(HERO_ITEMS).cloned().collect())
         .unwrap_or_default();
     let hero_key = hero.iter().map(|m| m.id.as_str()).collect::<Vec<_>>().join(",");
-    let rows: Vec<SectionVm> =
-        vm.sections.iter().filter(|s| hero.is_empty() || s.title_key != "novel.feed.trending").cloned().collect();
-    let has_rows = rows.iter().any(|s| !matches!(&s.items, Ok(items) if items.is_empty()));
+    let rows: Vec<SectionVm> = vm
+        .sections
+        .iter()
+        .filter(|s| hero.is_empty() || s.title_key != "novel.feed.trending")
+        .cloned()
+        .collect();
+    let has_rows = rows
+        .iter()
+        .any(|s| !matches!(&s.items, Ok(items) if items.is_empty()));
     if hero.is_empty() && vm.continue_reading.is_empty() && !has_rows {
         return rsx! {
             EmptyState {
@@ -382,12 +410,19 @@ fn HomeContent(vm: ReadHomeVm, on_retry: EventHandler<()>) -> Element {
 fn ContinueReadCard(item: ContinueReadVm) -> Element {
     let navigator = use_navigator();
     let p = &item.progress;
-    let number = if p.chapter_number > 0.0 { Some(p.chapter_number) } else { chapter_number_of(&p.chapter.chapter_id) };
+    let number = if p.chapter_number > 0.0 {
+        Some(p.chapter_number)
+    } else {
+        chapter_number_of(&p.chapter.chapter_id)
+    };
     let sub = match number {
         Some(n) => tf("novel.chapter.n", &[("n", &chapter_label(n))]),
         None => t("novel.home.resume"),
     };
-    let fraction = p.total.filter(|t| *t > 0).map(|t| f64::from(p.position) / f64::from(t));
+    let fraction = p
+        .total
+        .filter(|t| *t > 0)
+        .map(|t| f64::from(p.position) / f64::from(t));
     let route = resume_route(&item);
     rsx! {
         button {
@@ -413,7 +448,11 @@ fn ContinueReadCard(item: ContinueReadVm) -> Element {
 #[component]
 fn FeedRow(section: SectionVm) -> Element {
     let navigator = use_navigator();
-    let feed = section.title_key.strip_prefix("novel.feed.").unwrap_or(&section.title_key).to_owned();
+    let feed = section
+        .title_key
+        .strip_prefix("novel.feed.")
+        .unwrap_or(&section.title_key)
+        .to_owned();
     let title = t(&section.title_key);
     rsx! {
         section { class: "tk-section", "data-feed": "{feed}",
@@ -480,10 +519,20 @@ mod tests {
     #[test]
     fn resume_goes_to_the_saved_chapter() {
         let c = ContinueReadVm {
-            media: MediaVm { id: "9".into(), title: "T".into(), cover: None, color: None, subtitle: String::new(), score: None },
+            media: MediaVm {
+                id: "9".into(),
+                title: "T".into(),
+                cover: None,
+                color: None,
+                subtitle: String::new(),
+                score: None,
+            },
             kind: ReadKindVm::Novel,
             progress: ReadProgressVm {
-                chapter: ChapterRefVm { ext_id: "toko".into(), chapter_id: "abc".into() },
+                chapter: ChapterRefVm {
+                    ext_id: "toko".into(),
+                    chapter_id: "abc".into(),
+                },
                 chapter_number: 2.0,
                 position: 7,
                 total: Some(20),
@@ -491,6 +540,13 @@ mod tests {
                 updated_unix: 1,
             },
         };
-        assert_eq!(resume_route(&c), Route::NovelReaderPage { id: "9".into(), ext_id: "toko".into(), chapter_id: "abc".into() });
+        assert_eq!(
+            resume_route(&c),
+            Route::NovelReaderPage {
+                id: "9".into(),
+                ext_id: "toko".into(),
+                chapter_id: "abc".into()
+            }
+        );
     }
 }

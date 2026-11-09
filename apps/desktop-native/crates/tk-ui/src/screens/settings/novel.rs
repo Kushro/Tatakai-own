@@ -21,7 +21,8 @@ use super::SettingRow;
 use crate::app::{Services, Ui};
 use crate::backend::KittenStatusVm;
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, ErrorState, LoadingIndicator, Segmented, Switch, TextField, use_snackbar,
+    Button, ButtonSize, ButtonVariant, ErrorState, LoadingIndicator, Segmented, Switch, TextField,
+    use_snackbar,
 };
 use crate::i18n::{t, tf};
 use crate::model::novel::{
@@ -90,6 +91,15 @@ pub fn NovelSection(commit_saved: Callback<SettingsAction>) -> Element {
         all.tts = next;
         commit_saved.call(SettingsAction::SetNovel(all));
     };
+    // Text fields and sliders save without a snackbar per keystroke.
+    let commit_tts_quiet = {
+        let backend = backend.clone();
+        move |next: TtsPrefs| {
+            let mut all = ui.settings.peek().novel.clone();
+            all.tts = next;
+            commit_novel(ui, &backend, all);
+        }
+    };
 
     rsx! {
         div { class: "tk-novel-settings", "data-provider": "{provider.id()}",
@@ -99,7 +109,7 @@ pub fn NovelSection(commit_saved: Callback<SettingsAction>) -> Element {
             h3 { class: "tk-novel-ctl__title", {t("novel.settings.flow")} }
             FlowControls { prefs: novel.clone(), on_change: on_flow }
             h3 { class: "tk-novel-ctl__title", {t("novel.settings.narrator")} }
-            NarratorSettings { tts: tts.clone(), on_change: commit_tts }
+            NarratorSettings { tts: tts.clone(), on_change: commit_tts_quiet, on_saved: commit_tts }
             h3 { class: "tk-novel-ctl__title", {t("novel.kitten.title")} }
             KittenSettings { tts: tts.clone(), on_change: commit_tts }
         }
@@ -107,7 +117,11 @@ pub fn NovelSection(commit_saved: Callback<SettingsAction>) -> Element {
 }
 
 #[component]
-fn NarratorSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element {
+fn NarratorSettings(
+    tts: TtsPrefs,
+    on_change: EventHandler<TtsPrefs>,
+    on_saved: EventHandler<TtsPrefs>,
+) -> Element {
     let services = use_context::<Services>();
     let ui = use_context::<Ui>();
     let snack = use_snackbar();
@@ -129,7 +143,13 @@ fn NarratorSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element
         move || {
             let backend = backend.clone();
             let p = ui.settings.read().novel.tts.provider;
-            async move { if p.needs_key() { backend.tts_key_present(p).await } else { Ok(false) } }
+            async move {
+                if p.needs_key() {
+                    backend.tts_key_present(p).await
+                } else {
+                    Ok(false)
+                }
+            }
         }
     });
     let mut key_draft = use_signal(String::new);
@@ -138,9 +158,16 @@ fn NarratorSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element
     let mut test_state = use_signal(|| "idle");
     let mut test_err = use_signal(|| None::<UiError>);
 
-    let provider_opts: Vec<(String, String)> =
-        TtsProviderVm::ALL.iter().map(|p| (p.id().to_owned(), t(&format!("novel.tts.provider.{}", p.id())))).collect();
-    let voice_list = voices.read().as_ref().and_then(|r| r.as_ref().ok()).cloned().unwrap_or_default();
+    let provider_opts: Vec<(String, String)> = TtsProviderVm::ALL
+        .iter()
+        .map(|p| (p.id().to_owned(), t(&format!("novel.tts.provider.{}", p.id()))))
+        .collect();
+    let voice_list = voices
+        .read()
+        .as_ref()
+        .and_then(|r| r.as_ref().ok())
+        .cloned()
+        .unwrap_or_default();
     let voices_loading = voices.read().is_none();
     let voices_err = voices.read().as_ref().and_then(|r| r.as_ref().err()).cloned();
     let key_state = match &*key_present.read() {
@@ -153,7 +180,8 @@ fn NarratorSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element
     let save_key = {
         let backend = services.backend.clone();
         move |remove: bool| {
-            let (mut key_busy, mut key_err, mut key_draft, mut key_present) = (key_busy, key_err, key_draft, key_present);
+            let (mut key_busy, mut key_err, mut key_draft, mut key_present) =
+                (key_busy, key_err, key_draft, key_present);
             let p = ui.settings.peek().novel.tts.provider;
             let value = key_draft.peek().trim().to_owned();
             if !remove && value.is_empty() {
@@ -163,13 +191,19 @@ fn NarratorSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element
             key_busy.set(true);
             key_err.set(None);
             spawn(async move {
-                let res = backend.set_tts_key(p, if remove { None } else { Some(value.as_str()) }).await;
+                let res = backend
+                    .set_tts_key(p, if remove { None } else { Some(value.as_str()) })
+                    .await;
                 key_busy.set(false);
                 match res {
                     Ok(()) => {
                         key_draft.set(String::new());
                         key_present.restart();
-                        snack.show(t(if remove { "novel.tts.key_removed" } else { "novel.tts.key_saved_toast" }));
+                        snack.show(t(if remove {
+                            "novel.tts.key_removed"
+                        } else {
+                            "novel.tts.key_saved_toast"
+                        }));
                     }
                     Err(e) => key_err.set(Some(e)),
                 }
@@ -197,7 +231,12 @@ fn NarratorSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element
             test_state.set("playing");
             test_err.set(None);
             spawn(async move {
-                let req = crate::backend::TtsRequestVm { text: t("novel.tts.sample"), provider: prefs.provider, voice: None, rate: prefs.rate };
+                let req = crate::backend::TtsRequestVm {
+                    text: t("novel.tts.sample"),
+                    provider: prefs.provider,
+                    voice: None,
+                    rate: prefs.rate,
+                };
                 match backend.tts_speak(&req).await {
                     Ok(vm) => {
                         if let Some(clip) = vm.clip {
@@ -206,7 +245,10 @@ fn NarratorSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element
                             if let Ok(out) = ev.recv::<String>().await
                                 && out == "error"
                             {
-                                test_err.set(Some(UiError::new(crate::model::ErrorKind::Other, t("novel.tts.play_failed"))));
+                                test_err.set(Some(UiError::new(
+                                    crate::model::ErrorKind::Other,
+                                    t("novel.tts.play_failed"),
+                                )));
                             }
                         }
                     }
@@ -232,7 +274,11 @@ fn NarratorSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element
         TtsProviderVm::OpenAiCompatible => "kokoro",
         _ => "tts-1",
     };
-    let key_label = if key_state == "saved" { t("novel.tts.key_replace") } else { t("novel.tts.key") };
+    let key_label = if key_state == "saved" {
+        t("novel.tts.key_replace")
+    } else {
+        t("novel.tts.key")
+    };
 
     rsx! {
         div { class: "tk-novel-narrator", "data-provider": "{provider.id()}",
@@ -246,7 +292,7 @@ fn NarratorSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element
                         if let Some(p) = TtsProviderVm::from_id(&id) {
                             key_draft.set(String::new());
                             key_err.set(None);
-                            on_change.call(with_provider(&tts_p, p));
+                            on_saved.call(with_provider(&tts_p, p));
                         }
                     },
                 }
@@ -335,7 +381,7 @@ fn NarratorSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element
                             onchange: move |e| {
                                 let mut next = tts_v.clone();
                                 next.voice = e.value();
-                                on_change.call(next);
+                                on_saved.call(next);
                             },
                             option { value: "", selected: tts.voice.is_empty(), {t("novel.tts.voice_default")} }
                             for v in voice_list.clone() {
@@ -403,14 +449,14 @@ fn NarratorSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element
                 Switch { checked: tts.auto_advance, label: t("novel.tts.auto_advance"), on_toggle: move |v: bool| {
                     let mut next = tts_auto.clone();
                     next.auto_advance = v;
-                    on_change.call(next);
+                    on_saved.call(next);
                 } }
             }
             SettingRow { label: t("novel.tts.highlight"), hint: t("novel.tts.highlight_hint"),
                 Switch { checked: tts.highlight, label: t("novel.tts.highlight"), on_toggle: move |v: bool| {
                     let mut next = tts_hl.clone();
                     next.highlight = v;
-                    on_change.call(next);
+                    on_saved.call(next);
                 } }
             }
             SettingRow { label: t("novel.tts.test"), hint: t("novel.tts.test_hint"), stack: true,
@@ -462,18 +508,29 @@ fn KittenSettings(tts: TtsPrefs, on_change: EventHandler<TtsPrefs>) -> Element {
         }
     });
 
-    let model_now = if tts.provider == TtsProviderVm::Kitten { tts.kitten_model() } else { crate::model::novel::KITTEN_DEFAULT_MODEL };
+    let model_now = if tts.provider == TtsProviderVm::Kitten {
+        tts.kitten_model()
+    } else {
+        crate::model::novel::KITTEN_DEFAULT_MODEL
+    };
     let (_, model_mb) = kitten_model_info(model_now).unwrap_or(("", 0));
     let st = status.read().as_ref().and_then(|r| r.as_ref().ok()).cloned();
     let read_err = status.read().as_ref().and_then(|r| r.as_ref().err()).cloned();
     let loading = status.read().is_none();
     let state = kitten_state(st.as_ref(), installing());
-    let runtime_attr = st.as_ref().and_then(|s| s.runtime.clone()).unwrap_or_else(|| "missing".into());
-    let phon_attr = st.as_ref().and_then(|s| s.phonemizer.clone()).unwrap_or_else(|| "missing".into());
+    let runtime_attr = st
+        .as_ref()
+        .and_then(|s| s.runtime.clone())
+        .unwrap_or_else(|| "missing".into());
+    let phon_attr = st
+        .as_ref()
+        .and_then(|s| s.phonemizer.clone())
+        .unwrap_or_else(|| "missing".into());
     let model_present = st.as_ref().is_some_and(|s| s.model_present);
     let phon_ok = phon_attr != "missing";
     let runtime_present = st.as_ref().is_some_and(|s| s.runtime.is_some());
-    let need_mb = if runtime_present { 0 } else { KITTEN_RUNTIME_MB } + if model_present { 0 } else { model_mb };
+    let need_mb =
+        if runtime_present { 0 } else { KITTEN_RUNTIME_MB } + if model_present { 0 } else { model_mb };
     let pct = progress().and_then(|p| p.percent());
     let stage = progress().map(|p| p.stage).unwrap_or_default();
     let tts_pick = tts.clone();
@@ -641,17 +698,36 @@ mod tests {
     fn kitten_states() {
         assert_eq!(kitten_state(None, false), "missing");
         assert_eq!(kitten_state(None, true), "installing");
-        let ready = KittenStatusVm { available: true, runtime: Some("ONNX Runtime 1.22.0".into()), phonemizer: Some("/usr/bin/espeak-ng".into()), model_present: true, model_dir: "/d".into(), error: None };
+        let ready = KittenStatusVm {
+            available: true,
+            runtime: Some("ONNX Runtime 1.22.0".into()),
+            phonemizer: Some("/usr/bin/espeak-ng".into()),
+            model_present: true,
+            model_dir: "/d".into(),
+            error: None,
+        };
         assert_eq!(kitten_state(Some(&ready), false), "ready");
-        let broken = KittenStatusVm { available: false, error: Some("x".into()), ..ready.clone() };
+        let broken = KittenStatusVm {
+            available: false,
+            error: Some("x".into()),
+            ..ready.clone()
+        };
         assert_eq!(kitten_state(Some(&broken), false), "error");
-        let half = KittenStatusVm { available: false, model_present: false, ..ready };
+        let half = KittenStatusVm {
+            available: false,
+            model_present: false,
+            ..ready
+        };
         assert_eq!(kitten_state(Some(&half), false), "missing");
     }
 
     #[test]
     fn switching_provider_clears_voice_and_model() {
-        let p = TtsPrefs { voice: "alloy".into(), model: Some("tts-1".into()), ..TtsPrefs::default() };
+        let p = TtsPrefs {
+            voice: "alloy".into(),
+            model: Some("tts-1".into()),
+            ..TtsPrefs::default()
+        };
         let n = with_provider(&p, TtsProviderVm::Kitten);
         assert_eq!(n.provider, TtsProviderVm::Kitten);
         assert!(n.voice.is_empty());

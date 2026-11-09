@@ -10,8 +10,8 @@ use crate::backend::BackendRef;
 use crate::components::{Segmented, Switch};
 use crate::i18n::t;
 use crate::model::novel::{
-    FAMILY_PREFIX, FONT_SIZE_MAX, FONT_SIZE_MIN, LINE_HEIGHT_MAX, LINE_HEIGHT_MIN, MAX_WIDTH_MAX, MAX_WIDTH_MIN,
-    NovelFlowPrefs, PARAGRAPH_GAP_MAX, READER_FONTS,
+    FAMILY_PREFIX, FONT_SIZE_MAX, FONT_SIZE_MIN, LINE_HEIGHT_MAX, LINE_HEIGHT_MIN, MAX_WIDTH_MAX,
+    MAX_WIDTH_MIN, NovelFlowPrefs, PARAGRAPH_GAP_MAX, READER_FONTS,
 };
 use crate::model::{NovelPrefs, NovelThemeVm, SettingsAction, reduce_settings};
 use crate::screens::player::subs::{app_fonts_dir, use_font_families};
@@ -24,7 +24,11 @@ pub fn commit_novel(ui: Ui, backend: &BackendRef, next: NovelPrefs) {
 
 /// Select value of the font field: a built-in id, or `family` for an installed font.
 pub fn font_choice(font: &str) -> &str {
-    if font.starts_with(FAMILY_PREFIX) { "family" } else { font }
+    if font.starts_with(FAMILY_PREFIX) {
+        "family"
+    } else {
+        font
+    }
 }
 
 /// `prefs` with a numeric field parsed from a range input (`None` when not a number).
@@ -43,13 +47,23 @@ pub fn with_number(prefs: &NovelPrefs, field: &str, value: &str) -> Option<Novel
 
 /// Font, size, line height, paragraph gap, width, theme, justify, and the custom font file.
 #[component]
-pub fn TypographyControls(prefs: NovelPrefs, data_dir: String, on_change: EventHandler<NovelPrefs>) -> Element {
+pub fn TypographyControls(
+    prefs: NovelPrefs,
+    data_dir: String,
+    on_change: EventHandler<NovelPrefs>,
+) -> Element {
     let (families, _rescan) = use_font_families(app_fonts_dir(&data_dir));
     let families_list = families.read().clone().unwrap_or_default();
     let choice = font_choice(&prefs.font).to_owned();
-    let family_now = prefs.font.strip_prefix(FAMILY_PREFIX).unwrap_or_default().to_owned();
-    let theme_opts: Vec<(String, String)> =
-        NovelThemeVm::ALL.iter().map(|th| (th.id().to_owned(), t(&format!("novel.theme.{}", th.id())))).collect();
+    let family_now = prefs
+        .font
+        .strip_prefix(FAMILY_PREFIX)
+        .unwrap_or_default()
+        .to_owned();
+    let theme_opts: Vec<(String, String)> = NovelThemeVm::ALL
+        .iter()
+        .map(|th| (th.id().to_owned(), t(&format!("novel.theme.{}", th.id()))))
+        .collect();
     let custom_name = prefs
         .custom_font_path
         .as_deref()
@@ -226,12 +240,20 @@ pub fn TypographyControls(prefs: NovelPrefs, data_dir: String, on_change: EventH
 
 /// Installed family to start from when "Installed font" is picked: the current one, else a common serif.
 fn families_first(prefs: &NovelPrefs) -> String {
-    prefs.font.strip_prefix(FAMILY_PREFIX).map(str::to_owned).unwrap_or_else(|| "Noto Serif".to_owned())
+    prefs
+        .font
+        .strip_prefix(FAMILY_PREFIX)
+        .map(str::to_owned)
+        .unwrap_or_else(|| "Noto Serif".to_owned())
 }
 
 /// Continuous scroll, progress bar, percent, chapter number, keep the screen on.
 #[component]
-pub fn FlowControls(prefs: NovelPrefs, #[props(default)] wake_supported: Option<bool>, on_change: EventHandler<NovelPrefs>) -> Element {
+pub fn FlowControls(
+    prefs: NovelPrefs,
+    #[props(default)] wake_supported: Option<bool>,
+    on_change: EventHandler<NovelPrefs>,
+) -> Element {
     let row = |key: &'static str, hint: &'static str, on: bool, set: fn(&mut NovelFlowPrefs, bool)| {
         let base = prefs.clone();
         rsx! {
@@ -282,7 +304,10 @@ mod tests {
     fn number_fields() {
         let p = NovelPrefs::default();
         assert_eq!(with_number(&p, "font_size", "22").map(|n| n.font_size), Some(22));
-        assert_eq!(with_number(&p, "max_width", "900").map(|n| n.max_width), Some(900));
+        assert_eq!(
+            with_number(&p, "max_width", "900").map(|n| n.max_width),
+            Some(900)
+        );
         assert_eq!(with_number(&p, "line_height", "x"), None);
         assert_eq!(with_number(&p, "nope", "3"), None);
         assert_eq!(font_choice("family:Lora"), "family");
