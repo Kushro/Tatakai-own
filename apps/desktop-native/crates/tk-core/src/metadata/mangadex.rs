@@ -142,6 +142,18 @@ impl MangaDex {
         Ok(out)
     }
 
+    /// Most-followed titles (the manga home's fallback hero when AniList is down), safe ratings only.
+    pub async fn popular(&self, page: u32) -> Result<(Vec<MdManga>, bool), ProviderError> {
+        let mut p = vec![
+            ("limit", PAGE_LIMIT.to_string()),
+            ("offset", ((page.max(1) - 1) * PAGE_LIMIT).to_string()),
+            ("includes[]", "cover_art".to_owned()),
+            ("order[followedCount]", "desc".to_owned()),
+        ];
+        p.extend(Self::ratings(false));
+        Ok(map_manga_list(&self.get("/manga", &p).await?))
+    }
+
     /// Page URLs of a chapter (`at-home/server/{id}`).
     pub async fn pages(&self, chapter_id: &str) -> Result<Vec<Page>, ProviderError> {
         let body = self.get(&format!("/at-home/server/{chapter_id}"), &[]).await?;
