@@ -1194,9 +1194,9 @@ mod tests {
         assert_eq!(&s.provider_priority[..3], ["anilist", "anizip", "kitsu"]);
         let same = reduce_settings(&s, SettingsAction::MoveProvider { index: 0, delta: -1 });
         assert_eq!(same, s);
-        let same = reduce_settings(&s, SettingsAction::MoveProvider { index: 2, delta: 1 });
+        let same = reduce_settings(&s, SettingsAction::MoveProvider { index: PROVIDERS.len() - 1, delta: 1 });
         assert_eq!(same, s);
-        let same = reduce_settings(&s, SettingsAction::MoveProvider { index: 9, delta: -1 });
+        let same = reduce_settings(&s, SettingsAction::MoveProvider { index: PROVIDERS.len() + 1, delta: -1 });
         assert_eq!(same, s);
     }
 
@@ -1332,7 +1332,7 @@ mod tests {
         assert_eq!(acked.download_limit_kib, crate::backend::TORRENT_MAX_LIMIT_KIB);
         let json = serde_json::to_string(&TorrentSettingsVm { default_download_dir: "/x".into(), ..Default::default() }).unwrap();
         assert!(!json.contains("default_download_dir"));
-        assert_eq!(TorrentSection::ALL.len(), 8);
+        assert_eq!(TorrentSection::ALL.len(), 9);
         assert!(TorrentSection::Files.per_torrent() && !TorrentSection::Library.per_torrent());
     }
 

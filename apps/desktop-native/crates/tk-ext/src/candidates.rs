@@ -309,12 +309,12 @@ mod tests {
               "subtitles": [{ "url": "https://cdn.beta.example/es.vtt", "language": "es-419", "label": "Español" }] },
             // nothing but a url and a type
             { "type": "hls", "url": "https://x.example/x.m3u8" },
-            // not listable: embed page and empty url
+            // wave B: an https embed page is listed, flagged `embed`; an empty url is not listable
             { "providerName": "embed", "type": "embed", "url": "https://embed.example/e" },
             { "providerName": "empty", "type": "hls", "url": "" }
         ]});
         let c = map_candidates("io.github.toko", "Toko", &body);
-        assert_eq!(c.len(), 3);
+        assert_eq!(c.len(), 4);
         assert_eq!((c[0].label.as_str(), c[0].kind, c[0].quality), ("Alpha", SourceKind::Web, Quality::P1080));
         assert_eq!((c[0].subs.clone(), c[0].dubs.clone(), c[0].note.as_deref()), (vec!["es".to_owned(), "en".to_owned()], vec!["ja".to_owned()], Some("multi-sub")));
         assert_eq!(c[0].container.as_deref(), Some("HLS"));
@@ -326,6 +326,9 @@ mod tests {
         assert_eq!(c[1].to_stream().unwrap().subtitles.len(), 1);
         assert_eq!((c[2].label.as_str(), c[2].ext_name.as_str()), ("io.github.toko", "Toko"));
         assert!(c[2].subs.is_empty() && c[2].dubs.is_empty() && c[2].web.as_ref().unwrap().latency_ms.is_none());
+        assert!(c[..3].iter().all(|c| !c.web.as_ref().unwrap().embed));
+        assert_eq!((c[3].label.as_str(), c[3].container.as_deref()), ("embed", Some("Embed")));
+        assert!(c[3].web.as_ref().unwrap().embed);
         assert!(c.iter().all(|c| c.reliability == INITIAL_RELIABILITY && c.torrent.is_none()));
     }
 

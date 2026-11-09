@@ -557,9 +557,10 @@ mod tests {
         pts.push(p("g0"));
         let slots = cluster_slots(&pts);
         assert_eq!(slots["g0"], 0);
+        // 10 clusters: the ATLAS_COLORS most common keep their own slot, the other 10 - ATLAS_COLORS share the last.
         assert_eq!(
             slots.values().filter(|s| **s == ATLAS_COLORS).count(),
-            10 - ATLAS_COLORS + 1
+            10 - ATLAS_COLORS
         );
         let (x, y) = atlas_xy(&AtlasPointVm {
             media: media("a"),
