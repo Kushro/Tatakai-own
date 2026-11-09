@@ -228,6 +228,28 @@ class TorrentDetailViewModel(
         _removed.value = true
     }
 
+    // parity wave A (worker q): torrent.trackers.status (re-announce) and torrent.episode-alignment (Files › Alinear episodios)
+    private val _reannouncing = MutableStateFlow(false)
+    val reannouncing: StateFlow<Boolean> = _reannouncing.asStateFlow()
+
+    fun reannounce() = act {
+        _reannouncing.value = true
+        try {
+            repository.reannounce(torrentId)
+            // trackers answer within seconds; refresh the table once they had a chance
+            delay(REANNOUNCE_REFRESH_MS)
+            reloadTrackers.value += 1
+        } finally {
+            _reannouncing.value = false
+        }
+    }
+
+    fun setAlignment(alignment: app.tatakai.next.model.torrent.EpisodeAlignment?) = act {
+        repository.setAlignment(torrentId, media = null, alignment = alignment).getOrThrow()
+        reloadFiles.value += 1
+        _messages.tryEmit(TorrentMessage.Saved)
+    }
+
     private fun act(block: suspend () -> Unit) {
         viewModelScope.launch {
             try {
@@ -243,6 +265,7 @@ class TorrentDetailViewModel(
     private companion object {
         const val FILES_POLL_MS = 2_000L
         const val TRACKERS_POLL_MS = 5_000L
+        const val REANNOUNCE_REFRESH_MS = 3_000L
     }
 }
 
