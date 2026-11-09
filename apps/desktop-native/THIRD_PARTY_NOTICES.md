@@ -89,3 +89,13 @@ Anime4K shaders (MIT / Unlicense, bloc97), FSR.glsl (MIT, agyild), Space Grotesk
 | `tk-app/src/live/torrent_manual.rs` (episode alignment suggestion), `tk-ui/src/screens/torrents/library.rs` ("Add torrent" sheet) | `src/components/modals/{TorrentDownloadModal,MagnetAlignmentModal}.tsx` of this repository | MPL-2.0 | behaviour ported; alignment from `tk_core::release::parse_release` |
 | `tk-ui/src/screens/torrents/history.rs`, session rows in `tk-app/src/live/torrent.rs` | `src/components/settings/TorrentSessionHistory.tsx` of this repository | MPL-2.0 | sessions stored in `data.db` (`torrent_sessions`) |
 | `tk-torrent/src/tracker_probe.rs` (UDP BEP 15 / HTTP BEP 3 + BEP 48 scrape) | written for this app from the BEP texts | - | librqbit 9.1.0 exposes no per-tracker announce result; the engine asks the trackers itself |
+
+### Novels and narration (wave B, worker m)
+
+| Code / component | Origin | License | Notes |
+|---|---|---|---|
+| `crates/tk-app/src/tts/text.rs` (sentence chunking, `ensurePunctuation`, punctuation-preserving phonemizer split, phoneme tokenization and token ids) | `@biwills/kittentts` 1.0.0 JS SDK (`dist/text-preprocess-*.js`, `dist/runtime-*.js`) and the KittenTTS symbol table (KittenML/KittenTTS) | Apache-2.0 | Ported to Rust; the English number expansion is a smaller rewrite. Symbol table kept in the original order (later duplicates win, as in the Python dict) |
+| `crates/tk-app/src/tts/kitten.rs` (model inputs `input_ids` / `style` / `speed`, style row selection, `speed_priors` / `voice_aliases`, 5000-sample tail trim, `voices.npz` reading) | `@biwills/kittentts` (`dist/runtime-*.js`), Tatakai classic `desktop/services/kitten-tts.cjs` + `kitten-tts-daemon.py` (model ids, repos, eight voices) | Apache-2.0 / the classic app's license (author's own repo) | In-process over ONNX Runtime instead of the classic Python daemon |
+| ONNX Runtime 1.22.0 shared library (downloaded at the user's request into `<data>/tts/kitten/runtime/`, never shipped or linked at build time) | github.com/microsoft/onnxruntime/releases | MIT (Microsoft) | Loaded with `ort::init_from` (`ort` crate, MIT / Apache-2.0, feature `load-dynamic`) |
+| KittenTTS models `KittenML/kitten-tts-nano-0.8-int8`, `KittenML/kitten-tts-mini-0.8` (downloaded at the user's request from huggingface.co into `<data>/tts/kitten/models/`) | Hugging Face, KittenML | Apache-2.0 (per the model cards) | Not redistributed with the app |
+| `espeak-ng` (external process for text -> IPA and the Linux system voice; installed by the user) | github.com/espeak-ng/espeak-ng | GPL-3.0-or-later | Not linked; run as a separate program |

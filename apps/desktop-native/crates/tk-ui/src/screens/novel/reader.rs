@@ -376,6 +376,7 @@ fn ReaderView(media_id: String, first: NovelContentVm, resume: Option<u32>) -> E
     let chapter_attr = cur_chapter.as_ref().map(|c| c.reference.chapter_id.clone()).unwrap_or_default();
     let number_attr = number.map(chapter_label).unwrap_or_default();
     let tts_now = tts_at();
+    let highlight = prefs.tts.highlight;
     let tts_par = tts_now.map(|(_, p)| p.to_string()).unwrap_or_default();
     let tts_ch = tts_now.map(|(c, _)| c.to_string()).unwrap_or_default();
     let style = column_style(&prefs);
@@ -531,7 +532,7 @@ fn ReaderView(media_id: String, first: NovelContentVm, resume: Option<u32>) -> E
                             }
                             for (pi , text) in ch.paragraphs.iter().cloned().enumerate() {
                                 {
-                                    let speaking = tts_now == Some((ci, pi));
+                                    let speaking = highlight && tts_now == Some((ci, pi));
                                     let start = start_at_click.clone();
                                     let playing = tts_state() != TtsState::Idle;
                                     rsx! {
@@ -691,7 +692,9 @@ fn start_narration(
             let Some(text) = text else { break };
             let tts = ui.settings.peek().novel.tts.clone();
             at.set(Some((c, p)));
-            let _ = document::eval(&scroll_to_js(c, p, !reduce_motion));
+            if tts.highlight {
+                let _ = document::eval(&scroll_to_js(c, p, !reduce_motion));
+            }
             let system = tts.provider == TtsProviderVm::System;
             state.set(if system { TtsState::Playing } else { TtsState::Loading });
             let req = TtsRequestVm { text, provider: tts.provider, voice: None, rate: tts.rate };
