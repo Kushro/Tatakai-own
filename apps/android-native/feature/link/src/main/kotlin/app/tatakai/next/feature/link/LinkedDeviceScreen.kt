@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -39,6 +40,7 @@ import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.QrCode
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -62,6 +64,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -90,13 +94,17 @@ import app.tatakai.next.designsystem.components.SegmentedOption
 import app.tatakai.next.designsystem.components.SkeletonBox
 import app.tatakai.next.designsystem.components.rememberAfterDelay
 import app.tatakai.next.designsystem.theme.TatakaiFonts
+import app.tatakai.next.model.DiscoveredPc
 import app.tatakai.next.model.LinkCapabilities
+import app.tatakai.next.model.LinkHandoff
+import app.tatakai.next.model.RemoteAction
 import app.tatakai.next.model.LinkProfile
 import app.tatakai.next.model.LinkState
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.ui.format.relativeTime
 import app.tatakai.next.ui.state.userMessage
+import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinViewModel
 import app.tatakai.next.ui.R as UiR
 
@@ -105,8 +113,9 @@ import app.tatakai.next.ui.R as UiR
 /**
  * "Dispositivo enlazado" (prototype android.js `S.linked`): unpaired -> EmptyState + scan QR (CameraX + zxing, QrScanner.kt) / paste
  * code; paired -> status card (connected / unreachable with error + retry), PC capabilities, enhance profile Segmented
- * (LinkRepository.setPreferredProfile), remote control placeholder ("M1", disabled buttons), forget dialog. Replaces LinkScreen for
- * Route.Link and Route.Linked.
+ * (LinkRepository.setPreferredProfile), remote control of the PC player (wave B: GET /v1/player every 2 s, POST /v1/control),
+ * "Continuar en la PC", PCs found over mDNS, the "Reproducir aquí" card of a PC -> phone hand-off, forget dialog. Replaces LinkScreen
+ * for Route.Link and Route.Linked.
  *
  * The "enhance a stream" card of the former LinkScreen is kept below the remote control (it is how [onPlay] starts a PC session).
  */
@@ -121,13 +130,31 @@ fun LinkedDeviceScreen(
     val viewModel: LinkViewModel = koinViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val currentOnPlay by rememberUpdatedState(onPlay)
+    val snackbar = LocalAppSnackbar.current
+    val handedOff = stringResource(R.string.linked_continue_done)
+    val failedPrefix = stringResource(R.string.linked_action_failed)
+    val context = LocalContext.current
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
                 is LinkEvent.NavigateToPlayer -> currentOnPlay(event.args)
+                LinkEvent.HandedOff -> snackbar.show(handedOff)
+                is LinkEvent.Failed -> snackbar.show(failedPrefix.format(linkErrorText(context, event.error)))
             }
         }
     }
+    // parity wave B: the "Enviar a dispositivo" notification needs POST_NOTIFICATIONS; asked here once a PC is paired (16 §0.12).
+    val notifyPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val paired = state.link is LinkState.Paired
+    LaunchedEffect(paired) {
+        if (paired && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+    // parity wave B: GET /v1/player every 2 s while this screen is visible (link.remote-control).
+    LaunchedEffect(viewModel, paired) { if (paired) viewModel.pollRemote() }
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -155,14 +182,26 @@ fun LinkedDeviceScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                state.pendingHandoff?.let { h ->
+                    HandoffCard(h, onPlay = viewModel::playHandoff, onDismiss = viewModel::dismissHandoff)
+                }
                 if (onOpenExtensionServers != null) ExtensionServerCard(onOpen = onOpenExtensionServers)
                 when (val link = state.link) {
-                    LinkState.Unpaired, LinkState.Pairing -> UnpairedContent(
-                        pairing = state.pairing || link == LinkState.Pairing,
-                        error = state.pairError?.userMessage(),
-                        isValid = viewModel::isValidPairingText,
-                        onPair = viewModel::pair,
-                    )
+                    LinkState.Unpaired, LinkState.Pairing -> {
+                        UnpairedContent(
+                            pairing = state.pairing || link == LinkState.Pairing,
+                            error = state.pairError?.userMessage(),
+                            isValid = viewModel::isValidPairingText,
+                            onPair = viewModel::pair,
+                        )
+                        DiscoveredPanel(
+                            pcs = LinkLogic.others(state.discovered, null, null),
+                            pairing = state.pairing || link == LinkState.Pairing,
+                            enabled = viewModel.canPairDiscovered,
+                            fingerprintOf = viewModel::fingerprintOf,
+                            onPair = viewModel::pairDiscovered,
+                        )
+                    }
                     is LinkState.Failed -> {
                         ErrorState(
                             message = link.message,
@@ -179,6 +218,8 @@ fun LinkedDeviceScreen(
                         onSelectProfile = viewModel::selectProfile,
                         onForget = viewModel::forget,
                         onStart = viewModel::startSession,
+                        onContinue = viewModel::continueOnPc,
+                        onRemote = viewModel::remote,
                     )
                 }
             }
@@ -251,7 +292,6 @@ private fun UnpairedContent(pairing: Boolean, error: String?, isValid: (String) 
             Text(error, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
         }
         Hint(stringResource(R.string.linked_camera))
-        Hint(stringResource(R.string.linked_discovery_m1))
     }
     if (pasting) {
         PasteCodeDialog(
@@ -317,12 +357,12 @@ private fun PairedContent(
     onSelectProfile: (String?) -> Unit,
     onForget: () -> Unit,
     onStart: (String) -> Unit,
+    onContinue: () -> Unit,
+    onRemote: (RemoteAction) -> Unit,
 ) {
-    val snackbar = LocalAppSnackbar.current
-    val m1 = stringResource(UiR.string.ui_m1)
-    StatusCard(state, paired, onRetry = onRetry, onContinue = { snackbar.show(m1) })
+    StatusCard(state, paired, onRetry = onRetry, onContinue = onContinue)
     CapabilitiesPanel(state, onRetry = onRetry, onSelectProfile = onSelectProfile)
-    RemotePanel(onForget = onForget)
+    RemotePanel(state, onRemote = onRemote, onForget = onForget)
     EnhancePanel(state, onStart = onStart)
 }
 
@@ -357,7 +397,13 @@ private fun StatusCard(state: LinkUiState, paired: LinkState.Paired, onRetry: ()
                         )
                     }
                     device?.lastSeenMs?.let {
-                        Text(stringResource(R.string.linked_last_seen, relativeTime(it)), style = MaterialTheme.typography.bodySmall)
+                        // Re-read every 30 s so "visto hace N min" stays true while the screen is open (link.last-seen).
+                        val tick by produceState(0, it) { while (true) { delay(30_000); value++ } }
+                        val label = remember(it, tick) { it }
+                        Text(stringResource(R.string.linked_last_seen, relativeTime(label)), style = MaterialTheme.typography.bodySmall)
+                    }
+                    device?.localDeviceName?.let {
+                        Text(stringResource(R.string.linked_registered_as, it), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -366,9 +412,23 @@ private fun StatusCard(state: LinkUiState, paired: LinkState.Paired, onRetry: ()
             }
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 if (online) {
-                    FilledTonalButton(onClick = onContinue) {
-                        Icon(Icons.Outlined.Cast, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-                        Text(stringResource(R.string.linked_continue), modifier = Modifier.padding(start = 8.dp))
+                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        FilledTonalButton(onClick = onContinue, enabled = state.continueEntry != null && !state.handingOff) {
+                            if (state.handingOff) {
+                                LoadingIndicator(Modifier.size(20.dp))
+                            } else {
+                                Icon(Icons.Outlined.Cast, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                            }
+                            Text(stringResource(R.string.linked_continue), modifier = Modifier.padding(start = 8.dp))
+                        }
+                        Text(
+                            state.continueEntry?.let { e ->
+                                stringResource(R.string.linked_continue_what, e.title, e.episode, LinkLogic.clock(e.progressSec, null))
+                            } ?: stringResource(R.string.linked_continue_none),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 } else {
                     FilledTonalButton(onClick = onRetry) {
@@ -445,22 +505,147 @@ private fun sustainText(profile: LinkProfile): String = stringResource(
 )
 
 @Composable
-private fun RemotePanel(onForget: () -> Unit) {
+private fun RemotePanel(state: LinkUiState, onRemote: (RemoteAction) -> Unit, onForget: () -> Unit) {
+    val remote = state.remote
     Panel(icon = Icons.Outlined.PhoneAndroid, title = stringResource(R.string.linked_remote)) {
-        Hint(stringResource(R.string.linked_remote_m1))
+        if (remote == null) {
+            Hint(stringResource(R.string.linked_remote_idle))
+        } else {
+            Text(
+                remote.title?.let { t -> remote.episode?.let { stringResource(R.string.linked_remote_now_episode, t, it) } ?: t }
+                    ?: stringResource(R.string.linked_remote_now_unknown),
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                stringResource(if (remote.playing) R.string.linked_remote_playing else R.string.linked_remote_paused) + " · " +
+                    LinkLogic.clock(remote.positionSec, remote.durationSec),
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = TatakaiFonts.jetBrainsMono),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        val enabled = remote != null && !state.remoteBusy
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            FilledTonalIconButton(onClick = {}, enabled = false) {
+            FilledTonalIconButton(onClick = { onRemote(RemoteAction.PREV) }, enabled = enabled) {
                 Icon(Icons.Filled.SkipPrevious, contentDescription = stringResource(R.string.linked_remote_prev))
             }
-            FilledIconButton(onClick = {}, enabled = false, modifier = Modifier.size(56.dp)) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = stringResource(R.string.linked_remote_play))
+            FilledIconButton(onClick = { onRemote(RemoteAction.PLAY_PAUSE) }, enabled = enabled, modifier = Modifier.size(56.dp)) {
+                Icon(
+                    if (remote?.playing == true) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = stringResource(if (remote?.playing == true) R.string.linked_remote_pause else R.string.linked_remote_play),
+                )
             }
-            FilledTonalIconButton(onClick = {}, enabled = false) {
+            FilledTonalIconButton(onClick = { onRemote(RemoteAction.NEXT) }, enabled = enabled) {
                 Icon(Icons.Filled.SkipNext, contentDescription = stringResource(R.string.linked_remote_next))
             }
         }
         ForgetButton(onForget)
     }
+}
+
+/** "La PC te envió …" (link.send-to-device): play the PC's Link session here or dismiss it. */
+@Composable
+private fun HandoffCard(h: LinkHandoff, onPlay: () -> Unit, onDismiss: () -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer, shape = MaterialTheme.shapes.extraLarge, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                h.title?.let { stringResource(R.string.linked_handoff_title, it) } ?: stringResource(R.string.linked_handoff_title_generic),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                listOfNotNull(
+                    h.episode?.let { stringResource(R.string.linked_handoff_episode, it) },
+                    stringResource(R.string.linked_handoff_from, LinkLogic.clock(h.positionSec, null)),
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onPlay) {
+                    Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                    Text(stringResource(R.string.linked_handoff_play), modifier = Modifier.padding(start = 8.dp))
+                }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.linked_handoff_dismiss)) }
+            }
+        }
+    }
+}
+
+/** PCs announcing `_tatakai-link._tcp` (link.discovery): "Emparejar" shows the fingerprint (TOFU) and asks the code the PC shows. */
+@Composable
+private fun DiscoveredPanel(
+    pcs: List<DiscoveredPc>,
+    pairing: Boolean,
+    enabled: Boolean,
+    fingerprintOf: (DiscoveredPc) -> String?,
+    onPair: (DiscoveredPc, String) -> Unit,
+) {
+    var target by remember { mutableStateOf<DiscoveredPc?>(null) }
+    Panel(icon = Icons.Outlined.Wifi, title = stringResource(R.string.linked_discovered_title)) {
+        if (pcs.isEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                LoadingIndicator(Modifier.size(24.dp))
+                Hint(stringResource(R.string.linked_discovered_searching))
+            }
+        } else {
+            pcs.forEach { pc ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Icon(Icons.Outlined.Computer, contentDescription = null)
+                    Column(Modifier.weight(1f)) {
+                        Text(pc.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${pc.host}:${pc.port}", style = MaterialTheme.typography.bodySmall.copy(fontFamily = TatakaiFonts.jetBrainsMono))
+                    }
+                    FilledTonalButton(onClick = { target = pc }, enabled = enabled && !pairing) { Text(stringResource(R.string.linked_pair)) }
+                }
+            }
+        }
+    }
+    target?.let { pc ->
+        DiscoveredPairDialog(pc, fingerprintOf(pc), onDismiss = { target = null }) { code ->
+            target = null
+            onPair(pc, code)
+        }
+    }
+}
+
+@Composable
+private fun DiscoveredPairDialog(pc: DiscoveredPc, fingerprint: String?, onDismiss: () -> Unit, onPair: (String) -> Unit) {
+    var code by rememberSaveable { mutableStateOf("") }
+    val valid = code.filter { it.isLetterOrDigit() }.length == 10
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.Shield, contentDescription = null) },
+        title = { Text(stringResource(R.string.linked_discovered_pair_title, pc.name)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.linked_discovered_pair_body), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    stringResource(R.string.linked_fingerprint, fingerprint ?: "?"),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = TatakaiFonts.jetBrainsMono),
+                )
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = { code = it.take(14) },
+                    label = { Text(stringResource(R.string.linked_code_label)) },
+                    singleLine = true,
+                    textStyle = TextStyle(fontFamily = TatakaiFonts.jetBrainsMono),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onPair(code.trim()) }, enabled = valid && fingerprint != null) { Text(stringResource(R.string.linked_discovered_pair_confirm)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(UiR.string.ui_cancel)) } },
+    )
+}
+
+/** Short readable text of a Link failure for the snackbar. */
+private fun linkErrorText(context: android.content.Context, error: app.tatakai.next.model.AppError): String = when (error) {
+    is app.tatakai.next.model.AppError.Http -> if (error.code == 409) context.getString(R.string.linked_remote_no_player) else context.getString(R.string.linked_error_http, error.code)
+    app.tatakai.next.model.AppError.Offline -> context.getString(R.string.linked_unreachable)
+    else -> context.getString(R.string.linked_problem)
 }
 
 @Composable

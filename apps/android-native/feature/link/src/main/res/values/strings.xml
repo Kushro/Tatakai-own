@@ -16,7 +16,6 @@
     <string name="linked_pair">Pair</string>
     <string name="linked_camera">Camera permission is asked when you tap Scan.</string>
     <string name="linked_camera_denied">Camera permission denied. Paste the code instead.</string>
-    <string name="linked_discovery_m1">Finding PCs on your network automatically arrives in M1.</string>
     <string name="linked_problem">Link problem</string>
     <string name="linked_connected">PC connected</string>
     <string name="linked_unreachable">PC out of reach</string>
@@ -35,7 +34,6 @@
     <string name="linked_sustain_no">May stutter</string>
     <string name="linked_sustain_unknown">Not measured yet</string>
     <string name="linked_remote">Remote control</string>
-    <string name="linked_remote_m1">Controlling playback on the PC from the phone arrives in M1.</string>
     <string name="linked_remote_prev">Previous</string>
     <string name="linked_remote_play">Play</string>
     <string name="linked_remote_next">Next</string>
@@ -47,6 +45,32 @@
     <string name="linked_enhance_hint">The PC fetches and enhances this stream.</string>
     <string name="linked_enhance_start">Start session</string>
     <string name="linked_enhance_starting">Starting…</string>
+
+    <!-- parity wave B (16 §3.11, worker r): remote control, Continuar en la PC, mDNS discovery, Enviar a dispositivo. -->
+    <string name="linked_continue_done">The PC is opening the episode where you left it</string>
+    <string name="linked_action_failed">Could not do it: %1$s</string>
+    <string name="linked_registered_as">This phone is registered as %1$s (Android)</string>
+    <string name="linked_continue_what">%1$s · episode %2$d at %3$s</string>
+    <string name="linked_continue_none">Watch something on the phone first to continue it on the PC.</string>
+    <string name="linked_remote_idle">Nothing is playing on the PC. Start an episode there to control it from here.</string>
+    <string name="linked_remote_now_episode">%1$s · episode %2$d</string>
+    <string name="linked_remote_now_unknown">Playing on the PC</string>
+    <string name="linked_remote_playing">Playing</string>
+    <string name="linked_remote_paused">Paused</string>
+    <string name="linked_remote_pause">Pause</string>
+    <string name="linked_remote_no_player">Nothing is playing on the PC</string>
+    <string name="linked_error_http">the PC answered with error %1$d</string>
+    <string name="linked_handoff_title">The PC sent you %1$s</string>
+    <string name="linked_handoff_title_generic">The PC sent you an episode</string>
+    <string name="linked_handoff_episode">Episode %1$d</string>
+    <string name="linked_handoff_from">from %1$s</string>
+    <string name="linked_handoff_play">Play here</string>
+    <string name="linked_handoff_dismiss">Dismiss</string>
+    <string name="linked_discovered_title">PCs on your network</string>
+    <string name="linked_discovered_searching">Looking for PCs with Tatakai open on this network…</string>
+    <string name="linked_discovered_pair_title">Pair with %1$s</string>
+    <string name="linked_discovered_pair_body">Check that the fingerprint matches the one shown on the PC, then type the pairing code it shows.</string>
+    <string name="linked_discovered_pair_confirm">Trust and pair</string>
 
     <!-- PC extension server client (docs/redesign/13 §3.10, D8). Same copy as extensionServerClient.* of the classic app. -->
     <string name="extserver_title">PC extension server</string>

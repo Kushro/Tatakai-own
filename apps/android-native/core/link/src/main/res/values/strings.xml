@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- parity wave B (16 §3.11, worker r): "Enviar a dispositivo" notification of :core:link. Screen texts live in :feature:link (linked_*). -->
+<resources>
+    <string name="link_handoff_channel">Sent from the PC</string>
+    <string name="link_handoff_channel_desc">Episodes your PC sends to this phone</string>
+    <string name="link_handoff_title">The PC sent you %1$s</string>
+    <string name="link_handoff_title_generic">The PC sent you an episode</string>
+    <string name="link_handoff_body">Tap to play it here.</string>
+    <string name="link_handoff_body_episode">Episode %1$d · tap to play it here.</string>
+</resources>
