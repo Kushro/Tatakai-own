@@ -980,14 +980,16 @@ fn LocalMatchSheet(item: LocalItemVm, on_close: EventHandler<bool>) -> Element {
         Some(Ok(v)) if v.is_empty() => rsx! { EmptyState { icon: "search".to_string(), title: t("downloads.local.match_empty") } },
         Some(Ok(v)) => {
             let current = chosen().map(|m| m.id);
+            let options: Vec<(MediaVm, bool)> =
+                v.iter().map(|m| (m.clone(), current.as_deref() == Some(m.id.as_str()))).collect();
             rsx! {
                 ul { class: "tk-downloads__match-list", role: "list",
-                    for m in v.iter().cloned() {
+                    for (m, pressed) in options {
                         li { key: "{m.id}",
                             button {
                                 class: "tk-downloads__match-item",
                                 r#type: "button",
-                                "aria-pressed": "{current.as_deref() == Some(m.id.as_str())}",
+                                "aria-pressed": "{pressed}",
                                 "data-media-id": "{m.id}",
                                 onclick: {
                                     let m = m.clone();

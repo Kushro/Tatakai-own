@@ -237,7 +237,7 @@ fn SeasonSheetBody(media_id: String, episodes_total: Option<u32>, on_close: Even
                             role: "group",
                             "aria-label": t("downloads.season.episodes"),
                             "data-episodes-selectable": "true",
-                            for c in cells.iter().cloned() {
+                            for (c, pressed) in cells.iter().map(|c| (c.clone(), sel.contains(&c.number))) {
                                 button {
                                     key: "{c.number}",
                                     class: "tk-dlseason__ep",
@@ -245,7 +245,7 @@ fn SeasonSheetBody(media_id: String, episodes_total: Option<u32>, on_close: Even
                                     "data-episode": "{c.number}",
                                     "data-downloaded": "{c.downloaded}",
                                     "data-aired": "{c.aired}",
-                                    "aria-pressed": "{sel.contains(&c.number)}",
+                                    "aria-pressed": "{pressed}",
                                     disabled: c.downloaded,
                                     title: c.title.clone().unwrap_or_default(),
                                     onclick: move |_| {

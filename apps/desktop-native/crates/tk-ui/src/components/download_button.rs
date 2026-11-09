@@ -121,12 +121,13 @@ pub fn PlayerDownloadButton(
         ButtonState::Done => ("check", t("downloads.player.done")),
     };
     let disabled = busy() || source_id.is_none() || state != ButtonState::Idle;
+    let hidden = !visible;
     rsx! {
         div {
             class: "tk-player__download",
             "data-download-state": state.id(),
             "data-visible": "{visible}",
-            "aria-hidden": "{!visible}",
+            "aria-hidden": "{hidden}",
             IconButton {
                 icon: icon.to_string(),
                 label: label,
