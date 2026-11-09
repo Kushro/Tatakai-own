@@ -17,4 +17,8 @@ dependencies {
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
     implementation(libs.koin.android)
+    // parity wave A (worker q): FileProvider of "Abrir registros" (androidx.core, already in the catalog)
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.okhttp)
+    testImplementation(libs.mockwebserver3)
 }

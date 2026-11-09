@@ -8,6 +8,8 @@ import app.tatakai.next.metadata.ProviderPriority
 import app.tatakai.next.model.AppLog
 import app.tatakai.next.model.AppReset
 import app.tatakai.next.model.HistoryRepository
+import app.tatakai.next.model.LinkRepository
+import app.tatakai.next.model.ListProvider
 import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.LogRepository
 import app.tatakai.next.model.MetadataRepository
@@ -39,11 +41,34 @@ val dataModule: Module = module {
 
     single<HistorySyncScheduler> { WorkManagerHistorySyncScheduler(androidContext()) }
     single { HistorySyncStamp(get<DataStore<Preferences>>()) }
+    single { HistoryCursorStore(get<DataStore<Preferences>>()) }
     single {
         val settings = get<SettingsRepository>()
-        HistorySyncer(get(), get(), enabled = { settings.settings.value.historySyncOverLink }, stamp = get<HistorySyncStamp>())
+        val cursor = get<HistoryCursorStore>()
+        HistorySyncer(
+            get(),
+            get(),
+            enabled = { settings.settings.value.historySyncOverLink },
+            stamp = get<HistorySyncStamp>(),
+            cursor = { cursor.value() },
+            saveCursor = { cursor.set(it) },
+        )
     }
-    single<HistoryRepository> { HistoryRepositoryImpl(get(), get(), get<HistorySyncer>()) }
+    single<HistoryRepository> {
+        val settings = get<SettingsRepository>()
+        val syncer = get<HistorySyncer>()
+        HistoryRepositoryImpl(
+            get(),
+            get(),
+            syncer,
+            lists = getOrNull(),
+            autoListProgress = { settings.settings.value.autoListProgress },
+            autoListAdd = { settings.settings.value.autoListAdd },
+        ).also {
+            // parity wave A (worker q): sync at app open and when a PC gets paired (the player's HistoryFlush covers episode ends)
+            HistorySyncTriggers(get(), getOrNull<LinkRepository>(), syncer).start()
+        }
+    }
 
     // android wave (12 §3.1 / §3.16): reliability + picked source, consumed by :core:extensions-quickjs (e) and the player (d)
     single<SourceStatsStore> { SourceStatsStoreImpl(get()) }
@@ -53,8 +78,41 @@ val dataModule: Module = module {
     // PROP_MAL_CLIENT_ID. q changes the constructors in these `single`s when implementing (the only edit allowed here).
     single { PendingOAuthRedirect() }
     single<SecretStore> { KeystoreSecretStore(androidContext().noBackupFilesDir) }
-    single<ListsRepository> { ListsRepositoryImpl() }
+    single<ListsRepository> {
+        val anilistId = getPropertyOrNull<String>(PROP_ANILIST_CLIENT_ID)
+        val malId = getPropertyOrNull<String>(PROP_MAL_CLIENT_ID)
+        ListsRepositoryImpl(
+            dao = get(),
+            secrets = get(),
+            anilist = AniListListClient(get()),
+            mal = MalListClient(get()),
+            clientIds = { p -> if (p == ListProvider.ANILIST) anilistId else malId },
+            scheduler = WorkManagerListSyncScheduler(androidContext()),
+        )
+    }
     single<LogRepository> { AppLogStore(File(androidContext().filesDir, "logs")).also { AppLog.sink = it } }
-    single<UpdateRepository> { UpdateRepositoryImpl() }
-    single<AppReset> { AppResetImpl() }
+    single<UpdateRepository> {
+        val context = androidContext()
+        val settings = get<SettingsRepository>()
+        val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty()
+        UpdateRepositoryImpl(
+            client = get(),
+            installedVersion = version,
+            enabled = { settings.settings.value.updateCheck },
+            store = get<DataStore<Preferences>>(),
+        )
+    }
+    single<AppReset> {
+        AppResetImpl(
+            context = androidContext(),
+            settingsStore = get(),
+            database = get(),
+            secrets = get(),
+            metadata = getOrNull(),
+            extensions = getOrNull(),
+            link = getOrNull(),
+            logs = getOrNull(),
+            history = getOrNull(),
+        )
+    }
 }
