@@ -288,7 +288,7 @@ class StremioAddonRepositoryImpl(
                     updatedAtMs = if (previous != null) clock() else null,
                 )
                 manifests[addon.id] = manifest
-                storeDir.mkdirs()
+                manifestFile(addon.id).parentFile?.mkdirs()
                 manifestFile(addon.id).writeText(text)
                 save(_addons.value.filterNot { it.id == addon.id } + addon)
                 addon

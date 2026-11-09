@@ -16,7 +16,7 @@ import java.util.Locale
 object NovelText {
     private val BLOCK_SPLIT = Regex("\\n\\s*\\n|\\r\\n\\s*\\r\\n")
     private val LINE_SPLIT = Regex("\\r?\\n")
-    private val TAG = Regex("<\\s*(p|br|div|span|em|strong|i|b|h[1-6]|li|ul|ol|blockquote|section|article)\\b", RegexOption.IGNORE_CASE)
+    private val TAG = Regex("<(p|br|div|span|em|strong|i|b|h[1-6]|li|ul|ol|blockquote|section|article)\\b", RegexOption.IGNORE_CASE)
     private val NOISE_SELECTORS = "script, style, noscript, iframe, ins, form, button, nav, footer, header, " +
         ".ads, .ad, .adsbygoogle, [id^=ad-], [class*=advert], .sharedaddy, .comments, #comments"
     private val NOISE_LINES = listOf(
