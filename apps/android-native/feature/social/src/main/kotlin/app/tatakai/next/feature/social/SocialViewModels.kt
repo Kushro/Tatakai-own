@@ -125,13 +125,13 @@ class ProfileViewModel(private val userName: String?, private val repo: SocialRe
     private val _notices = Channel<SocialNotice>(Channel.BUFFERED)
     val notices: Flow<SocialNotice> = _notices.receiveAsFlow()
 
-    val activity = Pager<SocialActivity, Int>(viewModelScope, { it.id }) { page ->
+    internal val activity = Pager<SocialActivity, Int>(viewModelScope, { it.id }) { page ->
         val u = (state.value.user as? LoadState.Ok)?.value
         val following = state.value.followingOnly
         repo.activity(userId = if (following) null else u?.id, followingOnly = following, page = page)
     }
-    val followers = Pager<SocialUser, Int>(viewModelScope, { it.id }) { page -> repo.followers(currentUserId(), page) }
-    val following = Pager<SocialUser, Int>(viewModelScope, { it.id }) { page -> repo.following(currentUserId(), page) }
+    internal val followers = Pager<SocialUser, Int>(viewModelScope, { it.id }) { page -> repo.followers(currentUserId(), page) }
+    internal val following = Pager<SocialUser, Int>(viewModelScope, { it.id }) { page -> repo.following(currentUserId(), page) }
 
     init {
         load()
@@ -247,7 +247,7 @@ class ActivityThreadViewModel(
     val state: StateFlow<ThreadUiState> = _state.asStateFlow()
     private val _notices = Channel<SocialNotice>(Channel.BUFFERED)
     val notices: Flow<SocialNotice> = _notices.receiveAsFlow()
-    val replies = Pager<ActivityReply, Int>(viewModelScope, { it.id }) { page -> repo.replies(activityId, page) }
+    internal val replies = Pager<ActivityReply, Int>(viewModelScope, { it.id }) { page -> repo.replies(activityId, page) }
 
     init {
         load()
@@ -332,7 +332,7 @@ class NotificationsViewModel(private val repo: SocialRepository) : ViewModel() {
     val unread: StateFlow<Int> get() = repo.unreadCount
 
     /** First page marks everything read on AniList (`resetNotificationCount`), as opening the AniList page does. */
-    val pager = Pager<SocialNotification, Int>(viewModelScope, { it.id }) { page -> repo.notifications(page, markRead = page == 1) }
+    internal val pager = Pager<SocialNotification, Int>(viewModelScope, { it.id }) { page -> repo.notifications(page, markRead = page == 1) }
 
     init {
         pager.refresh()
@@ -352,7 +352,7 @@ data class SlotUiState(val ownActivity: List<SocialActivity> = emptyList(), val 
 class SocialSlotViewModel(private val anilistId: Int, private val repo: SocialRepository) : ViewModel() {
     private val _state = MutableStateFlow(SlotUiState())
     val state: StateFlow<SlotUiState> = _state.asStateFlow()
-    val reviews = Pager<Review, Int>(viewModelScope, { it.id }) { page -> repo.reviews(MediaRef(anilistId = anilistId), page) }
+    internal val reviews = Pager<Review, Int>(viewModelScope, { it.id }) { page -> repo.reviews(MediaRef(anilistId = anilistId), page) }
 
     init {
         reviews.refresh()
