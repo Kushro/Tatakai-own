@@ -12,7 +12,8 @@ use crate::i18n::{self, resolve, t};
 use crate::model::{NavAction, NavDest, NavState, Settings, TorrentSection, nav_expanded, reduce_nav};
 use crate::platform;
 use crate::screens::torrents::{
-    debrid::TorrentDebridPage, downloads::TorrentDownloadsPage, files::TorrentFilesPage, layout::TorrentsLayout,
+    debrid::TorrentDebridPage, downloads::TorrentDownloadsPage, files::TorrentFilesPage, history::TorrentHistoryPage,
+    layout::TorrentsLayout,
     library::TorrentLibraryPage, overview::TorrentOverviewPage, peers::TorrentPeersPage, settings::TorrentSettingsPage,
     trackers::TorrentTrackersPage,
 };
@@ -25,7 +26,7 @@ use crate::screens::{
     browse::BrowsePage, calendar::CalendarPage, character::CharacterPage, details::DetailsPage, downloads::DownloadsPage,
     extensions::ExtensionsPage, gallery::GalleryPage, home::HomePage, image_search::ImageSearchPage, library::LibraryPage,
     link::LinkPage, player::PlayerPage, provider::ProviderPage, recs::RecommendationsPage, search::SearchPage,
-    server::ServerPage, settings::SettingsPage, studio::StudioPage,
+    server::ServerPage, settings::SettingsPage, setup::SetupPage, studio::StudioPage,
 };
 use crate::shortcuts::{BRIDGE_JS, JsMsg, Shortcut, shortcut_in};
 use crate::ui_thread::UiJobs;

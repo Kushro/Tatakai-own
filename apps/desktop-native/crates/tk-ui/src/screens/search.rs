@@ -819,7 +819,7 @@ pub fn SearchPage() -> Element {
                             }
                         }
                         div { class: "tk-search__history", "data-history": "{history.len()}",
-                            for q in history {
+                            for q in history.iter().cloned() {
                                 {
                                     let (again, gone) = (q.clone(), q.clone());
                                     rsx! {

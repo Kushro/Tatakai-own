@@ -570,7 +570,7 @@ fn Replies(activity_id: u64, on_replied: EventHandler<()>) -> Element {
                             p { class: "tk-muted", {t("social.activity.no_replies")} }
                         }
                         ul { class: "tk-social-replies__list", "data-replies": "{all.len()}",
-                            for r in all {
+                            for r in all.iter().cloned() {
                                 {
                                     let name = r.user.name.clone();
                                     rsx! {

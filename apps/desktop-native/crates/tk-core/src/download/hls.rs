@@ -84,7 +84,7 @@ pub struct KeySpec {
 }
 
 /// One segment to fetch, in playlist order.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SegmentPlan {
     pub url: String,
     /// `(length, offset)` for `#EXT-X-BYTERANGE`.
@@ -94,7 +94,7 @@ pub struct SegmentPlan {
 }
 
 /// The whole media playlist as a download plan.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Plan {
     /// `#EXT-X-MAP` init segment (fMP4), written once before the first segment.
     pub init: Option<SegmentPlan>,

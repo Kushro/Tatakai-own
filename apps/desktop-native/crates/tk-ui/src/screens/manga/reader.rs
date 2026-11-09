@@ -854,7 +854,7 @@ fn SourceSwitch(others: Vec<(String, String, ChapterRefVm)>, on_pick: EventHandl
     rsx! {
         div { class: "tk-reader__sources", "data-source-switch": "{others.len()}",
             p { class: "tk-muted", {t("manga.reader.try_source")} }
-            for (key , name , reference) in others {
+            for (key , name , reference) in others.iter().cloned() {
                 Button {
                     key: "{key}-{reference.chapter_id}",
                     label: name.clone(),

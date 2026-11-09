@@ -8,7 +8,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::model::{CompatLevel, ListServiceVm, Pairing, PlatformVm, Settings, UiError};
+use crate::model::{CompatLevel, Pairing, PlatformVm, Settings, UiError};
+pub use crate::model::ListServiceVm;
 
 // Wave B (docs/redesign/16-parity-wave-b-contract.md section 3): the view-models of each owner live in
 // `model/<area>.rs` next to its prefs and are re-exported here so `tk_ui::backend::X` keeps working for every VM.

@@ -656,8 +656,10 @@ fn ReaderView(media_id: String, first: NovelContentVm, resume: Option<u32>) -> E
                 on_play: {
                     let start = start_tts.clone();
                     move |_| {
-                        let from = tts_at.peek().unwrap_or(*current.peek());
-                        let from = (from.0, from.1 as usize);
+                        let from = tts_at.peek().unwrap_or_else(|| {
+                            let (chapter, para) = *current.peek();
+                            (chapter, para as usize)
+                        });
                         start(from);
                     }
                 },

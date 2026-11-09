@@ -367,7 +367,7 @@ pub fn ImageSearchPage() -> Element {
                                 p { class: "tk-muted", {tn("imgsearch.hidden", hidden)} }
                             }
                             div { class: "tk-imgsearch__results", "data-image-results": "{shown.len()}",
-                                for (i , m) in shown.into_iter().enumerate() {
+                                for (i , m) in shown.iter().cloned().enumerate() {
                                     MatchCard {
                                         key: "{i}-{m.media.id}",
                                         index: i,
