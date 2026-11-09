@@ -39,6 +39,16 @@ pub struct ServerPrefs {
     pub sniffer_enabled: bool,
     /// Seconds the sniffer waits for a media request, `5..=60`.
     pub sniffer_timeout_secs: u8,
+    /// Wave B (k, private addition; `server.proxy`): outbound HTTP / SOCKS5 proxy for the media the server and the
+    /// local player fetch (`http://`, `https://`, `socks5://`, `socks5h://`); `None` = direct.
+    pub outbound_proxy: Option<String>,
+    /// Wave B (k, private addition; `server.cors-proxy-local`): streams whose headers mpv cannot apply safely
+    /// (cookies, `Origin`, `Authorization`, or any stream while an outbound proxy is set) play through the loopback
+    /// media proxy of tk-server.
+    pub local_proxy: bool,
+    /// Wave B (k, private addition; `link.discovery`): announce Tatakai Link on the network over mDNS
+    /// (`_tatakai-link._tcp`) so phones find this PC without the QR. Settings > Link.
+    pub link_announce: bool,
 }
 
 impl Default for ServerPrefs {
@@ -55,6 +65,9 @@ impl Default for ServerPrefs {
             flaresolverr_url: None,
             sniffer_enabled: true,
             sniffer_timeout_secs: 20,
+            outbound_proxy: None,
+            local_proxy: true,
+            link_announce: true,
         }
     }
 }
@@ -74,7 +87,60 @@ impl ServerPrefs {
             .map(|u| u.trim().trim_end_matches('/').to_owned())
             .filter(|u| u.starts_with("http://") || u.starts_with("https://"));
         self.sniffer_timeout_secs = self.sniffer_timeout_secs.clamp(SNIFF_MIN_SECS, SNIFF_MAX_SECS);
+        self.outbound_proxy = self.outbound_proxy.map(|u| u.trim().trim_end_matches('/').to_owned()).filter(|u| proxy_url_ok(u));
         self
+    }
+}
+
+/// Outbound proxy URLs accepted by `ServerPrefs::outbound_proxy`: `http`, `https`, `socks5`, `socks5h` with a host. Pure.
+pub fn proxy_url_ok(u: &str) -> bool {
+    let Some((scheme, rest)) = u.split_once("://") else { return false };
+    matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https" | "socks5" | "socks5h")
+        && !rest.is_empty()
+        && !rest.starts_with(':')
+        && !rest.contains(char::is_whitespace)
+}
+
+/// `Backend::flaresolverr_test` argument prefix that tests an outbound proxy instead of a FlareSolverr endpoint
+/// (`server.proxy` "Test"; the trait is frozen, so both tests share the call): `proxy:<proxy url>`.
+pub const PROXY_TEST_PREFIX: &str = "proxy:";
+
+/// How a stream reaches mpv, for `.tk-pc[data-stream-kind]`: `embed` (captured by the sniffer), `proxy` (loopback
+/// media proxy of tk-server, `server.cors-proxy-local`), `local` (a file), `direct` otherwise. The backend records
+/// what it knows with [`note_stream_kind`] (the sniffer marks its captures); the rest is read from the URL.
+pub fn stream_kind(url: &str) -> &'static str {
+    if let Some(kind) = STREAM_KINDS.lock().ok().and_then(|g| g.iter().rev().find(|(u, _)| u == url).map(|(_, k)| *k)) {
+        return kind;
+    }
+    let lower = url.to_ascii_lowercase();
+    if (lower.starts_with("http://127.0.0.1:") || lower.starts_with("http://localhost:")) && lower.contains("/api/server/v1/media/") {
+        "proxy"
+    } else if lower.starts_with("file:") || !lower.contains("://") {
+        "local"
+    } else {
+        "direct"
+    }
+}
+
+/// Remember that `url` is a stream of `kind` (`embed` / `proxy` / `local`); the last 32 are kept.
+pub fn note_stream_kind(url: &str, kind: &'static str) {
+    if let Ok(mut g) = STREAM_KINDS.lock() {
+        g.retain(|(u, _)| u != url);
+        g.push((url.to_owned(), kind));
+        let excess = g.len().saturating_sub(32);
+        g.drain(..excess);
+    }
+}
+
+static STREAM_KINDS: std::sync::Mutex<Vec<(String, &'static str)>> = std::sync::Mutex::new(Vec::new());
+
+/// FlareSolverr / proxy test state shown as `data-flaresolverr` / `data-proxy`: `idle`, `testing`, `ok`, `error`.
+pub fn test_state_attr(running: bool, result: Option<bool>) -> &'static str {
+    match (running, result) {
+        (true, _) => "testing",
+        (false, Some(true)) => "ok",
+        (false, Some(false)) => "error",
+        (false, None) => "idle",
     }
 }
 
@@ -233,5 +299,28 @@ mod tests {
         assert_eq!(p.allowed_origins, vec!["http://a".to_owned()]);
         assert_eq!(p.flaresolverr_url, None);
         assert_eq!(p.sniffer_timeout_secs, SNIFF_MIN_SECS);
+    }
+
+    #[test]
+    fn stream_kinds() {
+        assert_eq!(stream_kind("http://127.0.0.1:8099/api/server/v1/media/abc/index.m3u8"), "proxy");
+        assert_eq!(stream_kind("https://cdn.example/a.m3u8"), "direct");
+        assert_eq!(stream_kind("/home/u/Videos/a.mkv"), "local");
+        note_stream_kind("https://cdn.example/sniffed.m3u8", "embed");
+        assert_eq!(stream_kind("https://cdn.example/sniffed.m3u8"), "embed");
+    }
+
+    #[test]
+    fn outbound_proxy_urls_are_checked() {
+        assert!(proxy_url_ok("socks5h://127.0.0.1:9050"));
+        assert!(proxy_url_ok("http://proxy.lan:3128"));
+        assert!(!proxy_url_ok("ftp://x"));
+        assert!(!proxy_url_ok("socks5://"));
+        assert!(!proxy_url_ok("127.0.0.1:9050"));
+        let p = ServerPrefs { outbound_proxy: Some(" socks5://h:1080/ ".into()), ..ServerPrefs::default() }.sanitized();
+        assert_eq!(p.outbound_proxy.as_deref(), Some("socks5://h:1080"));
+        assert_eq!(test_state_attr(true, Some(true)), "testing");
+        assert_eq!(test_state_attr(false, Some(false)), "error");
+        assert_eq!(test_state_attr(false, None), "idle");
     }
 }

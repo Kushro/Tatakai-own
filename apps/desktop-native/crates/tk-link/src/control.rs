@@ -21,6 +21,50 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::api::ApiResult;
+use crate::sessions::{CreateRequest, SessionCreated};
+
+/// Error code of `POST /v1/control` (409) and `GET /v1/player` (404) when no player is open.
+pub const NO_PLAYER: &str = "no_player";
+
+/// Shape checks of a command beyond JSON (ids bounded, episodes from 1). Pure.
+pub fn valid(cmd: &ControlCommand) -> bool {
+    match cmd {
+        ControlCommand::Open { media_id, episode, .. } => {
+            !media_id.trim().is_empty() && media_id.len() <= 128 && !media_id.chars().any(char::is_control) && *episode >= 1
+        }
+        ControlCommand::Seek { seconds } => *seconds <= 24 * 3600,
+        _ => true,
+    }
+}
+
+/// PC-side helpers for "Enviar a dispositivo" (`link.send-to-device`): the app starts a session for the phone and
+/// queues the `handoff` event its `GET /v1/events` long-poll delivers.
+impl crate::LinkHandle {
+    /// Start a streaming session owned by `device_id` (the same path as the phone's own `POST /v1/sessions`).
+    pub async fn create_session_for(&self, device_id: &str, req: CreateRequest) -> ApiResult<SessionCreated> {
+        if !self.state.devices.is_active(device_id, time::OffsetDateTime::now_utc().unix_timestamp()) {
+            return Err(crate::api::ErrorCode::DeviceNotAuthorized.into());
+        }
+        self.state.manager.create(device_id, req).await
+    }
+
+    /// Queue `event` for `device_id` (`false` = unknown or revoked device).
+    pub fn push_event(&self, device_id: &str, event: PhoneEvent) -> bool {
+        self.state.devices.push_event(device_id, event, time::OffsetDateTime::now_utc().unix_timestamp())
+    }
+
+    /// `instance_id` of `/v1/capabilities` (the mDNS `id` TXT record).
+    pub fn instance_id(&self) -> String {
+        self.state.instance_id.clone()
+    }
+
+    /// The server name phones see (the mDNS `name` TXT record).
+    pub fn server_name(&self) -> String {
+        self.state.server_name.clone()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "lowercase")]
 pub enum ControlCommand {
@@ -95,7 +139,16 @@ pub fn clamp_wait(wait: Option<u32>) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_wait, ControlCommand, EventsPage, PhoneEvent, PlayerState, EVENTS_MAX_WAIT_SECS};
+    use super::{clamp_wait, valid, ControlCommand, EventsPage, PhoneEvent, PlayerState, EVENTS_MAX_WAIT_SECS};
+
+    #[test]
+    fn commands_are_validated() {
+        assert!(valid(&ControlCommand::Toggle));
+        assert!(valid(&ControlCommand::Open { media_id: "21".into(), episode: 1, position_secs: 0 }));
+        assert!(!valid(&ControlCommand::Open { media_id: " ".into(), episode: 1, position_secs: 0 }));
+        assert!(!valid(&ControlCommand::Open { media_id: "21".into(), episode: 0, position_secs: 0 }));
+        assert!(!valid(&ControlCommand::Seek { seconds: 999_999 }));
+    }
 
     #[test]
     fn events_wire_is_type_tagged_and_camel_case() {

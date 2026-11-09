@@ -1,30 +1,57 @@
-//! Settings > Link: server port (restart) and the shortcut to the Link page.
+//! Settings > Link: server port (restart), "Announce on the network" (mDNS `_tatakai-link._tcp`, wave B worker k,
+//! `link.discovery`; `Settings::server.link_announce`, `data-link-announce`) and the shortcuts to the Link and
+//! extension server pages.
 //!
 //! Split out of `screens/settings.rs` by the wave-A contract (docs/redesign/15-parity-wave-a-contract.md
 //! section 2). Owner: nobody in wave A (wave B worker k). The page shell (`mod.rs`: index, scroll spy, `SettingsPanel`, `SettingRow`) is frozen.
 
 use dioxus::prelude::*;
 
-use super::parse_port;
-use crate::app::{Route, Services};
+use super::{SettingRow, parse_port};
+use crate::app::{Route, Services, Ui};
 use crate::components::title_bar::ShellStatus;
-use crate::components::{Button, ButtonSize, ButtonVariant, ErrorState, SkeletonLines, TextField, use_snackbar};
+use crate::components::{Button, ButtonSize, ButtonVariant, ErrorState, SkeletonLines, Switch, TextField, use_snackbar};
 use crate::i18n::{t, tf};
-use crate::model::{ErrorKind, UiError};
+use crate::model::{ErrorKind, SettingsAction, UiError, reduce_settings};
 
 #[component]
 pub fn LinkSection() -> Element {
     let navigator = use_navigator();
+    let services = use_context::<Services>();
+    let ui = use_context::<Ui>();
+    let announce = ui.settings.read().server.link_announce;
+    let set_announce = use_callback({
+        let backend = services.backend.clone();
+        move |on: bool| {
+            let mut server = ui.settings.peek().server.clone();
+            server.link_announce = on;
+            let next = reduce_settings(&ui.settings.peek(), SettingsAction::SetServer(server));
+            ui.commit_settings(&backend, next);
+        }
+    });
     rsx! {
         p { class: "tk-panel__hint", {t("settings.link.hint")} }
         LinkPortRow {}
-        div {
+        div { "data-link-announce": "{announce}",
+            SettingRow { label: t("settings.link.announce"), hint: t("settings.link.announce_hint"),
+                Switch { checked: announce, label: t("settings.link.announce"), on_toggle: move |v: bool| set_announce.call(v) }
+            }
+        }
+        div { class: "tk-server__row",
             Button {
                 label: t("settings.link.manage"),
                 variant: ButtonVariant::Tonal,
                 icon: "link".to_string(),
                 onclick: move |_| {
                     navigator.push(Route::LinkPage {});
+                },
+            }
+            Button {
+                label: t("link.server_page"),
+                variant: ButtonVariant::Text,
+                icon: "desktop".to_string(),
+                onclick: move |_| {
+                    navigator.push(Route::ServerPage {});
                 },
             }
         }

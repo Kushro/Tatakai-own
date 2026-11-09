@@ -1,7 +1,7 @@
 //! Tokens, pairing codes and the viewer password (worker **k**; docs/redesign/13 D4 / D4b; classic
 //! `server/src/security.mjs`). Bearer tokens are random 32-byte values (`uuid::Uuid::new_v4` twice, hex) stored
 //! **hashed** (sha256) in `state.json`; pairing codes are 6 digits, 300 s, single use, at most 50 alive; the viewer
-//! password is an argon2id PHC string (`argon2` crate, pure Rust).
+//! password is an argon2id PHC string (`argon2` crate, pure Rust; [`hash_password`] / [`verify_password`]).
 
 use time::OffsetDateTime;
 
@@ -60,6 +60,40 @@ pub fn now_unix() -> i64 {
     OffsetDateTime::now_utc().unix_timestamp()
 }
 
+/// Viewer passwords: same bounds as the classic server (`security.mjs::passwordHash`, 10..=1024 characters).
+pub const PASSWORD_MIN_CHARS: usize = 10;
+pub const PASSWORD_MAX_CHARS: usize = 1024;
+
+/// Whether `password` is within the accepted length.
+pub fn password_len_ok(password: &str) -> bool {
+    (PASSWORD_MIN_CHARS..=PASSWORD_MAX_CHARS).contains(&password.chars().count())
+}
+
+/// argon2id (v19, default params) PHC string of `password`, salted with 16 random bytes.
+pub fn hash_password(password: &str) -> Result<String, String> {
+    use argon2::password_hash::{PasswordHasher, SaltString};
+    let salt_bytes = uuid::Uuid::new_v4().into_bytes();
+    let salt = SaltString::encode_b64(&salt_bytes).map_err(|e| e.to_string())?;
+    argon2::Argon2::default().hash_password(password.as_bytes(), &salt).map(|h| h.to_string()).map_err(|e| e.to_string())
+}
+
+/// Check `password` against a PHC string written by [`hash_password`]; any parse error is a mismatch.
+pub fn verify_password(password: &str, phc: &str) -> bool {
+    use argon2::password_hash::{PasswordHash, PasswordVerifier};
+    if !password_len_ok(password) {
+        return false;
+    }
+    let Ok(parsed) = PasswordHash::new(phc) else { return false };
+    argon2::Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok()
+}
+
+/// Constant-time equality of two secrets (compares their sha256 digests byte by byte).
+pub fn secrets_equal(a: &str, b: &str) -> bool {
+    use sha2::Digest;
+    let (x, y) = (sha2::Sha256::digest(a.as_bytes()), sha2::Sha256::digest(b.as_bytes()));
+    x.iter().zip(y.iter()).fold(0_u8, |acc, (l, r)| acc | (l ^ r)) == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,5 +113,18 @@ mod tests {
         assert!(c.chars().all(|ch| ch.is_ascii_digit()));
         assert_eq!(new_token().len(), 64);
         assert_eq!(token_hash("a").len(), 64);
+    }
+
+    #[test]
+    fn argon2id_round_trip() {
+        let phc = hash_password("correct horse battery").unwrap();
+        assert!(phc.starts_with("$argon2id$"));
+        assert!(verify_password("correct horse battery", &phc));
+        assert!(!verify_password("wrong horse battery", &phc));
+        assert!(!verify_password("short", &phc));
+        assert!(!verify_password("correct horse battery", "plain-placeholder:abc"));
+        assert!(secrets_equal("abc", "abc"));
+        assert!(!secrets_equal("abc", "abd"));
+        assert!(password_len_ok("0123456789") && !password_len_ok("012345678"));
     }
 }

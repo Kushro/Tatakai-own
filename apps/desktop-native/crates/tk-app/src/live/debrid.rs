@@ -21,9 +21,8 @@
 //!   and `recommended` moves to the new first row.
 //! * **Manual torrents**: a torrent the user aligned by hand for this title and episode (Torrents > Library "Add
 //!   torrent", Files "Play this file"; `torrent_episode_map`) is put first in the list as `manual|torrent|<hash>`
-//!   (`torrent_play::manual_source_id`). `mark_cached` does not get the title and episode, so they are taken from the
-//!   newest entry of `LiveBackend::candidates` whose sources are exactly this list (the `sources()` call that is
-//!   running right now).
+//!   (`torrent_play::manual_source_id`). `mark_cached` gets the title and episode from `LiveBackend::sources`
+//!   (wave B, `sources.debrid.episode-context`), so two Details pages opened one after the other never mix their rows.
 //! * `debrid_play`: resolves the episode file of the torrent behind a source id to a direct `https://` link and
 //!   returns it like a web stream (`StreamVm::provider` = the service name).
 
@@ -33,7 +32,7 @@ use std::time::{Duration, Instant};
 
 use tk_core::debrid::{Account, DebridClient, Service, magnet_info_hash};
 use tk_core::secrets::keys;
-use tk_core::sources::{SourceKind, parse_source_key, source_key};
+use tk_core::sources::{SourceKind, parse_source_key};
 use tk_core::DebridError;
 use tk_ui::backend::{
     DebridAccountVm, DebridServiceVm, DebridStatusVm, PlaybackVm, ReleaseTagsVm, SourceKindVm, SourceVm, StreamVm, UiResult,
@@ -294,10 +293,9 @@ async fn magnet_for(b: &LiveBackend, source: &str, id: &str, episode: u32, media
 ///
 /// Wave B (worker **k**, checklist `sources.debrid.episode-context`): `media_id` / `episode` are the title and episode
 /// the rows belong to, passed by `LiveBackend::sources`, so the manual rows and the cache badges are never taken from
-/// the most recent `candidates` entry any more (KNOWN-ISSUES, wave A). k rewires `with_manual_rows` to use them.
+/// the most recent `candidates` entry any more (KNOWN-ISSUES, wave A): `with_manual_rows` uses them directly.
 pub async fn mark_cached(b: &LiveBackend, media_id: &str, episode: u32, sources: Vec<SourceVm>) -> Vec<SourceVm> {
-    let _ = (media_id, episode);
-    let mut sources = with_manual_rows(b, sources);
+    let mut sources = with_manual_rows(b, media_id, episode, sources);
     let services = connected(b);
     if services.is_empty() {
         return sources;
@@ -411,34 +409,19 @@ fn rerank(mut sources: Vec<SourceVm>) -> Vec<SourceVm> {
     sources
 }
 
-/// `(media id, episode)` of the `sources()` call that produced `list`: the newest cached resolution whose source ids
-/// are exactly the ids of `list` (see the module docs).
-fn current_episode(b: &LiveBackend, list: &[SourceVm]) -> Option<(String, u32)> {
-    let mut ids: Vec<&str> = list.iter().filter(|s| s.ext_id != MANUAL_EXT).map(|s| s.id.as_str()).collect();
-    ids.sort_unstable();
-    let cache = b.candidates.lock().ok()?;
-    cache
-        .iter()
-        .filter(|(_, (_, candidates))| {
-            let mut keys: Vec<String> = candidates.iter().map(source_key).collect();
-            keys.sort_unstable();
-            keys.dedup();
-            let mut want: Vec<&str> = ids.clone();
-            want.dedup();
-            keys.len() == want.len() && keys.iter().zip(&want).all(|(k, w)| k == w)
-        })
-        .max_by_key(|(_, (at, _))| *at)
-        .map(|(key, _)| key.clone())
-}
-
 /// `list` with the manual torrents of its title / episode first (one row per torrent, not duplicated).
-fn with_manual_rows(b: &LiveBackend, list: Vec<SourceVm>) -> Vec<SourceVm> {
-    let Some((id, episode)) = current_episode(b, &list) else { return list };
-    let mapped = b.store.torrents_for_episode(&id, episode).unwrap_or_default();
+/// `media_id` / `episode` are the ones `LiveBackend::sources` resolved (`sources.debrid.episode-context`); an empty
+/// id (no title context) leaves the list as it is.
+fn with_manual_rows(b: &LiveBackend, media_id: &str, episode: u32, list: Vec<SourceVm>) -> Vec<SourceVm> {
+    if media_id.is_empty() {
+        return list;
+    }
+    let id = media_id;
+    let mapped = b.store.torrents_for_episode(id, episode).unwrap_or_default();
     if mapped.is_empty() {
         return list;
     }
-    let picked = b.store.picked_source(&id, episode).ok().flatten();
+    let picked = b.store.picked_source(id, episode).ok().flatten();
     let engine = b.torrent.running();
     let top = list.iter().map(|s| s.score).fold(0.0_f32, f32::max);
     let mut rows: Vec<SourceVm> = Vec::new();
