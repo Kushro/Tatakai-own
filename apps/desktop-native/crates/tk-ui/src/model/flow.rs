@@ -94,4 +94,28 @@ mod tests {
         assert_eq!(s.get("fullscreen"), None);
         assert_eq!(serde_json::to_string(&s).unwrap(), r#"{"toggle_pause":"k"}"#);
     }
+    // ---- F6 (wave A gaps) ----
+
+    #[test]
+    fn blank_ids_and_whitespace_specs_are_dropped_inside_flow_prefs() {
+        let mut m = BTreeMap::new();
+        m.insert("  ".to_owned(), "k".to_owned());
+        m.insert("seek_forward".to_owned(), "   ".to_owned());
+        m.insert("fullscreen".to_owned(), "Ctrl+f ".to_owned());
+        let p = PlayerFlowPrefs { shortcuts: ShortcutMapVm(m), auto_next_secs: AUTO_NEXT_MAX_SECS, ..PlayerFlowPrefs::default() }.sanitized();
+        assert_eq!(p.shortcuts.0.len(), 1);
+        assert_eq!(p.shortcuts.get("fullscreen"), Some("Ctrl+f"));
+        assert_eq!(p.auto_next_secs, AUTO_NEXT_MAX_SECS, "bounds are inclusive");
+        assert_eq!(p.clone().sanitized(), p, "idempotent");
+    }
+
+    #[test]
+    fn flow_prefs_json_fills_defaults_and_reads_a_transparent_map() {
+        let p: PlayerFlowPrefs = serde_json::from_str(r#"{"auto_next":false,"shortcuts":{"toggle_pause":"k"}}"#).unwrap();
+        assert!(!p.auto_next);
+        assert_eq!(p.auto_next_secs, PlayerFlowPrefs::default().auto_next_secs);
+        assert_eq!(p.shortcuts.get("toggle_pause"), Some("k"));
+        assert_eq!(p.shortcuts.get("missing"), None);
+        assert_eq!(serde_json::from_str::<PlayerFlowPrefs>("{}").unwrap(), PlayerFlowPrefs::default());
+    }
 }
