@@ -544,6 +544,12 @@ mod tests {
     }
 
     #[test]
+    fn settings_use_the_full_palette_list() {
+        // `model::PALETTES` is extended by the integrator to this list (closed file); Settings draws ALL_PALETTES.
+        assert_eq!(&crate::model::PALETTES[..], &ALL_PALETTES[..]);
+    }
+
+    #[test]
     fn only_adult_cards_blur_and_only_in_blur_mode() {
         let mut p = HomePrefs::default();
         assert!(!blurred(&p, true));
