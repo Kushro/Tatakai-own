@@ -4,6 +4,7 @@ package app.tatakai.next.feature.you
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.tatakai.next.model.AppError
+import app.tatakai.next.model.DownloadRepository
 import app.tatakai.next.model.ExtensionRepository
 import app.tatakai.next.model.HistoryRepository
 import app.tatakai.next.model.LinkRepository
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import org.koin.core.context.GlobalContext
 
 /** One line of the "Dispositivo enlazado" row. */
 sealed interface LinkedSummary {
@@ -72,6 +74,11 @@ class YouViewModel(
     private val extensions: ExtensionRepository,
     private val link: LinkRepository,
     private val torrents: TorrentRepository? = null,
+    /**
+     * parity wave B (16 §2, worker r): web downloads of :core:download, added to [YouOverview.activeDownloads]. Read from Koin when the
+     * module is loaded (youFeatureModule is closed and does not pass it); null in tests / previews.
+     */
+    private val downloads: DownloadRepository? = runCatching { GlobalContext.getOrNull()?.getOrNull<DownloadRepository>() }.getOrNull(),
 ) : ViewModel() {
 
     private val reload = MutableStateFlow(0)
@@ -88,9 +95,14 @@ class YouViewModel(
             .catch { emit(LoadState.Err(it.toAppError())) }
     }
 
-    private val torrentFacts: Flow<Pair<Int, Int>> = torrents?.let { repo ->
+    private val torrentOnly: Flow<Pair<Int, Int>> = torrents?.let { repo ->
         combine(repo.status, repo.library) { status: TorrentServiceStatus, library -> status.activeDownloads to library.size }
     } ?: flowOf(0 to 0)
+
+    /** Active torrents + active web downloads (queued / downloading), and the torrent library size. */
+    private val torrentFacts: Flow<Pair<Int, Int>> = downloads?.let { repo ->
+        combine(torrentOnly, repo.summary) { (active, total), web -> (active + web.active) to total }
+    } ?: torrentOnly
 
     private val linked: Flow<LinkedSummary> = combine(link.state, link.linkedDevice) { state, device ->
         when (state) {

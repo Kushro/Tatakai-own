@@ -604,6 +604,7 @@ private fun Controls(
                     }
                 }
             }
+            LocalDownloadArgs.current?.let { a -> DownloadAction(a, state.current?.candidate?.toStream(), state.current?.candidate?.label.orEmpty()) } // parity wave B (r): downloads.player-button
             IconButton(onClick = onLock) { Icon(Icons.Rounded.LockOpen, stringResource(R.string.player_lock), tint = on) }
             IconButton(onClick = onScreenshot, enabled = ps.started) { Icon(Icons.Rounded.PhotoCamera, stringResource(R.string.player_screenshot), tint = on) }
             if (state.remoteless) {
