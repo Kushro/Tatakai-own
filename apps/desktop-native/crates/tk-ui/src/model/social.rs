@@ -186,6 +186,158 @@ pub struct UserPageVm {
     pub has_next: bool,
 }
 
+// ----- helpers shared by tk-app (`live/social.rs`) and the social screens (worker n, private to this area) -----
+
+/// `MediaVm::id` prefix of an AniList manga in social view-models (favourites, activity, notifications): the
+/// social pages open `/manga/<anilist id>` for it. Anime keep the usual UI id (`"21"`).
+pub const MANGA_PREFIX: &str = "manga:";
+/// Same for AniList light novels (`format: NOVEL`): `/novels/<anilist id>`.
+pub const NOVEL_PREFIX: &str = "novel:";
+
+/// Choices of Settings > Social > "Check notifications every" (minutes; `0` = never).
+pub const POLL_CHOICES: [u8; 6] = [0, 5, 15, 30, 60, POLL_MAX_MINUTES];
+
+/// What a social `MediaVm::id` points at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SocialTarget<'a> {
+    Anime(&'a str),
+    Manga(&'a str),
+    Novel(&'a str),
+}
+
+/// Split a social media id into its page and the id that page takes.
+pub fn social_target(id: &str) -> SocialTarget<'_> {
+    if let Some(rest) = id.strip_prefix(MANGA_PREFIX) {
+        SocialTarget::Manga(rest)
+    } else if let Some(rest) = id.strip_prefix(NOVEL_PREFIX) {
+        SocialTarget::Novel(rest)
+    } else {
+        SocialTarget::Anime(id)
+    }
+}
+
+/// Filter groups of the notifications page (`social.notifications.group.<id>`, `data-group`).
+pub const NOTIFICATION_GROUPS: [&str; 6] = ["all", "airing", "follows", "activity", "forum", "media"];
+
+/// Group of an AniList `NotificationType`.
+pub fn notification_group(kind: &str) -> &'static str {
+    match kind {
+        "AIRING" => "airing",
+        "FOLLOWING" => "follows",
+        k if k.starts_with("ACTIVITY_") => "activity",
+        k if k.starts_with("THREAD_") => "forum",
+        _ => "media",
+    }
+}
+
+/// Localized sentence of a notification (`social.notif.<type in lowercase>`), falling back to AniList's own
+/// English sentence when the type is unknown or a needed name is missing. Placeholders: `{user}`, `{media}`,
+/// `{episode}`, `{thread}`.
+pub fn notification_text(
+    kind: &str,
+    user: Option<&str>,
+    media: Option<&str>,
+    episode: Option<u32>,
+    thread: Option<&str>,
+    fallback: &str,
+) -> String {
+    let key = format!("social.notif.{}", kind.to_ascii_lowercase());
+    let template = crate::i18n::lookup(crate::i18n::lang(), &key);
+    if template == key {
+        return fallback.to_owned();
+    }
+    let needs = |p: &str| template.contains(p);
+    if (needs("{user}") && user.is_none())
+        || (needs("{media}") && media.is_none())
+        || (needs("{episode}") && episode.is_none())
+        || (needs("{thread}") && thread.is_none())
+    {
+        return fallback.to_owned();
+    }
+    let episode = episode.map(|e| e.to_string()).unwrap_or_default();
+    template
+        .replace("{user}", user.unwrap_or_default())
+        .replace("{media}", media.unwrap_or_default())
+        .replace("{episode}", &episode)
+        .replace("{thread}", thread.unwrap_or_default())
+}
+
+/// Day groups of the notifications list (`social.notifications.day.<id>`), by age.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DayBucket {
+    Today,
+    Yesterday,
+    Week,
+    Month,
+    Older,
+}
+
+impl DayBucket {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Today => "today",
+            Self::Yesterday => "yesterday",
+            Self::Week => "week",
+            Self::Month => "month",
+            Self::Older => "older",
+        }
+    }
+
+    /// Bucket of something created at `then` seen at `now` (unix seconds; future dates count as today).
+    pub fn of(now: i64, then: i64) -> Self {
+        let age = (now - then).max(0);
+        match age / 86_400 {
+            0 => Self::Today,
+            1 => Self::Yesterday,
+            2..=6 => Self::Week,
+            7..=29 => Self::Month,
+            _ => Self::Older,
+        }
+    }
+}
+
+/// Consecutive runs of items that share a bucket, in input order (the list is newest first).
+pub fn group_by_day<T: Clone>(now: i64, items: &[T], created: impl Fn(&T) -> i64) -> Vec<(DayBucket, Vec<T>)> {
+    let mut out: Vec<(DayBucket, Vec<T>)> = Vec::new();
+    for it in items {
+        let b = DayBucket::of(now, created(it));
+        match out.last_mut() {
+            Some((last, list)) if *last == b => list.push(it.clone()),
+            _ => out.push((b, vec![it.clone()])),
+        }
+    }
+    out
+}
+
+/// AniList's notifications come newest first and the first `unread` of them are the unread ones.
+pub fn is_unread(index: usize, unread: u32) -> bool {
+    index < unread as usize
+}
+
+/// The part of one notifications page that is unread (`unread_only`): `offset` = items on the earlier pages.
+pub fn unread_part<T>(items: Vec<T>, offset: usize, unread: u32) -> Vec<T> {
+    items.into_iter().enumerate().filter(|(i, _)| is_unread(offset + i, unread)).map(|(_, x)| x).collect()
+}
+
+/// Hours watched (rounded down) from minutes.
+pub fn hours_watched(minutes: u64) -> u64 {
+    minutes / 60
+}
+
+/// Wakes the rail badge poll (`components::rail_badges`) after "Mark all read" or when the window regains focus.
+static UNREAD_WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+pub fn wake_unread_poll() {
+    UNREAD_WAKE.notify_one();
+}
+
+/// Sleep `minutes` (at least one) or until [`wake_unread_poll`], whichever comes first. The rail badge loop uses it
+/// in place of a plain sleep so the count refreshes at once after reading the notifications.
+pub async fn wait_unread_poll(minutes: u8) {
+    let d = std::time::Duration::from_secs(60 * u64::from(minutes.max(1)));
+    let _ = tokio::time::timeout(d, UNREAD_WAKE.notified()).await;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,5 +347,62 @@ mod tests {
         let d = SocialPrefs::default();
         assert_eq!(d.clone().sanitized(), d);
         assert_eq!(SocialPrefs { notifications_poll_minutes: 255, ..d }.sanitized().notifications_poll_minutes, POLL_MAX_MINUTES);
+    }
+    #[test]
+    fn social_targets() {
+        assert_eq!(social_target("21"), SocialTarget::Anime("21"));
+        assert_eq!(social_target("mal:5"), SocialTarget::Anime("mal:5"));
+        assert_eq!(social_target("manga:30013"), SocialTarget::Manga("30013"));
+        assert_eq!(social_target("novel:86300"), SocialTarget::Novel("86300"));
+    }
+
+    #[test]
+    fn notification_groups_cover_every_type() {
+        assert_eq!(notification_group("AIRING"), "airing");
+        assert_eq!(notification_group("FOLLOWING"), "follows");
+        assert_eq!(notification_group("ACTIVITY_REPLY_LIKE"), "activity");
+        assert_eq!(notification_group("THREAD_LIKE"), "forum");
+        assert_eq!(notification_group("MEDIA_MERGE"), "media");
+        for g in NOTIFICATION_GROUPS {
+            assert!(!g.is_empty());
+        }
+    }
+
+    #[test]
+    fn notification_text_falls_back() {
+        let follow = notification_text("FOLLOWING", Some("Mia"), None, None, None, "x");
+        assert!(follow.contains("Mia") && !follow.contains('{'), "{follow}");
+        assert_eq!(notification_text("FOLLOWING", None, None, None, None, "AniList says"), "AniList says");
+        assert_eq!(notification_text("SOMETHING_NEW", Some("a"), None, None, None, "fallback"), "fallback");
+        let airing = notification_text("AIRING", None, Some("Frieren"), Some(5), None, "x");
+        assert!(airing.contains("Frieren") && airing.contains('5'), "{airing}");
+        assert_eq!(notification_text("AIRING", None, Some("Frieren"), None, None, "fb"), "fb");
+    }
+
+    #[test]
+    fn day_buckets_and_grouping() {
+        let now = 10 * 86_400;
+        assert_eq!(DayBucket::of(now, now + 50), DayBucket::Today);
+        assert_eq!(DayBucket::of(now, now - 3_600), DayBucket::Today);
+        assert_eq!(DayBucket::of(now, now - 86_400), DayBucket::Yesterday);
+        assert_eq!(DayBucket::of(now, now - 3 * 86_400), DayBucket::Week);
+        assert_eq!(DayBucket::of(now, now - 8 * 86_400), DayBucket::Month);
+        assert_eq!(DayBucket::of(now, 0), DayBucket::Month);
+        assert_eq!(DayBucket::of(40 * 86_400, 0), DayBucket::Older);
+        let items = vec![now, now - 10, now - 86_400, now - 86_401, now - 9 * 86_400];
+        let g = group_by_day(now, &items, |t| *t);
+        assert_eq!(g.iter().map(|(b, l)| (b.id(), l.len())).collect::<Vec<_>>(), vec![("today", 2), ("yesterday", 2), ("month", 1)]);
+    }
+
+    #[test]
+    fn unread_flags_follow_the_count() {
+        assert!(is_unread(0, 2) && is_unread(1, 2) && !is_unread(2, 2));
+        assert!(!is_unread(0, 0));
+        assert_eq!(unread_part(vec!['a', 'b', 'c'], 0, 2), vec!['a', 'b']);
+        assert_eq!(unread_part(vec!['d', 'e'], 25, 26), vec!['d']);
+        assert!(unread_part(vec!['f'], 25, 3).is_empty());
+        assert_eq!(hours_watched(125), 2);
+        assert!(POLL_CHOICES.iter().all(|m| *m <= POLL_MAX_MINUTES));
+        assert!(POLL_CHOICES.contains(&SocialPrefs::default().notifications_poll_minutes));
     }
 }
