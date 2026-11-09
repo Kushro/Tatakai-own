@@ -329,8 +329,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Elegir el género Action devuelve solo resultados con ese género (la query a AniList lleva genre_in) y desaparece el aviso \"not wired\"",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (FilterSheet), apps/desktop-native/crates/tk-app/src/live/search.rs, apps/desktop-native/crates/tk-core/src/metadata/anilist/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchFiltersSheet.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt, apps/android-native/core/metadata/src/main/kotlin/app/tatakai/next/metadata/providers/AniListQueries.kt"
   },
   {
     "id": "search.filters.season",
@@ -341,8 +342,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Elegir Invierno 2025 devuelve solo series de esa temporada y año",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (FilterSheet), apps/desktop-native/crates/tk-app/src/live/search.rs, apps/desktop-native/crates/tk-core/src/metadata/anilist/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchFiltersSheet.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt, apps/android-native/core/metadata/src/main/kotlin/app/tatakai/next/metadata/providers/AniListQueries.kt"
   },
   {
     "id": "search.filters.status",
@@ -353,8 +355,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Elegir \"En emisión\" devuelve solo series RELEASING",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (FilterSheet), apps/desktop-native/crates/tk-app/src/live/search.rs, apps/desktop-native/crates/tk-core/src/metadata/anilist/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchFiltersSheet.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt, apps/android-native/core/metadata/src/main/kotlin/app/tatakai/next/metadata/providers/AniListQueries.kt"
   },
   {
     "id": "search.filters.format",
@@ -365,8 +368,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "La hoja de filtros ofrece TV, Película, OVA, ONA y Especial y el resultado respeta el formato elegido",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (FilterSheet), apps/desktop-native/crates/tk-app/src/live/search.rs, apps/desktop-native/crates/tk-core/src/metadata/anilist/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchFiltersSheet.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt, apps/android-native/core/metadata/src/main/kotlin/app/tatakai/next/metadata/providers/AniListQueries.kt"
   },
   {
     "id": "search.filters.tags",
@@ -377,8 +381,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Se puede elegir uno o más tags de AniList; los tags marcados como spoiler solo aparecen con el interruptor activado",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (FilterSheet), apps/desktop-native/crates/tk-app/src/live/search.rs, apps/desktop-native/crates/tk-core/src/metadata/anilist/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchFiltersSheet.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt, apps/android-native/core/metadata/src/main/kotlin/app/tatakai/next/metadata/providers/AniListQueries.kt"
   },
   {
     "id": "search.filters.year-range",
@@ -389,8 +394,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Un rango 2010-2015 devuelve solo series estrenadas en esos años, filtradas por la API y no sobre la página cargada",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (FilterSheet), apps/desktop-native/crates/tk-app/src/live/search.rs, apps/desktop-native/crates/tk-core/src/metadata/anilist/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchFiltersSheet.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt, apps/android-native/core/metadata/src/main/kotlin/app/tatakai/next/metadata/providers/AniListQueries.kt"
   },
   {
     "id": "search.filters.episodes-range",
@@ -401,8 +407,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Un rango 1-13 episodios devuelve solo series con ese número de episodios",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (FilterSheet), apps/desktop-native/crates/tk-app/src/live/search.rs, apps/desktop-native/crates/tk-core/src/metadata/anilist/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchFiltersSheet.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt, apps/android-native/core/metadata/src/main/kotlin/app/tatakai/next/metadata/providers/AniListQueries.kt"
   },
   {
     "id": "search.filters.score-range",
@@ -413,8 +420,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Un mínimo de 80 devuelve solo series con puntuación media igual o mayor",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (FilterSheet), apps/desktop-native/crates/tk-app/src/live/search.rs, apps/desktop-native/crates/tk-core/src/metadata/anilist/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchFiltersSheet.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt, apps/android-native/core/metadata/src/main/kotlin/app/tatakai/next/metadata/providers/AniListQueries.kt"
   },
   {
     "id": "search.filters.sort",
@@ -425,8 +433,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Se puede ordenar por popularidad, puntuación, tendencia, fecha y título y la lista cambia de orden",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (FilterSheet), apps/desktop-native/crates/tk-app/src/live/search.rs, apps/desktop-native/crates/tk-core/src/metadata/anilist/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchFiltersSheet.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt, apps/android-native/core/metadata/src/main/kotlin/app/tatakai/next/metadata/providers/AniListQueries.kt"
   },
   {
     "id": "search.filters.adult",
@@ -437,8 +446,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Con 18+ desactivado no aparece ningún resultado isAdult; activado, aparecen marcados",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (FilterSheet), apps/desktop-native/crates/tk-app/src/live/search.rs, apps/desktop-native/crates/tk-core/src/metadata/anilist/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchFiltersSheet.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt, apps/android-native/core/metadata/src/main/kotlin/app/tatakai/next/metadata/providers/AniListQueries.kt"
   },
   {
     "id": "search.filters.clear",
@@ -449,7 +459,8 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Con filtros activos el botón \"Limpiar\" los quita todos y relanza la búsqueda",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (FilterSheet), apps/desktop-native/crates/tk-app/src/live/search.rs, apps/desktop-native/crates/tk-core/src/metadata/anilist/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchFiltersSheet.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt, apps/android-native/core/metadata/src/main/kotlin/app/tatakai/next/metadata/providers/AniListQueries.kt"
   },
   {
     "id": "search.pagination",
@@ -460,8 +471,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Al llegar al final de los resultados se carga la página siguiente hasta que AniList devuelve hasNextPage=false",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs, apps/desktop-native/crates/tk-ui/src/screens/browse.rs (Paged, PagedFooter); android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchScreen.kt (LoadMoreFooter), apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt"
   },
   {
     "id": "search.in-extension",
@@ -472,8 +484,10 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Elegir el chip de una extensión (Toko) busca con su ruta de búsqueda y muestra sus resultados en vez del error \"not wired\"",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (SearchRequest::Extension), apps/desktop-native/crates/tk-app/src/live/search.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchScreen.kt (ChipsRow, ExtensionResults), apps/android-native/core/extensions-quickjs/src/main/kotlin/app/tatakai/next/extensions/ExtensionSearch.kt",
+    "note": "Audit 2026-11-09: verified with caveat (android): only extensions with type == \"custom\" are searchable; onlinestream extensions with custom sources show a disabled chip (KNOWN-ISSUES)."
   },
   {
     "id": "search.see-all-feed",
@@ -484,8 +498,9 @@
     "classic": "src/pages/base/Index.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/home.rs",
     "accept": "\"Ver todo\" en la fila Populares abre Buscar con el feed Populares cargado y paginado, no vacío",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/home.rs -> Route::BrowsePage, apps/desktop-native/crates/tk-ui/src/screens/browse.rs; android: apps/android-native/app/src/main/kotlin/app/tatakai/next/nav/TatakaiApp.kt (onOpenFeed -> Route.SearchFor(feed))"
   },
   {
     "id": "search.feeds.trending",
@@ -496,9 +511,10 @@
     "classic": "src/pages/base/TrendingPage.tsx",
     "next": null,
     "accept": "Buscar ofrece el feed Tendencias con un selector de ventana temporal",
-    "status": "done",
+    "status": "verified",
     "audit": "Fuera de plan",
-    "note": "D6: tendencias como feed de Buscar"
+    "note": "D6: tendencias como feed de Buscar",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/browse.rs (TrendWindow), apps/desktop-native/crates/tk-app/src/live/search.rs (feed); android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchScreen.kt (TrendWindow chips)"
   },
   {
     "id": "search.feeds.genre",
@@ -509,9 +525,10 @@
     "classic": "src/pages/base/GenrePage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Llegar a Buscar con un género (desde una nube o chip) muestra su catálogo paginado con la barra de filtros",
-    "status": "done",
+    "status": "verified",
     "audit": "Fuera de plan",
-    "note": "D6: géneros como feed de Buscar"
+    "note": "D6: géneros como feed de Buscar",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (ExploreFeeds), apps/desktop-native/crates/tk-ui/src/screens/browse.rs (genre:); android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt (initialGenre)"
   },
   {
     "id": "search.feeds.collections",
@@ -522,9 +539,10 @@
     "classic": "src/pages/profile/CollectionsPage.tsx",
     "next": null,
     "accept": "Buscar ofrece las colecciones En emisión, Populares, Próximos, Esta temporada y Top como feeds elegibles",
-    "status": "done",
+    "status": "verified",
     "audit": "Fuera de plan",
-    "note": "D6: colecciones como feed de Buscar"
+    "note": "D6: colecciones como feed de Buscar",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/browse.rs (HOME_FEEDS), apps/desktop-native/crates/tk-ui/src/screens/search.rs (ExploreFeeds); android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchScreen.kt (EXPLORE_FEEDS)"
   },
   {
     "id": "search.image",
@@ -535,8 +553,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Arrastrar o elegir una captura devuelve la serie, episodio y minuto con un control de confianza mínima y vista previa de la escena",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/image_search.rs, apps/desktop-native/crates/tk-core/src/tracemoe.rs; android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/ImageSearchScreen.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/ImageSearchViewModel.kt"
   },
   {
     "id": "search.studio",
@@ -547,8 +566,9 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "Pulsar un estudio en la ficha abre Buscar con todas las obras de ese estudio",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/studio.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs (data-studio); android: apps/android-native/app/src/main/kotlin/app/tatakai/next/nav/TatakaiApp.kt (onOpenStudio -> SearchFor(studio)), apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchViewModel.kt"
   },
   {
     "id": "search.clear-history",
@@ -559,7 +579,8 @@
     "classic": "src/components/settings/panels/PrivacyPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/search.rs",
     "accept": "Existe una acción para borrar las búsquedas recientes y la lista queda vacía",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (clear_history); android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchScreen.kt (onClearHistory), apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchHistoryStore.kt"
   },
   {
     "id": "search.types.character",
@@ -570,7 +591,8 @@
     "classic": "src/pages/base/SearchPage.tsx",
     "next": null,
     "accept": "El tipo Personajes devuelve personajes de AniList y abre su página",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/search.rs (SearchKind::Characters), apps/desktop-native/crates/tk-app/src/live/search.rs (characters:); android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/SearchScreen.kt (CharacterResults)"
   },
   {
     "id": "character.page",
@@ -581,8 +603,9 @@
     "classic": "src/pages/base/CharacterPage.tsx",
     "next": null,
     "accept": "Pulsar un personaje abre una página con imagen, nombre nativo, edad, cumpleaños, género, descripción y las obras en las que aparece",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/character.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/CharacterScreen.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/CharacterViewModel.kt"
   },
   {
     "id": "character.voice-actors",
@@ -593,7 +616,8 @@
     "classic": "src/pages/base/CharacterPage.tsx",
     "next": null,
     "accept": "La página de personaje lista sus actores de voz por idioma",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/character.rs (voice_languages); android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/CharacterScreen.kt (VoiceActorRow)"
   },
   {
     "id": "character.favorite",
@@ -604,7 +628,8 @@
     "classic": "src/pages/base/CharacterPage.tsx",
     "next": null,
     "accept": "Marcar un personaje como favorito lo guarda localmente (y en AniList si hay cuenta) y aparece en Favoritos",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/components/list_button.rs (CharacterFavorite), apps/desktop-native/crates/tk-ui/src/screens/library.rs (favourites); android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/CharacterViewModel.kt (toggleFavorite), apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt (favoriteCharacters)"
   },
   {
     "id": "details.header",
@@ -663,7 +688,8 @@
     "classic": "src/pages/watch/AnimePage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "Escribir \"12\" o parte del título filtra la lista de episodios",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.episodes.view-mode",
@@ -674,7 +700,8 @@
     "classic": "src/pages/watch/AnimePage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "Se puede alternar entre lista con miniaturas y lista compacta y la elección se recuerda",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.episodes.unaired",
@@ -685,7 +712,8 @@
     "classic": "src/pages/watch/AnimePage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "Los episodios con fecha futura se muestran con \"Aún no emitido\" y no se pueden reproducir",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.facts",
@@ -696,8 +724,9 @@
     "classic": "src/components/anime/AnimeDetailLayout.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "Info muestra emisión, estado, duración, estudios, productores, fuente, país, puntuación media, popularidad, favoritos, tags con % y títulos alternativos",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.related",
@@ -708,8 +737,9 @@
     "classic": "src/components/anime/AnimeDetailLayout.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "La pestaña Relacionados lista precuelas, secuelas, spin-offs y el manga de origen con su tipo de relación, y cada tarjeta abre otra ficha",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.characters-staff",
@@ -720,8 +750,9 @@
     "classic": "src/components/anime/AnimeDetailLayout.tsx",
     "next": null,
     "accept": "Una pestaña Personajes muestra personajes con su rol y actor de voz japonés, y una lista de staff con su función",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.recommendations",
@@ -732,8 +763,9 @@
     "classic": "src/components/anime/AnimeDetailLayout.tsx",
     "next": null,
     "accept": "La ficha muestra una fila de recomendaciones de AniList para esa serie",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.seasons-watch-order",
@@ -744,8 +776,9 @@
     "classic": "src/components/anime/AnimeSeasons.tsx",
     "next": null,
     "accept": "La ficha muestra el árbol de temporadas de la franquicia en orden cronológico con la temporada actual resaltada",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.next-episode",
@@ -756,8 +789,9 @@
     "classic": "src/components/anime/NextEpisodeSchedule.tsx",
     "next": null,
     "accept": "En una serie en emisión la ficha muestra \"Episodio N en Xd Yh\" a partir de nextAiringEpisode",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.trailer",
@@ -768,8 +802,9 @@
     "classic": "src/components/anime/VideoBackground.tsx",
     "next": null,
     "accept": "Si AniList trae tráiler, la ficha ofrece un botón que lo reproduce (YouTube en el navegador o mpv)",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.share",
@@ -780,7 +815,8 @@
     "classic": "src/components/anime/ShareButton.tsx",
     "next": null,
     "accept": "Compartir copia al portapapeles el enlace de AniList de la serie y muestra un snackbar",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.adult-gate",
@@ -791,7 +827,8 @@
     "classic": "src/components/content/AdultWarningGate.tsx",
     "next": null,
     "accept": "Una ficha isAdult pide confirmación antes de mostrar imágenes y la decisión se recuerda",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs, apps/desktop-native/crates/tk-ui/src/screens/details/extra.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsScreen.kt"
   },
   {
     "id": "details.title-language",
@@ -802,7 +839,9 @@
     "classic": "src/components/settings/panels/DisplayPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Un ajuste Romaji / Inglés / Nativo cambia el título mostrado en fichas, filas y resultados",
-    "status": "todo"
+    "status": "stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/appearance.rs, apps/desktop-native/crates/tk-app/src/live/mod.rs (set_title_language), apps/desktop-native/crates/tk-app/src/live/details.rs (display_title); android: apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/TitleLanguage.kt, apps/android-native/feature/search/src/main/kotlin/app/tatakai/next/feature/search/DiscoverSettingsExtras.kt, apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt (displayTitle); NOT in apps/android-native/core/ui/src/main/kotlin/app/tatakai/next/ui/media/MediaCard.kt / EpisodeRow.kt",
+    "note": "Audit 2026-11-09: stub (android): desktop verified (Settings > Appearance, every card / details). Android applies it only in Search and Details; MediaCard / EpisodeRow of :core:ui (Home, Library, character appearances) still show media.title."
   },
   {
     "id": "details.list-button-mount",
@@ -813,8 +852,9 @@
     "classic": "src/components/anime/WatchlistButton.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "La cabecera y la barra flotante de la ficha montan ListButton de g en lugar del snackbar \"Próximamente en M1\"",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/details.rs (ListButton), apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt (Header -> ListButton), apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt (ListButton)"
   },
   {
     "id": "details.download-season-mount",
@@ -825,8 +865,9 @@
     "classic": "src/components/anime/SeasonDownloadModal.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "El botón Descargar de la ficha abre el componente DownloadSeason (h); hasta la ola B muestra un estado vacío explícito, no \"M1\"",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/components/download_season.rs (DownloadSeasonSheet, explicit empty state), apps/desktop-native/crates/tk-ui/src/screens/details.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt (DownloadMenuButton, WaveBSlots)"
   },
   {
     "id": "details.comments-mount",
@@ -837,8 +878,9 @@
     "classic": "src/components/anime/RatingsSection.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "La ficha reserva una sección \"Actividad y reseñas\" (AniList) donde n (ola B) monta details.reviews y la actividad de la serie; mientras no exista, la sección no aparece",
-    "status": "done",
-    "note": "Plan §0.1.10 (enmiendas 2026-11-09): antes \"Comentarios\" (backend propio); renombrado, id estable"
+    "status": "verified",
+    "note": "Plan §0.1.10 (enmiendas 2026-11-09): antes \"Comentarios\" (backend propio); renombrado, id estable",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/components/reviews.rs (Reviews renders nothing until wave B), apps/desktop-native/crates/tk-ui/src/screens/details.rs; android: apps/android-native/feature/details/src/main/kotlin/app/tatakai/next/feature/details/DetailsSections.kt (WaveBSlots, empty)"
   },
   {
     "id": "details.track-show",
@@ -1029,8 +1071,9 @@
     "classic": "src/components/video/SourcePanel.tsx",
     "next": "apps/desktop-native/crates/tk-core/src/sources.rs",
     "accept": "Con audio JA y subs ES preferidos, una fuente torrent RU sin subs recordada de otra sesión NO se preselecciona: se usa la recomendada y la recordada aparece como opción",
-    "status": "done",
-    "audit": "Bug"
+    "status": "verified",
+    "audit": "Bug",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/player_state.rs (drop_stale_pick), apps/desktop-native/crates/tk-ui/src/screens/player/flow.rs; android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/RememberedPick.kt (resolvePick), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt"
   },
   {
     "id": "sources.retry",
@@ -1065,8 +1108,9 @@
     "classic": "src/core/providers/realdebrid-client.ts",
     "next": null,
     "accept": "Con una API key de Real-Debrid guardada, una fuente torrent cacheada se reproduce por HTTPS desde Real-Debrid en vez de descargar el torrent",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/debrid/{realdebrid,torbox,alldebrid,premiumize}.rs, apps/desktop-native/crates/tk-app/src/live/debrid.rs, apps/desktop-native/crates/tk-ui/src/screens/player/flow.rs (debrid_play); android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/debrid/DebridRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt (debridPlayback), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt (resolveDebrid)"
   },
   {
     "id": "sources.debrid.torbox",
@@ -1077,8 +1121,9 @@
     "classic": "src/core/providers/torbox-client.ts",
     "next": null,
     "accept": "Con TorBox configurado, las fuentes torrent muestran si están cacheadas y se reproducen por HTTPS",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/debrid/{realdebrid,torbox,alldebrid,premiumize}.rs, apps/desktop-native/crates/tk-app/src/live/debrid.rs, apps/desktop-native/crates/tk-ui/src/screens/player/flow.rs (debrid_play); android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/debrid/DebridRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt (debridPlayback), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt (resolveDebrid)"
   },
   {
     "id": "sources.debrid.alldebrid",
@@ -1089,8 +1134,9 @@
     "classic": "src/core/providers/cloud-debrid-client.ts",
     "next": null,
     "accept": "Con AllDebrid configurado, una fuente torrent se resuelve a un enlace directo y se reproduce",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/debrid/{realdebrid,torbox,alldebrid,premiumize}.rs, apps/desktop-native/crates/tk-app/src/live/debrid.rs, apps/desktop-native/crates/tk-ui/src/screens/player/flow.rs (debrid_play); android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/debrid/DebridRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt (debridPlayback), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt (resolveDebrid)"
   },
   {
     "id": "sources.debrid.premiumize",
@@ -1101,8 +1147,9 @@
     "classic": "src/core/providers/cloud-debrid-client.ts",
     "next": null,
     "accept": "Con Premiumize configurado, una fuente torrent se resuelve a un enlace directo y se reproduce",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/debrid/{realdebrid,torbox,alldebrid,premiumize}.rs, apps/desktop-native/crates/tk-app/src/live/debrid.rs, apps/desktop-native/crates/tk-ui/src/screens/player/flow.rs (debrid_play); android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/debrid/DebridRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt (debridPlayback), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt (resolveDebrid)"
   },
   {
     "id": "sources.debrid.cached-badge",
@@ -1113,8 +1160,9 @@
     "classic": "src/components/watch/TorrentSourcePanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/components/sources.rs",
     "accept": "Con un debrid activo, cada fila torrent indica si está cacheada en el servicio",
-    "status": "done",
-    "note": "Default aceptado: SourceVm.debrid: Option<DebridStatusVm> (sin SourceKind nuevo)"
+    "status": "verified",
+    "note": "Default aceptado: SourceVm.debrid: Option<DebridStatusVm> (sin SourceKind nuevo) | Audit 2026-11-09: verified with caveat (android): the badge only reflects TorBox / Premiumize; Real-Debrid / AllDebrid have no cache endpoint and are learnt at play time (KNOWN-ISSUES).",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/components/sources.rs (data-debrid), apps/desktop-native/crates/tk-app/src/live/debrid.rs (mark_cached); android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/sources/SourcePicker.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/SourceFlow.kt (markDebrid)"
   },
   {
     "id": "sources.debrid.settings",
@@ -1125,8 +1173,9 @@
     "classic": "src/components/settings/DebridSettingsPanel.tsx",
     "next": null,
     "accept": "El cliente de torrents tiene una sección Debrid (/torrents/debrid) con un campo de clave por servicio, botón Probar y orden de preferencia; las claves van a Secrets (escritorio) / Keystore (Android), no a los ajustes",
-    "status": "todo",
-    "note": "Default aceptado: debrid como sección de Torrents + campo debrid en SourceVm, sin SourceKind nuevo"
+    "status": "stub",
+    "note": "Default aceptado: debrid como sección de Torrents + campo debrid en SourceVm, sin SourceKind nuevo | Audit 2026-11-09: stub (desktop): desktop Torrents > Debrid has key field, Test and save, keys in Secrets, but the preference order is fixed (DebridServiceVm::ALL, \"Prioridad N\") and cannot be changed. Android verified (prefer() + Keystore).",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/debrid.rs (fixed DebridServiceVm::ALL order), apps/desktop-native/crates/tk-core/src/secrets.rs; android: apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/ParityContent.kt (DebridSection, prefer), apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/vm/ParityViewModels.kt"
   },
   {
     "id": "sources.debrid.ranking",
@@ -1137,7 +1186,8 @@
     "classic": "src/core/providers/debrid-orchestrator.ts",
     "next": "apps/desktop-native/crates/tk-core/src/sources.rs",
     "accept": "Una fuente torrent cacheada en debrid se rankea como web (sin penalización de seeders) y usa el enlace debrid al reproducir",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-app/src/live/debrid.rs (cached_score, rerank); android: apps/android-native/core/release/src/main/kotlin/app/tatakai/next/release/SourceRanking.kt (DEBRID_CACHED_BONUS)"
   },
   {
     "id": "sources.embed",
@@ -1412,8 +1462,9 @@
     "classic": "src/components/video/controls/SubtitleSelector.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/player.rs",
     "accept": "Con preferencia ES, un stream con pistas ES-419 y ES arranca con una de ellas activa en vez de subtítulos apagados",
-    "status": "done",
-    "audit": "Bug"
+    "status": "verified",
+    "audit": "Bug",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs (choose / best_track); android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/LanguageCodes.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlaybackController.kt"
   },
   {
     "id": "player.subs.style.size",
@@ -1424,8 +1475,10 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "Cambiar el tamaño en Ajustes > Subtítulos cambia sub-font-size de mpv en caliente y se guarda",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs (StyleEditor), apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-player/src/subs.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt (SubtitleStyleSheet), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt, apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlayerPrefs.kt",
+    "note": "Audit 2026-11-09: verified: desktop maps size to sub-scale (not sub-font-size), same effect, live and saved."
   },
   {
     "id": "player.subs.style.font",
@@ -1436,8 +1489,9 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "Se puede elegir una fuente instalada para los subtítulos (sub-font)",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs (StyleEditor), apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-player/src/subs.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt (SubtitleStyleSheet), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt, apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlayerPrefs.kt"
   },
   {
     "id": "player.subs.style.color",
@@ -1448,8 +1502,9 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "Color del texto, grosor y color del contorno cambian sub-color / sub-border-size / sub-border-color",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs (StyleEditor), apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-player/src/subs.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt (SubtitleStyleSheet), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt, apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlayerPrefs.kt"
   },
   {
     "id": "player.subs.style.background",
@@ -1460,8 +1515,9 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "La opacidad del fondo del subtítulo cambia sub-back-color",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs (StyleEditor), apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-player/src/subs.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt (SubtitleStyleSheet), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt, apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlayerPrefs.kt"
   },
   {
     "id": "player.subs.style.position",
@@ -1472,8 +1528,9 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "Un deslizador de posición vertical mueve los subtítulos (sub-pos)",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs (StyleEditor), apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-player/src/subs.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt (SubtitleStyleSheet), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt, apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlayerPrefs.kt"
   },
   {
     "id": "player.subs.style.preview",
@@ -1484,7 +1541,8 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "La sección de estilo muestra una línea de ejemplo con el estilo actual",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs (StyleEditor), apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-player/src/subs.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt (SubtitleStyleSheet), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt, apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlayerPrefs.kt"
   },
   {
     "id": "player.subs.offset",
@@ -1495,8 +1553,9 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": null,
     "accept": "Un control ±0,1 s ajusta sub-delay en caliente y el valor se muestra en el menú de subtítulos",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs, apps/desktop-native/crates/tk-ui/src/screens/player/subs/fonts.rs, apps/desktop-native/crates/tk-player/src/mpv_player.rs; android: apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlaybackController.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt"
   },
   {
     "id": "player.subs.load-file",
@@ -1507,8 +1566,9 @@
     "classic": "src/components/video/controls/SubtitleSelector.tsx",
     "next": null,
     "accept": "\"Cargar archivo…\" en el menú de subtítulos añade la pista (sub-add) y la activa",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs, apps/desktop-native/crates/tk-ui/src/screens/player/subs/fonts.rs, apps/desktop-native/crates/tk-player/src/mpv_player.rs; android: apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlaybackController.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt"
   },
   {
     "id": "player.subs.custom-fonts",
@@ -1519,8 +1579,9 @@
     "classic": "src/components/video/controls/SubtitleSelector.tsx",
     "next": null,
     "accept": "Las fuentes TTF/OTF copiadas a la carpeta de fuentes de la app están disponibles para libass (sub-fonts-dir)",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs, apps/desktop-native/crates/tk-ui/src/screens/player/subs/fonts.rs, apps/desktop-native/crates/tk-player/src/mpv_player.rs; android: apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlaybackController.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt"
   },
   {
     "id": "player.subs.secondary",
@@ -1531,8 +1592,9 @@
     "classic": "src/components/video/overlays/SecondarySubtitleOverlay.tsx",
     "next": null,
     "accept": "Se puede elegir una segunda pista que se muestra arriba (secondary-sid)",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs, apps/desktop-native/crates/tk-ui/src/screens/player/subs/fonts.rs, apps/desktop-native/crates/tk-player/src/mpv_player.rs; android: apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt, apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlaybackController.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt"
   },
   {
     "id": "player.subs.translate.live",
@@ -1543,8 +1605,9 @@
     "classic": "src/components/video/hooks/useSubtitleTranslation.ts",
     "next": null,
     "accept": "Con traducción activada, cada línea de subtítulo se muestra traducida al idioma destino con un retraso menor a 2 s",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/translate/{google,deepl,azure,openai}.rs, apps/desktop-native/crates/tk-app/src/live/subs.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs; android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/SubtitleTranslator.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt (TranslationRows), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt"
   },
   {
     "id": "player.subs.translate.pretranslate",
@@ -1555,8 +1618,9 @@
     "classic": "src/components/video/hooks/useSubtitlePretranslation.ts",
     "next": null,
     "accept": "\"Pretraducir\" traduce toda la pista antes de reproducir, muestra el progreso y luego reproduce sin retraso",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/translate/{google,deepl,azure,openai}.rs, apps/desktop-native/crates/tk-app/src/live/subs.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs; android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/SubtitleTranslator.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt (TranslationRows), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt"
   },
   {
     "id": "player.subs.translate.google",
@@ -1567,7 +1631,8 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": null,
     "accept": "Con motor Google la traducción funciona sin clave usando el endpoint público",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/translate/{google,deepl,azure,openai}.rs, apps/desktop-native/crates/tk-app/src/live/subs.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs; android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/SubtitleTranslator.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt (TranslationRows), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt"
   },
   {
     "id": "player.subs.translate.deepl",
@@ -1578,7 +1643,8 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": null,
     "accept": "Con DeepL (clave) o DeepLX (URL) configurado, el botón Probar devuelve una traducción de prueba",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/translate/{google,deepl,azure,openai}.rs, apps/desktop-native/crates/tk-app/src/live/subs.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs; android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/SubtitleTranslator.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt (TranslationRows), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt"
   },
   {
     "id": "player.subs.translate.azure",
@@ -1589,7 +1655,8 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": null,
     "accept": "Con clave y región de Azure Translator el botón Probar devuelve una traducción de prueba",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/translate/{google,deepl,azure,openai}.rs, apps/desktop-native/crates/tk-app/src/live/subs.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs; android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/SubtitleTranslator.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt (TranslationRows), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt"
   },
   {
     "id": "player.subs.translate.openai",
@@ -1600,7 +1667,8 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": null,
     "accept": "Con URL base, clave y modelo de un servidor OpenAI-compatible el botón Probar devuelve una traducción",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/translate/{google,deepl,azure,openai}.rs, apps/desktop-native/crates/tk-app/src/live/subs.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs; android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/SubtitleTranslator.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt (TranslationRows), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt"
   },
   {
     "id": "player.subs.translate.settings",
@@ -1611,8 +1679,9 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": null,
     "accept": "Ajustes > Traducción tiene motor, URL, clave, modelo, región, idioma destino, interruptor de subtítulos, pretraducir y \"Vaciar caché\"; la clave se guarda en Secrets / Keystore (system.secrets-store), no en los ajustes",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/translate/{google,deepl,azure,openai}.rs, apps/desktop-native/crates/tk-app/src/live/subs.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs, apps/desktop-native/crates/tk-ui/src/screens/player/subs.rs; android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/SubtitleTranslator.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt (TranslationRows), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt"
   },
   {
     "id": "player.subs.translate.cache",
@@ -1623,7 +1692,8 @@
     "classic": "src/components/settings/panels/TranslationPanel.tsx",
     "next": "apps/desktop-native/crates/tk-core/src/store.rs",
     "accept": "Volver a ver un episodio traducido no vuelve a llamar al proveedor; \"Vaciar caché\" borra la tabla",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/store/translate.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/subtitles.rs; android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/SubtitleTranslator.kt (TranslationCache)"
   },
   {
     "id": "player.screenshot",
@@ -1634,8 +1704,9 @@
     "classic": "src/components/video/controls/ScreenshotButton.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/player.rs",
     "accept": "El botón de captura guarda un PNG del fotograma actual (screenshot-to-file) en la carpeta de capturas y muestra un snackbar con la ruta",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/mod.rs (Shortcut::Screenshot), apps/desktop-native/crates/tk-player/src/mpv_player.rs (screenshot-to-file); android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/Screenshots.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt"
   },
   {
     "id": "player.screenshot.shortcut",
@@ -1646,7 +1717,8 @@
     "classic": "src/lib/video/keybindings.ts",
     "next": "apps/desktop-native/crates/tk-ui/src/shortcuts.rs",
     "accept": "La tecla S toma una captura sin abrir menús",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/shortcuts.rs (default s); android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlayerKeymap.kt (SCREENSHOT), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt"
   },
   {
     "id": "player.prev-episode",
@@ -1657,8 +1729,9 @@
     "classic": "src/components/video/controls/PlaybackControls.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/components/player_controls.rs",
     "accept": "El botón de episodio anterior (y la tecla J) abre el episodio N-1 con su mejor fuente",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/components/player_controls.rs, apps/desktop-native/crates/tk-ui/src/screens/player/mod.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs; android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt"
   },
   {
     "id": "player.auto-skip-intro",
@@ -1669,8 +1742,9 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Con el interruptor activado la intro se salta sola al llegar a la marca; desactivado, solo aparece el botón",
-    "status": "done",
-    "audit": "Parcial"
+    "status": "verified",
+    "audit": "Parcial",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/components/player_controls.rs, apps/desktop-native/crates/tk-ui/src/screens/player/mod.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs; android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt"
   },
   {
     "id": "player.auto-next.toggle",
@@ -1681,8 +1755,9 @@
     "classic": "src/components/video/VideoSettingsPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Con auto-siguiente desactivado la tarjeta final no cuenta ni cambia de episodio",
-    "status": "done",
-    "audit": "Parcial"
+    "status": "verified",
+    "audit": "Parcial",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/components/player_controls.rs, apps/desktop-native/crates/tk-ui/src/screens/player/mod.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs; android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt"
   },
   {
     "id": "player.auto-next.countdown",
@@ -1693,8 +1768,9 @@
     "classic": "src/components/video/overlays/UpNextOverlay.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/player.rs",
     "accept": "Un ajuste de 3 a 30 s cambia la duración de la cuenta regresiva de la tarjeta final",
-    "status": "done",
-    "audit": "Parcial"
+    "status": "verified",
+    "audit": "Parcial",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/components/player_controls.rs, apps/desktop-native/crates/tk-ui/src/screens/player/mod.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs; android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt"
   },
   {
     "id": "player.sleep-timer",
@@ -1705,8 +1781,9 @@
     "classic": "src/components/video/hooks/usePlayerEnhancements.ts",
     "next": null,
     "accept": "El menú ofrece 15/30/60 min y \"fin del episodio\"; al vencer, el video se pausa y no se pasa al siguiente",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/components/player_controls.rs, apps/desktop-native/crates/tk-ui/src/screens/player/mod.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs; android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt"
   },
   {
     "id": "player.loop",
@@ -1717,8 +1794,9 @@
     "classic": "src/components/video/hooks/usePlayerEnhancements.ts",
     "next": null,
     "accept": "Con Bucle activo el episodio vuelve a empezar al terminar (loop-file) y no aparece la tarjeta de siguiente",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/components/player_controls.rs, apps/desktop-native/crates/tk-ui/src/screens/player/mod.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs; android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt"
   },
   {
     "id": "player.stable-volume",
@@ -1729,8 +1807,9 @@
     "classic": "src/components/video/hooks/usePlayerEnhancements.ts",
     "next": null,
     "accept": "El interruptor Volumen estable activa un filtro de normalización de audio (af loudnorm/dynaudnorm) en mpv",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/components/player_controls.rs, apps/desktop-native/crates/tk-ui/src/screens/player/mod.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs; android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt"
   },
   {
     "id": "player.jump-to-episode",
@@ -1741,7 +1820,8 @@
     "classic": "src/pages/watch/WatchPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/player.rs",
     "accept": "Un botón abre la lista de episodios sobre el reproductor y elegir uno lo reproduce sin volver a la ficha",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/player/episodes.rs (EpisodeSheet), apps/desktop-native/crates/tk-ui/src/screens/player/mod.rs; android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt"
   },
   {
     "id": "player.shortcuts.rebind",
@@ -1752,8 +1832,9 @@
     "classic": "src/lib/video/keybindings.ts",
     "next": "apps/desktop-native/crates/tk-ui/src/shortcuts.rs",
     "accept": "Ajustes > Reproductor > Atajos permite cambiar la tecla de cada acción, detecta conflictos y guarda",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/shortcuts.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs (shortcuts editor), apps/desktop-native/crates/tk-ui/src/components/player_controls.rs (? panel); android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlayerKeymap.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt (ShortcutRows), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt (ShortcutsPanel)"
   },
   {
     "id": "player.shortcuts.defaults",
@@ -1764,8 +1845,9 @@
     "classic": "src/lib/video/keybindings.ts",
     "next": "apps/desktop-native/crates/tk-ui/src/shortcuts.rs",
     "accept": "M silencia, P abre PiP, J/K cambian de episodio, ↑/↓ cambian el volumen, además de Espacio/←/→/F",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/shortcuts.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs (shortcuts editor), apps/desktop-native/crates/tk-ui/src/components/player_controls.rs (? panel); android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlayerKeymap.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt (ShortcutRows), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt (ShortcutsPanel)"
   },
   {
     "id": "player.shortcuts.overlay",
@@ -1776,7 +1858,8 @@
     "classic": "src/components/video/controls/KeyboardShortcutOverlay.tsx",
     "next": null,
     "accept": "La tecla ? muestra un panel con todos los atajos actuales",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/shortcuts.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs (shortcuts editor), apps/desktop-native/crates/tk-ui/src/components/player_controls.rs (? panel); android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlayerKeymap.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt (ShortcutRows), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt (ShortcutsPanel)"
   },
   {
     "id": "player.shortcuts.reset",
@@ -1787,7 +1870,8 @@
     "classic": "src/lib/video/keybindings.ts",
     "next": null,
     "accept": "\"Restablecer\" vuelve a los atajos por defecto",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/shortcuts.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs (shortcuts editor), apps/desktop-native/crates/tk-ui/src/components/player_controls.rs (? panel); android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlayerKeymap.kt, apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerSettingsExtras.kt (ShortcutRows), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt (ShortcutsPanel)"
   },
   {
     "id": "player.discord.watching",
@@ -1798,9 +1882,10 @@
     "classic": "src/lib/discordRpc.ts",
     "next": null,
     "accept": "Con Discord abierto y el ajuste activo, reproducir muestra en Discord el título, el episodio y el tiempo restante",
-    "status": "done",
+    "status": "verified",
     "audit": "Falta",
-    "note": "Default aceptado: app id de Discord = client id público de desktop/services/discord-rpc.cjs Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop."
+    "note": "Default aceptado: app id de Discord = client id público de desktop/services/discord-rpc.cjs Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop.",
+    "found": "desktop: apps/desktop-native/crates/tk-app/src/discord.rs, apps/desktop-native/crates/tk-app/src/live/presence.rs, apps/desktop-native/crates/tk-ui/src/screens/player/presence.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs"
   },
   {
     "id": "player.discord.paused",
@@ -1811,8 +1896,9 @@
     "classic": "desktop/services/discord-rpc.cjs",
     "next": null,
     "accept": "Pausar cambia la presencia a \"Pausado\" sin tiempo restante",
-    "status": "done",
-    "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop."
+    "status": "verified",
+    "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop.",
+    "found": "desktop: apps/desktop-native/crates/tk-app/src/discord.rs, apps/desktop-native/crates/tk-app/src/live/presence.rs, apps/desktop-native/crates/tk-ui/src/screens/player/presence.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs"
   },
   {
     "id": "player.discord.browsing",
@@ -1823,8 +1909,9 @@
     "classic": "src/lib/discordRpc.ts",
     "next": null,
     "accept": "Fuera del reproductor la presencia muestra \"Navegando\" o \"Viendo <título>\" en la ficha",
-    "status": "done",
-    "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop."
+    "status": "verified",
+    "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop.",
+    "found": "desktop: apps/desktop-native/crates/tk-app/src/discord.rs, apps/desktop-native/crates/tk-app/src/live/presence.rs, apps/desktop-native/crates/tk-ui/src/screens/player/presence.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs"
   },
   {
     "id": "player.discord.setting",
@@ -1835,8 +1922,9 @@
     "classic": "src/components/settings/DesktopSettings.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Ajustes tiene \"Discord Rich Presence\" y apagarlo borra la presencia al instante",
-    "status": "done",
-    "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop."
+    "status": "verified",
+    "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop.",
+    "found": "desktop: apps/desktop-native/crates/tk-app/src/discord.rs, apps/desktop-native/crates/tk-app/src/live/presence.rs, apps/desktop-native/crates/tk-ui/src/screens/player/presence.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/player.rs"
   },
   {
     "id": "player.theater-mode",
@@ -1931,8 +2019,9 @@
     "classic": "src/components/video/MobileVideoPlayer.tsx",
     "next": "apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerScreen.kt",
     "accept": "Un botón alterna inmersivo + orientación horizontal forzada y vuelve al salir",
-    "status": "done",
-    "platform": "android"
+    "status": "verified",
+    "platform": "android",
+    "found": "android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt (requestedOrientation / immersive)"
   },
   {
     "id": "player.android.background",
@@ -1943,9 +2032,10 @@
     "classic": "src/components/video/MobileVideoPlayer.tsx",
     "next": null,
     "accept": "Con la app en segundo plano el audio sigue con ambos motores (Media3: MediaSessionService; libmpv: servicio propio con MediaSession que observa el core de mpv) y la notificación multimedia permite pausar, reanudar y saltar",
-    "status": "done",
+    "status": "verified",
     "platform": "android",
-    "note": "Plan §0.1.12 (enmiendas 2026-11-09): referencia Enigmata app/src/main/java/app/enigmata/ui/player/MediaPlaybackService.kt; copiar conservando el aviso y añadiendo fila en THIRD_PARTY_NOTICES.md"
+    "note": "Plan §0.1.12 (enmiendas 2026-11-09): referencia Enigmata app/src/main/java/app/enigmata/ui/player/MediaPlaybackService.kt; copiar conservando el aviso y añadiendo fila en THIRD_PARTY_NOTICES.md",
+    "found": "android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/PlaybackService.kt, apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvPlayerAdapter.kt, apps/android-native/core/player/src/main/AndroidManifest.xml"
   },
   {
     "id": "player.android.screen-lock",
@@ -1956,8 +2046,9 @@
     "classic": "src/components/video/MobileVideoPlayer.tsx",
     "next": null,
     "accept": "Un botón bloquea los gestos y controles hasta pulsar el candado",
-    "status": "done",
-    "platform": "android"
+    "status": "verified",
+    "platform": "android",
+    "found": "android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt (locked)"
   },
   {
     "id": "player.android.screenshot",
@@ -1968,8 +2059,9 @@
     "classic": "src/components/video/controls/ScreenshotButton.tsx",
     "next": null,
     "accept": "El botón de captura guarda el fotograma en Imágenes/Tatakai y muestra un snackbar",
-    "status": "done",
-    "platform": "android"
+    "status": "verified",
+    "platform": "android",
+    "found": "android: apps/android-native/core/player/src/main/kotlin/app/tatakai/next/player/Screenshots.kt (Pictures/Tatakai), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerExtras.kt"
   },
   {
     "id": "player.android.upscaling-shaders",
@@ -1980,9 +2072,10 @@
     "classic": "src/lib/video/anime4k/Anime4KRenderer.ts",
     "next": "apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt",
     "accept": "Con motor libmpv, elegir cualquier preset Anime4K / FSR aplica glsl-shaders reales empaquetados en la app (todos los presets, no solo los ligeros)",
-    "status": "done",
+    "status": "verified",
     "platform": "android",
-    "note": "Se mantiene (enmiendas 2026-11-09): empaquetar todos los presets Anime4K / FSR"
+    "note": "Se mantiene (enmiendas 2026-11-09): empaquetar todos los presets Anime4K / FSR",
+    "found": "android: apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/ShaderPresets.kt, apps/android-native/core/player-mpv/src/main/assets/shaders/*.glsl, apps/android-native/core/player-mpv/src/main/kotlin/app/tatakai/next/player/mpv/MpvEngine.kt"
   },
   {
     "id": "player.android.long-press-speed",
@@ -1993,8 +2086,9 @@
     "classic": "src/components/video/gestures/LongPressSpeed.tsx",
     "next": null,
     "accept": "Mantener pulsado el video reproduce a 2x y soltar vuelve a la velocidad anterior",
-    "status": "done",
-    "platform": "android"
+    "status": "verified",
+    "platform": "android",
+    "found": "android: apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerControls.kt (detectTapGestures onLongPress)"
   },
   {
     "id": "player.android.keep-awake",
@@ -2053,8 +2147,9 @@
     "classic": "src/hooks/user/useWatchHistory.ts",
     "next": "apps/desktop-native/crates/tk-core/src/store/mod.rs",
     "accept": "El historial local guarda por (serie, episodio) la posición en segundos, la duración, si se completó y updated_at; cerrar a los 6:23 y reabrir retoma en 6:23 sin ninguna cuenta",
-    "status": "done",
-    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: reemplaza lo que daba library.cloud-sync; base de history.link-sync.*"
+    "status": "verified",
+    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: reemplaza lo que daba library.cloud-sync; base de history.link-sync.*",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/store/mod.rs (history, put_history); android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/HistoryRepositoryImpl.kt, apps/android-native/core/database/src/main/kotlin/app/tatakai/next/database/Entities.kt"
   },
   {
     "id": "history.link-sync.route",
@@ -2065,9 +2160,10 @@
     "classic": "src/routes/AppRoutes.tsx",
     "next": "apps/desktop-native/crates/tk-link/src/api.rs",
     "accept": "tk-link expone sobre el Link mTLS existente una ruta de historial: un dispositivo emparejado lee el historial de la PC (paginado, desde un updated_at) y sube el suyo; sin emparejar responde 401",
-    "status": "done",
+    "status": "verified",
     "platform": "desktop",
-    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: la PC = servidor; misma autenticación que el resto del Link"
+    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: la PC = servidor; misma autenticación que el resto del Link",
+    "found": "desktop: apps/desktop-native/crates/tk-link/src/server.rs (/v1/history), apps/desktop-native/crates/tk-link/src/history.rs, apps/desktop-native/crates/tk-app/src/live/history_sync.rs"
   },
   {
     "id": "history.link-sync.client",
@@ -2078,9 +2174,10 @@
     "classic": "src/hooks/user/useWatchHistory.ts",
     "next": "apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/HistorySync.kt",
     "accept": "Android emparejado por Link baja el historial de la PC y sube el suyo al abrir la app y al cerrar el reproductor; un episodio dejado en la PC a los 6:23 aparece en Continuar viendo del teléfono y retoma en 6:23",
-    "status": "done",
+    "status": "verified",
     "platform": "android",
-    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: reemplaza HistorySync (Supabase) de Android"
+    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: reemplaza HistorySync (Supabase) de Android",
+    "found": "android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/HistorySync.kt, apps/android-native/core/link/src/main/kotlin/app/tatakai/next/link/LinkHistoryClient.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/HistorySyncStamp.kt (HistorySyncTriggers), apps/android-native/feature/player/src/main/kotlin/app/tatakai/next/feature/player/PlayerViewModel.kt (HistoryFlush)"
   },
   {
     "id": "history.link-sync.merge",
@@ -2091,8 +2188,9 @@
     "classic": "src/hooks/user/useWatchHistory.ts",
     "next": "apps/desktop-native/crates/tk-core/src/store/mod.rs",
     "accept": "Al sincronizar gana por (serie, episodio) la entrada con updated_at más reciente; ninguna entrada se pierde en ningún sentido y un episodio completado no vuelve a \"en curso\" por una entrada vieja",
-    "status": "done",
-    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio"
+    "status": "verified",
+    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/store/mod.rs (merge_remote, wins_over), apps/desktop-native/crates/tk-app/src/live/history_sync.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/HistorySync.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/HistoryMapping.kt"
   },
   {
     "id": "history.link-sync.status",
@@ -2103,8 +2201,9 @@
     "classic": "src/components/settings/panels/AccountPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings/data.rs",
     "accept": "Ajustes › Datos (escritorio) y Ajustes (Android) muestran la última sincronización por Link, el dispositivo y \"Sincronizar ahora\"; sin dispositivo emparejado lo explica y enlaza a Tatakai Link",
-    "status": "done",
-    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: sustituye el \"Sincronizar ahora\" de Supabase"
+    "status": "verified",
+    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio: sustituye el \"Sincronizar ahora\" de Supabase | Audit 2026-11-09: verified: desktop \"Sincronizar ahora\" refreshes the status (the PC is the server; phones sync on open / player close).",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/data.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/link.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt (link history rows), apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsViewModel.kt (syncNow, lastSyncedAt)"
   },
   {
     "id": "lists.anilist.oauth",
@@ -2115,8 +2214,9 @@
     "classic": "src/pages/auth/AniListRedirectPage.tsx",
     "next": null,
     "accept": "\"Conectar AniList\" abre el navegador, el callback llega a 127.0.0.1:<puerto> y la sección Cuentas muestra el usuario conectado",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.mal.oauth",
@@ -2127,8 +2227,9 @@
     "classic": "src/pages/auth/MalRedirectPage.tsx",
     "next": null,
     "accept": "\"Conectar MAL\" completa el flujo PKCE y la sección Cuentas muestra el usuario conectado",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.token-refresh",
@@ -2139,7 +2240,8 @@
     "classic": "src/lib/integrationTokens.ts",
     "next": "apps/desktop-native/crates/tk-core/src/store.rs",
     "accept": "Los tokens sobreviven al reinicio y el de MAL se renueva solo cuando caduca",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.disconnect",
@@ -2150,7 +2252,8 @@
     "classic": "src/components/settings/panels/IntegrationsPanel.tsx",
     "next": null,
     "accept": "\"Desconectar\" borra el token y las listas remotas dejan de mostrarse",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.read",
@@ -2161,8 +2264,9 @@
     "classic": "src/hooks/user/useWatchlist.ts",
     "next": null,
     "accept": "Biblioteca muestra Viendo, Planeado, Completado, En pausa y Abandonado con el progreso y la puntuación de la cuenta conectada",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.write.status",
@@ -2173,7 +2277,8 @@
     "classic": "src/components/anime/WatchlistButton.tsx",
     "next": null,
     "accept": "Cambiar una serie a Completado se refleja en AniList/MAL en menos de 5 s",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.write.progress",
@@ -2184,7 +2289,8 @@
     "classic": "src/hooks/user/useWatchlist.ts",
     "next": null,
     "accept": "Editar el episodio visto en Biblioteca actualiza progress en el servicio",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.write.score",
@@ -2195,7 +2301,8 @@
     "classic": "src/hooks/user/useWatchlist.ts",
     "next": null,
     "accept": "Poner nota a una serie la envía con el formato de puntuación de la cuenta (10, 100, estrellas)",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.remove",
@@ -2206,7 +2313,8 @@
     "classic": "src/components/anime/WatchlistButton.tsx",
     "next": null,
     "accept": "\"Quitar de la lista\" borra la entrada en el servicio y en la caché local",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.offline-queue",
@@ -2217,8 +2325,9 @@
     "classic": "src/lib/listSync.ts",
     "next": "apps/desktop-native/crates/tk-core/src/store.rs",
     "accept": "Cambiar un estado sin red lo deja en cola; al recuperar red se envía y Cuentas muestra el contador de pendientes en 0",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.conflicts",
@@ -2229,8 +2338,9 @@
     "classic": "src/components/integrations/SyncPreviewModal.tsx",
     "next": null,
     "accept": "Si local y remoto difieren, una hoja muestra ambas versiones y permite elegir por entrada o para todo",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.import-export",
@@ -2241,8 +2351,10 @@
     "classic": "src/lib/listSync.ts",
     "next": null,
     "accept": "Al conectar se puede importar la lista remota al local, exportar la local al servicio o fusionar; además se puede exportar a JSON",
-    "status": "done",
-    "audit": "Falta"
+    "status": "stub",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs (FirstSync import/export/merge sheet), apps/desktop-native/crates/tk-app/src/live/lists.rs (import_list, export_list); android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt (completeLink always syncWith MERGE; exportJson/importJson), apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt",
+    "note": "Audit 2026-11-09: stub (android): desktop verified (first-sync sheet import / export / merge + JSON / CSV export). Android always runs InitialSyncMode.MERGE after linking (ListsRepositoryImpl.completeLink); syncWith(IMPORT/EXPORT) is never offered in the UI. JSON import / export exists."
   },
   {
     "id": "lists.auto-progress",
@@ -2253,8 +2365,9 @@
     "classic": "src/hooks/user/useIntegrationSync.ts",
     "next": null,
     "accept": "Ver el 90 % de un episodio de una serie en la lista sube progress en AniList/MAL sin preguntar (ajuste activable)",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.auto-add",
@@ -2265,7 +2378,8 @@
     "classic": "src/hooks/user/useIntegrationSync.ts",
     "next": null,
     "accept": "Con el ajuste activo, reproducir una serie que no está en la lista la añade como Viendo",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.library-tabs",
@@ -2276,9 +2390,10 @@
     "classic": "src/pages/profile/FavoritesPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/library.rs",
     "accept": "Biblioteca tiene pestañas Continuar, Historial, Viendo, Pendiente, Completado, En pausa, Abandonado, Repitiendo y Favoritos, sin el banner \"M1\"; en el teléfono: Continuar · Historial · Listas · Favoritos · Torrents, con los estados como control segmentado dentro de Listas",
-    "status": "done",
+    "status": "verified",
     "audit": "Falta",
-    "note": "Default aceptado: en compact los estados van en un Segmented dentro de la pestaña Listas"
+    "note": "Default aceptado: en compact los estados van en un Segmented dentro de la pestaña Listas",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.library-sort-filter",
@@ -2289,7 +2404,8 @@
     "classic": "src/pages/profile/FavoritesPage.tsx",
     "next": null,
     "accept": "Cada pestaña se puede ordenar por título, puntuación, progreso o última actualización",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.favorites",
@@ -2300,8 +2416,9 @@
     "classic": "src/pages/profile/FavoritesPage.tsx",
     "next": null,
     "accept": "El corazón de la ficha marca favorito (local y AniList si hay cuenta) y la pestaña Favoritos los lista",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.button",
@@ -2312,7 +2429,8 @@
     "classic": "src/components/anime/WatchlistButton.tsx",
     "next": null,
     "accept": "components/list_button.rs muestra el estado actual, abre un menú con los 5 estados + Quitar y funciona sin cuenta (solo local)",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.local-only",
@@ -2323,7 +2441,8 @@
     "classic": "src/hooks/user/useWatchlist.ts",
     "next": "apps/desktop-native/crates/tk-core/src/store.rs",
     "accept": "Sin AniList ni MAL, las listas viven en SQLite y se suben al conectar una cuenta",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.settings.accounts",
@@ -2334,8 +2453,9 @@
     "classic": "src/components/settings/panels/IntegrationsPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Ajustes > Cuentas muestra AniList y MAL con conectar/desconectar, último sync, pendientes y \"Sincronizar ahora\"",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/{oauth,mal,sync,import}.rs, apps/desktop-native/crates/tk-app/src/live/lists.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs, apps/desktop-native/crates/tk-ui/src/screens/library.rs, apps/desktop-native/crates/tk-ui/src/components/list_button.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListsRepositoryImpl.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/ListProviders.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsTabs.kt, apps/android-native/feature/library/src/main/kotlin/app/tatakai/next/feature/library/ListsViewModel.kt"
   },
   {
     "id": "lists.supabase-mirror",
@@ -2732,8 +2852,9 @@
     "classic": "src/components/modals/TorrentDownloadModal.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/torrents/library.rs",
     "accept": "Biblioteca de torrents tiene \"Añadir\" que acepta un magnet pegado, resuelve metadatos y lo añade",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/*.rs, apps/desktop-native/crates/tk-app/src/live/{torrent,torrent_manual,torrent_play,torrent_settings}.rs, apps/desktop-native/crates/tk-app/src/{magnet,single_instance}.rs, apps/desktop-native/crates/tk-torrent/src/tracker_probe.rs; android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/store/SessionHistoryStore.kt, apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/{ParityContent,DetailTabs,SettingsContent,LibraryContent}.kt, apps/android-native/app/src/main/AndroidManifest.xml (magnet:)"
   },
   {
     "id": "torrent.add-file",
@@ -2744,7 +2865,8 @@
     "classic": "src/components/modals/TorrentDownloadModal.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/torrents/library.rs",
     "accept": "Elegir o arrastrar un .torrent lo añade con selección de archivos",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/*.rs, apps/desktop-native/crates/tk-app/src/live/{torrent,torrent_manual,torrent_play,torrent_settings}.rs, apps/desktop-native/crates/tk-app/src/{magnet,single_instance}.rs, apps/desktop-native/crates/tk-torrent/src/tracker_probe.rs; android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/store/SessionHistoryStore.kt, apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/{ParityContent,DetailTabs,SettingsContent,LibraryContent}.kt, apps/android-native/app/src/main/AndroidManifest.xml (magnet:)"
   },
   {
     "id": "torrent.magnet-link-handler",
@@ -2755,8 +2877,9 @@
     "classic": "desktop/window/deep-link.cjs",
     "next": "apps/desktop-native/crates/tk-app/src/single_instance.rs",
     "accept": "Abrir un magnet: desde el sistema (escritorio: esquema registrado o instancia única; Android: intent filter magnet:) con la app abierta o cerrada muestra el diálogo de añadir con el magnet rellenado",
-    "status": "done",
-    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (i; Android q)"
+    "status": "verified",
+    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (i; Android q)",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/*.rs, apps/desktop-native/crates/tk-app/src/live/{torrent,torrent_manual,torrent_play,torrent_settings}.rs, apps/desktop-native/crates/tk-app/src/{magnet,single_instance}.rs, apps/desktop-native/crates/tk-torrent/src/tracker_probe.rs; android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/store/SessionHistoryStore.kt, apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/{ParityContent,DetailTabs,SettingsContent,LibraryContent}.kt, apps/android-native/app/src/main/AndroidManifest.xml (magnet:)"
   },
   {
     "id": "torrent.episode-alignment",
@@ -2767,8 +2890,9 @@
     "classic": "src/components/modals/MagnetAlignmentModal.tsx",
     "next": null,
     "accept": "Al añadir un pack a mano, un diálogo propone qué archivo es cada episodio (con confianza) y permite corregirlo antes de guardar las etiquetas",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/*.rs, apps/desktop-native/crates/tk-app/src/live/{torrent,torrent_manual,torrent_play,torrent_settings}.rs, apps/desktop-native/crates/tk-app/src/{magnet,single_instance}.rs, apps/desktop-native/crates/tk-torrent/src/tracker_probe.rs; android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/store/SessionHistoryStore.kt, apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/{ParityContent,DetailTabs,SettingsContent,LibraryContent}.kt, apps/android-native/app/src/main/AndroidManifest.xml (magnet:)"
   },
   {
     "id": "torrent.custom-trackers",
@@ -2779,8 +2903,9 @@
     "classic": "src/components/settings/TorrentSettings.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/torrents/settings.rs",
     "accept": "Una lista de trackers adicionales se anuncia en todos los torrents nuevos",
-    "status": "done",
-    "audit": "Parcial"
+    "status": "verified",
+    "audit": "Parcial",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/*.rs, apps/desktop-native/crates/tk-app/src/live/{torrent,torrent_manual,torrent_play,torrent_settings}.rs, apps/desktop-native/crates/tk-app/src/{magnet,single_instance}.rs, apps/desktop-native/crates/tk-torrent/src/tracker_probe.rs; android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/store/SessionHistoryStore.kt, apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/{ParityContent,DetailTabs,SettingsContent,LibraryContent}.kt, apps/android-native/app/src/main/AndroidManifest.xml (magnet:)"
   },
   {
     "id": "torrent.bandwidth-schedule",
@@ -2791,8 +2916,9 @@
     "classic": "src/components/settings/TorrentSettings.tsx",
     "next": null,
     "accept": "Un horario (p. ej. noche sin límite, día 1 MB/s) cambia los límites a la hora indicada",
-    "status": "done",
-    "audit": "Parcial"
+    "status": "verified",
+    "audit": "Parcial",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/*.rs, apps/desktop-native/crates/tk-app/src/live/{torrent,torrent_manual,torrent_play,torrent_settings}.rs, apps/desktop-native/crates/tk-app/src/{magnet,single_instance}.rs, apps/desktop-native/crates/tk-torrent/src/tracker_probe.rs; android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/store/SessionHistoryStore.kt, apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/{ParityContent,DetailTabs,SettingsContent,LibraryContent}.kt, apps/android-native/app/src/main/AndroidManifest.xml (magnet:)"
   },
   {
     "id": "torrent.cache-limit",
@@ -2803,8 +2929,9 @@
     "classic": "src/components/settings/TorrentSettings.tsx",
     "next": null,
     "accept": "Un máximo de GB borra los torrents vistos más antiguos al superarse si \"liberar espacio\" está activo",
-    "status": "done",
-    "audit": "Parcial"
+    "status": "verified",
+    "audit": "Parcial",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/*.rs, apps/desktop-native/crates/tk-app/src/live/{torrent,torrent_manual,torrent_play,torrent_settings}.rs, apps/desktop-native/crates/tk-app/src/{magnet,single_instance}.rs, apps/desktop-native/crates/tk-torrent/src/tracker_probe.rs; android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/store/SessionHistoryStore.kt, apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/{ParityContent,DetailTabs,SettingsContent,LibraryContent}.kt, apps/android-native/app/src/main/AndroidManifest.xml (magnet:)"
   },
   {
     "id": "torrent.preload-next",
@@ -2815,8 +2942,10 @@
     "classic": "src/core/player/TorrentPreloadController.ts",
     "next": "apps/desktop-native/crates/tk-app/src/live/torrent_play.rs",
     "accept": "Al llegar al 80 % de un episodio torrent, el siguiente (misma fuente o pack) empieza a descargar en segundo plano",
-    "status": "done",
-    "audit": "Parcial"
+    "status": "verified",
+    "audit": "Parcial",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/*.rs, apps/desktop-native/crates/tk-app/src/live/{torrent,torrent_manual,torrent_play,torrent_settings}.rs, apps/desktop-native/crates/tk-app/src/{magnet,single_instance}.rs, apps/desktop-native/crates/tk-torrent/src/tracker_probe.rs; android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/store/SessionHistoryStore.kt, apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/{ParityContent,DetailTabs,SettingsContent,LibraryContent}.kt, apps/android-native/app/src/main/AndroidManifest.xml (magnet:)",
+    "note": "Audit 2026-11-09: verified with caveat (android): preload triggers when the streamed file is 80 % downloaded, not at 80 % of the playback position (KNOWN-ISSUES)."
   },
   {
     "id": "torrent.files.play-file",
@@ -2827,7 +2956,8 @@
     "classic": "src/components/video/NativeTorrentPlayer.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/torrents/files.rs",
     "accept": "En Archivos, cada video tiene \"Reproducir\" y \"Descargar solo este\"",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/*.rs, apps/desktop-native/crates/tk-app/src/live/{torrent,torrent_manual,torrent_play,torrent_settings}.rs, apps/desktop-native/crates/tk-app/src/{magnet,single_instance}.rs, apps/desktop-native/crates/tk-torrent/src/tracker_probe.rs; android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/store/SessionHistoryStore.kt, apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/{ParityContent,DetailTabs,SettingsContent,LibraryContent}.kt, apps/android-native/app/src/main/AndroidManifest.xml (magnet:)"
   },
   {
     "id": "torrent.session-history",
@@ -2838,8 +2968,9 @@
     "classic": "src/components/settings/TorrentSessionHistory.tsx",
     "next": null,
     "accept": "Una lista muestra los torrents reproducidos con fecha y permite volver a abrirlos",
-    "status": "done",
-    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (i; Android q)"
+    "status": "verified",
+    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (i; Android q)",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/*.rs, apps/desktop-native/crates/tk-app/src/live/{torrent,torrent_manual,torrent_play,torrent_settings}.rs, apps/desktop-native/crates/tk-app/src/{magnet,single_instance}.rs, apps/desktop-native/crates/tk-torrent/src/tracker_probe.rs; android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/store/SessionHistoryStore.kt, apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/{ParityContent,DetailTabs,SettingsContent,LibraryContent}.kt, apps/android-native/app/src/main/AndroidManifest.xml (magnet:)"
   },
   {
     "id": "torrent.trackers.status",
@@ -2850,8 +2981,9 @@
     "classic": "desktop/runtime/torrent",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/torrents/trackers.rs",
     "accept": "La tabla Trackers muestra estado (ok/error) y pares anunciados en vez de siempre Unknown",
-    "status": "done",
-    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (i; Android q). Antes en KNOWN-ISSUES"
+    "status": "verified",
+    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (i; Android q). Antes en KNOWN-ISSUES",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/torrents/*.rs, apps/desktop-native/crates/tk-app/src/live/{torrent,torrent_manual,torrent_play,torrent_settings}.rs, apps/desktop-native/crates/tk-app/src/{magnet,single_instance}.rs, apps/desktop-native/crates/tk-torrent/src/tracker_probe.rs; android: apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/TorrentRepositoryImpl.kt, apps/android-native/core/torrent/src/main/kotlin/app/tatakai/next/torrent/store/SessionHistoryStore.kt, apps/android-native/feature/torrents/src/main/kotlin/app/tatakai/next/feature/torrents/ui/{ParityContent,DetailTabs,SettingsContent,LibraryContent}.kt, apps/android-native/app/src/main/AndroidManifest.xml (magnet:)"
   },
   {
     "id": "torrent.country-policy",
@@ -3536,8 +3668,9 @@
     "classic": "src/pages/auth/AuthPage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs",
     "accept": "Ninguna pantalla pide email ni contraseña: Ajustes › Cuentas ofrece Conectar AniList y Conectar MAL y, conectado, muestra usuario y avatar; listas, progreso, favoritos y puntuación viven en esas cuentas",
-    "status": "done",
-    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio"
+    "status": "verified",
+    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt"
   },
   {
     "id": "account.supabase-removal",
@@ -3548,8 +3681,9 @@
     "classic": "src/integrations/supabase/types.ts",
     "next": "apps/desktop-native/crates/tk-core/src/config.rs",
     "accept": "No queda código, dependencia, configuración (TATAKAI_SUPABASE_*) ni UI de Supabase en apps/desktop-native ni apps/android-native (incl. checkTatakaiConfig); la app arranca sin esas variables y sin pantalla de cuenta",
-    "status": "done",
-    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio. Regla \"analyze before removing\": se quita solo después de que history.link-sync.* y lists.* cubran lo que daba (historial con posición exacta, listas)"
+    "status": "verified",
+    "note": "Plan §0.1.9 (enmiendas 2026-11-09): sin login propio. Regla \"analyze before removing\": se quita solo después de que history.link-sync.* y lists.* cubran lo que daba (historial con posición exacta, listas)",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/config.rs, apps/desktop-native/crates/tk-app/src/config.rs (only legacy-field compat + comments); android: apps/android-native/app/build.gradle.kts (no checkTatakaiConfig; only comments remain)"
   },
   {
     "id": "account.oauth.errors",
@@ -3560,8 +3694,9 @@
     "classic": "src/lib/authErrors.ts",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs",
     "accept": "Sin TATAKAI_ANILIST_CLIENT_ID / TATAKAI_MAL_CLIENT_ID \"Conectar\" muestra un error claro con el motivo; callback cancelado, estado inválido y token caducado muestran mensajes distintos",
-    "status": "done",
-    "note": "Plan §0.1.10 (enmiendas 2026-11-09): los ids OAuth los registra el usuario; uno por plataforma"
+    "status": "verified",
+    "note": "Plan §0.1.10 (enmiendas 2026-11-09): los ids OAuth los registra el usuario; uno por plataforma",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/lists/oauth.rs (error codes), apps/desktop-native/crates/tk-ui/src/screens/settings/accounts.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsViewModel.kt (AccountsError)"
   },
   {
     "id": "account.logout",
@@ -3680,8 +3815,9 @@
     "classic": "src/pages/auth/SetupPage.tsx",
     "next": null,
     "accept": "En el primer arranque (sin datos) aparece un asistente de pocos pasos: idioma, motor y preferencias de fuente, conectar AniList / MAL (opcional) y permisos; se puede omitir y no vuelve a aparecer",
-    "status": "done",
-    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (f; Android q)"
+    "status": "stub",
+    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (f; Android q) | Audit 2026-11-09: stub (desktop + android): both wizards exist, can be skipped and do not come back, but neither has the engine / source-preferences step; Android also has no permissions step (WELCOME, APPEARANCE, LISTS, LINK, DONE).",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/setup.rs (steps appearance/downloads/extensions/accounts/system/done), apps/desktop-native/crates/tk-ui/src/app.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/OnboardingScreen.kt (WELCOME/APPEARANCE/LISTS/LINK/DONE), apps/android-native/app/src/main/kotlin/app/tatakai/next/nav/TatakaiApp.kt"
   },
   {
     "id": "account.sessions-list",
@@ -3728,9 +3864,10 @@
     "classic": "src/lib/desktopOAuth.ts",
     "next": null,
     "accept": "En Android el callback OAuth llega por tatakai://oauth/<anilist|mal> (Custom Tab) y vincula la cuenta; en escritorio lo sustituye el loopback de lists.anilist.oauth / lists.mal.oauth",
-    "status": "done",
+    "status": "verified",
     "platform": "android",
-    "note": "Contrato Android §0.4: Custom Tabs + intent filter; escritorio usa loopback. Un cliente OAuth por plataforma (AniList admite una sola redirección por cliente)"
+    "note": "Contrato Android §0.4: Custom Tabs + intent filter; escritorio usa loopback. Un cliente OAuth por plataforma (AniList admite una sola redirección por cliente)",
+    "found": "android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/OAuthRedirect.kt, apps/android-native/app/src/main/AndroidManifest.xml, apps/android-native/app/src/main/kotlin/app/tatakai/next/nav/TatakaiApp.kt (accountLinks), apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AccountsSection.kt (CustomTabsIntent)"
   },
   {
     "id": "system.clear-cache",
@@ -3741,8 +3878,10 @@
     "classic": "desktop/ipc/ipc-system.cjs",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Limpiar caché\" borra la tabla cache y las imágenes en disco, muestra el espacio liberado y el botón deja de estar deshabilitado",
-    "status": "done",
-    "audit": "Stub"
+    "status": "stub",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-app/src/live/system.rs (clear_cache: cache table + disk caches), apps/desktop-native/crates/tk-ui/src/screens/settings/data.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsViewModel.kt (clearCache -> MetadataRepositoryImpl.clearCache: metadata table only)",
+    "note": "Audit 2026-11-09: stub (android): desktop verified (cache table + disk caches, bytes freed). Android \"Limpiar caché\" only clears the metadata cache table (MetadataRepositoryImpl.clearCache); the Coil image disk cache is not cleared."
   },
   {
     "id": "system.open-folder",
@@ -3753,9 +3892,10 @@
     "classic": "desktop/ipc/ipc-system.cjs",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Abrir carpeta\" abre el explorador en ~/.config/Tatakai-Next (o %APPDATA%)",
-    "status": "done",
+    "status": "verified",
     "audit": "Stub",
-    "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop."
+    "note": "Sin equivalente en Android (contrato Android de la ola A, §0 punto 3): solo desktop.",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/{data,system,about,metadata}.rs, apps/desktop-native/crates/tk-app/src/live/system.rs"
   },
   {
     "id": "system.export-history",
@@ -3766,8 +3906,9 @@
     "classic": "desktop/ipc/ipc-system.cjs",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Exportar historial\" escribe un JSON con el historial y muestra la ruta",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/{data,system,about,metadata}.rs, apps/desktop-native/crates/tk-app/src/live/system.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SystemViewModel.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AboutExtras.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/ResetAppRow.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/DiagnosticsImpl.kt"
   },
   {
     "id": "system.open-logs",
@@ -3778,8 +3919,9 @@
     "classic": "desktop/ipc/ipc-system.cjs",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Abrir logs\" abre el archivo de log del día en el visor del sistema (escritorio) o lo comparte (Android)",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/{data,system,about,metadata}.rs, apps/desktop-native/crates/tk-app/src/live/system.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SystemViewModel.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AboutExtras.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/ResetAppRow.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/DiagnosticsImpl.kt"
   },
   {
     "id": "system.secrets-store",
@@ -3790,8 +3932,9 @@
     "classic": "src/lib/desktopOAuth.ts",
     "next": "apps/desktop-native/crates/tk-core/src/secrets.rs",
     "accept": "Tokens OAuth de AniList / MAL, claves de debrid y claves de traducción se guardan en el keyring del SO (Linux: Secret Service con fallback JSON 0600; Windows: Credential Manager; macOS: Keychain) o en almacenamiento cifrado con Android Keystore; nunca aparecen en ui-settings.json ni en el DataStore",
-    "status": "done",
-    "note": "Default aceptado (enmiendas 2026-11-09): secretos en Secrets (escritorio) / Keystore (Android)"
+    "status": "verified",
+    "note": "Default aceptado (enmiendas 2026-11-09): secretos en Secrets (escritorio) / Keystore (Android)",
+    "found": "desktop: apps/desktop-native/crates/tk-core/src/secrets.rs; android: apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/DiagnosticsImpl.kt (KeystoreSecretStore)"
   },
   {
     "id": "system.licenses",
@@ -3802,8 +3945,9 @@
     "classic": "src/components/settings/panels/AboutPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Licencias\" abre un diálogo con el contenido de THIRD_PARTY_NOTICES.md en vez de un snackbar",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/{data,system,about,metadata}.rs, apps/desktop-native/crates/tk-app/src/live/system.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SystemViewModel.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AboutExtras.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/ResetAppRow.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/DiagnosticsImpl.kt"
   },
   {
     "id": "system.update-check",
@@ -3814,9 +3958,10 @@
     "classic": "desktop/services/update-manager.cjs",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "\"Buscar actualizaciones\" consulta la última release de GitHub de Kushro/Tatakai-own y muestra \"Al día\" o un enlace a la nueva versión",
-    "status": "done",
+    "status": "verified",
     "audit": "Stub",
-    "note": "Default aceptado: feed = GitHub Releases de Kushro/Tatakai-own"
+    "note": "Default aceptado: feed = GitHub Releases de Kushro/Tatakai-own",
+    "found": "desktop: apps/desktop-native/crates/tk-app/src/update_check.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/about.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AboutExtras.kt (UpdateCheckRow), apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SystemViewModel.kt"
   },
   {
     "id": "system.update-startup-notice",
@@ -3827,7 +3972,8 @@
     "classic": "desktop/services/update-manager.cjs",
     "next": null,
     "accept": "Si hay versión nueva en GitHub Releases de Kushro/Tatakai-own, al arrancar aparece un snackbar con \"Ver\" (ajuste desactivable)",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/tray.rs (new-version notice), apps/desktop-native/crates/tk-app/src/live/system.rs (on_start); android: apps/android-native/app/src/main/kotlin/app/tatakai/next/nav/TatakaiApp.kt (update snackbar)"
   },
   {
     "id": "system.autostart",
@@ -3838,8 +3984,9 @@
     "classic": "desktop/ipc/ipc-system.cjs",
     "next": null,
     "accept": "El interruptor crea o borra la entrada de autoarranque del SO y refleja el estado real",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-app/src/autostart.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/system.rs"
   },
   {
     "id": "system.tray.icon",
@@ -3850,8 +3997,9 @@
     "classic": "desktop/window/tray.cjs",
     "next": null,
     "accept": "Con el ajuste activo, cerrar la ventana la oculta y la bandeja muestra el icono con Mostrar y Salir",
-    "status": "done",
-    "audit": "Falta"
+    "status": "verified",
+    "audit": "Falta",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/tray.rs, apps/desktop-native/crates/tk-ui/src/screens/settings/system.rs"
   },
   {
     "id": "system.tray.restore",
@@ -3862,7 +4010,8 @@
     "classic": "desktop/window/tray.cjs",
     "next": null,
     "accept": "Clic en el icono de bandeja restaura la ventana",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/tray.rs"
   },
   {
     "id": "system.storage-usage",
@@ -3873,7 +4022,8 @@
     "classic": "src/components/settings/StorageSettingsPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Datos muestra el tamaño de caché, torrents y descargas y el espacio libre, como Android",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/{data,system,about,metadata}.rs, apps/desktop-native/crates/tk-app/src/live/system.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SystemViewModel.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AboutExtras.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/ResetAppRow.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/DiagnosticsImpl.kt"
   },
   {
     "id": "system.clear-watch-history",
@@ -3884,7 +4034,8 @@
     "classic": "src/components/settings/panels/PrivacyPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Una acción con confirmación borra el historial local (y el remoto si hay sesión)",
-    "status": "done"
+    "status": "verified",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/{data,system,about,metadata}.rs, apps/desktop-native/crates/tk-app/src/live/system.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SystemViewModel.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AboutExtras.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/ResetAppRow.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/DiagnosticsImpl.kt"
   },
   {
     "id": "system.metadata-cache-control",
@@ -3895,8 +4046,9 @@
     "classic": "src/components/settings/MetadataSourcesPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "La fila de caché de Metadatos muestra tamaño y tiene Vaciar y selector de TTL, como Android",
-    "status": "done",
-    "audit": "Stub"
+    "status": "verified",
+    "audit": "Stub",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/{data,system,about,metadata}.rs, apps/desktop-native/crates/tk-app/src/live/system.rs; android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SettingsSections.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/SystemViewModel.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/AboutExtras.kt, apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/ResetAppRow.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/DiagnosticsImpl.kt"
   },
   {
     "id": "system.single-instance",
@@ -3988,8 +4140,9 @@
     "classic": "src/components/settings/DesktopSettings.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings/data.rs",
     "accept": "Ajustes › Datos › Zona de peligro: \"Restablecer la app\" pide confirmación escrita, borra ajustes, caché, historial, listas locales, secretos y dispositivos Link, y reinicia como primer arranque (vuelve el asistente)",
-    "status": "done",
-    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (f; Android q)"
+    "status": "verified",
+    "note": "Plan §0.1.11 (enmiendas 2026-11-09): entra en la ola A (f; Android q)",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/screens/settings/data.rs, apps/desktop-native/crates/tk-app/src/reset.rs, apps/desktop-native/crates/tk-app/src/live/system.rs (reset_app); android: apps/android-native/feature/settings/src/main/kotlin/app/tatakai/next/feature/settings/ResetAppRow.kt, apps/android-native/core/data/src/main/kotlin/app/tatakai/next/data/DiagnosticsImpl.kt (AppReset)"
   },
   {
     "id": "system.changelog",
@@ -4238,8 +4391,9 @@
     "classic": "src/lib/i18n.ts",
     "next": "apps/desktop-native/crates/tk-ui/src/i18n.rs",
     "accept": "tk-ui/i18n/{en,es}/<namespace>.json se fusionan en compilación y en.json y es.json tienen el mismo conjunto de claves",
-    "status": "done",
-    "note": "Estructural, lo deja el contrato A"
+    "status": "verified",
+    "note": "Estructural, lo deja el contrato A",
+    "found": "desktop: apps/desktop-native/crates/tk-ui/src/i18n.rs, apps/desktop-native/crates/tk-ui/i18n/{en,es}/*.json (9 namespaces, 1528 keys each); android: */src/main/res/values{,-es}/strings.xml (key sets match)"
   },
   {
     "id": "settings.cloud-sync",
