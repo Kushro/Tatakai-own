@@ -178,7 +178,7 @@ private fun PlayerBody(
         val session = state.session
         when {
             state.phase == PlayerPhase.EXTERNAL && state.external != null -> ExternalBranch(vm, state, title, onBack, onOpenSettings)
-            session != null && state.phase != PlayerPhase.ERROR -> PlayerContent(
+            session != null && state.phase != PlayerPhase.ERROR -> androidx.compose.runtime.CompositionLocalProvider(LocalDownloadArgs provides args) { PlayerContent(
                 vm = vm,
                 session = session,
                 state = state,
@@ -188,7 +188,7 @@ private fun PlayerBody(
                 onBack = onBack,
                 onOpenPicker = { pickerOpen = true },
                 onOpenTorrent = onOpenTorrent,
-            )
+            ) }
             else -> StatusBody(vm, state, onOpenTorrent, onOpenExtensions, onOpenLinked, onPick = { pickerOpen = true })
         }
         // Back is always reachable, also while sources load or fail.

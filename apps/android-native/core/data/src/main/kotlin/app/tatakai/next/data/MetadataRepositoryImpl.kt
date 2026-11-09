@@ -5,7 +5,9 @@ import app.tatakai.next.metadata.DiscoverProvider
 import app.tatakai.next.metadata.MetadataRouter
 import app.tatakai.next.metadata.NoMetadataProviderException
 import app.tatakai.next.metadata.ProviderException
+import app.tatakai.next.model.AiringEpisode
 import app.tatakai.next.model.AppError
+import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.Character
 import app.tatakai.next.model.CharacterRef
@@ -23,9 +25,14 @@ import app.tatakai.next.model.MediaSearchQuery
 import app.tatakai.next.model.MediaTag
 import app.tatakai.next.model.MetadataCacheStats
 import app.tatakai.next.model.MetadataRepository
+import app.tatakai.next.model.ProviderStatus
 import app.tatakai.next.model.Recommendation
 import app.tatakai.next.model.StaffEdge
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -206,6 +213,47 @@ class MetadataRepositoryImpl(
         }
     }
 
+    // --- parity wave B (16 §3.1, worker r) ---
+
+    @Serializable
+    private data class CachedAiring(val items: List<CachedAiringRow>)
+
+    @Serializable
+    private data class CachedAiringRow(val media: Media, val episode: Int, val at: Long)
+
+    /**
+     * AniList `Page.airingSchedules` through the router (DISCOVER providers that implement `AiringProvider`), cached [FEED_TTL_MS] per
+     * window and page (stale copy offline). No DISCOVER provider enabled = empty ("not available").
+     */
+    override suspend fun airingSchedule(fromEpochSec: Long, toEpochSec: Long, page: Int): List<AiringEpisode> {
+        val key = "airing:$fromEpochSec:$toEpochSec:$page"
+        fun decode(raw: String): List<AiringEpisode>? = runCatching { json.decodeFromString(CachedAiring.serializer(), raw) }.getOrNull()
+            ?.items?.map { AiringEpisode(it.media, it.episode, it.at) }
+        cache.getFresh(key, FEED_TTL_MS)?.let { raw -> decode(raw)?.let { return it } }
+        return try {
+            router.airingSchedule(fromEpochSec, toEpochSec, page).value.first.also { list ->
+                if (list.isNotEmpty()) {
+                    cache.put(key, json.encodeToString(CachedAiring.serializer(), CachedAiring(list.map { CachedAiringRow(it.media, it.episode, it.airingAtEpochSec) })))
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: NoMetadataProviderException) {
+            if (e.errors.isEmpty()) return emptyList()
+            cache.getStale(key)?.let { decode(it) } ?: throw e.toAppException()
+        } catch (e: Exception) {
+            cache.getStale(key)?.let { decode(it) } ?: throw e.toAppException()
+        }
+    }
+
+    /** Checklist settings.metadata.provider-status: the router's last result / cooldown per known provider, re-read every 2 s. */
+    override fun providerStatus(): Flow<List<ProviderStatus>> = flow {
+        while (true) {
+            emit(router.statusSnapshot(AppSettings.KNOWN_PROVIDER_IDS))
+            delay(STATUS_TICK_MS)
+        }
+    }.distinctUntilChanged()
+
     // --- android wave (12 §3.6) ---
 
     override suspend fun cacheStats(): MetadataCacheStats {
@@ -249,5 +297,6 @@ class MetadataRepositoryImpl(
         const val FEED_TTL_MS = 15L * 60_000
         const val DEFAULT_TTL_HOURS = 24
         const val CATALOGUE_TTL_MS = 7L * 24 * 60 * 60_000
+        const val STATUS_TICK_MS = 2_000L
     }
 }

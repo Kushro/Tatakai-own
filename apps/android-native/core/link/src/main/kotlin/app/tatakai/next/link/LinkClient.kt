@@ -161,6 +161,23 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
     suspend fun historyClear(): LinkResult<Unit> =
         LinkHttp.exchange(client, LinkHttp.request(url("v1/history")).delete().build(), MAX_JSON) { _, _ -> Unit }
 
+    // --- parity wave B (16 §3.11, worker r): remote control, hand-off and PC -> phone events (canonical wire: LinkControl.kt) ---
+
+    private val control by lazy { LinkControlClient(baseUrl, client) }
+
+    /** `GET /v1/player`: null when the PC has nothing open or no remote control (404). */
+    suspend fun playerState(): LinkResult<PlayerStateDto?> = control.playerState()
+
+    /** `POST /v1/control` `{ "command": "prev" | "toggle" | "next" }` (`RemoteAction.id`). */
+    suspend fun playerAction(command: String): LinkResult<Unit> = control.control(ControlWire.simple(command))
+
+    /** "Continuar en la PC": `POST /v1/control` `{ "command": "open", "mediaId", "episode", "positionSecs" }`. */
+    suspend fun handoff(mediaId: String, episode: Int, positionSecs: Int): LinkResult<Unit> =
+        control.control(ControlWire.open(mediaId, episode, positionSecs))
+
+    /** `GET /v1/events?wait=<1..25>` long-poll; empty on `204`. */
+    suspend fun events(wait: Int = ControlWire.MAX_WAIT_SECS): LinkResult<List<PhoneEventDto>> = control.events(wait)
+
     /** Absolute URL of a `playback_path` returned by the PC (same origin as this client). */
     fun playbackUrl(playbackPath: String): String = baseUrl.newBuilder().encodedPath(playbackPath).build().toString()
 

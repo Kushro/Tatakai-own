@@ -6,4 +6,5 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.androidx.activity.compose) // SAF pickers (import files, choose folder)
     implementation(libs.androidx.documentfile)
+    implementation(libs.kotlinx.serialization.json) // ChapterDownload.localRef = JSON of the reader args
 }

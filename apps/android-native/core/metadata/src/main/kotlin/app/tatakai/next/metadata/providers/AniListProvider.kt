@@ -1,6 +1,8 @@
 package app.tatakai.next.metadata.providers
 
+import app.tatakai.next.metadata.AiringProvider
 import app.tatakai.next.metadata.Capability
+import app.tatakai.next.metadata.ExtraMappers
 import app.tatakai.next.metadata.DiscoverMappers
 import app.tatakai.next.metadata.DiscoverProvider
 import app.tatakai.next.metadata.TrendWindow
@@ -12,7 +14,9 @@ import app.tatakai.next.metadata.Mappers.sub
 import app.tatakai.next.metadata.MetadataProvider
 import app.tatakai.next.metadata.ProviderException
 import app.tatakai.next.metadata.fetchJson
+import app.tatakai.next.model.AiringEpisode
 import app.tatakai.next.model.Character
+import app.tatakai.next.model.PER_PAGE_AIRING
 import app.tatakai.next.model.CharacterRef
 import app.tatakai.next.model.CharactersPage
 import app.tatakai.next.model.FeedKind
@@ -46,7 +50,7 @@ class AniListProvider(
     private val client: OkHttpClient,
     private val endpoint: String = "https://graphql.anilist.co",
     private val today: () -> LocalDate = { LocalDate.now() },
-) : MetadataProvider, DiscoverProvider {
+) : MetadataProvider, DiscoverProvider, AiringProvider {
     override val id = ID
     override val kinds = setOf(MediaKind.ANIME, MediaKind.MANGA)
     override val capabilities = setOf(Capability.FEED, Capability.SEARCH, Capability.MEDIA, Capability.DISCOVER)
@@ -244,6 +248,21 @@ class AniListProvider(
         }
     }
 
+    // ---------------------------------------------------------------- parity wave B (AiringProvider, worker r)
+
+    override suspend fun airingSchedule(fromEpochSec: Long, toEpochSec: Long, page: Int): Pair<List<AiringEpisode>, Boolean> {
+        if (toEpochSec <= fromEpochSec) return emptyList<AiringEpisode>() to false
+        val vars = buildJsonObject {
+            put("page", page.coerceAtLeast(1))
+            put("perPage", PER_PAGE_AIRING)
+            // airingAt_greater / _lesser are exclusive: `[from, to)` = `> from - 1` and `< to`.
+            put("from", (fromEpochSec - 1).coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
+            put("to", toEpochSec.coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
+        }
+        val doc = post(AIRING_QUERY, vars)
+        return ExtraMappers.airingSchedules(doc).filter { it.airingAtEpochSec in fromEpochSec until toEpochSec } to ExtraMappers.airingHasNext(doc)
+    }
+
     private suspend fun post(query: String, variables: JsonObject): JsonElement {
         val body = buildJsonObject {
             put("query", query)
@@ -288,6 +307,18 @@ query (${'$'}page: Int, ${'$'}perPage: Int, ${'$'}type: MediaType, ${'$'}sort: [
       season: ${'$'}season, seasonYear: ${'$'}seasonYear, isAdult: ${'$'}isAdult,
       startDate_greater: ${'$'}startDate_greater, startDate_lesser: ${'$'}startDate_lesser) {
       ...mediaCard
+    }
+  }
+}
+$CARD"""
+
+        internal const val AIRING_QUERY = """
+query (${'$'}page: Int, ${'$'}perPage: Int, ${'$'}from: Int, ${'$'}to: Int) {
+  Page(page: ${'$'}page, perPage: ${'$'}perPage) {
+    pageInfo { currentPage hasNextPage }
+    airingSchedules(airingAt_greater: ${'$'}from, airingAt_lesser: ${'$'}to, sort: [TIME]) {
+      episode airingAt
+      media { ...mediaCard }
     }
   }
 }

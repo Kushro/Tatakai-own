@@ -125,4 +125,17 @@
     <string name="search_settings_history_clear">Clear recent searches</string>
     <string name="search_settings_history_confirm">Remove every recent search saved on this device?</string>
     <string name="search_settings_history_cleared">Recent searches cleared</string>
+    <!-- parity wave B (16 §3.1, worker r): mature content + metadata providers rows of DiscoverSettingsExtras. -->
+    <string name="search_settings_mature">Mature content</string>
+    <string name="search_settings_mature_hint">How adult titles look in Home, Search and the details page once 18+ content is allowed.</string>
+    <string name="search_settings_mature_show">Show</string>
+    <string name="search_settings_mature_blur">Blur</string>
+    <string name="search_settings_mature_warn">Warn</string>
+    <string name="search_settings_meta_providers">Providers</string>
+    <string name="search_settings_meta_providers_hint">Turn sources on or off; the list above sets their order. MAL needs a client id built into the app.</string>
+    <string name="search_settings_meta_off">Off</string>
+    <string name="search_settings_meta_paused">Paused for %1$d min after errors</string>
+    <string name="search_settings_meta_error">Error: %1$s</string>
+    <string name="search_settings_meta_ok">Working</string>
+    <string name="search_settings_meta_idle">Not used yet in this session</string>
 </resources>
