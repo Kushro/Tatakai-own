@@ -26,6 +26,7 @@ import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SourceKind
 import app.tatakai.next.model.SourceMode
 import app.tatakai.next.model.SourceStatsStore
+import app.tatakai.next.model.DownloadRepository
 import app.tatakai.next.model.StaffEdge
 import app.tatakai.next.model.StreamSource
 import app.tatakai.next.model.TitleLanguage
@@ -84,6 +85,8 @@ data class DetailsUiState(
     /** 18+ title not confirmed yet for this id (classic AdultWarningGate): the screen shows the gate instead of the content. */
     val adultGate: Boolean = false,
     val episodeQuery: String = "",
+    /** parity wave B (r, downloads.local-library.play-offline): episodes with a completed web download (marked, played offline). */
+    val downloaded: Set<Int> = emptySet(),
     val episodeView: EpisodeView = EpisodeView.LIST,
 ) {
     /** Episode the primary button resumes / starts. */
@@ -163,6 +166,8 @@ class DetailsViewModel(
     private val torrents: TorrentRepository? = null,
     private val stats: SourceStatsStore? = null,
     private val prefs: DetailsPrefs = InMemoryDetailsPrefs(),
+    // parity wave B (r): completed downloads play without network; null when :core:download is not bound.
+    private val downloads: DownloadRepository? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DetailsUiState(episodeView = prefs.episodeView()))
@@ -186,6 +191,11 @@ class DetailsViewModel(
             }
         }
         load()
+        downloads?.let { repo ->
+            viewModelScope.launch {
+                repo.downloadedEpisodes(ref).catch { }.collect { map -> _state.update { it.copy(downloaded = map.keys) } }
+            }
+        }
         viewModelScope.launch {
             link.state.collect { s -> _state.update { it.copy(link = s) } }
         }
@@ -291,7 +301,7 @@ class DetailsViewModel(
             viewModelScope.launch { runCatchingApp { store.setPickedSource(mediaId, request.episode, source.key) } }
         }
         if (request.playOnPick) {
-            emitPlayer(request.episode, sourceKey = source.key)
+            emitPlayer(request.episode, sourceKey = source.key, preferLocal = false)
         } else {
             _events.trySend(DetailsEvent.SourceChosen(source.candidate.extName, source.candidate.label))
         }
@@ -382,7 +392,7 @@ class DetailsViewModel(
                 link.startSession(LinkSource.Url(stream.url, stream.headers), profileId = null).getOrThrow()
             }
             _state.update { it.copy(sending = false) }
-            result.onSuccess { session -> emitPlayer(episode, sourceKey = null, remoteSessionId = session.sessionId) }
+            result.onSuccess { session -> emitPlayer(episode, sourceKey = null, remoteSessionId = session.sessionId, preferLocal = false) }
                 .onFailure { e -> _events.trySend(DetailsEvent.SendFailed(e.toAppError())) }
         }
     }
@@ -507,22 +517,35 @@ class DetailsViewModel(
     private fun <T> Result<T>.toLoadState(): LoadState<T> =
         fold(onSuccess = { LoadState.Ok(it) }, onFailure = { e -> LoadState.Err(e.toAppError()) })
 
-    private fun emitPlayer(episode: Int, sourceKey: String?, remoteSessionId: String? = null) {
+    /**
+     * [preferLocal]: a completed download of [episode] plays offline (parity wave B, r: downloads.local-library.play-offline) unless
+     * the user picked a source in the sheet or plays on the PC.
+     */
+    private fun emitPlayer(episode: Int, sourceKey: String?, remoteSessionId: String? = null, preferLocal: Boolean = true) {
         val s = _state.value
         val title = (s.media as? LoadState.Ok)?.value?.title ?: return
         val saved = s.progress[episode]
         val startMs = if (saved != null && !saved.completed) saved.progressSec * 1000L else 0L
-        _events.trySend(
-            DetailsEvent.NavigateToPlayer(
-                PlayerArgs(
-                    media = ref,
-                    title = title,
-                    episode = episode,
-                    startMs = startMs,
-                    remoteSessionId = remoteSessionId,
-                    sourceKey = sourceKey,
+        val repo = downloads
+        fun send(localUri: String?) {
+            _events.trySend(
+                DetailsEvent.NavigateToPlayer(
+                    PlayerArgs(
+                        media = ref,
+                        title = title,
+                        episode = episode,
+                        startMs = startMs,
+                        remoteSessionId = remoteSessionId,
+                        sourceKey = sourceKey,
+                        localUri = localUri,
+                    ),
                 ),
-            ),
-        )
+            )
+        }
+        if (repo == null || !preferLocal || remoteSessionId != null || episode !in s.downloaded) {
+            send(null)
+            return
+        }
+        viewModelScope.launch { send(runCatching { repo.localUriFor(ref, episode) }.getOrNull()) }
     }
 }

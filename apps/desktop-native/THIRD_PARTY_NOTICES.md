@@ -96,7 +96,7 @@ Anime4K shaders (MIT / Unlicense, bloc97), FSR.glsl (MIT, agyild), Space Grotesk
 |---|---|---|---|
 | `tk-server/src/{api,auth,state,routes,proxy,logs}.rs` (`/api/server/v1` routes, envelope, error codes, pairing / tokens, NDJSON resolve, media tickets and HLS rewriting, lookup cache) | `server/src/{core,node,security,storage,proxy,cache,logs,lookup-cache,api-response}.mjs` of this repository | MPL-2.0 | re-implemented in Rust over axum 0.8; viewer password hashed with argon2id (`argon2` crate) instead of scrypt |
 | `tk-server/src/upstream.rs` (FlareSolverr `request.get` / clearance reuse, outbound proxy test) | `src/components/settings/{FlareSolverrSettings,ProxySettingsPanel}.tsx`, `desktop/runtime/proxy/local-proxy-server.cjs` of this repository | MPL-2.0 | SSRF rules from `tk_core::net` on every hop |
-| `tk-app/src/live/sniffer.rs` `ADBLOCK_HOSTS` (ad / popunder host suffixes), capture rules of `live/browser.rs` | `desktop/security/ad-blocker.cjs` and `android/app/src/main/java/app/tatakai/me/security/AdHosts.java` of this repository; `src/components/video/EmbedPlayer.tsx` | MPL-2.0 | only the ad-network tier of the host list; capture script written for the hidden wry view |
+| `tk-app/src/live/sniffer.rs` `ADBLOCK_HOSTS` (ad / popunder host suffixes), capture rules of `live/browser.rs` | `desktop/security/ad-blocker.cjs` and the classic Android app's `security/AdHosts.java` (`android/app/src/main/java/...` of this repository); `src/components/video/EmbedPlayer.tsx` | MPL-2.0 | only the ad-network tier of the host list; capture script written for the hidden wry view |
 
 ### Novels and narration (wave B, worker m)
 

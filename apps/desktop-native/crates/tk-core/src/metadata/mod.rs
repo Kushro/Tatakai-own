@@ -145,6 +145,8 @@ impl MetadataRouter {
             .providers
             .iter()
             .filter(|p| kind.is_none_or(|k| p.kinds().contains(&k)))
+            // Wave B (b): a provider missing from the priority (switched off in Settings > Metadata) is never asked.
+            .filter(|p| prio.iter().any(|x| x == p.id()))
             .filter(|p| include_cooling || down.get(p.id()).copied().unwrap_or(0) <= now)
             .cloned()
             .collect();

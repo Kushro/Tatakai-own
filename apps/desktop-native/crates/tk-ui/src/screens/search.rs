@@ -708,6 +708,21 @@ pub fn SearchPage() -> Element {
                     }
                 },
             }
+            // Wave B (l, `manga.route`): the manga home opens its Search tab with the current query.
+            Chip {
+                label: t("manga.title"),
+                icon: "grid".to_string(),
+                onclick: move |_| crate::screens::manga::open_search(navigator, &query.peek()),
+            }
+            // Wave B (m, `novel.route`): the novel home takes the pending query once when it mounts.
+            Chip {
+                label: t("novel.search.type"),
+                icon: "bookmark".to_string(),
+                onclick: move |_| {
+                    crate::screens::novel::home::set_pending_query(&query.peek());
+                    navigator.push(Route::NovelHomePage {});
+                },
+            }
             if current_kind == SearchKind::Anime {
                 span { class: "tk-search__sep", "aria-hidden": "true" }
                 Chip {
@@ -862,6 +877,8 @@ pub fn SearchPage() -> Element {
                     }
                 }
             } else {
+                // Wave B (b, `settings.privacy.mature-content`): 18+ results are blurred in the Blur mode.
+                let card_blurred = crate::model::home::blurred(&ui.settings.read().home, active_filters.adult);
                 let shown = page_state.total.map(|n| n as usize).unwrap_or(items.len());
                 let count = tn("search.results", shown);
                 let sel = detail_id.clone();
@@ -902,7 +919,9 @@ pub fn SearchPage() -> Element {
                                 {
                                     let id = m.id.clone();
                                     rsx! {
-                                        MediaCard { key: "{m.id}", media: m.clone(), onclick: move |_| open_item.call(id.clone()) }
+                                        div { key: "{m.id}", class: "tk-blur-wrap", "data-blurred": "{card_blurred}",
+                                            MediaCard { media: m.clone(), onclick: move |_| open_item.call(id.clone()) }
+                                        }
                                     }
                                 }
                             }

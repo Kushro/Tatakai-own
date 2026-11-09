@@ -456,7 +456,9 @@ private fun Facts(source: RankedSource) {
     val facts = mutableListOf<Pair<String, String>>()
     if (c.kind == SourceKind.WEB) {
         facts += stringResource(R.string.src_picker_server) to c.label
-        val quality = listOfNotNull(c.quality.takeIf { it != Quality.UNKNOWN }?.label(), c.container).joinToString(" ").trim()
+        // parity wave B (t, contract §3.3): an embed page shows the translated "Embed" instead of the raw container label.
+        val container = if (c.isEmbed) stringResource(UiR.string.src_embed) else c.container
+        val quality = listOfNotNull(c.quality.takeIf { it != Quality.UNKNOWN }?.label(), container).joinToString(" ").trim()
         if (quality.isNotEmpty()) facts += stringResource(R.string.src_picker_quality) to quality
         c.web?.latencyMs?.let { facts += stringResource(R.string.src_picker_latency) to stringResource(R.string.src_picker_latency_ms, it) }
     } else {

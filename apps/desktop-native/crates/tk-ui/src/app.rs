@@ -415,6 +415,8 @@ fn Shell() -> Element {
     // Wave A: Discord presence while browsing / viewing (worker e) and magnets handed over by a second launch (worker i).
     crate::screens::player::presence::use_route_presence(route.clone());
     crate::screens::torrents::library::use_pending_magnet_watch();
+    // Wave B (j, `ext.deep-link.server`): a tatakai://extensionserver/connect link opens Extensions > Servers.
+    crate::screens::extensions::use_pending_server_link_watch();
     // Wave B (worker k, `link.remote-control` / `link.handoff`): commands a paired phone sends over Tatakai Link.
     // `Open` navigates to the player; the transport commands become shortcuts the player already handles. The loop
     // ends on `NotWired` (default `Backend`) and backs off on any other error.

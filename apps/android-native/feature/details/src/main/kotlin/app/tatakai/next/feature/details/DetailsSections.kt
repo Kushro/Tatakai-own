@@ -640,6 +640,7 @@ private fun LazyListScope.episodeItems(media: Media, state: DetailsUiState, acti
                         unaired = item.unaired,
                         progress = state.progress[item.episode.number],
                         current = item.episode.number == current && state.progress.isNotEmpty(),
+                        downloaded = item.episode.number in state.downloaded,
                         onClick = { actions.onEpisodeClick(item.episode.number) },
                         onDownload = { actions.onDownloadEpisode(item.episode.number) },
                     )
@@ -697,6 +698,8 @@ private fun DetailsEpisodeRow(
     current: Boolean,
     onClick: () -> Unit,
     onDownload: () -> Unit,
+    /** parity wave B (r): a completed download exists (plays offline). */
+    downloaded: Boolean = false,
 ) {
     var menu by remember { mutableStateOf(false) }
     val rowModifier = if (current) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier
@@ -733,11 +736,12 @@ private fun DetailsEpisodeRow(
                 overflow = TextOverflow.Ellipsis,
             )
             val watched = progress?.completed == true
-            if (episode.isFiller || watched || unaired) {
+            if (episode.isFiller || watched || unaired || downloaded) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (unaired) Pill(stringResource(R.string.details_unaired), tone = PillTone.NEUTRAL)
                     if (episode.isFiller) Pill(stringResource(R.string.details_filler), tone = PillTone.WARN)
                     if (watched) Pill(stringResource(R.string.details_watched), tone = PillTone.OK)
+                    if (downloaded) Pill(stringResource(UiR.string.download_state_completed), tone = PillTone.NEUTRAL)
                 }
             }
             episode.airDate?.let {

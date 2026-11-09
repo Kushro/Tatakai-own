@@ -581,6 +581,10 @@ fn resume_of(b: &LiveBackend, kind: ReadKindVm, id: &str) -> Option<ReadProgress
 
 pub async fn details(b: &LiveBackend, id: &str) -> UiResult<MangaDetailsVm> {
     ensure_page_io(b);
+    // Wave B (j, `ext.custom-providers.read`): provider titles of kind `read` come from their extension.
+    if super::ext_catalog::is_provider_id(id) {
+        return super::ext_catalog::provider_manga_details(b, id).await;
+    }
     let s = settings(b);
     let lang = title_language(&s);
     match parse_id(id).ok_or_else(|| invalid(id))? {
@@ -1069,6 +1073,9 @@ fn provider_name(ext_name: &str, list: &ChapterList) -> String {
 }
 
 pub async fn chapters(b: &LiveBackend, id: &str, refresh: bool) -> UiResult<Vec<ChapterProviderVm>> {
+    if super::ext_catalog::is_provider_id(id) {
+        return super::ext_catalog::provider_chapters(b, id).await;
+    }
     let kind = ReadKindVm::Manga.id();
     let ctx = ChapterCtx::new(b);
     let key = ctx.key_for(id).await?;
@@ -1242,6 +1249,9 @@ pub async fn pages(b: &LiveBackend, chapter: &ChapterRefVm) -> UiResult<Vec<Page
         if !list.is_empty() {
             return Ok(list);
         }
+    }
+    if super::ext_catalog::is_provider_chapter(chapter) {
+        return super::ext_catalog::provider_pages(b, chapter).await;
     }
     let host = b.ext.host();
     let r = fetch_pages(&host, chapter).await;

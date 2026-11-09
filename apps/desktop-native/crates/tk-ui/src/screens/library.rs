@@ -55,6 +55,10 @@ pub enum LibTab {
     History,
     List(ListStatusVm),
     Favorites,
+    /// Wave B (l, `manga.readlist`): the manga read list (AniList `MANGA` list mirrored locally).
+    Manga,
+    /// Wave B (m, `novel.readlist`): the novel read list.
+    Novels,
 }
 
 impl LibTab {
@@ -65,20 +69,26 @@ impl LibTab {
             Self::History => "history",
             Self::List(s) => s.id(),
             Self::Favorites => "favorites",
+            Self::Manga => "manga",
+            Self::Novels => "novels",
         }
     }
 
-    /// The nine tabs of an expanded window, in order.
+    /// The eleven tabs of an expanded window, in order (the reading lists of wave B last).
     pub fn expanded() -> Vec<LibTab> {
         let mut v = vec![Self::Continue, Self::History];
         v.extend(ListStatusVm::ALL.into_iter().map(Self::List));
         v.push(Self::Favorites);
+        v.push(Self::Manga);
+        v.push(Self::Novels);
         v
     }
 
     fn label(self) -> String {
         match self {
             Self::List(s) => t(&status_key(s)),
+            Self::Manga => t("nav.manga"),
+            Self::Novels => t("nav.novels"),
             other => t(&format!("lib.tab.{}", other.id())),
         }
     }
@@ -240,12 +250,15 @@ pub fn LibraryPage() -> Element {
             ("history".into(), LibTab::History.label(), current == LibTab::History, Some(LibTab::History)),
             ("lists".into(), t("lib.tab.lists"), matches!(current, LibTab::List(_)), Some(lists_tab)),
             ("favorites".into(), LibTab::Favorites.label(), current == LibTab::Favorites, Some(LibTab::Favorites)),
+            ("manga".into(), LibTab::Manga.label(), current == LibTab::Manga, Some(LibTab::Manga)),
+            ("novels".into(), LibTab::Novels.label(), current == LibTab::Novels, Some(LibTab::Novels)),
             ("torrents".into(), t("lib.tab.torrents"), false, None),
         ]
     } else {
         LibTab::expanded().into_iter().map(|x| (x.id().to_owned(), x.label(), current == x, Some(x))).collect()
     };
     let navigator = use_navigator();
+    let clock = crate::components::airing::use_local_clock();
 
     let content = match current {
         LibTab::Continue | LibTab::History => {
@@ -290,6 +303,12 @@ pub fn LibraryPage() -> Element {
         LibTab::Favorites => rsx! {
             FavoritesTab { sort: sort(), query: query(), rev: rev() }
         },
+        LibTab::Manga => rsx! {
+            crate::screens::manga::ReadListPanel { kind: crate::model::manga::ReadKindVm::Manga }
+        },
+        LibTab::Novels => rsx! {
+            crate::screens::manga::ReadListPanel { kind: crate::model::manga::ReadKindVm::Novel }
+        },
     };
     let list_tab = matches!(current, LibTab::List(_) | LibTab::Favorites);
     let sort_options: Vec<SegOption> = LibSort::ALL
@@ -303,6 +322,8 @@ pub fn LibraryPage() -> Element {
             div { class: "tk-page__head",
                 div {
                     h1 { class: "tk-page__title", {t("lib.title")} }
+                    // Wave B (n): Profile / Activity / Notifications chips (AniList social pages).
+                    crate::screens::social::SocialTabs { current: "library".to_string() }
                 }
                 div { class: "tk-lib__head-actions",
                     Pill { text: pill, tone: Tone::Primary }
@@ -368,6 +389,10 @@ pub fn LibraryPage() -> Element {
                 }
             }
             div { class: "tk-lib__panel", role: "tabpanel", "data-tab": "{current.id()}", {content} }
+            // Wave B (b, optional §2.2 request): this week's airing calendar, compact.
+            if let Some(c) = clock() {
+                crate::components::AiringCalendar { week_start_unix: c.today(), compact: true }
+            }
             if conflicts_open() {
                 ConflictSheet {
                     on_close: move |_| conflicts_open.set(false),
@@ -694,13 +719,14 @@ mod tests {
     }
 
     #[test]
-    fn nine_tabs_with_unique_ids() {
+    fn eleven_tabs_with_unique_ids() {
         let tabs = LibTab::expanded();
-        assert_eq!(tabs.len(), 9);
+        assert_eq!(tabs.len(), 11);
         let ids: std::collections::BTreeSet<_> = tabs.iter().map(|t| t.id()).collect();
-        assert_eq!(ids.len(), 9);
+        assert_eq!(ids.len(), 11);
         assert_eq!(tabs[0], LibTab::Continue);
         assert_eq!(tabs[8], LibTab::Favorites);
+        assert_eq!(tabs[10], LibTab::Novels);
     }
 
     fn entry(title: &str, progress: u32, score: Option<u8>, updated: i64) -> ListEntryVm {

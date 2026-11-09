@@ -112,7 +112,7 @@ impl LiveBackend {
         set_title_language(&settings.title_language);
         let store = Arc::new(LocalStore::open(&paths.db_file())?);
         let client = reqwest::Client::builder().user_agent("TatakaiNext/0.1").timeout(Duration::from_secs(20)).build()?;
-        let router = Arc::new(MetadataRouter::with_defaults(client.clone(), settings.provider_priority.clone()));
+        let router = Arc::new(MetadataRouter::with_defaults(client.clone(), settings.home.enabled_providers(&settings.provider_priority)));
         let browsers = Arc::new(browser::WebviewBrowsers::new(ui));
         let ext = ext::Extensions::new(paths.extensions_dir(), browsers.clone())?;
         // Wave B (k): remote commands from paired phones (`tk-link` `/v1/control`) flow through this channel.
@@ -336,7 +336,11 @@ impl Backend for LiveBackend {
         Ok(DetailsVm {
             media: to_vm(&media),
             banner: media.banner.clone(),
-            synopsis: media.synopsis.clone(),
+            // Wave B (b, `metadata.providers.mal`): MAL's synopsis fills the gap when the router has none.
+            synopsis: match media.synopsis.clone() {
+                Some(s) => Some(s),
+                None => home::external_synopsis(self, media.media_ref.mal_id).await,
+            },
             genres: media.genres.clone(),
             status: media.status.clone(),
             episodes_total: media.episodes,
@@ -394,11 +398,20 @@ impl Backend for LiveBackend {
             poster: media.cover.clone(),
             episodes_total: media.episodes,
             start_secs: self.start_secs(&r, episode),
-            streams: streams.into_iter().map(sources::stream_vm).collect(),
+            // Wave B (k, `server.cors-proxy-local`): web streams go through the loopback media proxy when it is on.
+            streams: {
+                let mut out = Vec::new();
+                for s in streams {
+                    out.push(server::local_stream(self, sources::stream_vm(s)).await);
+                }
+                out
+            },
         })
     }
 
     async fn record_progress(&self, id: &str, episode: u32, progress_secs: u32, duration_secs: Option<u32>) -> UiResult<()> {
+        // Wave B (k, `link.remote-control`): feeds `GET /v1/player` of paired phones.
+        link::note_progress(self, id, episode, progress_secs, duration_secs);
         // Wave B (j, `ext.custom-providers.watch` / `.continue`): provider titles keep their own history rows.
         if ext_catalog::is_provider_id(id) {
             return ext_catalog::record_progress(self, id, episode, progress_secs, duration_secs).await;
@@ -453,7 +466,8 @@ impl Backend for LiveBackend {
         Ok(settings_store::load(&self.settings_file))
     }
     async fn save_settings(&self, settings: &Settings) -> UiResult<()> {
-        self.router.set_priority(settings.provider_priority.clone());
+        // Wave B (b, `settings.metadata.extra-providers`): switched-off providers are not routed.
+        self.router.set_priority(settings.home.enabled_providers(&settings.provider_priority));
         set_title_language(&settings.title_language);
         settings_store::save(&self.settings_file, settings).map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))?;
         // Wave B: services that keep a copy of their prefs (no-ops until their owners land).
@@ -492,13 +506,17 @@ impl Backend for LiveBackend {
         let enabled: HashMap<String, bool> =
             self.ext.installed().into_iter().map(|e| (e.id, e.enabled && e.compat != Compat::Unsupported)).collect();
         let picked = self.store.picked_source(id, episode).ok().flatten();
-        let ranked = sources::ranked_vms(candidates, &prefs, |ext_id| enabled.get(ext_id).copied().unwrap_or(false), picked.as_deref());
+        let ranked = sources::ranked_vms(candidates, &prefs, |ext_id| enabled.get(ext_id).copied().unwrap_or(ext_catalog::is_remote_ext_id(ext_id)), picked.as_deref());
         // Wave A, worker i: `SourceVm::debrid` from the connected debrid services (best effort). Wave B
         // (`sources.debrid.episode-context`, k): the episode context travels with the call instead of being guessed.
         Ok(debrid::mark_cached(self, id, episode, ranked).await)
     }
 
     async fn playback_source(&self, id: &str, episode: u32, source_id: &str) -> UiResult<PlaybackVm> {
+        // Wave B (j, `ext.custom-providers.watch`): provider titles resolve through their extension.
+        if ext_catalog::is_provider_id(id) {
+            return ext_catalog::playback_source(self, id, episode, source_id).await;
+        }
         let (_, kind, _) =
             parse_source_key(source_id).ok_or_else(|| UiError::new(ErrorKind::Other, format!("invalid source id {source_id}")))?;
         if kind == SourceKind::Torrent {
@@ -525,7 +543,7 @@ impl Backend for LiveBackend {
             poster: media.cover.clone(),
             episodes_total: media.episodes,
             start_secs: self.start_secs(&r, episode),
-            streams: vec![sources::stream_vm(stream)],
+            streams: vec![server::local_stream(self, sources::stream_vm(stream)).await],
         })
     }
 
@@ -700,6 +718,8 @@ impl Backend for LiveBackend {
 
     // e: live/presence.rs
     async fn presence(&self, state: &PresenceVm) -> UiResult<()> {
+        // Wave B (k, `link.remote-control`): the PC player state for `GET /v1/player` and remote seek.
+        link::note_presence(self, state);
         presence::presence(self, state).await
     }
 

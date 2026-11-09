@@ -264,6 +264,10 @@ pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>
     let off_text = tf("src.ext_off", &[("name", &source.ext_name)]);
     let meta = row_meta(&source);
     let chips = tag_chips(&source);
+    // Wave B: where the row comes from (j: `server:<id>` / `stremio:<id>` / extension id) and whether it is an embed
+    // page the sniffer resolves (k, `sources.embed-sniffer.ranking`).
+    let origin = source.ext_id.clone();
+    let embed = source.embed;
     let pct = (source.reliability.clamp(0.0, 1.0) * 100.0).round() as u32;
     let tone = reliability_tone(source.reliability);
     let rel_text = format!("{}: {} · {pct} %", t("src.reliability"), t(reliability_key(source.reliability)));
@@ -285,6 +289,8 @@ pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>
             "aria-checked": "{selected}",
             "data-kind": "{kind}",
             "data-debrid": "{debrid_attr}",
+            "data-origin": "{origin}",
+            "data-embed": "{embed}",
             disabled,
             onclick: move |_| on_pick.call(id.clone()),
             span { class: "tk-srow__ico", Icon { name: icon.to_string(), size: 20 } }
@@ -292,6 +298,9 @@ pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>
                 span { class: "tk-srow__title",
                     b { "{name}" }
                     Pill { text: kind_text, tone: Tone::Neutral, plain: true }
+                    if embed {
+                        Pill { text: t("sniff.chip"), tone: Tone::Warn, plain: true }
+                    }
                     if source.recommended {
                         Pill { text: t("src.recommended"), tone: Tone::Primary }
                     }

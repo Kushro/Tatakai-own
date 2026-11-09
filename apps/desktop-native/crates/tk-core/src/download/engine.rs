@@ -280,6 +280,11 @@ impl Engine {
         match self.inner.store.downloads_in_state("downloading") {
             Ok(rows) => {
                 for r in rows {
+                    // Reader chapter rows (l / m) ran in their own task, which died with the app: mark them failed.
+                    if is_reader_row(&r.kind, &r.url) {
+                        let _ = self.inner.store.set_download_state(r.id, "failed", Some("interrupted"), None, None);
+                        continue;
+                    }
                     if let Err(e) = self.inner.store.set_download_state(r.id, "queued", None, None, None) {
                         tracing::warn!(id = r.id, error = %e, "could not requeue an interrupted download");
                     }
@@ -464,6 +469,14 @@ impl Engine {
     }
 }
 
+/// A chapter row the manga / novel readers (workers l / m) record and run themselves
+/// (`LocalStore::record_chapter_download` / `novel_insert_download`: url `manga:<ext>/<chapter>` or
+/// `novel:<ext>/<chapter>`). It has no media URL, so the engine never runs or requeues it.
+pub fn is_reader_row(kind: &str, url: &str) -> bool {
+    (kind == KIND_MANGA || kind == KIND_NOVEL)
+        && url.strip_prefix(kind).and_then(|r| r.strip_prefix(':')).is_some_and(|r| !r.starts_with("//"))
+}
+
 async fn scheduler(inner: Arc<Inner>) {
     loop {
         if inner.stopped.load(Ordering::SeqCst) {
@@ -488,6 +501,9 @@ fn fill(inner: &Arc<Inner>) {
         }
     };
     for row in queued {
+        if is_reader_row(&row.kind, &row.url) {
+            continue;
+        }
         let ctl = {
             let Ok(mut running) = inner.running.lock() else { return };
             if running.len() >= limit {
@@ -985,6 +1001,15 @@ async fn remux(ts: PathBuf, size: u64) -> (PathBuf, u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reader_rows_are_not_engine_jobs() {
+        assert!(is_reader_row("manga", "manga:ext/ch-1"));
+        assert!(is_reader_row("novel", "novel:toko/abc"));
+        assert!(!is_reader_row("manga", "https://cdn.example/1.jpg\nhttps://cdn.example/2.jpg"));
+        assert!(!is_reader_row("novel", "Hello\n\nWorld"));
+        assert!(!is_reader_row("hls", "manga:ext/ch-1"));
+    }
 
     #[test]
     fn eta_math() {

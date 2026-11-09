@@ -924,11 +924,23 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let source_icon = if current.as_ref().is_some_and(|s| s.kind == SourceKindVm::Torrent) { "download" } else { "language" };
     // `.tk-pc[data-stream-kind]` (docs/redesign/15 section 5, sources.debrid.*): a cached torrent with no engine
     // session played through `Backend::debrid_play` (Flow's debrid branch).
+    // Wave B (h + k): a web stream is `local` (a finished download / local-library file, h's `LOCAL_PROVIDER`),
+    // `embed` (resolved by the sniffer), `proxy` (through the loopback media proxy) or plain `web`.
+    let first_stream = vm.as_ref().and_then(|m| m.streams.first());
+    let web_kind = match first_stream {
+        Some(st) if st.provider == crate::model::downloads::LOCAL_PROVIDER => "local",
+        Some(st) => match crate::model::server::stream_kind(&st.url) {
+            "direct" => "web",
+            k => k,
+        },
+        None => "web",
+    };
     let stream_kind = match &current {
         _ if torrent.read().is_some() => "torrent",
         Some(s) if s.kind == SourceKindVm::Torrent && s.debrid.is_some_and(|d| d.cached) => "debrid",
         Some(s) if s.kind == SourceKindVm::Torrent => "torrent",
-        Some(_) => "web",
+        Some(_) => web_kind,
+        None if first_stream.is_some() => web_kind,
         None => "none",
     };
     // Torrent: "Waiting for metadata…" while `torrent_play` adds the torrent, then the speed / peers / file line

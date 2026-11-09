@@ -23,6 +23,8 @@ val detailsModule = module {
             torrents = getOrNull(),
             stats = getOrNull(),
             prefs = get(),
+            // parity wave B (r): downloadModule (:core:download); offline playback of completed downloads.
+            downloads = getOrNull(),
         )
     }
     viewModel { params ->

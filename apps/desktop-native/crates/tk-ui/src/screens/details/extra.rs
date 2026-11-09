@@ -224,6 +224,13 @@ pub fn fact_rows(f: &MediaFactsVm, episodes: Option<u32>, status: Option<&str>) 
     if let Some(v) = f.favourites {
         rows.push((t("details.facts.favourites"), group_digits(v)));
     }
+    // Wave B (b): MAL rank and members from the external catalogues.
+    if let Some(r) = f.rank {
+        rows.push((t("details.facts.mal_rank"), format!("#{r}")));
+    }
+    if let Some(m) = f.members {
+        rows.push((t("details.facts.members"), group_digits(m)));
+    }
     rows
 }
 
@@ -265,6 +272,7 @@ pub fn FactsSheet(
         Some(Ok(x)) => {
             let f = x.facts.clone();
             let rows = fact_rows(&f, episodes, status.as_deref());
+            let facts_source = f.facts_sources.join(" ");
             let ids: Vec<(String, String)> = [
                 (t("provider.anilist"), f.anilist_id),
                 (t("provider.mal"), f.mal_id),
@@ -299,7 +307,7 @@ pub fn FactsSheet(
                 None => rsx! {},
             };
             rsx! {
-                section { class: "tk-panel tk-dfacts", "data-extra": "facts",
+                section { class: "tk-panel tk-dfacts", "data-extra": "facts", "data-facts-source": "{facts_source}",
                     h3 { class: "tk-panel__title", Icon { name: "info".to_string(), size: 20 } {t("details.facts.title")} }
                     dl { class: "tk-dfacts__grid",
                         for (i , (k , v)) in rows.into_iter().enumerate() {
@@ -533,9 +541,19 @@ pub fn RelatedTab(extra: ExtraState, on_retry: EventHandler<()>) -> Element {
                             }
                         };
                         if manga {
-                            // Manga pages arrive with the reader (wave B): the row is shown without a destination.
+                            // Wave B (l, `manga.details.anime-link`): anime -> manga opens the manga details page.
                             rsx! {
-                                div { key: "{r.media.id}", class: "tk-drelated__row", "data-relation": "{r.relation}", "data-kind": "manga", {body} }
+                                button {
+                                    key: "{r.media.id}",
+                                    class: "tk-drelated__row",
+                                    r#type: "button",
+                                    "data-relation": "{r.relation}",
+                                    "data-kind": "manga",
+                                    onclick: move |_| {
+                                        navigator.push(Route::MangaDetailsPage { id: id.clone() });
+                                    },
+                                    {body}
+                                }
                             }
                         } else {
                             rsx! {

@@ -7,7 +7,9 @@
 //! * `url` source: SSRF-safe loopback fetcher + HLS rewriting; FFmpeg only ever reads the loopback
 //! * sessions: on-demand fMP4 HLS, 512 MiB RAM window, heartbeat/idle, FFmpeg in a Windows Job Object
 //!
-//! Out of M0 by design: mDNS/TOFU, `/v1/settings`, events/handoff/control/downloads, the phone source.
+//! Wave B (worker k) adds `POST /v1/control`, `GET /v1/player`, the `GET /v1/events` long-poll (send to device /
+//! handoff) and the mDNS announcer (`discovery`, `_tatakai-link._tcp`, TXT v / name / id / fp = CA fingerprint).
+//! Still out by design: TOFU without pairing, `/v1/settings`, downloads, the phone source.
 //!
 //! Wave A (plan 14 section 0.1 #9, worker **f**): `GET` / `POST /v1/history` sync the watch history (exact resume
 //! position) between the user's own devices, replacing the removed cloud history. See [`history`].

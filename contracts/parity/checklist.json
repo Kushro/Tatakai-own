@@ -44,7 +44,7 @@
     "classic": "src/components/anime/LatestEpisodes.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/home.rs",
     "accept": "Inicio tiene una fila de últimos episodios emitidos ordenada por fecha de emisión y cada tarjeta indica el número de episodio",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -56,7 +56,7 @@
     "classic": "src/components/anime/TopAnimeSection.tsx",
     "next": null,
     "accept": "Inicio muestra un Top 10 con pestañas Hoy, Semana y Mes y los puestos numerados",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -68,7 +68,7 @@
     "classic": "src/components/anime/UpcomingAnimeSection.tsx",
     "next": null,
     "accept": "Inicio muestra una fila de próximos estrenos (status NOT_YET_RELEASED) con la fecha prevista",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -80,7 +80,7 @@
     "classic": "src/pages/base/Index.tsx",
     "next": null,
     "accept": "Inicio muestra una cuadrícula \"Más favoritos\" ordenada por favoritos de AniList",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -92,7 +92,7 @@
     "classic": "src/components/anime/BecauseYouWatched.tsx",
     "next": null,
     "accept": "Con al menos una serie en el historial, Inicio muestra \"Porque viste <título>\" con recomendaciones de esa serie",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -104,7 +104,7 @@
     "classic": "src/components/anime/GenreCloud.tsx",
     "next": null,
     "accept": "Inicio muestra chips de géneros y pulsar uno abre Buscar con ese género aplicado",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -116,7 +116,7 @@
     "classic": "src/components/anime/InfiniteHomeSections.tsx",
     "next": null,
     "accept": "Al llegar al final de Inicio se cargan filas adicionales por género hasta agotar la lista de géneros",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -128,7 +128,7 @@
     "classic": "src/components/anime/FollowedAnimeEpisodes.tsx",
     "next": null,
     "accept": "Con series en estado Viendo, Inicio muestra una fila con los episodios nuevos emitidos desde la última visita",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "home.calendar.schedule",
@@ -139,7 +139,7 @@
     "classic": "src/pages/base/CalendarPage.tsx",
     "next": null,
     "accept": "Inicio o Biblioteca tiene una vista de calendario por día de la semana con las series que emiten ese día y su hora local",
-    "status": "todo",
+    "status": "done",
     "audit": "Fuera de plan",
     "note": "D6: fusionado en Inicio/Biblioteca"
   },
@@ -152,7 +152,7 @@
     "classic": "src/components/anime/TrackShowButton.tsx",
     "next": null,
     "accept": "Una serie marcada como \"seguir\" aparece destacada en el calendario y se puede dejar de seguir desde allí",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "home.calendar.reminders",
@@ -163,7 +163,7 @@
     "classic": "src/components/community/NotificationSheet.tsx",
     "next": null,
     "accept": "Cuando emite un episodio de una serie seguida, la app muestra una notificación local con el título y el número de episodio",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "home.recs.for-you",
@@ -174,7 +174,7 @@
     "classic": "src/pages/base/RecommendationsPage.tsx",
     "next": null,
     "accept": "Con historial, existe una sección \"Para ti\" con recomendaciones calculadas localmente a partir de géneros, estudios y puntuaciones vistas",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -186,7 +186,7 @@
     "classic": "src/pages/base/RecommendationsPage.tsx",
     "next": null,
     "accept": "Cada recomendación muestra por qué se sugiere (género, estudio, época o puntuación afín) y un porcentaje de afinidad",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "home.recs.feedback",
@@ -197,7 +197,7 @@
     "classic": "src/pages/base/RecommendationsPage.tsx",
     "next": null,
     "accept": "Marcar \"No me interesa\" oculta esa serie de las recomendaciones de forma persistente",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "home.recs.atlas",
@@ -208,7 +208,7 @@
     "classic": "src/components/atlas/AnimeAtlasPanel.tsx",
     "next": null,
     "accept": "Existe una vista de mapa que agrupa las series por afinidad y permite abrir la ficha desde un punto",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta",
     "note": "Se mantiene (enmiendas 2026-11-09): dueño b"
   },
@@ -221,7 +221,7 @@
     "classic": "src/components/home/TorrentSessionBanner.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/components/nav_rail.rs",
     "accept": "Con un torrent descargando, el rail muestra un badge con el número de descargas activas en Torrents",
-    "status": "todo",
+    "status": "done",
     "note": "Fila de Inicio: la pinta b (ola B) sobre el cliente de torrents de i / q (ola A)"
   },
   {
@@ -891,7 +891,7 @@
     "classic": "src/components/anime/TrackShowButton.tsx",
     "next": null,
     "accept": "La ficha tiene \"Seguir\" que fija la serie en el calendario y activa recordatorios",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "details.reviews",
@@ -902,7 +902,7 @@
     "classic": "src/components/anime/RatingsSection.tsx",
     "next": null,
     "accept": "La ficha muestra la puntuación media de AniList y sus reseñas (Media.reviews: autor, puntuación, resumen, expandir) y \"Escribir reseña\" abre anilist.co; puntuar la serie usa lists.write.score",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta",
     "note": "Se mantiene (enmiendas 2026-11-09): vía AniList, dueño n (Android t)"
   },
@@ -1210,7 +1210,7 @@
     "classic": "src/components/video/EmbedPlayer.tsx",
     "next": "apps/desktop-native/crates/tk-app/src/live/browser.rs",
     "accept": "Una fuente embed se abre en la WebView oculta, se captura la primera URL m3u8 / mp4 que pide (con sus cabeceras) y se reproduce en mpv; si en 20 s no aparece ninguna, la fuente falla con un error claro y se pasa a la siguiente",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.13 (enmiendas 2026-11-09): k (escritorio) y r (Android). Una fuente embed solo llega al sniffer si ninguna fuente HLS / MP4 / torrent válida la precede en el ranking (sources.embed-sniffer.ranking)"
   },
   {
@@ -1222,12 +1222,12 @@
     "classic": "src/components/video/EmbedPlayer.tsx",
     "next": null,
     "accept": "Las fuentes embed aparecen en el selector con una etiqueta \"embed\", puntúan por debajo de HLS / MP4 directos y se pueden desactivar en las preferencias de fuente",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.13 (enmiendas 2026-11-09)"
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "sources.embed-sniffer.adblock",
     "area": "k",
     "android": "t",
@@ -1239,7 +1239,7 @@
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "sources.embed-sniffer.timeout-setting",
     "area": "k",
     "android": "t",
@@ -1251,7 +1251,7 @@
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "sources.debrid.episode-context",
     "area": "k",
     "android": null,
@@ -2563,7 +2563,7 @@
     "classic": "desktop/ipc/ipc-download-manager.cjs",
     "next": null,
     "accept": "Descargar un episodio HLS baja todos los segmentos y los une en un MP4/MKV reproducible sin red",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2575,7 +2575,7 @@
     "classic": "desktop/ipc/ipc-download-manager.cjs",
     "next": null,
     "accept": "Una fuente MP4 se descarga con cabeceras de la extensión y reanudación por Range",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "downloads.resume",
@@ -2586,7 +2586,7 @@
     "classic": "desktop/ipc/ipc-download-manager.cjs",
     "next": null,
     "accept": "Cerrar la app a mitad de descarga y volver a abrirla retoma desde el último segmento completo",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2598,7 +2598,7 @@
     "classic": "src/core/download/download-monitor.ts",
     "next": null,
     "accept": "Varias descargas se encolan con un máximo simultáneo y cada una se puede pausar, reanudar, cancelar o reintentar",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2610,7 +2610,7 @@
     "classic": "src/pages/profile/OfflineLibraryPage.tsx",
     "next": null,
     "accept": "Una ruta Descargas en el rail une descargas web y torrents con pestañas Anime, Manga, Novelas, Activas e Historial, búsqueda, ETA y progreso",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2622,7 +2622,7 @@
     "classic": "src/core/download/download-history-service.ts",
     "next": null,
     "accept": "La pestaña Historial lista descargas terminadas y falladas con fecha y permite borrarlas",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "downloads.season-modal",
@@ -2633,7 +2633,7 @@
     "classic": "src/components/anime/SeasonDownloadModal.tsx",
     "next": null,
     "accept": "Desde la ficha se eligen episodios, idioma y servidor y se encolan todos; el modal muestra cuántos ya están descargados",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -2645,7 +2645,7 @@
     "classic": "src/core/download/automation-engine.ts",
     "next": null,
     "accept": "Con la regla activa para una serie en Viendo, un episodio nuevo se descarga solo en la siguiente comprobación",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2657,7 +2657,7 @@
     "classic": "src/components/library/AutomationProfiles.tsx",
     "next": null,
     "accept": "Se puede elegir Mejor, Equilibrado 1080p o Ahorro 720p, simular qué se descargaría y \"Comprobar ahora\"",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -2669,7 +2669,7 @@
     "classic": "desktop/services/auto-downloader.cjs",
     "next": null,
     "accept": "La comprobación corre cada 30 min mientras la app está abierta y respeta el límite de almacenamiento",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "downloads.local-library.import",
@@ -2680,7 +2680,7 @@
     "classic": "src/components/modals/ImportAnimeModal.tsx",
     "next": null,
     "accept": "Importar archivos los analiza (nombre de release), propone serie y episodio y los añade a la biblioteca local",
-    "status": "todo",
+    "status": "done",
     "audit": "Fuera de plan",
     "note": "Plan §2 h la incluye como biblioteca local"
   },
@@ -2693,7 +2693,7 @@
     "classic": "desktop/ipc/ipc-library.cjs",
     "next": null,
     "accept": "Elegir una carpeta la escanea y añade los videos encontrados con su emparejamiento",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "downloads.local-library.match",
@@ -2704,11 +2704,11 @@
     "classic": "src/components/modals/ImportMappingModal.tsx",
     "next": null,
     "accept": "Un archivo mal emparejado se puede asignar a otra serie o episodio y la biblioteca se actualiza",
-    "status": "todo"
+    "status": "done"
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "downloads.integrity-check",
     "area": "h",
     "android": "r",
@@ -2726,7 +2726,7 @@
     "classic": "src/pages/watch/WatchPage.tsx",
     "next": null,
     "accept": "Sin red, un episodio descargado se reproduce desde la ficha y desde Descargas",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "downloads.local-library.open-folder",
@@ -2737,7 +2737,8 @@
     "classic": "src/pages/profile/OfflineLibraryPage.tsx",
     "next": null,
     "accept": "\"Abrir carpeta\" abre el explorador en la carpeta de descargas",
-    "status": "todo"
+    "status": "done",
+    "note": "Android: fuera (sin explorador de archivos; Descargas muestra la ruta y \"Cambiar carpeta\" abre el selector SAF, contrato 16-android §0.3)."
   },
   {
     "id": "downloads.location",
@@ -2748,7 +2749,7 @@
     "classic": "src/components/settings/DesktopSettings.tsx",
     "next": null,
     "accept": "Ajustes permite cambiar la carpeta de descargas web (separada de la de torrents)",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "downloads.prefs",
@@ -2759,7 +2760,7 @@
     "classic": "src/pages/profile/OfflineLibraryPage.tsx",
     "next": null,
     "accept": "Descargas recuerda servidor e idioma de audio preferidos para nuevas descargas",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "downloads.player-button",
@@ -2770,7 +2771,7 @@
     "classic": "src/components/video/controls/DownloadButton.tsx",
     "next": null,
     "accept": "El reproductor tiene un botón Descargar que encola el episodio actual con la fuente actual",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "downloads.storage-limit",
@@ -2781,7 +2782,7 @@
     "classic": "src/components/settings/StorageSettingsPanel.tsx",
     "next": null,
     "accept": "Un límite de GB detiene nuevas descargas automáticas al alcanzarse y Descargas lo muestra",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "downloads.android.notifications",
@@ -2792,7 +2793,7 @@
     "classic": "src/core/download/mobile/mobileDownloadService.ts",
     "next": null,
     "accept": "Una descarga muestra progreso en la notificación y avisa al terminar",
-    "status": "todo",
+    "status": "done",
     "platform": "android"
   },
   {
@@ -2804,7 +2805,7 @@
     "classic": "src/components/mobile/MobileDownloadsUI.tsx",
     "next": null,
     "accept": "Con el ajuste activo, un episodio descargado se borra solo al marcarse como visto",
-    "status": "todo",
+    "status": "done",
     "platform": "android"
   },
   {
@@ -2816,7 +2817,7 @@
     "classic": "src/core/download/mobile/mobileDownloadService.ts",
     "next": null,
     "accept": "La comprobación de episodios nuevos corre en WorkManager solo con Wi-Fi y batería suficiente",
-    "status": "todo",
+    "status": "done",
     "platform": "android"
   },
   {
@@ -3126,7 +3127,7 @@
     "classic": "src/components/settings/ExtensionServersSettings.tsx",
     "next": null,
     "accept": "Escritorio puede emparejarse con un servidor de extensiones por enlace pegado o URL + contraseña, igual que Android",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta",
     "platform": "desktop"
   },
@@ -3139,7 +3140,7 @@
     "classic": "src/components/settings/ExtensionServersSettings.tsx",
     "next": null,
     "accept": "La lista de servidores permite activar, desactivar, probar y quitar, y muestra estado",
-    "status": "todo",
+    "status": "done",
     "platform": "desktop"
   },
   {
@@ -3151,7 +3152,7 @@
     "classic": "src/hooks/media/useRemoteExtensionSources.ts",
     "next": null,
     "accept": "Las fuentes que devuelve el servidor emparejado se mezclan en el ranking marcadas con su origen",
-    "status": "todo",
+    "status": "done",
     "platform": "desktop"
   },
   {
@@ -3163,7 +3164,7 @@
     "classic": "src/core/extensions/server/client.ts",
     "next": null,
     "accept": "Si el servidor no responde, las extensiones locales siguen funcionando y el servidor se marca sin conexión",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "ext.ecosystems.via-server",
@@ -3174,7 +3175,7 @@
     "classic": "src/core/extensions/ecosystems.ts",
     "next": null,
     "accept": "Las fuentes de esos ecosistemas instaladas en el servidor emparejado aparecen en el selector de Next",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta",
     "note": "D4"
   },
@@ -3187,7 +3188,7 @@
     "classic": "src/components/extensions/RemoteExtensionsPanel.tsx",
     "next": null,
     "accept": "Pegar la URL de un manifest de Stremio lo instala; sus streams aparecen en el selector con nombre del addon",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta",
     "note": "D4"
   },
@@ -3200,7 +3201,7 @@
     "classic": "src/components/extensions/RemoteExtensionsPanel.tsx",
     "next": null,
     "accept": "Cada addon se puede activar, desactivar, actualizar, quitar y restablecer las coincidencias de título",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "ext.updates.check",
@@ -3211,7 +3212,7 @@
     "classic": "src/components/extensions/ExtensionUpdateSheet.tsx",
     "next": null,
     "accept": "Al abrir la app se comprueba la versión de cada extensión instalada contra su repositorio y Extensiones muestra un badge",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -3223,7 +3224,7 @@
     "classic": "src/components/extensions/ExtensionUpdateSheet.tsx",
     "next": null,
     "accept": "Una hoja lista las actualizaciones disponibles con notas y permite actualizar una o todas",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "ext.preferences",
@@ -3234,7 +3235,7 @@
     "classic": "src/components/extensions/RemoteExtensionsPanel.tsx",
     "next": null,
     "accept": "Una extensión que declara preferencias muestra un formulario y los valores llegan a su runtime",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -3246,7 +3247,7 @@
     "classic": "src/pages/base/ExtensionHubPage.tsx",
     "next": null,
     "accept": "Añadir la URL de un índice de extensiones lista sus .kai e instala con un clic",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -3258,11 +3259,11 @@
     "classic": "src/components/extensions/SideloadExtensionModal.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/extensions.rs",
     "accept": "Pegar la URL de un .kai o manifest lo descarga e instala",
-    "status": "todo"
+    "status": "done"
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "ext.kill-switch",
     "area": "j",
     "android": "t",
@@ -3280,7 +3281,7 @@
     "classic": "src/pages/custom/CustomProvidersPage.tsx",
     "next": null,
     "accept": "Una ruta lista las páginas de proveedor que exponen las extensiones instaladas y permite activarlas",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -3292,7 +3293,7 @@
     "classic": "src/core/extensions/ExtensionSlot.tsx",
     "next": "apps/desktop-native/crates/tk-app/src/live/mod.rs",
     "accept": "Una extensión con customHome produce filas en Inicio con el nombre de la extensión",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub"
   },
   {
@@ -3304,7 +3305,7 @@
     "classic": "src/pages/custom/CustomHomePage.tsx",
     "next": null,
     "accept": "La página del proveedor muestra sus filas de catálogo y su búsqueda",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "ext.custom-providers.info",
@@ -3315,7 +3316,7 @@
     "classic": "src/pages/custom/CustomInfoPage.tsx",
     "next": null,
     "accept": "La ficha de un título de proveedor lista episodios o capítulos con filtro y orden",
-    "status": "todo",
+    "status": "done",
     "note": "KNOWN-ISSUES (ola A): los ids ext:<extensión>:<fuente>:<item> que salen de buscar dentro de una extensión muestran extras vacíos; j pide custom/info al host y la ficha se rellena"
   },
   {
@@ -3327,11 +3328,11 @@
     "classic": "src/pages/custom/CustomWatchPage.tsx",
     "next": null,
     "accept": "Un episodio de proveedor se reproduce en el reproductor normal con progreso guardado",
-    "status": "todo"
+    "status": "done"
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "ext.custom-providers.continue",
     "area": "j",
     "android": "t",
@@ -3349,7 +3350,7 @@
     "classic": "src/pages/custom/CustomReadPage.tsx",
     "next": null,
     "accept": "Un capítulo de proveedor se abre en el lector de manga de l",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "ext.custom-providers.bookmark",
@@ -3360,7 +3361,7 @@
     "classic": "src/pages/custom/CustomInfoPage.tsx",
     "next": null,
     "accept": "Se puede guardar un título de proveedor como marcador y marcarlo como completado",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "ext.deep-link.server",
@@ -3371,7 +3372,7 @@
     "classic": "desktop/window/deep-link.cjs",
     "next": "apps/android-native/core/extension-server/src/main/kotlin/app/tatakai/next/extensionserver/DeepLink.kt",
     "accept": "Abrir el enlace de emparejamiento con la app abierta muestra la confirmación de conexión",
-    "status": "todo",
+    "status": "done",
     "platform": "desktop"
   },
   {
@@ -3539,7 +3540,7 @@
     "classic": "src/components/anime/AnimeDetailLayout.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/details.rs",
     "accept": "Confirmar \"Enviar a dispositivo\" crea una sesión Link para el dispositivo elegido, sin error \"not wired\"; el teléfono (app en primer plano, long-poll de GET /v1/events) muestra \"La PC te envió <título>\" y \"Reproducir aquí\" la reproduce",
-    "status": "todo",
+    "status": "done",
     "audit": "Stub",
     "note": "Wire canónico GET /v1/events fijado por el orquestador 2026-11-09 (tk-link control.rs EventsPage / PhoneEvent); teléfono = r"
   },
@@ -3552,12 +3553,12 @@
     "classic": "desktop/ipc/ipc-home-server.cjs",
     "next": "apps/desktop-native/crates/tk-link/src/devices.rs",
     "accept": "La lista de dispositivos muestra plataforma y \"visto hace N min\" reales",
-    "status": "todo",
+    "status": "done",
     "note": "KNOWN-ISSUES"
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "link.remote-control",
     "area": "k",
     "android": "r",
@@ -3569,7 +3570,7 @@
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "link.handoff",
     "area": "k",
     "android": "r",
@@ -3581,7 +3582,7 @@
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "link.discovery",
     "area": "k",
     "android": "r",
@@ -3600,9 +3601,9 @@
     "classic": "server/src/desktop.mjs",
     "next": null,
     "accept": "Activar \"Servidor de extensiones\" en escritorio levanta axum en el puerto elegido y responde /api/server/v1/health como server/",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta",
-    "note": "Doc 13"
+    "note": "Doc 13 · Android: fuera (servidor: desktop k)."
   },
   {
     "id": "server.api.sources",
@@ -3613,7 +3614,7 @@
     "classic": "server/src/node.mjs",
     "next": null,
     "accept": "Un teléfono con TatakaiServer emparejado obtiene fuentes de /api/server/v1/sources con las extensiones .kai de la PC; cada fuente lleva sourceType (sin él el cliente Android la descarta, KNOWN-ISSUES)",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "server.api.resolve-proxy",
@@ -3624,11 +3625,11 @@
     "classic": "server/src/node.mjs",
     "next": null,
     "accept": "El teléfono reproduce un stream resuelto y proxificado por la PC con cabeceras correctas",
-    "status": "todo"
+    "status": "done"
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "server.api.invoke",
     "area": "k",
     "android": "t",
@@ -3639,7 +3640,7 @@
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "server.api.extensions",
     "area": "k",
     "android": "t",
@@ -3657,8 +3658,9 @@
     "classic": "server/src/node.mjs",
     "next": null,
     "accept": "Ajustes muestra código de 5 min, QR y enlace tatakai://extensionserver/connect que la app Android acepta",
-    "status": "todo",
-    "audit": "Falta"
+    "status": "done",
+    "audit": "Falta",
+    "note": "Android: fuera (servidor: desktop k)."
   },
   {
     "id": "server.devices",
@@ -3669,7 +3671,8 @@
     "classic": "server/src/node.mjs",
     "next": null,
     "accept": "Cada teléfono emparejado aparece en una lista y revocarlo le niega el acceso al instante",
-    "status": "todo"
+    "status": "done",
+    "note": "Android: fuera (servidor: desktop k)."
   },
   {
     "id": "server.viewer-password",
@@ -3680,7 +3683,8 @@
     "classic": "server/src/node.mjs",
     "next": null,
     "accept": "Con contraseña configurada, el emparejamiento manual por URL la exige",
-    "status": "todo"
+    "status": "done",
+    "note": "Android: fuera (servidor: desktop k)."
   },
   {
     "id": "server.settings-ui",
@@ -3691,8 +3695,9 @@
     "classic": "src/components/settings/HomeServerSettings.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/link.rs",
     "accept": "Una sección muestra estado, puerto, dispositivos, emparejamiento y registro del servidor",
-    "status": "todo",
-    "audit": "Falta"
+    "status": "done",
+    "audit": "Falta",
+    "note": "Android: fuera (servidor: desktop k)."
   },
   {
     "id": "server.logs",
@@ -3703,7 +3708,8 @@
     "classic": "server/src/node.mjs",
     "next": null,
     "accept": "Las últimas peticiones y errores del servidor se ven en la app",
-    "status": "todo"
+    "status": "done",
+    "note": "Android: fuera (servidor: desktop k)."
   },
   {
     "id": "server.flaresolverr",
@@ -3714,8 +3720,9 @@
     "classic": "src/components/settings/FlareSolverrSettings.tsx",
     "next": null,
     "accept": "Con una URL de FlareSolverr configurada, las peticiones bloqueadas por Cloudflare pasan por él y \"Probar\" responde ok",
-    "status": "todo",
-    "audit": "Falta"
+    "status": "done",
+    "audit": "Falta",
+    "note": "Android: fuera (servidor: desktop k)."
   },
   {
     "id": "server.proxy",
@@ -3727,7 +3734,8 @@
     "next": null,
     "accept": "Se puede configurar un proxy HTTP/SOCKS para extensiones y reproducción con botón Probar",
     "status": "todo",
-    "audit": "Falta"
+    "audit": "Falta",
+    "note": "Android: fuera (servidor: desktop k)."
   },
   {
     "id": "server.cors-proxy-local",
@@ -3738,7 +3746,8 @@
     "classic": "desktop/runtime/proxy/local-proxy-server.cjs",
     "next": "apps/desktop-native/crates/tk-link/src/fetcher.rs",
     "accept": "Un stream con cabeceras obligatorias se reproduce en mpv a través del proxy loopback cuando mpv no puede enviarlas",
-    "status": "todo"
+    "status": "todo",
+    "note": "Android: fuera (servidor: desktop k)."
   },
   {
     "id": "server.cloudflared",
@@ -4486,7 +4495,7 @@
     "classic": "src/hooks/ui/useTheme.ts",
     "next": "packages/tokens/tokens.json",
     "accept": "Hay al menos 16 paletas que cubren los temas más usados del clásico (cherry blossom, neon tokyo, deep ocean, matcha…) generadas desde tokens.json",
-    "status": "todo",
+    "status": "done",
     "audit": "Parcial"
   },
   {
@@ -4617,7 +4626,7 @@
     "classic": "src/lib/metadata/router.ts",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings/metadata.rs",
     "accept": "Ajustes › Metadatos permite activar y ordenar MAL, Shikimori y Tenrai además de AniList, Kitsu y ani.zip; el router consulta los activos en orden y rellena lo que falte",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.13 (enmiendas 2026-11-09): dueño b (Android r). Si un proveedor ya no responde, se descarta con nota en KNOWN-ISSUES"
   },
   {
@@ -4629,7 +4638,7 @@
     "classic": "src/lib/metadata/providers/mal.ts",
     "next": null,
     "accept": "Con MAL activo, la ficha rellena puntuación, ranking y sinopsis de MAL cuando AniList no los tiene, con su id mapeado desde AniList (idMal)",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.13 (enmiendas 2026-11-09): usa el mismo client id que lists.mal.oauth cuando existe; sin él, endpoints públicos"
   },
   {
@@ -4641,7 +4650,7 @@
     "classic": "src/lib/metadata/providers/shikimori.ts",
     "next": null,
     "accept": "Con Shikimori activo, la ficha completa títulos alternativos, puntuación y capturas desde shikimori.one mapeando por idMal; si la API no responde, se descarta con nota",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.13 (enmiendas 2026-11-09): se descarta con nota si el proveedor ya no responde"
   },
   {
@@ -4653,12 +4662,12 @@
     "classic": "src/lib/metadata/providers/tenrai.ts",
     "next": null,
     "accept": "Con Tenrai activo, el router usa sus datos como último recurso para títulos que no están en AniList / Kitsu; si la API no responde, se descarta con nota",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.13 (enmiendas 2026-11-09): se descarta con nota si el proveedor ya no responde"
   },
   {
     "wave": "B",
-    "status": "todo",
+    "status": "done",
     "id": "settings.metadata.provider-status",
     "area": "b",
     "android": "r",
@@ -4713,7 +4722,7 @@
     "classic": "src/pages/manga/MangaHomePage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/app.rs",
     "accept": "El tipo Manga de Buscar y una entrada del rail abren el Inicio de manga sin \"Coming in M1\"",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -4725,7 +4734,7 @@
     "classic": "src/core/content",
     "next": null,
     "accept": "Buscar manga devuelve títulos de AniList con portada, estado, capítulos y géneros",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.metadata.mangadex",
@@ -4736,7 +4745,7 @@
     "classic": "src/core/content",
     "next": null,
     "accept": "Una ficha de manga lista capítulos de MangaDex con idioma y grupo",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.metadata.mangaupdates",
@@ -4747,7 +4756,7 @@
     "classic": "src/core/content",
     "next": null,
     "accept": "La ficha muestra editorial, serialización y estado de publicación de MangaUpdates cuando existen",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.home",
@@ -4758,7 +4767,7 @@
     "classic": "src/pages/manga/MangaHomePage.tsx",
     "next": null,
     "accept": "Inicio de manga muestra hero, tendencias, selección, géneros, últimos leídos y una zona 18+ con confirmación",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -4770,7 +4779,7 @@
     "classic": "src/components/manga/FollowedMangaUpdates.tsx",
     "next": null,
     "accept": "Con mangas en Leyendo, Inicio de manga muestra los capítulos nuevos desde la última visita",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.search",
@@ -4781,7 +4790,7 @@
     "classic": "src/pages/manga/MangaGenreBrowsePage.tsx",
     "next": null,
     "accept": "Buscar manga filtra por origen (JP/KR/CN), estado, género, año y orden",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -4793,7 +4802,7 @@
     "classic": "src/pages/manga/MangaPage.tsx",
     "next": null,
     "accept": "La ficha muestra sinopsis, metadatos, puntuaciones, tags, personajes, recomendaciones, árbol de la serie y adaptación a anime",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -4805,7 +4814,7 @@
     "classic": "src/pages/manga/MangaPage.tsx",
     "next": null,
     "accept": "Si el manga tiene adaptación, la ficha enlaza a la ficha de anime y viceversa",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.chapters.providers",
@@ -4816,7 +4825,7 @@
     "classic": "src/components/manga/MangaChapterProviderRows.tsx",
     "next": null,
     "accept": "La ficha lista capítulos por cada extensión de manga instalada con idioma preferido y fuente preferida",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -4828,7 +4837,7 @@
     "classic": "src/components/manga/MangaChapterProviderRows.tsx",
     "next": null,
     "accept": "Abrir un capítulo elige la mejor fuente según idioma y fiabilidad, con cambio manual",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.chapters.tools",
@@ -4839,7 +4848,7 @@
     "classic": "src/pages/manga/MangaPage.tsx",
     "next": null,
     "accept": "La lista de capítulos se ordena asc/desc, se filtra, se agrupa por volumen y tiene Refrescar y Vaciar caché",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.readlist",
@@ -4850,7 +4859,7 @@
     "classic": "src/hooks/user/useMangaReadlist.ts",
     "next": null,
     "accept": "Un manga se puede marcar Leyendo, Planeado, Completado, En pausa o Abandonado y aparece en Biblioteca > Manga",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -4862,7 +4871,7 @@
     "classic": "src/hooks/user/useIntegrationSync.ts",
     "next": null,
     "accept": "Con AniList conectado (g), terminar un capítulo sube progress del manga",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.reader.modes",
@@ -4873,7 +4882,7 @@
     "classic": "src/components/reader/ReaderChrome.tsx",
     "next": null,
     "accept": "El lector ofrece paginado, vertical y webtoon continuo, doble página y dirección LTR/RTL",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -4885,7 +4894,7 @@
     "classic": "src/components/settings/panels/ReaderPanel.tsx",
     "next": null,
     "accept": "Ajustar a ancho, alto, ambos o natural, ancho máximo, separación, color de fondo, brillo y recorte de paneles",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.reader.loading",
@@ -4896,7 +4905,7 @@
     "classic": "src/components/settings/panels/ReaderPanel.tsx",
     "next": null,
     "accept": "Carga ansiosa o perezosa, número de páginas a precargar y scroll infinito al siguiente capítulo",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.reader.navigation",
@@ -4907,7 +4916,7 @@
     "classic": "src/components/reader/ReaderPageRail.tsx",
     "next": null,
     "accept": "Clic o teclas pasan página, un carril muestra miniaturas y un navegador salta de capítulo",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.reader.behavior",
@@ -4918,7 +4927,7 @@
     "classic": "src/components/settings/panels/ReaderPanel.tsx",
     "next": null,
     "accept": "Auto-scroll con velocidad, zoom con Ctrl+rueda, pantalla completa al abrir, ocultar chrome, indicador de progreso y captura de página",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.reader.keybinds",
@@ -4929,7 +4938,7 @@
     "classic": "src/hooks/media/useReaderKeybinds.ts",
     "next": null,
     "accept": "Los atajos del lector se pueden reasignar en Ajustes > Lector",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.reader.provider-switch",
@@ -4940,7 +4949,7 @@
     "classic": "src/pages/manga/MangaReaderPage.tsx",
     "next": null,
     "accept": "Si las páginas fallan, el lector permite cambiar a otra extensión para ese capítulo",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.reader.prefetch",
@@ -4951,7 +4960,7 @@
     "classic": "src/pages/manga/MangaReaderPage.tsx",
     "next": null,
     "accept": "Al llegar al 70 % de un capítulo se precargan las páginas del siguiente",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.reader.progress",
@@ -4962,7 +4971,7 @@
     "classic": "src/pages/manga/MangaReaderPage.tsx",
     "next": null,
     "accept": "Cerrar el lector guarda página y capítulo y \"Continuar leyendo\" los retoma",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.reader.zoom",
@@ -4973,7 +4982,7 @@
     "classic": "src/components/reader/ReaderImage.tsx",
     "next": null,
     "accept": "En Android, pellizcar amplía la página y doble toque alterna el zoom",
-    "status": "todo",
+    "status": "done",
     "platform": "android"
   },
   {
@@ -4985,7 +4994,7 @@
     "classic": "src/components/manga/MangaDownloadModal.tsx",
     "next": null,
     "accept": "Seleccionar capítulos y Descargar guarda sus páginas en disco y Descargas los lista",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -4997,7 +5006,7 @@
     "classic": "src/pages/manga/MangaReaderPage.tsx",
     "next": null,
     "accept": "Un capítulo descargado se abre en el lector sin red",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.settings.section",
@@ -5008,7 +5017,7 @@
     "classic": "src/components/settings/panels/ReaderPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Ajustes tiene una sección Lector con todas las opciones anteriores",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.title-language",
@@ -5019,7 +5028,7 @@
     "classic": "src/components/settings/panels/DisplayPanel.tsx",
     "next": null,
     "accept": "Un ajuste separado elige el idioma de los títulos de manga",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.adult-gate",
@@ -5030,7 +5039,7 @@
     "classic": "src/pages/manga/MangaHomePage.tsx",
     "next": null,
     "accept": "La zona 18+ y los títulos isAdult piden confirmación y se ocultan o difuminan según settings.privacy.mature-content",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "manga.reader.comments-mount",
@@ -5089,7 +5098,7 @@
     "classic": "src/pages/novel/NovelHomePage.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/app.rs",
     "accept": "El tipo Novela de Buscar y una entrada del rail abren el Inicio de novelas sin \"Coming in M1\"",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -5101,7 +5110,7 @@
     "classic": "src/pages/novel/NovelHomePage.tsx",
     "next": null,
     "accept": "Inicio de novelas muestra hero, tendencias, géneros, últimas leídas y actualizaciones de las que sigues",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -5113,7 +5122,7 @@
     "classic": "src/pages/novel/NovelGenreBrowsePage.tsx",
     "next": null,
     "accept": "Buscar novelas filtra por género, estado, origen y orden",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -5125,7 +5134,7 @@
     "classic": "src/pages/novel/NovelPage.tsx",
     "next": null,
     "accept": "La ficha muestra sinopsis, metadatos, capítulos por extensión y filtro por traductor",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -5137,7 +5146,7 @@
     "classic": "src/pages/novel/NovelPage.tsx",
     "next": null,
     "accept": "\"Comprobar todas\" consulta cada extensión de novelas y muestra cuántos capítulos tiene cada una",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.chapters",
@@ -5148,7 +5157,7 @@
     "classic": "src/components/novel/NovelChapterProviderRows.tsx",
     "next": null,
     "accept": "Los capítulos se listan por extensión con idioma y fecha y se abren en el lector",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.readlist",
@@ -5159,7 +5168,7 @@
     "classic": "src/hooks/user/useNovelReadlist.ts",
     "next": null,
     "accept": "Una novela se puede marcar por estado y aparece en Biblioteca > Novelas",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.reader.typography",
@@ -5170,7 +5179,7 @@
     "classic": "src/components/settings/panels/NovelReaderPanel.tsx",
     "next": null,
     "accept": "Fuente (sans, Georgia, Lora, dislexia, instalada), tamaño, interlineado, espaciado de párrafo, ancho y colores de fondo/texto",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -5182,7 +5191,7 @@
     "classic": "src/components/settings/panels/NovelReaderPanel.tsx",
     "next": null,
     "accept": "Se puede cargar un TTF/OTF y usarlo en el lector",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.reader.flow",
@@ -5193,7 +5202,7 @@
     "classic": "src/components/settings/panels/NovelReaderPanel.tsx",
     "next": null,
     "accept": "Scroll continuo entre capítulos, barra de progreso, porcentaje leído, número de capítulo, pantalla completa y mantener pantalla encendida",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.reader.progress",
@@ -5204,7 +5213,7 @@
     "classic": "src/pages/novel/NovelReaderPage.tsx",
     "next": null,
     "accept": "Cerrar el lector guarda la posición y \"Continuar leyendo\" la retoma",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.reader.settings-sheet",
@@ -5215,7 +5224,7 @@
     "classic": "src/pages/novel/NovelReaderPage.tsx",
     "next": null,
     "accept": "Un botón del lector abre una hoja con tipografía y flujo sin salir del capítulo",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.tts.system",
@@ -5226,7 +5235,7 @@
     "classic": "src/lib/novel",
     "next": "apps/desktop-native/crates/tk-app/src/main.rs",
     "accept": "\"Leer en voz alta\" narra el capítulo con la voz del sistema (speech-dispatcher / SAPI / Android TTS) y resalta el párrafo actual",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta"
   },
   {
@@ -5238,7 +5247,7 @@
     "classic": "src/components/novel/TtsIntegrationSettings.tsx",
     "next": null,
     "accept": "Con clave de OpenAI y voz elegida, la narración usa su API y reproduce el audio",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.tts.elevenlabs",
@@ -5249,7 +5258,7 @@
     "classic": "src/components/novel/TtsIntegrationSettings.tsx",
     "next": null,
     "accept": "Con clave de ElevenLabs y voz elegida, la narración usa su API",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.tts.openai-compatible",
@@ -5260,7 +5269,7 @@
     "classic": "src/components/novel/TtsIntegrationSettings.tsx",
     "next": null,
     "accept": "Una URL base local OpenAI-compatible funciona como motor TTS",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.tts.controls",
@@ -5271,7 +5280,7 @@
     "classic": "src/pages/novel/NovelReaderPage.tsx",
     "next": null,
     "accept": "Pausar, reanudar, detener, velocidad y preferencia de voz; \"Probar voz\" reproduce una frase",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.tts.settings",
@@ -5282,7 +5291,7 @@
     "classic": "src/components/settings/panels/NovelReaderPanel.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/screens/settings.rs",
     "accept": "Ajustes tiene una sección Lector de novela con tipografía, flujo y narrador",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.download.chapters",
@@ -5293,7 +5302,7 @@
     "classic": "src/components/novel/NovelDownloadModal.tsx",
     "next": null,
     "accept": "Seleccionar capítulos y Descargar guarda el texto en SQLite y Descargas los lista",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.reader.offline",
@@ -5304,7 +5313,7 @@
     "classic": "src/pages/novel/NovelReaderPage.tsx",
     "next": null,
     "accept": "Un capítulo descargado se lee sin red",
-    "status": "todo"
+    "status": "done"
   },
   {
     "id": "novel.reader.paragraph-comments-mount",
@@ -5327,7 +5336,7 @@
     "classic": "desktop/services/kitten-tts.cjs",
     "next": null,
     "accept": "Ajustes › Lector de novela ofrece \"KittenTTS (local)\": instalar descarga el modelo con progreso y, instalado, narra sin conexión; sin instalar, la opción explica qué descarga y cuánto ocupa",
-    "status": "todo",
+    "status": "done",
     "platform": "desktop",
     "note": "Plan §0.1.13 (enmiendas 2026-11-09): opcional, solo escritorio; decisión 2026-11-09: en proceso sobre ONNX Runtime (crate ort, load-dynamic; runtime y modelo descargados a petición), fonemas con espeak-ng; dueño m"
   },
@@ -5377,7 +5386,7 @@
     "classic": "src/pages/profile/ProfilePage.tsx",
     "next": null,
     "accept": "Una ruta Perfil muestra el perfil de AniList del usuario conectado: avatar, banner, nombre, about, seguidores / seguidos, estadísticas de anime y pestañas Listas, Favoritos y Actividad",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta",
     "note": "Plan §0.1.10 (enmiendas 2026-11-09): solo lo que ofrece AniList (Viewer / User)"
   },
@@ -5402,7 +5411,7 @@
     "classic": "src/pages/profile/PublicProfilePage.tsx",
     "next": null,
     "accept": "Abrir /user/<nombre> muestra el perfil público de ese usuario de AniList (avatar, about, estadísticas, favoritos, actividad) tal como lo publica AniList",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.10 (enmiendas 2026-11-09): vía AniList (User(name:))"
   },
   {
@@ -5414,7 +5423,7 @@
     "classic": "src/pages/profile/FollowConnectionsPage.tsx",
     "next": null,
     "accept": "Seguir a un usuario llama a ToggleFollow de AniList, el botón cambia a \"Siguiendo\" y el usuario aparece en tu lista de seguidos de AniList",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta",
     "note": "Plan §0.1.10 (enmiendas 2026-11-09): vía AniList"
   },
@@ -5427,7 +5436,7 @@
     "classic": "src/pages/profile/FollowConnectionsPage.tsx",
     "next": null,
     "accept": "El perfil enlaza a listas paginadas de seguidores y seguidos leídas de AniList (Page.followers / Page.following)",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.10 (enmiendas 2026-11-09): vía AniList"
   },
   {
@@ -5439,7 +5448,7 @@
     "classic": "src/lib/anilist/client.ts",
     "next": null,
     "accept": "Una pestaña Actividad muestra la actividad de AniList del usuario y de los que sigue (ActivityUnion: progreso de lista, estados de texto, mensajes) paginada, con el título enlazado a la ficha",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.10 (enmiendas 2026-11-09): solo lo que ofrece AniList"
   },
   {
@@ -5451,7 +5460,7 @@
     "classic": "src/lib/anilist/client.ts",
     "next": null,
     "accept": "En la actividad se puede dar me gusta (ToggleLike), responder (SaveActivityReply) y publicar un estado de texto (SaveTextActivity); las respuestas se ven en hilo",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.10 (enmiendas 2026-11-09): vía AniList"
   },
   {
@@ -5463,7 +5472,7 @@
     "classic": "src/pages/profile/NotificationsPage.tsx",
     "next": null,
     "accept": "Una ruta Notificaciones lista las notificaciones de AniList (episodios emitidos de tu lista, nuevos seguidores, me gusta, respuestas y menciones) agrupadas por tipo, con \"Marcar todo leído\"",
-    "status": "todo",
+    "status": "done",
     "audit": "Falta",
     "note": "Plan §0.1.10 (enmiendas 2026-11-09): vía AniList (Page.notifications, resetNotificationCount)"
   },
@@ -5476,7 +5485,7 @@
     "classic": "src/components/community/NotificationSheet.tsx",
     "next": "apps/desktop-native/crates/tk-ui/src/components/nav_rail.rs",
     "accept": "El rail muestra unreadNotificationCount de AniList y se refresca por sondeo periódico y al volver a la app",
-    "status": "todo",
+    "status": "done",
     "note": "Plan §0.1.10 (enmiendas 2026-11-09): AniList no tiene push; sondeo"
   },
   {

@@ -105,6 +105,10 @@ pub fn extra_vm(raw: &Value, x: MediaExtra, kitsu_id: Option<u32>) -> DetailsExt
         mal_id: ids.mal_id,
         kitsu_id,
         adult: x.adult,
+        facts_sources: Vec::new(),
+        rank: None,
+        members: None,
+        screenshots: Vec::new(),
     };
     DetailsExtraVm {
         facts,
@@ -173,7 +177,14 @@ pub async fn details_extra(b: &LiveBackend, id: &str) -> UiResult<DetailsExtraVm
         .await?
         .ok_or_else(|| not_found(id))?;
     let extra = map_media_extra(&raw);
-    Ok(extra_vm(&raw, extra, r.kitsu_id))
+    let mut vm = extra_vm(&raw, extra, r.kitsu_id);
+    // Wave B (b, `metadata.providers.mal` / `.shikimori` / `.tenrai`): merge the external catalogues' facts.
+    let (x, used) = super::home::enrich_extra(b, &mut vm).await;
+    vm.facts.facts_sources = used.iter().map(|s| (*s).to_owned()).collect();
+    vm.facts.rank = x.rank;
+    vm.facts.members = x.members;
+    vm.facts.screenshots = x.screenshots;
+    Ok(vm)
 }
 
 async fn chain_node(b: &LiveBackend, r: &MediaRef) -> UiResult<Option<ChainNode>> {

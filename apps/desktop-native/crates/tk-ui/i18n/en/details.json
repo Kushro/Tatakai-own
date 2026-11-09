@@ -88,6 +88,8 @@
   "details.facts.mean_score": "Mean score",
   "details.facts.popularity": "Popularity",
   "details.facts.favourites": "Favourites",
+  "details.facts.mal_rank": "MAL rank",
+  "details.facts.members": "Members",
   "details.facts.producers": "Producers",
   "details.facts.kitsu": "Kitsu",
   "details.facts.tags": "Tags",

@@ -11,9 +11,10 @@ import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.Container
+import app.tatakai.next.model.EmbedSniffException
+import app.tatakai.next.model.EmbedSniffer
 import app.tatakai.next.model.Episode
 import app.tatakai.next.model.ExtensionRepository
-import app.tatakai.next.model.HistoryEntry
 import app.tatakai.next.model.HistoryRepository
 import app.tatakai.next.model.LinkRepository
 import app.tatakai.next.model.Media
@@ -53,7 +54,6 @@ import app.tatakai.next.player.PlayerSession
 import app.tatakai.next.player.PickMismatch
 import app.tatakai.next.player.PlayerPrefs
 import app.tatakai.next.player.PlayerSessionFactory
-import app.tatakai.next.player.ProgressTracker
 import app.tatakai.next.player.RemotePlayback
 import app.tatakai.next.player.SleepOption
 import app.tatakai.next.player.SleepTimer
@@ -65,7 +65,12 @@ import app.tatakai.next.player.TimedCue
 import app.tatakai.next.player.TranslationCache
 import app.tatakai.next.player.TranslationException
 import app.tatakai.next.player.TranslatorConfig
+import app.tatakai.next.player.embedFailDetail
+import app.tatakai.next.player.historyAnimeId
 import app.tatakai.next.player.magnetInfoHash
+import app.tatakai.next.player.providerHistoryEntry
+import app.tatakai.next.player.providerSources
+import app.tatakai.next.player.resolveWebStream
 import app.tatakai.next.player.markDebrid
 import app.tatakai.next.player.resolvePick
 import kotlinx.coroutines.CancellationException
@@ -261,6 +266,8 @@ class PlayerViewModel(
     private val subtitleTools: SubtitleTools? = null,
     private val secrets: SecretStore? = null,
     private val debrid: DebridRepository? = null,
+    // --- parity wave B (worker t): embed pages resolved in a hidden WebView (sources.embed-sniffer) ---
+    private val embedSniffer: EmbedSniffer? = null,
 ) : ViewModel() {
     private val initialSettings: AppSettings = settingsRepository?.settings?.value ?: AppSettings()
     private val engine: PlayerEngine = when {
@@ -314,7 +321,8 @@ class PlayerViewModel(
     private var assNoticeShown = false
     private var lastPositionMs = 0L
     private var lastDurationMs = 0L
-    private val mediaId: String? = HistoryEntry.animeIdOf(args.media.anilistId, args.media.malId)
+    // parity wave B (t, ext.custom-providers.continue): provider titles without AniList / MAL id use `ext:<ext>:<source>:<item>`.
+    private val mediaId: String? = historyAnimeId(args.media.anilistId, args.media.malId, args.provider)
 
     // --- parity wave A (worker p) ---
     private var currentSource: PlayableSource? = null
@@ -379,16 +387,30 @@ class PlayerViewModel(
                 }
                 return@launch
             }
-            val m = try {
-                metadata.media(MediaKind.ANIME, args.media)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                null
+            // parity wave B (t, ext.custom-providers.watch): a provider title with no AniList id has nothing to ask the metadata
+            // providers; a minimal Media carries the title and the next-episode button stays off.
+            val providerOnly = args.provider != null && args.media.anilistId == null
+            val m = if (providerOnly) {
+                Media(
+                    ref = args.media, kind = MediaKind.ANIME, title = args.title, titles = emptyMap(), cover = null, banner = null,
+                    color = null, synopsis = null, genres = emptyList(), episodes = null, status = null, season = null, year = null,
+                    score = null, sourceProvider = "extension",
+                )
+            } else {
+                try {
+                    metadata.media(MediaKind.ANIME, args.media)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
             }
             media = m
             _state.update {
-                it.copy(poster = m?.cover, hasNextEpisode = m?.episodes?.let { total -> args.episode < total } ?: true)
+                it.copy(
+                    poster = m?.cover,
+                    hasNextEpisode = !providerOnly && (m?.episodes?.let { total -> args.episode < total } ?: true),
+                )
             }
             notificationText?.let { (t, sub) -> ActivePlayback.setMetadata(PlaybackMetadata(t, sub, m?.cover)) }
             loadSkipMarks()
@@ -415,17 +437,19 @@ class PlayerViewModel(
 
     private suspend fun loadCandidates(m: Media) {
         _state.update { it.copy(phase = PlayerPhase.LOADING, candidatesLoading = true, candidatesError = null) }
+        val provider = args.provider
         val ranked = try {
-            extensions.resolveCandidates(m, args.episode)
+            // parity wave B (t, ext.custom-providers.watch): a provider entry plays the extension's own sources.
+            if (provider != null) providerSources(extensions, provider) else extensions.resolveCandidates(m, args.episode)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             _state.update { it.copy(phase = PlayerPhase.FAILED, candidatesLoading = false, candidatesError = e.asAppError(), error = e.asAppError()) }
             return
         }
-        val stored = mediaId?.let { id -> runCatching { stats?.pickedSource(id, args.episode) }.getOrNull() }
-        // 15 §3.9: torrent rows as the linked debrid services see them (identity without an account).
-        val marked = markDebrid(ranked, debrid)
+        val stored = if (provider != null) null else mediaId?.let { id -> runCatching { stats?.pickedSource(id, args.episode) }.getOrNull() }
+        // 15 §3.9: torrent rows as the linked debrid services see them (identity without an account). Provider sources are web only.
+        val marked = if (provider != null) ranked else markDebrid(ranked, debrid)
         // Bug sources.remembered-vs-prefs: this session's pick always wins; the remembered one only while it fits the preferences.
         val pick = resolvePick(marked, args.sourceKey, stored, settings.sourcePrefs)
         val sources = pick.sources
@@ -486,9 +510,13 @@ class PlayerViewModel(
         when (c.kind) {
             SourceKind.WEB -> {
                 val stream = try {
-                    c.toStream()
+                    // parity wave B (t, sources.embed-sniffer): embed pages go through the hidden WebView sniffer.
+                    resolveWebStream(c, embedSniffer, settings.sourcePrefs)
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: EmbedSniffException) {
+                    fail(attempt, FailKind.RESOLVE, embedFailDetail(e))
+                    return
                 } catch (e: Throwable) {
                     null
                 }
@@ -773,9 +801,10 @@ class PlayerViewModel(
         if (positionMs <= 0) return
         lastPositionMs = positionMs
         if (durationMs > 0) lastDurationMs = durationMs
-        val entry = ProgressTracker.entry(
+        val entry = providerHistoryEntry(
             anilistId = args.media.anilistId,
             malId = args.media.malId,
+            provider = args.provider,
             title = args.title,
             poster = _state.value.poster,
             episode = args.episode,

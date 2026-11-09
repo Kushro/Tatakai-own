@@ -406,6 +406,8 @@ pub async fn home(b: &LiveBackend) -> UiResult<HomeVm> {
     if let Some(r) = favourite {
         sections.push(dated("home.row.most_favorite", r));
     }
+    // Wave B (j, `ext.custom-providers.home-rows`): one `ext:<extension name>` row per extension with watch providers.
+    sections.extend(super::ext_catalog::home_rows(b).await);
     Ok(HomeVm {
         continue_watching,
         sections,
@@ -1084,7 +1086,6 @@ pub(super) async fn external_facts(b: &LiveBackend, mal_id: u32) -> Vec<External
 /// Fill the AniList facts of Details from the external catalogues (`metadata.providers.*`): mean score when AniList
 /// has none, alternative titles merged. Returns the merged facts (rank / popularity / members / screenshots for the
 /// fields `MediaFactsVm` gains at integration) and the providers that contributed (`data-facts-source`).
-#[allow(dead_code)] // called from live/details.rs::details_extra once the integrator wires it (commit message)
 pub(super) async fn enrich_extra(
     b: &LiveBackend,
     vm: &mut DetailsExtraVm,
@@ -1106,7 +1107,6 @@ pub(super) async fn enrich_extra(
 }
 
 /// Synopsis of a MAL id from the external catalogues, for titles AniList has none for.
-#[allow(dead_code)] // called from live/mod.rs::details once the integrator wires it (commit message)
 pub(super) async fn external_synopsis(b: &LiveBackend, mal_id: Option<u32>) -> Option<String> {
     let id = mal_id.filter(|i| *i > 0)?;
     external_facts(b, id).await.into_iter().find_map(|f| f.synopsis)
