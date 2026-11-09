@@ -288,4 +288,125 @@ mod tests {
         assert_eq!(list[1]["headers"]["Referer"], "https://x");
         assert_eq!(list[1]["server"], "Direct");
     }
+    // ---- F6 (parity wave B): mapping gaps not covered above ----
+
+    #[test]
+    fn manifest_validation_and_resource_names() {
+        assert!(Manifest::parse("not json").is_err());
+        assert!(Manifest::parse(r#"{"id":" ","name":"A","version":"1","resources":["stream"]}"#).is_err());
+        assert!(Manifest::parse(r#"{"id":"a","name":"","version":"1","resources":["stream"]}"#).is_err());
+        assert!(Manifest::parse(r#"{"id":"a","name":"A","version":"","resources":["stream"]}"#).is_err());
+        let m = Manifest::parse(r#"{"id":"a","name":"A","version":"1","resources":["stream",{"name":"meta"},{"name":"stream"},42,""],"idPrefixes":["kitsu"]}"#).unwrap();
+        assert_eq!(m.resource_names(), vec!["stream".to_owned(), "meta".to_owned()]);
+        assert_eq!(m.id_prefixes, vec!["kitsu".to_owned()]);
+        assert!(m.types.is_empty() && m.description.is_none());
+    }
+
+    #[test]
+    fn manifest_url_scheme_is_case_insensitive_and_keeps_manifest() {
+        assert_eq!(manifest_url("  STREMIO://addon.example/manifest.json ").as_deref(), Some("https://addon.example/manifest.json"));
+        assert_eq!(manifest_url("http://addon.example/a/").as_deref(), Some("http://addon.example/a/manifest.json"));
+        assert!(manifest_url("not a url").is_none());
+        assert!(manifest_url("").is_none());
+    }
+
+    #[test]
+    fn resource_url_encodes_spaces_as_percent_20() {
+        assert_eq!(resource_url("https://a.b/manifest.json", "stream", "my type", "x y"), "https://a.b/stream/my%20type/x%20y.json");
+    }
+
+    #[test]
+    fn targets_clamp_episode_zero_and_skip_unsupported_types() {
+        let m = manifest(json!(["stream"]), &["series"], &[]);
+        let ids = TitleIds { kitsu: None, mal: None, anilist: Some(21) };
+        assert_eq!(targets(&m, ids, 0, None), vec![("series".into(), "anilist:21:1".into())]);
+        assert!(targets(&m, TitleIds::default(), 1, None).is_empty());
+        // a movie-only add-on serves nothing for episodes
+        let movies = manifest(json!(["stream"]), &["movie"], &[]);
+        assert!(targets(&movies, ids, 1, None).is_empty());
+        // an unknown remembered key does not reorder
+        let all = TitleIds { kitsu: Some(1), mal: Some(2), anilist: Some(3) };
+        let t = targets(&m, all, 1, Some("anime|kitsu"));
+        assert_eq!(t[0].1, "kitsu:1:1");
+        assert_eq!(t.len(), 3);
+    }
+
+    #[test]
+    fn object_resources_inherit_manifest_types_and_prefixes() {
+        let m = manifest(json!([{ "name": "stream" }]), &["anime"], &["kitsu:"]);
+        assert!(supports_resource(&m, "stream", "anime", "kitsu:1:1"));
+        assert!(!supports_resource(&m, "stream", "anime", "mal:1:1"));
+        assert!(!supports_resource(&m, "stream", "series", "kitsu:1:1"));
+    }
+
+    #[test]
+    fn match_keys() {
+        assert_eq!(match_key("series", "kitsu:7:3"), "series|kitsu");
+        assert_eq!(match_key("anime", ""), "anime|");
+    }
+
+    #[test]
+    fn web_stream_types_subtitles_and_label_fallback() {
+        let body = json!({ "streams": [
+            { "url": "https://cdn.example/v/file.MP4", "title": "4K HDR", "audioLanguage": "ja",
+              "subtitles": [ { "url": "https://cdn.example/es.vtt", "lang": "spa" }, { "url": "data:text/vtt,xx", "lang": "en" }, { "url": "http://cdn.example/x.srt" } ] },
+            { "name": "Dash", "url": " https://cdn.example/v/manifest.mpd#t=0 ", "language": "en" },
+            { "name": "NoUrl" },
+        ]});
+        let out = normalize_streams("Addon", &body);
+        let list = out["sources"].as_array().unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0]["type"], "mp4");
+        assert_eq!(list[0]["quality"], "2160p");
+        assert_eq!(list[0]["server"], "Addon", "no name: the add-on name");
+        assert_eq!(list[0]["providerName"], "Addon");
+        assert_eq!(list[0]["audioLanguage"], "ja");
+        let subs = list[0]["subtitles"].as_array().unwrap();
+        assert_eq!(subs.len(), 2, "non-http subtitle urls are dropped");
+        assert_eq!(subs[0]["language"], "spa");
+        assert_eq!(subs[1]["language"], "und");
+        assert_eq!(list[0]["headers"], json!({}));
+        assert_eq!(list[1]["type"], "dash");
+        assert_eq!(list[1]["url"], "https://cdn.example/v/manifest.mpd#t=0");
+        assert_eq!(list[1]["audioLanguage"], "en");
+        assert!(list[1]["quality"].is_null());
+    }
+
+    #[test]
+    fn torrent_release_name_falls_back_and_bad_hashes_are_not_torrents() {
+        let body = json!({ "streams": [
+            { "infoHash": "ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCD", "description": "\n  [Group] Show - 01 [720p]\n👤 7" },
+            { "infoHash": "abcdefabcdefabcdefabcdefabcdefabcdefabcd", "behaviorHints": { "filename": "show.01.mkv" } },
+            { "infoHash": "tooshort" },
+            { "infoHash": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", "url": "https://cdn.example/a.mp4" },
+        ]});
+        let out = normalize_streams("T", &body);
+        let list = out["sources"].as_array().unwrap();
+        assert_eq!(list.len(), 3);
+        assert_eq!(list[0]["infoHash"], "abcdefabcdefabcdefabcdefabcdefabcdefabcd");
+        assert_eq!(list[0]["url"], "magnet:?xt=urn:btih:abcdefabcdefabcdefabcdefabcdefabcdefabcd");
+        assert_eq!(list[0]["title"], "[Group] Show - 01 [720p]");
+        assert_eq!(list[0]["seeders"], 7);
+        assert_eq!(list[0]["quality"], "720p");
+        assert!(list[0]["note"].is_null());
+        assert_eq!(list[1]["title"], "show.01.mkv");
+        assert_eq!(list[1]["seeders"], 0);
+        // an invalid hash with a url is a web source
+        assert_eq!(list[2]["type"], "mp4");
+    }
+
+    #[test]
+    fn empty_or_malformed_bodies_give_no_sources() {
+        for body in [json!({}), json!({ "streams": null }), json!({ "streams": "x" }), json!([])] {
+            assert_eq!(normalize_streams("A", &body), json!({ "sources": [] }), "{body}");
+        }
+    }
+
+    #[test]
+    fn seeders_marker() {
+        assert_eq!(seeders_of("👤 120 💾 2 GB"), Some(120));
+        assert_eq!(seeders_of("👤12"), Some(12));
+        assert_eq!(seeders_of("no marker"), None);
+        assert_eq!(seeders_of("👤 x"), None);
+    }
 }
