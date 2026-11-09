@@ -1,0 +1,7 @@
+{"result":"ok","data":[
+ {"id":"ch-1","type":"chapter","attributes":{"volume":"1","chapter":"1","title":"The Black Swordsman","translatedLanguage":"en","publishAt":"2018-03-01T10:00:00+00:00","pages":48},
+  "relationships":[{"id":"g1","type":"scanlation_group","attributes":{"name":"Evil Genius"}},{"id":"m1","type":"manga"}]},
+ {"id":"ch-1es","type":"chapter","attributes":{"volume":"1","chapter":"1","title":"El Espadachín Negro","translatedLanguage":"es-la","publishAt":"2019-03-01T10:00:00+00:00","pages":48},
+  "relationships":[{"id":"g2","type":"scanlation_group","attributes":{"name":"Lector Scans"}}]},
+ {"id":"ch-ext","type":"chapter","attributes":{"volume":null,"chapter":"2","title":null,"translatedLanguage":"en","externalUrl":"https://example.org/x","pages":0},"relationships":[]}
+],"limit":500,"offset":0,"total":3}

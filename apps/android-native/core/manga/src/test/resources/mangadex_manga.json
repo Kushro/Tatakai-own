@@ -1,0 +1,4 @@
+{"result":"ok","data":[
+ {"id":"aaaa-1111","type":"manga","attributes":{"title":{"en":"Berserk: The Golden Age"},"altTitles":[],"links":{"al":"999"}}},
+ {"id":"801513ba-a712-498c-8f57-cae55b38cc92","type":"manga","attributes":{"title":{"en":"Berserk"},"altTitles":[{"ja":"ベルセルク"}],"links":{"al":"30002","mal":"2"}}}
+],"total":2}

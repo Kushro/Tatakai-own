@@ -5,6 +5,8 @@ plugins { id("tatakai.android.library") }
 
 dependencies {
     implementation(projects.core.model)
+    // Shared private clients and stores of the readers (AniList manga API, ReadlistStore, JsonFileStore, chapter logic).
+    api(projects.core.manga)
     implementation(libs.okhttp)
     implementation(libs.jsoup)
     implementation(libs.media3.common)

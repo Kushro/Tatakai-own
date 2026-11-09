@@ -14,7 +14,8 @@ import java.io.File
 /**
  * Koin bindings of manga (docs/redesign/16-parity-wave-b-contract-android.md §3.8). Requires `androidContext()`, dataModule
  * (MetadataRepository, ListsRepository, SettingsRepository), extensionsModule (ExtensionRepository). The repository is also the
- * [ChapterDownloadSource] of manga (Downloads page of r, `getAll<ChapterDownloadSource>()`) and an [AppDataWiper].
+ * [ChapterDownloadSource] of manga (Downloads page of r, `getAll<ChapterDownloadSource>()`), an [AppDataWiper] and the [MangaCatalog] of
+ * the reader screens.
  */
 val mangaModule: Module = module {
     single {
@@ -29,4 +30,6 @@ val mangaModule: Module = module {
         )
     } bind AppDataWiper::class bind ChapterDownloadSource::class
     single<MangaRepository> { get<MangaRepositoryImpl>() }
+    // Extras of the manga / novel screens (AniList facts, MangaUpdates, prefs, reliability), private to the readers.
+    single<MangaCatalog> { get<MangaRepositoryImpl>() }
 }
