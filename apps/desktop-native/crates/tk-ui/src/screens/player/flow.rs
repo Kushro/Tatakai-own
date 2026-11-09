@@ -22,7 +22,9 @@ use tokio::sync::broadcast::error::RecvError;
 use crate::app::Route;
 use crate::backend::{BackendRef, PlaybackVm, ReleaseTagsVm, SourceKindVm, SourceVm};
 use crate::i18n::{t, tf};
-use crate::model::{ErrorKind, PlatformVm, PlayerAction, PlayerState, UiError, next_episode, reduce_player, should_report};
+use crate::model::{
+    ErrorKind, PlatformVm, PlayerAction, PlayerState, SourcePrefsVm, UiError, next_episode, reduce_player, should_report,
+};
 use crate::platform::now_ms;
 use crate::player_state::{FlowState, MAX_LEGACY_STREAMS, Phase, is_info_hash};
 
@@ -213,6 +215,9 @@ pub(super) struct Flow {
     /// A torrent whose files had no match for this episode (the error screen offers its Files page).
     pub(super) files_hint: Signal<Option<String>>,
     pub(super) picker_open: Signal<bool>,
+    /// `Settings::sources` at boot: a remembered pick that no longer meets them is ignored (audit bug
+    /// `sources.remembered-vs-prefs`, `FlowState::new`).
+    pub(super) source_prefs: SourcePrefsVm,
 }
 
 impl Flow {
@@ -329,7 +334,10 @@ impl Flow {
         let mode = self.flow.peek().mode;
         match self.backend.sources(&self.id, self.episode).await {
             Ok(list) => {
-                let state = FlowState::new(list, mode);
+                let state = FlowState::new(list, mode, &self.source_prefs);
+                if state.dropped_pick.is_some() {
+                    remember_pick(&self.backend, &self.id, self.episode, None);
+                }
                 let waiting = state.phase == Phase::Manual;
                 let mut flow = self.flow;
                 flow.set(state);
@@ -370,6 +378,23 @@ impl Flow {
             self.tslot.handed_over.set(true);
         }
         self.nav.push(Route::PlayerPage { id: self.id.clone(), episode: self.episode + 1 });
+    }
+
+    /// "Previous episode" (button, `J`): episode N-1 with its best source. Nothing before episode 1.
+    pub(super) fn go_prev(&self) {
+        if self.episode > 1 {
+            self.go_to(self.episode - 1);
+        }
+    }
+
+    /// Jump to another episode of this title (episode list, previous episode): the position of this one is saved
+    /// first; the new screen resolves its sources as usual.
+    pub(super) fn go_to(&self, episode: u32) {
+        if episode == 0 || episode == self.episode {
+            return;
+        }
+        report(&self.backend, &self.id, self.episode, &self.pstate.peek());
+        self.nav.push(Route::PlayerPage { id: self.id.clone(), episode });
     }
 
     /// Records a failure of `attempt`; the caller (or the `drive` loop) resolves the next one.

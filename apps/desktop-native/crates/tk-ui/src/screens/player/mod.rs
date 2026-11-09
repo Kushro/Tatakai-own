@@ -19,8 +19,16 @@
 //! ranges (`seek_marks`) and the ready-to-play run, plus intro / outro / recap marks (`skip_marks`, any source).
 //! "Next episode" of a batch hands the same torrent to the next screen; leaving ends the session
 //! (`torrent_playback_ended`).
+//!
+//! Wave A (worker **e**, docs/redesign/15 section 4): previous episode and the episode list ([`episodes`]),
+//! auto-next with a configurable countdown (or a card that waits when auto-next is off), auto-skip intro, sleep
+//! timer, loop, stable volume, real speed / smoothing, every rebindable shortcut, the `?` shortcut panel and
+//! Discord Rich Presence ([`presence`]). A remembered source that no longer meets the preferences is ignored and
+//! forgotten (`FlowState::new`, audit bug).
 
+mod episodes;
 mod flow;
+pub mod presence;
 pub mod subs;
 mod torrent;
 
@@ -37,8 +45,8 @@ use tk_player::{EngineMode, KeyAction, Player, PlayerEvent, Rect, ShaderPreset, 
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::{Route, Services, Ui};
-use crate::backend::{PlaybackVm, SourceKindVm, SourceVm, TorrentStateVm, TorrentStatsVm};
-use crate::components::player_controls::NextEpisodeCard;
+use crate::backend::{DetailsVm, PlaybackVm, PresenceVm, SourceKindVm, SourceVm, TorrentStateVm, TorrentStatsVm};
+use crate::components::player_controls::{NextEpisodeCard, ShortcutHelp, track_label};
 use crate::components::{
     Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, PlayerControls, SourcePicker,
     WavyProgress,
@@ -51,12 +59,17 @@ use crate::model::{
 };
 use crate::platform::{self, now_ms};
 use crate::player_state::{
-    FLASH_MS, FlowState, Markers, Phase, countdown_left, format_speed, is_info_hash, keeps_controls_up, mpv_key_name,
-    mpv_mouse_button, range_spans, ready_span, source_name,
+    FLASH_MS, FlowState, Markers, Phase, SUB_DELAY_STEP_SECS, SleepChoice, SleepTimer, auto_skip_target, countdown_left,
+    cycle_track, format_speed, is_info_hash, keeps_controls_up, mpv_key_name, mpv_mouse_button, range_spans,
+    ready_span, source_name, speed_step, volume_step,
 };
 use crate::shortcuts::Shortcut;
 
-use self::flow::{ExternalSlot, Flow, apply_preset, button_index, dispatch, legacy_sources, no_player_text, report, report_source};
+use self::episodes::EpisodeSheet;
+use self::flow::{
+    ExternalSlot, Flow, apply_preset, button_index, dispatch, legacy_sources, no_player_text, remember_pick, report,
+    report_source,
+};
 use self::torrent::{SEEK_MARKS_EVERY, TorrentSession, TorrentSlot, end_torrent, take_batch_next, torrent_line};
 
 /// Reports the hole's geometry: `[left, top, width, height, devicePixelRatio]` in CSS pixels.
@@ -104,6 +117,37 @@ fn set_pip(win: &DesktopContext, on: bool, state: &PipWindow) {
 /// Pointer movement re-flashes uosc's controls at most this often (its flash lasts 2 s).
 const UOSC_FLASH_EVERY_MS: u64 = 1000;
 
+/// `?` toggles the shortcut panel. Not a `Shortcut` (the panel is not rebindable): a listener of its own, replaced
+/// on every mount so only the current screen's channel receives it.
+const HELP_JS: &str = r#"
+if (window.__tkHelpKey) window.removeEventListener('keydown', window.__tkHelpKey);
+window.__tkHelpKey = (e) => {
+  const el = e.target;
+  const editable = !!el && (el.tagName === 'INPUT' && el.type !== 'range' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+  if (e.key === '?' && !editable && !e.ctrlKey && !e.metaKey && document.querySelector('.tk-shell[data-player="true"]')) dioxus.send(true);
+};
+window.addEventListener('keydown', window.__tkHelpKey);
+"#;
+
+/// Episode count from the playing source, else from the details.
+fn known_total(meta: Option<&PlaybackVm>, info: Option<&DetailsVm>) -> Option<u32> {
+    meta.and_then(|m| m.episodes_total).or_else(|| info.and_then(|d| d.episodes_total))
+}
+
+/// Title from the playing source, else from the details.
+fn known_title(meta: Option<&PlaybackVm>, info: Option<&DetailsVm>) -> String {
+    meta.map(|m| m.title.clone())
+        .filter(|s| !s.is_empty())
+        .or_else(|| info.map(|d| d.media.title.clone()))
+        .unwrap_or_default()
+}
+
+/// `+100 ms` / `-200 ms` / `0 ms`.
+fn delay_label(secs: f64) -> String {
+    let ms = (secs * 1000.0).round() as i64;
+    if ms > 0 { format!("+{ms} ms") } else { format!("{ms} ms") }
+}
+
 
 /// Route component. Keys the screen by episode so "next episode" remounts it (fresh hooks and flow).
 #[component]
@@ -144,6 +188,12 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let mut pip = use_signal(|| false);
     let pip_win = use_hook(|| Rc::new(PipWindow::default()));
     let mut next_since = use_signal(|| None::<u64>);
+    // Wave A (worker e): loop, sleep timer, auto-skip (once per screen), episode list and shortcut panel.
+    let mut loop_on = use_signal(|| false);
+    let mut sleep = use_signal(SleepTimer::default);
+    let mut intro_skipped = use_signal(|| false);
+    let mut episodes_open = use_signal(|| false);
+    let mut help_open = use_signal(|| false);
     // Intro / outro / recap marks (`Backend::skip_marks`, AniSkip), for web and torrent sources alike.
     let mut markers = use_signal(Markers::default);
     // Torrent playback (docs/redesign/10 section 5.5).
@@ -200,6 +250,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         reuse,
         files_hint,
         picker_open,
+        source_prefs: ui.settings.peek().sources.clone(),
     };
 
     // Rank the sources, start mpv, resolve the first one and pump mpv's events.
@@ -272,7 +323,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     None => backend.sources(&id, episode).await,
                 };
                 let state = match listed {
-                    Ok(list) => FlowState::new(list, mode),
+                    // A remembered pick that no longer meets the preferences is ignored and forgotten (audit bug).
+                    Ok(list) => FlowState::new(list, mode, &settings.sources),
                     Err(e) if e.kind == ErrorKind::NotWired => match backend.playback(&id, episode).await {
                         Ok(vm) => {
                             let list = legacy_sources(&vm);
@@ -289,6 +341,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                         return;
                     }
                 };
+                if state.dropped_pick.is_some() {
+                    remember_pick(&backend, &id, episode, None);
+                }
                 let waiting = state.phase == Phase::Manual;
                 flow.set(state);
                 if waiting {
@@ -334,6 +389,12 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
 
                 let _ = p.set_volume(f64::from(settings.volume));
                 dispatch(&mut pstate, PlayerAction::SetVolume(settings.volume));
+                // The mpv instance outlives this screen: start every episode from a known state (normal speed, no
+                // loop, no interpolation) and the saved stable-volume choice.
+                let _ = p.set_speed(1.0);
+                let _ = p.set_loop_file(false);
+                let _ = p.set_interpolation(false);
+                let _ = p.set_stable_volume(settings.flow.stable_volume);
                 let initial = settings.preset();
                 // Our presets are an Embedded-only feature: mpv-anime-build brings its own shaders.
                 if initial != ShaderPreset::Off && !*enhanced.peek() {
@@ -364,6 +425,20 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                                 && let Some(sid) = flow.write().started()
                             {
                                 report_source(&backend, sid, true);
+                            }
+                            // Auto-skip intro (Settings > Player): once per episode, so seeking back into the
+                            // intro lets the user watch it.
+                            let auto_skip = ui.settings.peek().flow.auto_skip_intro;
+                            let done = *intro_skipped.peek();
+                            let target = auto_skip_target(&markers.peek(), pos, done);
+                            if auto_skip
+                                && phase == Phase::Playing
+                                && let Some(target) = target
+                            {
+                                intro_skipped.set(true);
+                                let _ = p.seek(target);
+                                dispatch(&mut pstate, PlayerAction::Position(target));
+                                ctx.flash(t("player.intro_skipped"));
                             }
                             let now = now_ms();
                             if should_report(last_report, now) {
@@ -410,7 +485,17 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                             let mut done = pstate.peek().clone();
                             done.position = done.duration.max(done.position);
                             report(&backend, &id, episode, &done);
-                            let total = ctx.meta.peek().as_ref().and_then(|m| m.episodes_total);
+                            // Loop: mpv starts the file again by itself (`loop-file`), no next-episode card.
+                            if *loop_on.peek() {
+                                continue;
+                            }
+                            // Sleep timer "end of episode": stay paused here instead of playing the next one.
+                            if *sleep.peek() == SleepTimer::EndOfEpisode {
+                                sleep.set(SleepTimer::Off);
+                                ctx.flash(t("player.sleep.done"));
+                                continue;
+                            }
+                            let total = known_total(ctx.meta.peek().as_ref(), details.peek().as_ref().and_then(|d| d.as_ref()));
                             if next_episode(episode, total).is_some() {
                                 next_since.set(Some(now_ms()));
                             }
@@ -441,15 +526,86 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         }
     });
 
-    // Next-episode countdown reached zero.
+    // Next-episode countdown reached zero (`Settings::flow.auto_next_secs`). With auto-next off the card waits for
+    // the user and nothing changes episode on its own.
     use_effect({
         let ctx = ctx.clone();
         move || {
             let now = clock();
             let Some(since) = next_since() else { return };
-            if countdown_left(since, now) == 0 {
+            let (auto_next, secs) = {
+                let s = ui.settings.peek();
+                (s.flow.auto_next, u64::from(s.flow.auto_next_secs))
+            };
+            if auto_next && countdown_left(since, now, secs) == 0 {
                 next_since.set(None);
                 ctx.go_next();
+            }
+        }
+    });
+
+    // Sleep timer ran out: pause, and do not move on to the next episode.
+    use_effect({
+        let ctx = ctx.clone();
+        move || {
+            let now = clock();
+            let timer = *sleep.peek();
+            if !timer.due(now) {
+                return;
+            }
+            sleep.set(SleepTimer::Off);
+            next_since.set(None);
+            if let Some(p) = player.peek().clone() {
+                let _ = p.pause();
+            }
+            ctx.flash(t("player.sleep.done"));
+        }
+    });
+
+    // `?`: the shortcut panel (not while mpv draws its own UI or plays in its own window).
+    use_future(move || async move {
+        let mut eval = document::eval(HELP_JS);
+        while eval.recv::<bool>().await.is_ok() {
+            if !*uosc.peek() && ext_mpv.peek().is_none() {
+                help_open.toggle();
+            }
+        }
+    });
+
+    // Discord Rich Presence while watching (worker e): on mount, on every pause change and every 15 s.
+    let paused_now = use_memo(move || pstate.read().paused);
+    let send_watching = {
+        let backend = backend.clone();
+        move || {
+            // Setting off: nothing reaches Discord and the shell reports `off`.
+            if !ui.settings.peek().flow.discord_presence {
+                presence::send(&backend, PresenceVm::Clear);
+                return;
+            }
+            let state = {
+                let m = meta.peek();
+                let d = details.peek();
+                presence::watching_state(m.as_ref(), d.as_ref().and_then(|d| d.as_ref()), &pstate.peek(), episode)
+            };
+            presence::send(&backend, state);
+        }
+    };
+    use_effect({
+        let send = send_watching.clone();
+        move || {
+            let _ = paused_now();
+            send();
+        }
+    });
+    use_future({
+        let send = send_watching.clone();
+        move || {
+            let send = send.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(presence::WATCHING_EVERY_SECS)).await;
+                    send();
+                }
             }
         }
     });
@@ -543,13 +699,17 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
             }
             set_pip(&win, false, &pip_win);
             win.set_fullscreen(false);
+            // Leaving the player: back to "browsing" (the shell's route presence then refines it, e.g. a details
+            // page sends "viewing").
+            let state = if ui.settings.peek().flow.discord_presence { PresenceVm::Browsing } else { PresenceVm::Clear };
+            presence::send(&backend, state);
         }
     });
 
     // Keyboard.
     let mut seen = use_signal(|| ui.shortcut.peek().as_ref().map_or(0, |e| e.seq));
     use_effect({
-        let (backend, id, win) = (backend.clone(), id.clone(), win.clone());
+        let (backend, id, win, ctx, pip_win) = (backend.clone(), id.clone(), win.clone(), ctx.clone(), pip_win.clone());
         move || {
             let Some(evt) = (ui.shortcut)() else { return };
             if *seen.peek() == evt.seq {
@@ -582,9 +742,13 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     fullscreen.set(on);
                     win.set_fullscreen(on);
                 }
-                // Esc leaves full screen first, then the player (like the back arrow).
+                // Esc closes the shortcut panel / episode list, then leaves full screen, then the player.
                 Shortcut::Escape => {
-                    if *fullscreen.peek() {
+                    if *help_open.peek() {
+                        help_open.set(false);
+                    } else if *episodes_open.peek() {
+                        episodes_open.set(false);
+                    } else if *fullscreen.peek() {
                         fullscreen.set(false);
                         win.set_fullscreen(false);
                     } else {
@@ -601,11 +765,99 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                         ui.commit_settings(&backend, s);
                     }
                 }
-                // Wave A (worker e): prev / next episode, mute, PiP, screenshot, volume, speed, tracks, delay,
-                // skip, loop are handled here once the rebindable map lands (docs/redesign/15 section 4).
-                _ => {}
+                // Wave A (worker e): the rest of the rebindable player actions (docs/redesign/15 section 4).
+                Shortcut::PrevEpisode => ctx.go_prev(),
+                Shortcut::NextEpisode => {
+                    let total = known_total(meta.peek().as_ref(), details.peek().as_ref().and_then(|d| d.as_ref()));
+                    if next_episode(episode, total).is_some() {
+                        report(&backend, &id, episode, &pstate.peek());
+                        next_since.set(None);
+                        ctx.go_next();
+                    }
+                }
+                Shortcut::ToggleMute => {
+                    let muted = pstate.peek().muted;
+                    let _ = p.set_mute(!muted);
+                    dispatch(&mut pstate, PlayerAction::ToggleMute);
+                }
+                Shortcut::TogglePip => {
+                    let on = !*pip.peek();
+                    pip.set(on);
+                    set_pip(&win, on, &pip_win);
+                }
+                Shortcut::Screenshot => {
+                    let title = known_title(meta.peek().as_ref(), details.peek().as_ref().and_then(|d| d.as_ref()));
+                    subs::capture(&ctx, &title, episode);
+                }
+                Shortcut::VolumeUp | Shortcut::VolumeDown => {
+                    let up = evt.action == Shortcut::VolumeUp;
+                    let (volume, muted) = {
+                        let st = pstate.peek();
+                        (st.volume, st.muted)
+                    };
+                    let v = volume_step(volume, up);
+                    let _ = p.set_volume(f64::from(v));
+                    dispatch(&mut pstate, PlayerAction::SetVolume(v));
+                    if muted && up {
+                        let _ = p.set_mute(false);
+                        dispatch(&mut pstate, PlayerAction::ToggleMute);
+                    }
+                    ctx.flash(tf("player.volume_flash", &[("n", &v.to_string())]));
+                }
+                Shortcut::SpeedUp | Shortcut::SpeedDown => {
+                    let next = speed_step(*speed.peek(), evt.action == Shortcut::SpeedUp);
+                    speed.set(next);
+                    let _ = p.set_speed(next);
+                    ctx.flash(format_speed(next));
+                }
+                Shortcut::CycleSub => {
+                    let current = *sub_track.peek();
+                    let next = cycle_track(&tracks.peek(), TrackKind::Sub, current, true);
+                    if let Some(next) = next {
+                        let _ = p.set_sub_track(if next == 0 { None } else { Some(next) });
+                        sub_track.set(next);
+                        let label = tracks.peek().iter().find(|tr| tr.kind == TrackKind::Sub && tr.id == next).map(track_label);
+                        ctx.flash(format!("{}: {}", t("player.subs"), label.unwrap_or_else(|| t("player.off"))));
+                    } else {
+                        ctx.flash(t("player.no_subs"));
+                    }
+                }
+                Shortcut::CycleAudio => {
+                    let current = *audio_track.peek();
+                    let next = cycle_track(&tracks.peek(), TrackKind::Audio, current, false);
+                    if let Some(next) = next {
+                        let _ = p.set_audio_track(Some(next));
+                        audio_track.set(next);
+                        let label = tracks.peek().iter().find(|tr| tr.kind == TrackKind::Audio && tr.id == next).map(track_label);
+                        if let Some(label) = label {
+                            ctx.flash(format!("{}: {label}", t("player.audio")));
+                        }
+                    }
+                }
+                Shortcut::SubDelayEarlier | Shortcut::SubDelayLater => {
+                    let step = if evt.action == Shortcut::SubDelayLater { SUB_DELAY_STEP_SECS } else { -SUB_DELAY_STEP_SECS };
+                    let current = p.property_f64("sub-delay").unwrap_or(0.0);
+                    let next = ((current + step) * 10.0).round() / 10.0;
+                    let _ = p.set_sub_delay(next);
+                    ctx.flash(tf("player.sub_delay", &[("ms", &delay_label(next))]));
+                }
+                Shortcut::SkipSegment => {
+                    let position = pstate.peek().position;
+                    let target = markers.peek().skip_at(position).map(|(_, end)| end);
+                    if let Some(target) = target {
+                        let _ = p.seek(target);
+                        dispatch(&mut pstate, PlayerAction::Position(target));
+                    }
+                }
+                Shortcut::ToggleLoop => {
+                    let on = !*loop_on.peek();
+                    loop_on.set(on);
+                    let _ = p.set_loop_file(on);
+                    ctx.flash(if on { t("player.loop_on") } else { t("player.loop_off") });
+                }
+                // Global keys: the shell handles them.
+                Shortcut::ToggleNav | Shortcut::FocusSearch | Shortcut::NavTo(_) => {}
             }
-            let _ = &id;
         }
     });
 
@@ -618,6 +870,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let poster = vm.as_ref().and_then(|m| m.poster.clone()).or_else(|| info.as_ref().and_then(|d| d.media.cover.clone())).unwrap_or_default();
     let episodes_total = vm.as_ref().and_then(|m| m.episodes_total).or_else(|| info.as_ref().and_then(|d| d.episodes_total));
     let has_next = next_episode(episode, episodes_total).is_some();
+    let flow_prefs = ui.settings.read().flow.clone();
+    let sleep_now = sleep();
+    let sleep_left = sleep_now.left_secs(now);
     let capture_title = title.clone();
     let visible = st.controls_visible(now) || keeps_controls_up(fs.phase, st.video_ready) || next_since().is_some();
     let current = fs.current_source().cloned();
@@ -676,7 +931,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let quality_auto = !fs.sources.iter().any(|s| s.picked);
     let hole_open = st.video_ready && failure().is_none() && matches!(fs.phase, Phase::Buffering | Phase::Playing);
     let flash_text = flash().filter(|(_, at)| now.saturating_sub(*at) < FLASH_MS).map(|(text, _)| text);
-    let next_left = next_since().map(|since| countdown_left(since, now));
+    let next_secs = u64::from(flow_prefs.auto_next_secs);
+    let next_left = next_since().map(|since| countdown_left(since, now, next_secs));
     // The picker marks the source being played as checked.
     let picker_sources: Vec<SourceVm> = fs
         .sources
@@ -1032,6 +1288,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 source_icon: source_icon.to_string(),
                 source_clickable: !fs.legacy,
                 has_next,
+                has_prev: episode > 1,
                 markers: markers(),
                 poster: poster.clone(),
                 tracks: tracks(),
@@ -1109,8 +1366,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                         dispatch(&mut pstate, PlayerAction::Position(target));
                     }
                 },
-                // tk-player has no track / speed / interpolation setters yet: the menus keep the choice in
-                // the UI and confirm it; wiring them is an integration note for the tk-player owner.
+                // Track selection itself is worker d's (`subs::select_sub` / `select_audio`, applied by the
+                // integrator); the menus keep the choice in the UI and confirm it.
                 on_sub: {
                     let ctx = ctx.clone();
                     move |sid: i64| {
@@ -1145,6 +1402,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     let ctx = ctx.clone();
                     move |s: f64| {
                         speed.set(s);
+                        if let Some(p) = player.peek().clone() {
+                            let _ = p.set_speed(s);
+                        }
                         ctx.flash(format_speed(s));
                     }
                 },
@@ -1153,6 +1413,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     move |_| {
                         let on = !*smoothing.peek();
                         smoothing.set(on);
+                        if let Some(p) = player.peek().clone() {
+                            let _ = p.set_interpolation(on);
+                        }
                         ctx.flash(if on { t("player.smoothing") } else { format!("{}: {}", t("player.smoothing"), t("player.off")) });
                     }
                 },
@@ -1177,6 +1440,59 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     let open = open_client.clone();
                     move |_| open(false)
                 },
+                on_prev: {
+                    let ctx = ctx.clone();
+                    move |_| ctx.go_prev()
+                },
+                on_episodes: move |_| episodes_open.set(true),
+                loop_on: loop_on(),
+                on_loop: {
+                    let ctx = ctx.clone();
+                    move |_| {
+                        let on = !*loop_on.peek();
+                        loop_on.set(on);
+                        if let Some(p) = player.peek().clone() {
+                            let _ = p.set_loop_file(on);
+                        }
+                        ctx.flash(if on { t("player.loop_on") } else { t("player.loop_off") });
+                    }
+                },
+                stable_volume: flow_prefs.stable_volume,
+                on_stable_volume: {
+                    let (ctx, backend) = (ctx.clone(), backend.clone());
+                    move |_| {
+                        let mut f = ui.settings.peek().flow.clone();
+                        f.stable_volume = !f.stable_volume;
+                        let on = f.stable_volume;
+                        let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetFlow(f));
+                        ui.commit_settings(&backend, s);
+                        if let Some(p) = player.peek().clone() {
+                            let _ = p.set_stable_volume(on);
+                        }
+                        ctx.flash(if on { t("player.stable_volume_on") } else { t("player.stable_volume_off") });
+                    }
+                },
+                sleep: sleep_now,
+                sleep_left,
+                on_sleep: {
+                    let ctx = ctx.clone();
+                    move |c: SleepChoice| {
+                        let timer = SleepTimer::from_choice(c, now_ms());
+                        sleep.set(timer);
+                        let text = match c {
+                            SleepChoice::Off => t("player.sleep.cancelled"),
+                            SleepChoice::Minutes(m) => tf("player.sleep.set", &[("n", &m.to_string())]),
+                            SleepChoice::EndOfEpisode => t("player.sleep.set_end"),
+                        };
+                        ctx.flash(text);
+                    }
+                },
+                on_help: move |_| help_open.set(true),
+                shortcuts: flow_prefs.shortcuts.clone(),
+                auto_next: flow_prefs.auto_next,
+                auto_next_secs: flow_prefs.auto_next_secs,
+                auto_skip: flow_prefs.auto_skip_intro,
+                source_picked: fs.has_pick(),
             }
         }
     };
@@ -1283,6 +1599,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 NextEpisodeCard {
                     episode: episode + 1,
                     left,
+                    total: next_secs,
+                    counting: flow_prefs.auto_next,
                     poster: poster.clone(),
                     on_play: {
                         let ctx = ctx.clone();
@@ -1305,6 +1623,25 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
             }
             if let Some(n) = notice() {
                 div { class: "tk-toast", role: "status", "{n}" }
+            }
+            EpisodeSheet {
+                open: episodes_open(),
+                id: id.clone(),
+                current: episode,
+                on_pick: {
+                    let ctx = ctx.clone();
+                    move |n: u32| {
+                        episodes_open.set(false);
+                        next_since.set(None);
+                        ctx.go_to(n);
+                    }
+                },
+                on_close: move |_| episodes_open.set(false),
+            }
+            ShortcutHelp {
+                open: help_open(),
+                shortcuts: flow_prefs.shortcuts.clone(),
+                on_close: move |_| help_open.set(false),
             }
             subs::SubtitleSheet {
                 open: subs_sheet(),
