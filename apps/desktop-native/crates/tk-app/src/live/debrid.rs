@@ -1,8 +1,13 @@
 //! `Backend` debrid calls (wave A, worker **i**; docs/redesign/15 section 4; checklist `sources.debrid.*`).
 //!
 //! Keys live in `b.secrets` under `tk_core::secrets::keys::debrid(<service id>)`, never in a settings file. The
-//! services are tried in `DebridServiceVm::ALL` order (Real-Debrid, TorBox, AllDebrid, Premiumize): the first
-//! connected one that has a torrent cached plays it.
+//! services are tried in the user's preference order (`preference_order`: the ids saved by `set_debrid_order` in
+//! `data.db`, unknown ids dropped, services missing from it appended in `DebridServiceVm::ALL` order; with nothing
+//! saved that is Real-Debrid, TorBox, AllDebrid, Premiumize): the first connected one that has a torrent cached
+//! plays it, and its pill is the one the source row shows.
+//!
+//! * `debrid_accounts` returns the four services in that order (the UI lists them that way); `set_debrid_order`
+//!   saves a new one (Torrents > Debrid "Move up" / "Move down", checklist `sources.debrid.settings`).
 //!
 //! * `debrid_accounts` / `set_debrid_key`: validate the key against the service (`DebridClient::account`); a rejected
 //!   key is not saved and comes back as `DebridAccountVm::error`. Account answers are cached for `ACCOUNT_TTL`.
@@ -92,9 +97,39 @@ fn key_of(b: &LiveBackend, service: DebridServiceVm) -> Option<String> {
     }
 }
 
+/// The full preference order from saved ids: known ids in their saved order (duplicates dropped), then every
+/// service the list does not name, in `DebridServiceVm::ALL` order. Always the four services, each once.
+pub fn normalize_order<S: AsRef<str>>(saved: &[S]) -> [DebridServiceVm; 4] {
+    let mut out: Vec<DebridServiceVm> = Vec::with_capacity(4);
+    for id in saved {
+        if let Some(s) = DebridServiceVm::from_id(id.as_ref().trim())
+            && !out.contains(&s)
+        {
+            out.push(s);
+        }
+    }
+    for s in DebridServiceVm::ALL {
+        if !out.contains(&s) {
+            out.push(s);
+        }
+    }
+    [out[0], out[1], out[2], out[3]]
+}
+
+/// The user's debrid preference order (module docs); the default order when nothing is saved or the read fails.
+fn preference_order(b: &LiveBackend) -> [DebridServiceVm; 4] {
+    match b.store.debrid_order() {
+        Ok(saved) => normalize_order(&saved),
+        Err(e) => {
+            tracing::warn!(error = %e, "reading the debrid order failed");
+            DebridServiceVm::ALL
+        }
+    }
+}
+
 /// Services with a saved key, in preference order.
 fn connected(b: &LiveBackend) -> Vec<(DebridServiceVm, String)> {
-    DebridServiceVm::ALL.into_iter().filter_map(|s| key_of(b, s).map(|k| (s, k))).collect()
+    preference_order(b).into_iter().filter_map(|s| key_of(b, s).map(|k| (s, k))).collect()
 }
 
 fn error_text(e: &DebridError) -> String {
@@ -135,9 +170,20 @@ async fn account_for(b: &LiveBackend, service: DebridServiceVm) -> DebridAccount
 
 /// `Backend::debrid_accounts`: the four services in preference order.
 pub async fn debrid_accounts(b: &LiveBackend) -> UiResult<Vec<DebridAccountVm>> {
-    let [s0, s1, s2, s3] = DebridServiceVm::ALL;
+    let [s0, s1, s2, s3] = preference_order(b);
     let (a, c, d, e) = tokio::join!(account_for(b, s0), account_for(b, s1), account_for(b, s2), account_for(b, s3));
     Ok(vec![a, c, d, e])
+}
+
+/// `Backend::set_debrid_order`: save the preference order (most preferred first). The list is normalised
+/// (`normalize_order`), so a partial list keeps the other services after it; returns the order that was saved.
+pub async fn set_debrid_order(b: &LiveBackend, order: &[DebridServiceVm]) -> UiResult<Vec<DebridServiceVm>> {
+    let ids: Vec<&str> = order.iter().map(|s| s.id()).collect();
+    let full = normalize_order(&ids);
+    let full_ids: Vec<&str> = full.iter().map(|s| s.id()).collect();
+    b.store.set_debrid_order(&full_ids).map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))?;
+    tracing::info!(order = ?full_ids, "debrid order saved");
+    Ok(full.to_vec())
 }
 
 /// `Backend::set_debrid_key`: `Some` validates and saves (a rejected key is not saved: `error` says why); `None`
@@ -496,6 +542,18 @@ mod tests {
         answers.insert((DebridServiceVm::TorBox, "h".to_owned()), false);
         assert_eq!(status_for(&order, &answers, "h"), Some(DebridStatusVm { service: DebridServiceVm::RealDebrid, cached: false }));
         assert_eq!(status_for(&order, &answers, "other"), None);
+    }
+
+    #[test]
+    fn order_keeps_saved_ids_and_appends_the_rest() {
+        use DebridServiceVm::*;
+        let none: [&str; 0] = [];
+        assert_eq!(normalize_order(&none), DebridServiceVm::ALL);
+        assert_eq!(normalize_order(&["premiumize", "torbox"]), [Premiumize, TorBox, RealDebrid, AllDebrid]);
+        assert_eq!(normalize_order(&["alldebrid", "nope", "alldebrid", " real_debrid "]), [AllDebrid, RealDebrid, TorBox, Premiumize]);
+        let full = [TorBox, Premiumize, AllDebrid, RealDebrid];
+        let ids: Vec<String> = full.iter().map(|s| s.id().to_owned()).collect();
+        assert_eq!(normalize_order(&ids), full);
     }
 
     #[test]
