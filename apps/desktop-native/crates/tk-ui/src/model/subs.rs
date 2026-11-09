@@ -5,6 +5,17 @@
 
 use serde::{Deserialize, Serialize};
 
+/// `TranslateRequestVm::cache_key` of an empty request that asks `Backend::translate_cues` to empty the translation
+/// cache (Settings > Subtitles "Clear cache") instead of translating; the answer is one cue whose `index` is the
+/// number of rows removed. tk-app `live/subs.rs` honours it (no extra `Backend` method in the frozen trait).
+pub const CLEAR_CACHE_KEY: &str = "\u{0}clear-translation-cache";
+
+/// Target languages offered for translation (ISO 639-1; labels `subs.lang.<code>`).
+pub const TRANSLATE_LANGS: [&str; 12] = ["es", "en", "pt", "fr", "de", "it", "ja", "ko", "zh", "ru", "ar", "pl"];
+
+/// Languages offered for the secondary subtitle (labels `subs.lang.<code>`).
+pub const SECONDARY_LANGS: [&str; 6] = ["en", "es", "pt", "ja", "fr", "de"];
+
 /// Subtitle rendering style, mapped by the player to mpv `sub-*` options (`tk_player::Player::set_sub_style`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -19,6 +30,8 @@ pub struct SubtitleStyleVm {
     pub bg_opacity: u8,
     /// Outline width in px 0..=5 (`sub-border-size`).
     pub outline: u8,
+    /// Outline colour `#RRGGBB` (`sub-border-color`); user data.
+    pub outline_color: String,
     /// Vertical position 0..=100 from the bottom (`sub-pos`), 100 = default bottom margin.
     pub position: u8,
     pub bold: bool,
@@ -26,7 +39,7 @@ pub struct SubtitleStyleVm {
 
 impl Default for SubtitleStyleVm {
     fn default() -> Self {
-        Self { size: 100, font: String::new(), color: "#FFFFFF".to_owned(), bg_opacity: 0, outline: 2, position: 100, bold: false }
+        Self { size: 100, font: String::new(), color: "#FFFFFF".to_owned(), bg_opacity: 0, outline: 2, outline_color: "#000000".to_owned(), position: 100, bold: false }
     }
 }
 
@@ -37,6 +50,11 @@ impl SubtitleStyleVm {
         if !is_hex_color(&self.color) {
             self.color = Self::default().color;
         }
+        if !is_hex_color(&self.outline_color) {
+            self.outline_color = Self::default().outline_color;
+        }
+        self.color = self.color.to_ascii_uppercase();
+        self.outline_color = self.outline_color.to_ascii_uppercase();
         self.bg_opacity = self.bg_opacity.min(100);
         self.outline = self.outline.min(5);
         self.position = self.position.min(100);
@@ -175,6 +193,9 @@ mod tests {
         .sanitized();
         assert_eq!((bad.style.size, bad.style.bg_opacity, bad.style.outline, bad.style.position), (50, 100, 5, 100));
         assert_eq!(bad.style.color, "#FFFFFF");
+        assert_eq!(bad.style.outline_color, "#000000");
+        let lower = SubtitleStyleVm { color: "#ffcc00".into(), outline_color: "x".into(), ..Default::default() }.sanitized();
+        assert_eq!((lower.color.as_str(), lower.outline_color.as_str()), ("#FFCC00", "#000000"));
         assert_eq!(bad.secondary_lang.as_deref(), Some("en"));
         assert_eq!(bad.translation.target_lang, "es");
     }
@@ -187,5 +208,13 @@ mod tests {
             assert_eq!(serde_json::from_str::<TranslationProviderVm>(&json).unwrap(), p);
         }
         assert!(is_hex_color("#a1B2c3") && !is_hex_color("#a1B2c") && !is_hex_color("a1B2c3f"));
+        assert!(TRANSLATE_LANGS.iter().chain(SECONDARY_LANGS.iter()).all(|l| l.len() == 2));
+    }
+
+    /// A settings file written before `outline_color` existed still loads.
+    #[test]
+    fn older_style_json_gets_the_new_defaults() {
+        let s: SubtitleStyleVm = serde_json::from_str(r##"{"size":120,"color":"#00FF00"}"##).unwrap();
+        assert_eq!((s.size, s.outline_color.as_str(), s.outline), (120, "#000000", 2));
     }
 }
