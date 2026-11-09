@@ -167,7 +167,7 @@ pub async fn on_start(b: &LiveBackend) {
 }
 
 /// Await every future (sequential polling order, concurrent progress) without an extra dependency.
-async fn join_all<F: std::future::Future>(futs: impl IntoIterator<Item = F>) -> Vec<F::Output> {
+pub(crate) async fn join_all<F: std::future::Future>(futs: impl IntoIterator<Item = F>) -> Vec<F::Output> {
     let futs: Vec<F> = futs.into_iter().collect();
     let mut out: Vec<Option<F::Output>> = futs.iter().map(|_| None).collect();
     let mut pinned: Vec<std::pin::Pin<Box<F>>> = futs.into_iter().map(Box::pin).collect();
