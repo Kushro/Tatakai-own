@@ -36,9 +36,9 @@ use tk_core::recs::{self, Candidate, Seen, TasteProfile};
 use tk_core::store::home::TrackedShowRow;
 use tk_core::{FeedKind, HistoryEntry, Media, MediaKind, MediaRef, ProviderError};
 use tk_ui::backend::{
-    AiringSlotVm, AtlasPointVm, BecauseVm, HomeVm, LatestEpisodeVm, MediaVm, ProviderHealthVm,
-    RecommendationVm, RecsFeedbackVm, SearchPageVm, SectionVm, TasteProfileVm, TopRangeVm, TorrentActivityVm,
-    TorrentStateVm, UiResult,
+    AiringSlotVm, AtlasPointVm, BecauseVm, DetailsExtraVm, HomeVm, LatestEpisodeVm, MediaVm,
+    ProviderHealthVm, RecommendationVm, RecsFeedbackVm, SearchPageVm, SectionVm, TasteProfileVm, TopRangeVm,
+    TorrentActivityVm, TorrentStateVm, UiResult,
 };
 use tk_ui::model::home::{HomePrefs, NO_CLIENT_ID};
 use tk_ui::model::{ErrorKind, PROVIDERS, UiError};
@@ -301,7 +301,6 @@ fn dismissed(rows: &[(String, String, i64)], now: i64) -> HashSet<String> {
 /// Fill what `base` lacks from the external catalogues, in priority order: score, rank, popularity, members,
 /// synopsis, episodes; alternative titles and screenshots are merged without duplicates. Returns the providers
 /// that contributed at least one field (for `data-facts-source`).
-#[allow(dead_code)] // called from live/details.rs once the integrator wires it (commit message)
 pub(super) fn merge_facts(base: &mut ExternalFacts, others: &[ExternalFacts]) -> Vec<&'static str> {
     let mut used = Vec::new();
     for o in others {
@@ -1031,8 +1030,24 @@ fn record_result<T>(id: &str, r: &Result<T, ProviderError>) {
 }
 
 /// MAL, Shikimori and Tenrai facts of a MAL id, in the user's priority order (disabled providers skipped).
-#[allow(dead_code)] // called from live/details.rs once the integrator wires it (commit message)
+/// External facts are reused this long per MAL id (Details is opened back and forth).
+const FACTS_TTL: Duration = Duration::from_secs(30 * 60);
+const FACTS_CACHE_MAX: usize = 128;
+
+type FactsCache = HashMap<u32, (Instant, Vec<ExternalFacts>)>;
+static FACTS: Mutex<Option<FactsCache>> = Mutex::new(None);
+
+/// MAL, Shikimori and Tenrai facts of a MAL id, in the user's priority order (disabled or cooling providers skipped),
+/// cached [`FACTS_TTL`].
 pub(super) async fn external_facts(b: &LiveBackend, mal_id: u32) -> Vec<ExternalFacts> {
+    if let Some(hit) = FACTS.lock().ok().and_then(|c| {
+        c.as_ref()
+            .and_then(|m| m.get(&mal_id))
+            .filter(|(at, _)| at.elapsed() < FACTS_TTL)
+            .map(|(_, v)| v.clone())
+    }) {
+        return hit;
+    }
     let s = settings_store::load(&b.settings_file);
     let order = s.home.enabled_providers(&s.provider_priority);
     let cooling = b.router.cooling_down();
@@ -1054,7 +1069,47 @@ pub(super) async fn external_facts(b: &LiveBackend, mal_id: u32) -> Vec<External
             out.push(f);
         }
     }
+    if let Ok(mut c) = FACTS.lock() {
+        let m = c.get_or_insert_with(HashMap::new);
+        if m.len() >= FACTS_CACHE_MAX {
+            m.retain(|_, (at, _)| at.elapsed() < FACTS_TTL);
+        }
+        if m.len() < FACTS_CACHE_MAX {
+            m.insert(mal_id, (Instant::now(), out.clone()));
+        }
+    }
     out
+}
+
+/// Fill the AniList facts of Details from the external catalogues (`metadata.providers.*`): mean score when AniList
+/// has none, alternative titles merged. Returns the merged facts (rank / popularity / members / screenshots for the
+/// fields `MediaFactsVm` gains at integration) and the providers that contributed (`data-facts-source`).
+#[allow(dead_code)] // called from live/details.rs::details_extra once the integrator wires it (commit message)
+pub(super) async fn enrich_extra(
+    b: &LiveBackend,
+    vm: &mut DetailsExtraVm,
+) -> (ExternalFacts, Vec<&'static str>) {
+    let mut base = ExternalFacts {
+        provider: "anilist",
+        score: vm.facts.mean_score,
+        titles: vm.facts.synonyms.clone(),
+        ..ExternalFacts::default()
+    };
+    let Some(mal_id) = vm.facts.mal_id.filter(|i| *i > 0) else {
+        return (base, Vec::new());
+    };
+    let others = external_facts(b, mal_id).await;
+    let used = merge_facts(&mut base, &others);
+    vm.facts.mean_score = base.score;
+    vm.facts.synonyms = base.titles.clone();
+    (base, used)
+}
+
+/// Synopsis of a MAL id from the external catalogues, for titles AniList has none for.
+#[allow(dead_code)] // called from live/mod.rs::details once the integrator wires it (commit message)
+pub(super) async fn external_synopsis(b: &LiveBackend, mal_id: Option<u32>) -> Option<String> {
+    let id = mal_id.filter(|i| *i > 0)?;
+    external_facts(b, id).await.into_iter().find_map(|f| f.synopsis)
 }
 
 async fn probe(id: &'static str) -> (&'static str, Option<Result<(), String>>) {
