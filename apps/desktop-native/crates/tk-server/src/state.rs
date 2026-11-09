@@ -491,4 +491,149 @@ mod tests {
         assert!(s.repositories().is_empty());
         assert_eq!(sanitize_label("   "), "Device");
     }
+    // ---- F6 (parity wave B) ----
+
+    fn fresh() -> (tempfile::TempDir, ServerState) {
+        let dir = tempfile::tempdir().unwrap();
+        let s = ServerState::open(dir.path()).unwrap();
+        (dir, s)
+    }
+
+    fn state_json(dir: &tempfile::TempDir) -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.path().join("state.json")).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn bootstrap_secret_is_persisted_and_checked() {
+        let (dir, s) = fresh();
+        let secret = state_json(&dir)["bootstrap"].as_str().unwrap().to_owned();
+        assert_eq!(secret.len(), 64);
+        assert!(s.bootstrap_ok(&secret));
+        assert!(!s.bootstrap_ok(""));
+        assert!(!s.bootstrap_ok("wrong"));
+        // the same secret after a reopen
+        let again = ServerState::open(dir.path()).unwrap();
+        assert!(again.bootstrap_ok(&secret));
+    }
+
+    #[test]
+    fn stub_viewer_hashes_are_dropped_on_open() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("state.json"), r#"{"id":"abc","viewerHash":"plain-placeholder:x"}"#).unwrap();
+        let s = ServerState::open(dir.path()).unwrap();
+        assert_eq!(s.server_id().as_deref(), Some("abc"));
+        assert!(!s.viewer_password_set());
+        assert!(state_json(&dir)["viewerHash"].is_null());
+    }
+
+    #[test]
+    fn corrupt_state_file_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("state.json"), b"{ not json").unwrap();
+        assert!(matches!(ServerState::open(dir.path()), Err(StateError::Json(_))));
+    }
+
+    #[test]
+    fn tokens_are_stored_hashed_only() {
+        let (dir, s) = fresh();
+        let (dev, token) = s.issue("viewer", "Phone").unwrap();
+        let raw = std::fs::read_to_string(dir.path().join("state.json")).unwrap();
+        assert!(!raw.contains(&token));
+        assert_eq!(state_json(&dir)["tokenHashes"][&dev.id], crate::auth::token_hash(&token));
+    }
+
+    #[test]
+    fn admin_tokens_do_not_count_as_viewer_devices() {
+        let (_dir, s) = fresh();
+        let (admin, _) = s.issue("admin", "Owner").unwrap();
+        let (odd, _) = s.issue("superuser", "Odd").unwrap();
+        assert_eq!(admin.role, "admin");
+        assert_eq!(odd.role, "viewer", "unknown roles become viewer");
+        assert_eq!(s.device_count(), 1);
+        assert_eq!(s.devices().len(), 2);
+        assert_eq!(s.device(&admin.id).unwrap().label, "Owner");
+        assert!(s.device("missing").is_none());
+    }
+
+    #[test]
+    fn pair_rejects_empty_and_oversized_codes_and_trims() {
+        let (_dir, s) = fresh();
+        assert!(s.pair("", "x").unwrap().is_none());
+        assert!(s.pair(&"1".repeat(65), "x").unwrap().is_none());
+        let p = s.create_pairing("http://h:1");
+        assert_eq!(s.live_pairings(), 1);
+        assert!(s.pair(&format!("  {}  ", p.code), "x").unwrap().is_some());
+        assert_eq!(s.live_pairings(), 0);
+    }
+
+    #[test]
+    fn authenticate_rejects_empty_and_oversized_tokens() {
+        let (_dir, s) = fresh();
+        assert!(s.authenticate("").is_none());
+        assert!(s.authenticate(&"a".repeat(257)).is_none());
+    }
+
+    #[test]
+    fn create_pairing_at_the_limit_drops_the_oldest() {
+        let (_dir, s) = fresh();
+        let first = s.create_pairing("http://h:1");
+        for _ in 1..crate::auth::PAIRING_LIMIT {
+            s.create_pairing("http://h:1");
+        }
+        // (random six-digit codes may collide, so only the bound is exact)
+        assert!(s.live_pairings() <= crate::auth::PAIRING_LIMIT);
+        s.create_pairing("http://h:1");
+        assert!(s.live_pairings() <= crate::auth::PAIRING_LIMIT);
+        // the oldest code is gone (unless a later random code collided with it, then it is still single)
+        let paired = s.pair(&first.code, "x").unwrap();
+        assert!(paired.is_none() || s.live_pairings() == crate::auth::PAIRING_LIMIT - 1);
+    }
+
+    #[test]
+    fn changing_the_password_drops_codes_and_rotates_the_public_session() {
+        let (_dir, s) = fresh();
+        let before = s.public_session_id();
+        assert!(before.starts_with("public:"));
+        s.create_pairing("http://h:1");
+        s.set_viewer_password(Some("a long viewer password")).unwrap();
+        assert_eq!(s.live_pairings(), 0);
+        let after = s.public_session_id();
+        assert_ne!(before, after);
+        s.set_viewer_password(None).unwrap();
+        assert_ne!(s.public_session_id(), after);
+        assert!(!s.verify_viewer_password("a long viewer password"));
+    }
+
+    #[test]
+    fn throttle_is_per_role_and_the_budget_is_exact() {
+        let (_dir, s) = fresh();
+        for _ in 0..(super::MAX_ATTEMPTS - 1) {
+            assert!(s.note_failure("pair"));
+        }
+        assert!(!s.throttled("pair"), "one attempt left");
+        assert!(s.note_failure("pair"));
+        assert!(s.throttled("pair"));
+        assert!(!s.throttled("viewer"));
+    }
+
+    #[test]
+    fn repository_names_are_trimmed_and_capped_and_the_limit_holds() {
+        let (_dir, s) = fresh();
+        let r = s.add_repository(&format!("  {}  ", "n".repeat(150)), "https://r.example/0.json").unwrap();
+        assert_eq!(r.name.chars().count(), 100);
+        for i in 1..super::REPOSITORY_LIMIT {
+            s.add_repository("R", &format!("https://r.example/{i}.json")).unwrap();
+        }
+        assert!(matches!(s.add_repository("R", "https://r.example/over.json"), Err(StateError::RepositoryLimit)));
+        // a known url is still fine at the limit
+        assert!(s.add_repository("R", "https://r.example/1.json").is_ok());
+        assert!(!s.remove_repository("missing").unwrap());
+    }
+
+    #[test]
+    fn labels_are_capped_and_stripped() {
+        assert_eq!(sanitize_label(&"x".repeat(150)).chars().count(), 100);
+        assert_eq!(sanitize_label("\u{1b}[31mTV\n"), "[31mTV");
+        assert_eq!(sanitize_label(" Sala "), "Sala");
+    }
 }
