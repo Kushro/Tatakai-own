@@ -463,7 +463,11 @@ async fn resolve(b: &LiveBackend, media_id: &str, episode: u32, req: &DownloadRe
     if super::ext_catalog::is_provider_id(media_id) {
         return first_stream(Backend::playback(b, media_id, episode).await?, None);
     }
-    let prefs = settings.downloads.clone().sanitized();
+    let mut prefs = settings.downloads.clone().sanitized();
+    // The sheet / button may ask for another audio language than the saved one.
+    if let Some(a) = req.audio_lang.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
+        prefs.preferred_audio = a.to_ascii_lowercase();
+    }
     let (_, media) = b.media(media_id).await?;
     let candidates = b.episode_candidates(media_id, episode, &media, false).await;
     let enabled: HashMap<String, bool> =
