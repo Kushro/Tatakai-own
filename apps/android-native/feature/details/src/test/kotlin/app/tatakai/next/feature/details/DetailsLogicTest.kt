@@ -11,6 +11,8 @@ import app.tatakai.next.model.MediaRelation
 import app.tatakai.next.model.NextAiring
 import app.tatakai.next.model.StaffRef
 import app.tatakai.next.model.TitleLanguage
+import app.tatakai.next.ui.media.alternativeTitle
+import app.tatakai.next.ui.media.displayTitle
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull

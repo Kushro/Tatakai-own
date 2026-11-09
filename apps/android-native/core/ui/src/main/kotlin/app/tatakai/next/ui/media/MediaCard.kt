@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.TitleLanguage
 import java.util.Locale
 
 /** Poster + title (+ subtitle, + optional watch progress). Primitive overload so history entries can reuse it. */
@@ -62,10 +63,19 @@ fun MediaCard(
     }
 }
 
+/**
+ * [Media] overload: the title follows the user's preferred title language ([LocalTitleLanguage], provided by the app shell from
+ * Settings › Metadatos) unless [titleLanguage] is passed explicitly.
+ */
 @Composable
-fun MediaCard(media: Media, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun MediaCard(
+    media: Media,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    titleLanguage: TitleLanguage = LocalTitleLanguage.current,
+) {
     MediaCard(
-        title = media.title,
+        title = media.displayTitle(titleLanguage),
         coverUrl = media.cover,
         onClick = onClick,
         modifier = modifier,
