@@ -592,3 +592,16 @@ fn ExternalMpvRows(on_action: EventHandler<SettingsAction>) -> Element {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::flow::{AUTO_NEXT_MAX_SECS, AUTO_NEXT_MIN_SECS};
+
+    #[test]
+    fn countdown_choices_are_within_the_saved_bounds_and_include_the_default() {
+        assert!(AUTO_NEXT_CHOICES.iter().all(|s| (AUTO_NEXT_MIN_SECS..=AUTO_NEXT_MAX_SECS).contains(s)));
+        assert!(AUTO_NEXT_CHOICES.contains(&PlayerFlowPrefs::default().auto_next_secs));
+        assert!(AUTO_NEXT_CHOICES.windows(2).all(|w| w[0] < w[1]));
+    }
+}

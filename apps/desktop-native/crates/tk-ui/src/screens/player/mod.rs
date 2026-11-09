@@ -701,7 +701,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
             win.set_fullscreen(false);
             // Leaving the player: back to "browsing" (the shell's route presence then refines it, e.g. a details
             // page sends "viewing").
-            presence::send(&backend, PresenceVm::Browsing);
+            let state = if ui.settings.peek().flow.discord_presence { PresenceVm::Browsing } else { PresenceVm::Clear };
+            presence::send(&backend, state);
         }
     });
 
