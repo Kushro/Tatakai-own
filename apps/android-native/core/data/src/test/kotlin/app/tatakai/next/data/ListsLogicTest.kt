@@ -212,4 +212,43 @@ class ListsLogicTest {
         assertEquals("oauth:invalid_state", ListErrors.INVALID_STATE)
         assertTrue("${ListErrors.NO_CLIENT_ID}:mal".startsWith(ListErrors.NO_CLIENT_ID))
     }
+
+    // ------------------------------------------------------------------------------------------------ first sync choice (lists.import-export)
+
+    private fun row(key: String, status: String?, favorite: Boolean = false) =
+        app.tatakai.next.database.ListEntryRow(key = key, anilistId = key.toIntOrNull(), malId = null, title = key, poster = null,
+            status = status, favorite = favorite, updatedAtMs = 0L)
+
+    private fun account(provider: ListProvider, lastSynced: Long?) =
+        app.tatakai.next.database.LinkedAccountRow(provider = provider.id, userId = "1", username = "u", avatar = null, linkedAtMs = 0L,
+            expiresAtMs = null, lastSyncedAtMs = lastSynced)
+
+    @Test
+    fun firstSyncChoiceOnlyWhenTheLocalListHasSomething() {
+        assertFalse(needsFirstSyncChoice(emptyList()))
+        assertFalse(needsFirstSyncChoice(listOf(row("1", status = null))))
+        assertTrue(needsFirstSyncChoice(listOf(row("1", status = "watching"))))
+        assertTrue(needsFirstSyncChoice(listOf(row("2", status = null, favorite = true))))
+    }
+
+    @Test
+    fun pendingFirstSyncsAreTheNeverSyncedAccountsWithALocalList() {
+        val accounts = listOf(account(ListProvider.ANILIST, lastSynced = null), account(ListProvider.MAL, lastSynced = 5L))
+        assertEquals(setOf(ListProvider.ANILIST), pendingFirstSyncs(accounts, listOf(row("1", "planning"))))
+        assertEquals(emptySet(), pendingFirstSyncs(accounts, emptyList()))
+        assertEquals(emptySet(), pendingFirstSyncs(emptyList(), listOf(row("1", "planning"))))
+    }
+
+    @Test
+    fun firstSyncModesDecideTheDisagreements() {
+        val local = ListValues(status = ListStatus.WATCHING, progress = 3, score = null)
+        val remote = ListValues(status = ListStatus.COMPLETED, progress = 12, score = 80)
+        assertEquals(SyncAction.CONFLICT, decideSync(local, remote, null, queued = false, mode = InitialSyncMode.MERGE))
+        assertEquals(SyncAction.PULL, decideSync(local, remote, null, queued = false, mode = InitialSyncMode.IMPORT))
+        assertEquals(SyncAction.PUSH, decideSync(local, remote, null, queued = false, mode = InitialSyncMode.EXPORT))
+        // local-only titles: kept local on import, pushed otherwise; remote-only titles always come down
+        assertEquals(SyncAction.NOOP, decideSync(local, null, null, queued = false, mode = InitialSyncMode.IMPORT))
+        assertEquals(SyncAction.PUSH, decideSync(local, null, null, queued = false, mode = InitialSyncMode.EXPORT))
+        assertEquals(SyncAction.PULL, decideSync(null, remote, null, queued = false, mode = InitialSyncMode.EXPORT))
+    }
 }

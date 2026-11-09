@@ -36,14 +36,18 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -62,6 +66,13 @@ interface ListsSyncControl {
 
     /** Score format of the account used to show / pick scores ("POINT_10_DECIMAL", "POINT_5", "mal"...); null without accounts. */
     val scoreFormat: StateFlow<String?>
+
+    /**
+     * Linked providers whose first sync waits for the user's choice (`lists.import-export`): set by a link while the local list has
+     * entries ([needsFirstSyncChoice]), restored after a restart ([pendingFirstSyncs]), cleared by a successful [syncWith] or an unlink.
+     * [ListsRepository.syncNow] and [pushPending] leave these providers alone until then, so nothing is merged behind the user's back.
+     */
+    val firstSyncPending: StateFlow<Set<ListProvider>>
 }
 
 /** Asks for a push of the offline queue as soon as there is a network (WorkManager, survives process death). */
@@ -142,9 +153,19 @@ class ListsRepositoryImpl(
         .map { rows -> (rows.firstOrNull { it.provider == ListProvider.ANILIST.id } ?: rows.firstOrNull())?.scoreFormat }
         .stateIn(scope, SharingStarted.Eagerly, null)
 
+    private val _firstSyncPending = MutableStateFlow<Set<ListProvider>>(emptySet())
+    override val firstSyncPending: StateFlow<Set<ListProvider>> = _firstSyncPending.asStateFlow()
+
+    /** Restores [firstSyncPending] from Room once; the start sync waits for it so it never merges a pending provider. */
+    private val pendingRestored = scope.async {
+        runCatching { pendingFirstSyncs(dao.accounts(), dao.all()) }.getOrDefault(emptySet())
+            .also { restored -> _firstSyncPending.update { it + restored } }
+    }
+
     init {
         if (syncOnStart) {
             scope.launch {
+                pendingRestored.await()
                 delay(START_SYNC_DELAY_MS)
                 if (dao.accounts().isNotEmpty()) runCatching { syncNow() }
             }
@@ -369,14 +390,22 @@ class ListsRepositoryImpl(
             expiresAtMs = tokens.expiresAtMs,
             scoreFormat = account.scoreFormat,
         )
+        pendingRestored.await()
         dao.putAccount(row)
         AppLog.i(TAG, "linked ${provider.id}")
-        // first sync: merge (local-only titles go up, remote-only come down, disagreements become conflicts)
-        scope.launch { runCatching { syncWith(provider, InitialSyncMode.MERGE) } }
+        if (needsFirstSyncChoice(dao.all())) {
+            // lists.import-export: the user picks import remote / export local / merge (Settings › Listas y cuentas sheet)
+            _firstSyncPending.update { it + provider }
+        } else {
+            // nothing local: every mode pulls the same, so merge right away
+            _firstSyncPending.update { it - provider }
+            scope.launch { runCatching { syncWith(provider, InitialSyncMode.MERGE) } }
+        }
         return row.toModel()!!
     }
 
     override suspend fun unlink(provider: ListProvider) {
+        _firstSyncPending.update { it - provider }
         secrets.put(SecretKeys.listToken(provider.id), null)
         dao.deleteAccount(provider.id)
         dao.deleteChangesOf(provider.id)
@@ -410,6 +439,8 @@ class ListsRepositoryImpl(
         var firstError: Throwable? = null
         for (row in rows) {
             val provider = ListProvider.entries.firstOrNull { it.id == row.provider } ?: continue
+            // first sync not chosen yet (lists.import-export): wait for the user's import / export / merge choice
+            if (provider in _firstSyncPending.value) continue
             syncWith(provider, InitialSyncMode.MERGE).fold(
                 onSuccess = { total = total + it },
                 onFailure = { if (firstError == null) firstError = it },
@@ -419,7 +450,7 @@ class ListsRepositoryImpl(
     }
 
     override suspend fun syncWith(provider: ListProvider, mode: InitialSyncMode): Result<ListSyncReport> = try {
-        Result.success(syncMutex.withLock { syncProvider(provider, mode) })
+        Result.success(syncMutex.withLock { syncProvider(provider, mode) }).also { _firstSyncPending.update { it - provider } }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -564,12 +595,15 @@ class ListsRepositoryImpl(
         var conflicts = 0
         var failed = 0
         val linked = dao.accounts().map { it.provider }.toSet()
+        val waiting = _firstSyncPending.value
         for (change in dao.changes()) {
             val provider = ListProvider.entries.firstOrNull { it.id == change.provider }
             if (provider == null || provider.id !in linked) {
                 dao.deleteChange(change.provider, change.key, change.op)
                 continue
             }
+            // first sync not chosen yet: the change stays queued and is applied by that sync (its `queued` rule)
+            if (provider in waiting) continue
             try {
                 when (change.op) {
                     OP_FAVORITE -> {
@@ -618,7 +652,7 @@ class ListsRepositoryImpl(
                 noteFailure(provider, change.key, change.op, e)
             }
         }
-        if (ListProvider.ANILIST.id in linked) {
+        if (ListProvider.ANILIST.id in linked && ListProvider.ANILIST !in waiting) {
             try {
                 pushed += pushCharacters()
             } catch (e: CancellationException) {
