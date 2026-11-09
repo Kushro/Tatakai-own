@@ -42,7 +42,7 @@ import java.util.concurrent.TimeUnit
 /**
  * Parity wave A (docs/redesign/15-parity-wave-a-contract-android.md §3.9, 2026-11-09 amendment). Owner: worker q.
  *
- * One client per service behind the same interface, ported from the classic `src/core/providers/*`:
+ * One client per service behind the same interface, ported from the classic `src/core/providers/`:
  * - Real-Debrid: `/rest/1.0/user`, `/torrents/addMagnet`, `/torrents/info`, `/torrents/selectFiles`, `/unrestrict/link`
  *   (its `instantAvailability` endpoint is gone, so availability is learnt at resolve time: a torrent that RD starts downloading
  *   instead of answering "downloaded" is deleted again and reported as not cached).
