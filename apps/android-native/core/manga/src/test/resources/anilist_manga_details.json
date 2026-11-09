@@ -1,0 +1,13 @@
+{"data":{"Media":{"id":30002,"idMal":2,"type":"MANGA","format":"MANGA","status":"RELEASING","chapters":null,"volumes":null,"countryOfOrigin":"JP","isAdult":false,
+ "averageScore":93,"genres":["Action","Drama"],"title":{"romaji":"Berserk","english":"Berserk","native":"ベルセルク"},
+ "coverImage":{"extraLarge":"https://img/x.jpg","large":"https://img/l.jpg","color":"#e4a15d"},"bannerImage":"https://img/b.jpg",
+ "startDate":{"year":1989,"month":8,"day":25},"endDate":{"year":null,"month":null,"day":null},
+ "description":"His name is Guts.<br><br>Born from a corpse.<i>(Source: Dark Horse)</i>",
+ "source":"ORIGINAL","meanScore":93,"popularity":200000,"favourites":60000,"synonyms":["Berserk: The Black Swordsman"],
+ "tags":[{"name":"Dark Fantasy","rank":95,"isMediaSpoiler":false,"isGeneralSpoiler":false,"category":"Theme"}],
+ "rankings":[{"rank":1,"type":"RATED","allTime":true,"context":"highest rated all time","year":null}],
+ "staff":{"edges":[{"role":"Story & Art","node":{"id":96879,"name":{"full":"Kentarou Miura"},"image":{"medium":"https://img/s.jpg"}}}]},
+ "characters":{"edges":[{"role":"MAIN","node":{"id":422,"name":{"full":"Guts"},"image":{"medium":"https://img/c.jpg"}}}]},
+ "relations":{"edges":[{"relationType":"ADAPTATION","node":{"id":33,"idMal":33,"type":"ANIME","format":"TV","status":"FINISHED","title":{"romaji":"Kenpuu Denki Berserk"},"coverImage":{"large":"https://img/a.jpg"},"startDate":{"year":1997},"genres":[]}}]},
+ "recommendations":{"nodes":[{"rating":500,"mediaRecommendation":{"id":31706,"type":"MANGA","title":{"romaji":"Vagabond"},"coverImage":{"large":"https://img/v.jpg"},"startDate":{"year":1998},"genres":[]}}]},
+ "externalLinks":[{"site":"Dark Horse","url":"https://darkhorse.com"}]}}}
