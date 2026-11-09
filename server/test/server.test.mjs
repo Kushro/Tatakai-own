@@ -126,7 +126,9 @@ test('CAS mutations preserve concurrent edits', async () => {
   assert.equal((await store.read()).count, 8);
 });
 test('SSRF rejects encoded IPv4, IPv6, metadata, private DNS and redirect targets', async () => {
-  for (const url of ['http://127.0.0.1/', 'http://2130706433/', 'http://0x7f000001/', 'http://[::1]/', 'http://[::ffff:127.0.0.1]/', 'http://169.254.169.254/', 'http://10.0.0.1/', 'http://metadata.google.internal/']) assert.throws(() => publicUrl(url));
+  for (const url of ['http://127.0.0.1/', 'http://2130706433/', 'http://0x7f000001/', 'http://[::1]/', 'http://[::ffff:127.0.0.1]/', 'http://169.254.169.254/', 'http://10.0.0.1/', 'http://metadata.google.internal/', 'http://127.0.0.1:8787/', 'http://192.168.1.1:8080/', 'http://localhost:3000/']) assert.throws(() => publicUrl(url));
+  for (const url of ['https://a4.mp4upload.com:183/d/video.mp4', 'https://vidcache.net:8161/a/video.mp4', 'https://cdn.example.com:8443/x']) assert.equal(publicUrl(url).href, url);
+  assert.throws(() => publicUrl('https://user:pass@cdn.example.com/'), /invalid_url/);
   const network = createNetwork({ resolveHost: async () => ['192.168.1.1'], fetch: () => { throw Error('Must not fetch'); } });
   await assert.rejects(network('https://public.example/'), /private_upstream/);
   const redirect = createNetwork({ fetch: async () => new Response(null, { status: 302, headers: { location: 'http://localhost/private' } }) });

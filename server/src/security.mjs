@@ -48,7 +48,9 @@ export async function vault(secret) {
 export function publicUrl(value) {
   let url; try { url = new URL(value); } catch { fail(400, 'invalid_url'); }
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || (url.port && !['80', '443'].includes(url.port))) fail(400, 'invalid_url');
+  // Any port is allowed: public video hosts serve from non-standard ports (Mp4upload :183,
+  // YourUpload :8161). SSRF protection comes from the private-host checks below, not the port.
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) fail(400, 'invalid_url');
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal') || host === 'metadata.google.internal') fail(403, 'private_upstream');
   if (host.includes(':')) {
     // Only global unicast IPv6; excludes loopback, mapped IPv4, ULA and link-local.
