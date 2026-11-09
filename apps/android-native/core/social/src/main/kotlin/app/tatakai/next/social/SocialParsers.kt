@@ -73,9 +73,9 @@ object SocialParsers {
         val t = o.obj("title")
         val title = t?.let { it.str("userPreferred") ?: it.str("romaji") ?: it.str("english") ?: it.str("native") } ?: return null
         val titles = buildMap {
-            t.str("romaji")?.let { put("romaji", it) }
-            t.str("english")?.let { put("english", it) }
-            t.str("native")?.let { put("native", it) }
+            t?.str("romaji")?.let { put("romaji", it) }
+            t?.str("english")?.let { put("english", it) }
+            t?.str("native")?.let { put("native", it) }
         }
         return Media(
             ref = MediaRef(anilistId = id, malId = o.int("idMal")),

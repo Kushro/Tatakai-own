@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -150,12 +151,13 @@ class ProviderItemViewModel(
     private val historyId = "ext:$extensionId:$sourceId:$itemId"
 
     private val bookmarkFlow: Flow<ProviderBookmark?> = repo.providerBookmarks()
-        .map { list -> list.firstOrNull { it.extensionId == extensionId && it.sourceId == sourceId && it.itemId == itemId } }
+        .map<List<ProviderBookmark>, ProviderBookmark?> { list -> list.firstOrNull { it.extensionId == extensionId && it.sourceId == sourceId && it.itemId == itemId } }
+        .onStart { emit(null) }
 
     private val matchFlow: Flow<Int?> = local.map { (it.item as? LoadState.Ok)?.value?.match?.anilistId }.distinctUntilChanged()
 
     private val progressFlow: Flow<Map<Int, HistoryEntry>> = history?.history(HISTORY_SCAN)?.let { rows ->
-        combine(rows, matchFlow) { list, anilist -> progressOf(list, historyId, anilist) }
+        combine(rows.onStart { emit(emptyList()) }, matchFlow) { list, anilist -> progressOf(list, historyId, anilist) }
     } ?: flowOf(emptyMap())
 
     val state: StateFlow<ProviderItemUiState> = combine(local, bookmarkFlow, progressFlow) { l, b, p -> l.copy(bookmark = b, progress = p) }
