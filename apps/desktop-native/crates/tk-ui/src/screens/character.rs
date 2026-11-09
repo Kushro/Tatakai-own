@@ -177,6 +177,7 @@ fn CharacterBody(character: CharacterVm, back: Element) -> Element {
         facts.push((t("character.favourites"), f.to_string()));
     }
     let count = c.appearances.len();
+    let fact_count = facts.len();
     let alt = tf("character.portrait", &[("name", &c.name)]);
 
     rsx! {
@@ -205,7 +206,7 @@ fn CharacterBody(character: CharacterVm, back: Element) -> Element {
                         }
                     }
                     if !facts.is_empty() {
-                        dl { class: "tk-character__facts", "data-facts": "{facts.len()}",
+                        dl { class: "tk-character__facts", "data-facts": "{fact_count}",
                             for (k , v) in facts {
                                 div { key: "{k}", class: "tk-character__fact",
                                     dt { "{k}" }
