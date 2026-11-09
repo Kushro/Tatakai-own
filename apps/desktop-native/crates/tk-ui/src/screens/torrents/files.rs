@@ -2,19 +2,38 @@
 //! (`torrent_files`, polled every second). Files outside the selection are dimmed and tagged "Skipped"; files
 //! being streamed show a live badge. In compact windows the table turns into a list of cards (CSS). Owner:
 //! wave 3 C.
+//!
+//! Wave A (worker i, checklist `torrent.files.play-file`): every video file has "Play" (torrents added for a title:
+//! the file is aligned to its episode with `torrent_add_manual(<info-hash>, media, [(index, episode)])`, picked for
+//! that episode as `manual|torrent|<info-hash>` and the player opens it) and "Download only this"
+//! (`torrent_add_manual` with the single pair `(index, 0)`: the selection becomes that file).
 
 use dioxus::prelude::*;
 
 use super::layout::common::{
     CellProgress, POLL_FAST, SortBy, SortTh, TorrentPicker, cmp_f64, format_bytes, format_opt, matches_query,
-    use_torrent_poll,
+    use_torrent_list, use_torrent_poll,
 };
-use crate::app::Ui;
+use crate::app::{Route, Services, Ui};
 use crate::backend::TorrentFileVm;
-use crate::components::{EmptyState, ErrorState, Pill, SkeletonLines, TextField};
+use crate::components::{
+    Button, ButtonSize, ButtonVariant, EmptyState, ErrorState, IconButton, IconButtonSize, Pill, SkeletonLines, TextField,
+    use_snackbar,
+};
 use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
-use crate::model::ErrorKind;
+use crate::model::{ErrorKind, UiError};
+
+/// Source id of a torrent added by hand (same form as tk-app's `torrent_play::manual_source_id`).
+pub(super) fn manual_source_id(info_hash: &str) -> String {
+    format!("manual|torrent|{}", info_hash.to_ascii_lowercase())
+}
+
+/// Whether the player can open this file (a video).
+fn is_video(name: &str) -> bool {
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+    matches!(ext.as_str(), "mkv" | "mp4" | "avi" | "webm" | "m2ts" | "ts" | "mov" | "wmv" | "flv")
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Col {
@@ -62,6 +81,43 @@ pub fn TorrentFilesPage() -> Element {
     let files = use_torrent_poll(POLL_FAST, |b, id| async move { b.torrent_files(&id).await });
     let mut query = use_signal(String::new);
     let mut sort = use_signal(|| SortBy::new(Col::Name, false));
+    let services = use_context::<Services>();
+    let navigator = use_navigator();
+    let snack = use_snackbar();
+    let list = use_torrent_list();
+    let mut busy = use_signal(|| false);
+    let mut action_error = use_signal(|| None::<UiError>);
+
+    // (torrent id, media id, file index, episode or 0 for "download only this")
+    let act = use_callback({
+        let backend = services.backend.clone();
+        move |(tid, media, index, episode): (String, Option<String>, usize, u32)| {
+            if busy() {
+                return;
+            }
+            busy.set(true);
+            action_error.set(None);
+            let backend = backend.clone();
+            spawn(async move {
+                let result = backend.torrent_add_manual(&tid, media.as_deref(), &[(index, episode)]).await;
+                match (result, media) {
+                    (Ok(_), Some(media)) if episode > 0 => {
+                        let source = manual_source_id(&tid);
+                        if let Err(e) = backend.set_picked_source(&media, episode, Some(&source)).await {
+                            tracing::warn!(detail = %e.detail, "picking the manual torrent failed");
+                        }
+                        navigator.push(Route::PlayerPage { id: media, episode });
+                    }
+                    (Ok(_), _) => {
+                        snack.show(t("torrent.files.only_this_started"));
+                        files.refresh();
+                    }
+                    (Err(e), _) => action_error.set(Some(e)),
+                }
+                busy.set(false);
+            });
+        }
+    });
 
     let selected = ui.torrent.read().clone();
     let Some(id) = selected else {
@@ -70,6 +126,10 @@ pub fn TorrentFilesPage() -> Element {
         };
     };
 
+    let media_id: Option<String> = match &*list.read() {
+        Some(Ok(items)) => items.iter().find(|i| i.id == id).and_then(|i| i.media_id.clone()),
+        _ => None,
+    };
     let q = query();
     let cur = sort();
     let content = match files.for_id(&id) {
@@ -135,6 +195,9 @@ pub fn TorrentFilesPage() -> Element {
                                             },
                                         }
                                     }
+                                    th { class: "tk-ttable__th", "scope": "col",
+                                        span { class: "tk-sr-only", {t("torrent.files.col.actions")} }
+                                    }
                                 }
                             }
                             tbody {
@@ -143,6 +206,13 @@ pub fn TorrentFilesPage() -> Element {
                                         let folder = folder_of(&f.path).to_owned();
                                         let size = format_bytes(f.size_bytes);
                                         let episode = format_opt(f.episode);
+                                        let video = is_video(&f.name);
+                                        let play_ep = f.episode.unwrap_or(1);
+                                        let (tid1, tid2) = (id.clone(), id.clone());
+                                        let (m1, m2) = (media_id.clone(), media_id.clone());
+                                        let index = f.index;
+                                        let play_label = tf("torrent.files.play", &[("name", &f.name)]);
+                                        let only_label = tf("torrent.files.only_this", &[("name", &f.name)]);
                                         rsx! {
                                             tr { key: "{f.index}", "data-selected": "{f.selected}",
                                                 td { class: "tk-ttable__main", "data-label": "{l_name}",
@@ -171,6 +241,26 @@ pub fn TorrentFilesPage() -> Element {
                                                     }
                                                 }
                                                 td { "data-numeric": "true", "data-label": "{l_episode}", class: "tk-num", "{episode}" }
+                                                td { class: "tk-tfiles__actions",
+                                                    if video {
+                                                        if m1.is_some() {
+                                                            IconButton {
+                                                                icon: "play".to_string(),
+                                                                label: play_label,
+                                                                size: IconButtonSize::Sm,
+                                                                disabled: busy(),
+                                                                onclick: move |_| act.call((tid1.clone(), m1.clone(), index, play_ep)),
+                                                            }
+                                                        }
+                                                        IconButton {
+                                                            icon: "download".to_string(),
+                                                            label: only_label,
+                                                            size: IconButtonSize::Sm,
+                                                            disabled: busy(),
+                                                            onclick: move |_| act.call((tid2.clone(), m2.clone(), index, 0)),
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -193,6 +283,14 @@ pub fn TorrentFilesPage() -> Element {
                     icon: "search".to_string(),
                     placeholder: t("torrent.files.search_placeholder"),
                     oninput: move |v: String| query.set(v),
+                }
+            }
+            if media_id.is_none() {
+                p { class: "tk-tfiles__note", {t("torrent.files.play_needs_title")} }
+            }
+            if let Some(e) = action_error() {
+                ErrorState { error: e, compact: true, retry: false, title: Some(t("torrent.files.action_failed")),
+                    Button { label: t("common.close"), variant: ButtonVariant::Text, size: ButtonSize::Sm, onclick: move |_| action_error.set(None) }
                 }
             }
             {content}
@@ -234,6 +332,12 @@ mod tests {
         let found = visible_files(&files, "show 01.mkv", SortBy::new(Col::Name, false));
         assert_eq!(found.iter().map(|f| f.index).collect::<Vec<_>>(), [1]);
         assert!(visible_files(&files, "ncop extras", SortBy::new(Col::Name, false)).len() == 1);
+    }
+
+    #[test]
+    fn play_helpers() {
+        assert_eq!(manual_source_id("ABC"), "manual|torrent|abc");
+        assert!(is_video("Show - 01.MKV") && !is_video("notes.txt"));
     }
 
     #[test]

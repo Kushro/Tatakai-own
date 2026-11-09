@@ -3,13 +3,18 @@
 //! background downloads (disabled until the Downloads warning is accepted). One form with inline validation and a
 //! save bar; `save_torrent_settings` persists and applies (limits live, the rest restarts the engine when idle).
 //! Owner: wave 3 D.
+//!
+//! Wave A (worker i): custom trackers (one URL per line, `name="trackers"`), bandwidth schedule (`data-schedule`:
+//! daily window with its own limits), torrent cache limit (`name="cache_limit_gib"`, 0 = none) and "preload the next
+//! episode" (`data-preload-next`). All go through the same form and `save_torrent_settings`.
 
 use dioxus::prelude::*;
 
 use crate::app::{Route, Services};
-use crate::backend::{AfterWatchVm, TORRENT_MAX_LIMIT_KIB, TORRENT_MAX_PEERS, TorrentSettingsVm, UiResult};
+use crate::backend::{AfterWatchVm, BandwidthScheduleVm, TORRENT_MAX_LIMIT_KIB, TORRENT_MAX_PEERS, TorrentSettingsVm, UiResult};
 use crate::components::{
     Button, ButtonSize, ButtonVariant, ErrorState, Segmented, SkeletonLines, Switch, TextField, use_snackbar,
+    use_uncontrolled_input,
 };
 use crate::i18n::{t, tf};
 use crate::icons::Icon;
@@ -36,6 +41,40 @@ fn parse_listen_port(text: &str) -> Option<u16> {
     text.parse::<u16>().ok().filter(|p| *p == 0 || *p >= MIN_LISTEN_PORT)
 }
 
+/// Largest cache limit accepted (GiB).
+const MAX_CACHE_GIB: u32 = 100_000;
+
+/// Hour field: `0..=23`.
+fn parse_hour(text: &str) -> Option<u8> {
+    text.trim().parse::<u8>().ok().filter(|h| *h <= 23)
+}
+
+/// Cache limit field: empty = 0 (no limit), else `0..=MAX_CACHE_GIB`.
+fn parse_cache(text: &str) -> Option<u32> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Some(0);
+    }
+    text.parse::<u32>().ok().filter(|v| *v <= MAX_CACHE_GIB)
+}
+
+/// Tracker list: one URL per line (commas and spaces also split); blank lines ignored, repeats dropped. `Err` with the
+/// first line that is not a `udp://`, `http(s)://` or `wss://` URL.
+fn parse_trackers(text: &str) -> Result<Vec<String>, String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in text.split(['\n', ',', ' ', '\t']).map(str::trim).filter(|l| !l.is_empty()) {
+        let lower = line.to_ascii_lowercase();
+        let ok = ["udp://", "http://", "https://", "wss://"].iter().any(|p| lower.starts_with(p) && lower.len() > p.len());
+        if !ok {
+            return Err(line.to_owned());
+        }
+        if !out.iter().any(|o| o.eq_ignore_ascii_case(line)) {
+            out.push(line.to_owned());
+        }
+    }
+    Ok(out)
+}
+
 /// Max connections field: `1..=TORRENT_MAX_PEERS`.
 fn parse_peers(text: &str) -> Option<u32> {
     text.trim().parse::<u32>().ok().filter(|v| (1..=TORRENT_MAX_PEERS).contains(v))
@@ -49,6 +88,12 @@ struct Texts {
     port: String,
     peers: String,
     folder: String,
+    trackers: String,
+    sched_start: String,
+    sched_end: String,
+    sched_down: String,
+    sched_up: String,
+    cache: String,
 }
 
 impl Texts {
@@ -59,6 +104,12 @@ impl Texts {
             port: s.listen_port.to_string(),
             peers: s.max_peers.to_string(),
             folder: s.download_dir.clone(),
+            trackers: s.trackers.join("\n"),
+            sched_start: s.schedule.start_hour.to_string(),
+            sched_end: s.schedule.end_hour.to_string(),
+            sched_down: s.schedule.download_limit_kib.to_string(),
+            sched_up: s.schedule.upload_limit_kib.to_string(),
+            cache: s.cache_limit_gib.to_string(),
         }
     }
 }
@@ -71,6 +122,15 @@ fn build(edited: &TorrentSettingsVm, texts: &Texts) -> Option<TorrentSettingsVm>
         listen_port: parse_listen_port(&texts.port)?,
         max_peers: parse_peers(&texts.peers)?,
         download_dir: texts.folder.trim().to_owned(),
+        trackers: parse_trackers(&texts.trackers).ok()?,
+        schedule: BandwidthScheduleVm {
+            enabled: edited.schedule.enabled,
+            start_hour: parse_hour(&texts.sched_start)?,
+            end_hour: parse_hour(&texts.sched_end)?,
+            download_limit_kib: parse_limit(&texts.sched_down)?,
+            upload_limit_kib: parse_limit(&texts.sched_up)?,
+        },
+        cache_limit_gib: parse_cache(&texts.cache)?,
         ..edited.clone()
     })
 }
@@ -161,6 +221,17 @@ pub fn TorrentSettingsPage() -> Element {
     let bad_up = parse_limit(&tx.upload).is_none();
     let bad_port = parse_listen_port(&tx.port).is_none();
     let bad_peers = parse_peers(&tx.peers).is_none();
+    let bad_trackers = parse_trackers(&tx.trackers).err();
+    let bad_start = parse_hour(&tx.sched_start).is_none();
+    let bad_end = parse_hour(&tx.sched_end).is_none();
+    let bad_sdown = parse_limit(&tx.sched_down).is_none();
+    let bad_sup = parse_limit(&tx.sched_up).is_none();
+    let bad_cache = parse_cache(&tx.cache).is_none();
+    let max_cache = MAX_CACHE_GIB.to_string();
+    let trackers_hint = match &bad_trackers {
+        Some(line) => tf("torrent.settings.trackers_invalid", &[("line", line)]),
+        None => t("torrent.settings.trackers_hint"),
+    };
     let max_limit = TORRENT_MAX_LIMIT_KIB.to_string();
     let max_peers = TORRENT_MAX_PEERS.to_string();
     let after_watch: Vec<(String, String)> = AfterWatchVm::ALL
@@ -267,6 +338,96 @@ pub fn TorrentSettingsPage() -> Element {
                 }
             }
 
+            SetPanel { icon: "cast", title: t("torrent.settings.trackers"),
+                SetRow { label: t("torrent.settings.trackers_label"), hint: trackers_hint, stack: true,
+                    NamedTextArea {
+                        name: "trackers",
+                        label: t("torrent.settings.trackers_label"),
+                        value: tx.trackers.clone(),
+                        placeholder: "udp://tracker.example.org:1337/announce".to_string(),
+                        error: bad_trackers.is_some(),
+                        oninput: move |v: String| texts.with_mut(|x| x.trackers = v),
+                    }
+                }
+            }
+
+            SetPanel { icon: "clock", title: t("torrent.settings.schedule"),
+                div { class: "tk-tset__schedule", "data-schedule": "{s.schedule.enabled}",
+                    SetRow { label: t("torrent.settings.schedule_switch"), hint: t("torrent.settings.schedule_hint"),
+                        Switch {
+                            checked: s.schedule.enabled,
+                            label: t("torrent.settings.schedule_switch"),
+                            on_toggle: move |v: bool| edited.with_mut(|x| x.schedule.enabled = v),
+                        }
+                    }
+                    SetRow { label: t("torrent.settings.schedule_window"), hint: t("torrent.settings.schedule_window_hint"),
+                        div { class: "tk-tset__pair",
+                            NamedField {
+                                name: "schedule_start_hour",
+                                label: t("torrent.settings.schedule_from"),
+                                value: tx.sched_start.clone(),
+                                error: bad_start,
+                                disabled: !s.schedule.enabled,
+                                oninput: move |v: String| texts.with_mut(|x| x.sched_start = v),
+                            }
+                            NamedField {
+                                name: "schedule_end_hour",
+                                label: t("torrent.settings.schedule_to"),
+                                value: tx.sched_end.clone(),
+                                error: bad_end,
+                                disabled: !s.schedule.enabled,
+                                oninput: move |v: String| texts.with_mut(|x| x.sched_end = v),
+                            }
+                        }
+                    }
+                    SetRow { label: t("torrent.settings.schedule_limits"), hint: t("torrent.settings.limit_hint"),
+                        div { class: "tk-tset__pair",
+                            NamedField {
+                                name: "schedule_download_kib",
+                                label: t("torrent.settings.schedule_down"),
+                                value: tx.sched_down.clone(),
+                                error: bad_sdown,
+                                disabled: !s.schedule.enabled,
+                                oninput: move |v: String| texts.with_mut(|x| x.sched_down = v),
+                            }
+                            NamedField {
+                                name: "schedule_upload_kib",
+                                label: t("torrent.settings.schedule_up"),
+                                value: tx.sched_up.clone(),
+                                error: bad_sup,
+                                disabled: !s.schedule.enabled,
+                                oninput: move |v: String| texts.with_mut(|x| x.sched_up = v),
+                            }
+                        }
+                    }
+                    if bad_start || bad_end || bad_sdown || bad_sup {
+                        p { class: "tk-tset__error", role: "alert", {tf("torrent.settings.schedule_invalid", &[("max", &max_limit)])} }
+                    }
+                }
+            }
+
+            SetPanel { icon: "storage", title: t("torrent.settings.cache"),
+                SetRow { label: t("torrent.settings.cache_limit"), hint: t("torrent.settings.cache_hint"),
+                    NamedField {
+                        name: "cache_limit_gib",
+                        label: t("torrent.settings.gib"),
+                        value: tx.cache.clone(),
+                        error: bad_cache,
+                        hint: if bad_cache { tf("torrent.settings.cache_invalid", &[("max", &max_cache)]) } else { String::new() },
+                        oninput: move |v: String| texts.with_mut(|x| x.cache = v),
+                    }
+                }
+                div { "data-preload-next": "{s.preload_next}",
+                    SetRow { label: t("torrent.settings.preload_next"), hint: t("torrent.settings.preload_next_hint"),
+                        Switch {
+                            checked: s.preload_next,
+                            label: t("torrent.settings.preload_next"),
+                            on_toggle: move |v: bool| edited.with_mut(|x| x.preload_next = v),
+                        }
+                    }
+                }
+            }
+
             SetPanel { icon: "download", title: t("torrent.settings.background"),
                 SetRow {
                     label: t("torrent.settings.background_switch"),
@@ -333,6 +494,90 @@ pub fn TorrentSettingsPage() -> Element {
     }
 }
 
+/// A one-line number field with a `name` attribute (the acceptance checks address the fields by name).
+#[component]
+fn NamedField(
+    name: &'static str,
+    label: String,
+    value: String,
+    #[props(default)] error: bool,
+    #[props(default)] disabled: bool,
+    #[props(default)] hint: String,
+    #[props(default)] oninput: EventHandler<String>,
+) -> Element {
+    let (generation, record) = use_uncontrolled_input(&value);
+    rsx! {
+        label { class: "tk-field", "data-error": "{error}", "data-mono": "true",
+            span { class: "tk-field__label", "{label}" }
+            span { class: "tk-field__box",
+                {std::iter::once(generation).map(|generation| {
+                    let record = record.clone();
+                    rsx! {
+                        input {
+                            key: "{generation}",
+                            class: "tk-field__input",
+                            r#type: "text",
+                            inputmode: "numeric",
+                            name: "{name}",
+                            initial_value: "{value}",
+                            autocomplete: "off",
+                            spellcheck: "false",
+                            disabled,
+                            "aria-invalid": "{error}",
+                            oninput: move |e| {
+                                record(&e.value());
+                                oninput.call(e.value())
+                            },
+                        }
+                    }
+                })}
+            }
+            if !hint.is_empty() {
+                span { class: "tk-field__hint", "{hint}" }
+            }
+        }
+    }
+}
+
+/// Multi-line text field with a `name` attribute (tracker list).
+#[component]
+fn NamedTextArea(
+    name: &'static str,
+    label: String,
+    value: String,
+    #[props(default)] placeholder: String,
+    #[props(default)] error: bool,
+    #[props(default)] oninput: EventHandler<String>,
+) -> Element {
+    let (generation, record) = use_uncontrolled_input(&value);
+    rsx! {
+        label { class: "tk-field tk-field--area", "data-error": "{error}", "data-mono": "true",
+            span { class: "tk-field__label", "{label}" }
+            span { class: "tk-field__box",
+                {std::iter::once(generation).map(|generation| {
+                    let record = record.clone();
+                    rsx! {
+                        textarea {
+                            key: "{generation}",
+                            class: "tk-field__input tk-tset__textarea",
+                            name: "{name}",
+                            rows: "4",
+                            initial_value: "{value}",
+                            placeholder: "{placeholder}",
+                            spellcheck: "false",
+                            "aria-invalid": "{error}",
+                            oninput: move |e| {
+                                record(&e.value());
+                                oninput.call(e.value())
+                            },
+                        }
+                    }
+                })}
+            }
+        }
+    }
+}
+
 /// One group of settings (same look as the app Settings panels).
 #[component]
 fn SetPanel(icon: &'static str, title: String, children: Element) -> Element {
@@ -381,6 +626,26 @@ mod tests {
         assert_eq!(parse_peers("0"), None);
         assert_eq!(parse_peers("50"), Some(50));
         assert_eq!(parse_peers(&(TORRENT_MAX_PEERS + 1).to_string()), None);
+    }
+
+    #[test]
+    fn wave_a_fields() {
+        assert_eq!(parse_hour("23"), Some(23));
+        assert_eq!(parse_hour("24"), None);
+        assert_eq!(parse_cache(""), Some(0));
+        assert_eq!(parse_cache("50"), Some(50));
+        assert_eq!(parse_cache("x"), None);
+        assert_eq!(
+            parse_trackers("udp://a:1/announce\n\n  https://b/announce, UDP://A:1/announce"),
+            Ok(vec!["udp://a:1/announce".to_owned(), "https://b/announce".to_owned()])
+        );
+        assert_eq!(parse_trackers("ftp://nope"), Err("ftp://nope".to_owned()));
+        assert_eq!(parse_trackers(""), Ok(Vec::new()));
+        let base = TorrentSettingsVm::default();
+        let texts = Texts { trackers: "udp://t:1/a".into(), cache: "20".into(), sched_start: "22".into(), ..Texts::of(&base) };
+        let next = build(&base, &texts).unwrap();
+        assert_eq!((next.trackers.len(), next.cache_limit_gib, next.schedule.start_hour), (1, 20, 22));
+        assert_eq!(build(&base, &Texts { sched_end: "25".into(), ..Texts::of(&base) }), None);
     }
 
     #[test]

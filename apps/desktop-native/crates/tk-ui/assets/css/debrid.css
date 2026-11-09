@@ -1,1 +1,90 @@
-/* debrid.css - wave A, worker i (Torrents > Debrid, manual torrent / alignment dialog). Registered in app.rs APP_CSS by the contract; tokens only (no color literals). */
+/* debrid.css - wave A, worker i (Torrents > Debrid, "Add torrent" sheet with the episode alignment, Torrents > History,
+   the new Settings / Trackers / Files bits). Registered in app.rs APP_CSS by the contract; tokens only (no color
+   literals). Prefixes: .tk-debrid, .tk-tadd, .tk-thistory, .tk-tset__*, .tk-tfiles__actions. */
+
+/* ---- Torrents > Debrid ---- */
+.tk-debrid, .tk-thistory { display: flex; flex-direction: column; gap: var(--tk-space-16); min-width: 0; }
+.tk-debrid__how {
+  display: flex; align-items: flex-start; gap: var(--tk-space-12); color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-medium-size); line-height: var(--md-sys-typescale-body-medium-line-height);
+}
+.tk-debrid__summary { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-large-size); }
+.tk-debrid__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--tk-space-16); }
+.tk-debrid__card { display: flex; flex-direction: column; gap: var(--tk-space-12); min-width: 0; }
+.tk-debrid__card[data-connected="true"] { outline: 1px solid var(--md-sys-color-primary); outline-offset: -1px; }
+.tk-debrid__head { display: flex; align-items: center; gap: var(--tk-space-8); flex-wrap: wrap; }
+.tk-debrid__name { display: flex; align-items: center; gap: var(--tk-space-8); margin-inline-end: auto; color: var(--md-sys-color-primary); }
+.tk-debrid__name .tk-panel__title { margin: 0; color: var(--md-sys-color-on-surface); }
+.tk-debrid__priority { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-medium-size); }
+.tk-debrid__account { display: flex; flex-direction: column; gap: var(--tk-space-4); font-size: var(--md-sys-typescale-body-medium-size); }
+.tk-debrid__user { color: var(--md-sys-color-on-surface); font-weight: var(--md-sys-typescale-label-large-weight); }
+.tk-debrid__premium { color: var(--md-sys-color-on-surface-variant); }
+.tk-debrid__saved { display: inline-flex; align-items: center; gap: var(--tk-space-4); color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-debrid__error { color: var(--md-sys-color-error); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-debrid__form { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-debrid__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--tk-space-8); }
+.tk-debrid__loading { padding: var(--tk-space-8) 0; }
+
+/* ---- Library head action ---- */
+.tk-tlib__head-actions { display: flex; justify-content: flex-end; margin-top: var(--tk-space-4); }
+
+/* ---- "Add torrent" sheet ---- */
+.tk-tadd { display: flex; flex-direction: column; gap: var(--tk-space-16); min-width: 0; }
+.tk-tadd__os {
+  display: flex; align-items: center; gap: var(--tk-space-8); padding: var(--tk-space-8) var(--tk-space-12);
+  border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container); font-size: var(--md-sys-typescale-body-medium-size);
+}
+.tk-tadd__source { display: flex; align-items: flex-start; gap: var(--tk-space-8); }
+.tk-tadd__source .tk-field { flex: 1; min-width: 0; }
+.tk-tadd__drop { min-height: 96px; }
+.tk-tadd__loading { display: flex; flex-direction: column; align-items: center; gap: var(--tk-space-8); padding: var(--tk-space-16) 0; color: var(--md-sys-color-on-surface-variant); }
+.tk-tadd__preview { display: flex; flex-direction: column; gap: var(--tk-space-12); min-width: 0; }
+.tk-tadd__name { display: flex; align-items: center; gap: var(--tk-space-8); min-width: 0; font-weight: var(--md-sys-typescale-label-large-weight); }
+.tk-tadd__name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-tadd__summary, .tk-tadd__hint { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-tadd__confidence { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); }
+.tk-tadd__table td { vertical-align: middle; }
+.tk-tadd__table tr[data-included="false"] { opacity: 0.6; }
+.tk-tadd__episode {
+  width: 72px; padding: var(--tk-space-4) var(--tk-space-8); border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-small); background: transparent; color: var(--md-sys-color-on-surface);
+  font-family: var(--tk-font-mono); font-variant-numeric: tabular-nums; text-align: end;
+}
+.tk-tadd__episode:focus { outline: 2px solid var(--md-sys-color-primary); outline-offset: 1px; }
+.tk-tadd__episode:disabled { opacity: 0.5; }
+.tk-tadd__warn { color: var(--md-sys-color-error); font-size: var(--md-sys-typescale-body-small-size); }
+
+/* ---- Torrents > History ---- */
+.tk-thistory__list { display: flex; flex-direction: column; gap: var(--tk-space-4); margin: 0; padding: 0; list-style: none; }
+.tk-thistory__row {
+  display: flex; align-items: center; gap: var(--tk-space-12); padding: var(--tk-space-8) var(--tk-space-12);
+  border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container-low);
+  transition: background-color var(--tk-mo-fx-fast);
+}
+.tk-thistory__row:hover { background: var(--tk-hover); }
+.tk-thistory__row[data-session-open="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.tk-thistory__icon { display: inline-grid; place-items: center; color: var(--md-sys-color-primary); }
+.tk-thistory__text { display: flex; flex-direction: column; gap: var(--tk-space-2, 2px); flex: 1; min-width: 0; }
+.tk-thistory__title { font-weight: var(--md-sys-typescale-label-large-weight); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-thistory__name, .tk-thistory__meta {
+  color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tk-thistory__actions { display: flex; gap: var(--tk-space-4); }
+
+/* ---- Torrents > Settings (wave A fields) ---- */
+.tk-tset__pair { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); }
+.tk-tset__pair .tk-field { width: 140px; }
+.tk-tset__textarea { min-height: 96px; resize: vertical; font-family: var(--tk-font-mono); }
+.tk-tset__error { color: var(--md-sys-color-error); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-tset__schedule[data-schedule="false"] .tk-tset__pair { opacity: 0.6; }
+
+/* ---- Files: per-file actions ---- */
+.tk-tfiles__actions { white-space: nowrap; text-align: end; }
+.tk-tfiles__note { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tk-thistory__row { transition: none; }
+}
+:root[data-reduce-motion="true"] .tk-thistory__row { transition: none; }
