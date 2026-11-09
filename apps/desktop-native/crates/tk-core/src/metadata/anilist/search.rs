@@ -127,12 +127,19 @@ pub struct Person {
 }
 
 /// A page of titles with what [`FeedPage`] does not carry: AniList's `pageInfo.total` and which entries are 18+.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SearchResultPage {
     pub page: FeedPage,
     pub total: Option<u32>,
     /// AniList ids of the entries with `isAdult: true`.
     pub adult_ids: HashSet<u32>,
+}
+
+impl Default for SearchResultPage {
+    /// An empty first page (`FeedPage` itself has no `Default`).
+    fn default() -> Self {
+        Self { page: FeedPage { items: Vec::new(), page: 1, has_next: false }, total: None, adult_ids: HashSet::new() }
+    }
 }
 
 /// One entry of AniList's `MediaTagCollection`.
@@ -249,7 +256,7 @@ pub fn map_studio_page(doc: &Value, adult: bool) -> Result<SearchResultPage, Pro
         {
             return Err(ProviderError::Parse(msg));
         }
-        return Ok(SearchResultPage { page: FeedPage { items: Vec::new(), page: 1, has_next: false }, ..Default::default() });
+        return Ok(SearchResultPage::default());
     }
     let conn = &studio["media"];
     let flagged = adult_ids(&conn["nodes"]);
@@ -575,7 +582,7 @@ impl AniList {
     pub async fn studio_page(&self, name: &str, page: u32, adult: bool) -> Result<SearchResultPage, ProviderError> {
         let name = name.trim();
         if name.is_empty() {
-            return Ok(SearchResultPage { page: FeedPage { items: Vec::new(), page: 1, has_next: false }, ..Default::default() });
+            return Ok(SearchResultPage::default());
         }
         let vars = json!({ "search": name, "page": page.max(1), "perPage": 30 });
         map_studio_page(&self.post(STUDIO_QUERY, vars).await?, adult)
