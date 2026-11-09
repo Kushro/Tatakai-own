@@ -3,6 +3,7 @@ package app.tatakai.next.extensionserver
 
 import android.os.Build
 import app.tatakai.next.extensions.ExternalCandidateSource
+import app.tatakai.next.extensions.ExternalCustomSources
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +56,8 @@ val extensionServerModule: Module = module {
     }
     single<ExtensionServerRepository> { get<ExtensionServerRepositoryImpl>() }
     single { ServerCandidateSource(repository = get(), client = get()) } bind ExternalCandidateSource::class
+    // parity wave B (16 §3.4, worker t; ext.ecosystems.via-server): the PC servers' custom sources as provider pages.
+    single { ServerCustomSources(repository = get(), client = get()) } bind ExternalCustomSources::class
     single { PendingServerLink() }
 }
 
