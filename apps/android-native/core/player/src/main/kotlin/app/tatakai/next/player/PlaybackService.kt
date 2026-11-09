@@ -16,7 +16,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 // Parity wave A contract (docs/redesign/15-parity-wave-a-contract-android.md §3.2), 2026-11-09 amendment (plan 14 §0.1 #12):
@@ -85,7 +84,7 @@ class PlaybackService : MediaSessionService() {
         )
         scope.launch { ActivePlayback.player.collect { bind(it) } }
         scope.launch {
-            ActivePlayback.metadata.distinctUntilChanged().collect { if (!shutDown && session != null) triggerNotificationUpdate() }
+            ActivePlayback.metadata.collect { if (!shutDown && session != null) triggerNotificationUpdate() }
         }
     }
 
