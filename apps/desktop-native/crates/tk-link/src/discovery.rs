@@ -1,6 +1,6 @@
 //! mDNS announcement of Tatakai Link (wave B, worker **k**; checklist `link.discovery`; docs/redesign/03 listed it as
 //! out of M0). Service type [`SERVICE_TYPE`], instance = the server name, port = the Link port (SRV record), TXT
-//! records `v=1`, `name=<server name>`, `id=<instance_id of /v1/capabilities>`, `fp=<sha256 of the server certificate,
+//! records `v=1`, `name=<server name>`, `id=<instance_id of /v1/capabilities>`, `fp=<sha256 of the Link CA certificate,
 //! hex>`. CANONICAL for the Android client (worker r, `NsdManager`): same service type and TXT keys, host and port from
 //! the resolved service so the phone can list PCs and confirm the fingerprint on first use
 //! (TOFU) before pairing. Crate `mdns-sd` (pure Rust, no daemon; docs/redesign/16 section 3.7).

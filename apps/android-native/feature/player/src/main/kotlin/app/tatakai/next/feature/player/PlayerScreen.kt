@@ -49,6 +49,7 @@ import app.tatakai.next.designsystem.components.ErrorState
 import app.tatakai.next.designsystem.components.rememberAfterDelay
 import app.tatakai.next.designsystem.theme.TatakaiTheme
 import app.tatakai.next.feature.player.sources.SourcePickerSheet
+import app.tatakai.next.model.EmbedSniffer
 import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.model.SecretStore
 import app.tatakai.next.model.SettingsRepository
@@ -91,7 +92,7 @@ fun PlayerScreen(
     val koin = getKoin()
     val vm: PlayerViewModel = viewModel(
         key = "player-${args.media.anilistId}-${args.media.malId}-${args.episode}-${args.remoteSessionId}-${args.sourceKey}-" +
-            "${args.torrentId}-${args.fileIndex}-${args.localUri}",
+            "${args.torrentId}-${args.fileIndex}-${args.localUri}-${args.provider?.historyId}-${args.provider?.entryId}",
         factory = viewModelFactory {
             initializer {
                 PlayerViewModel(
@@ -112,6 +113,7 @@ fun PlayerScreen(
                     subtitleTools = koin.getOrNull<SubtitleTools>(),
                     secrets = koin.getOrNull<SecretStore>(),
                     debrid = koin.getOrNull<DebridRepository>(),
+                    embedSniffer = koin.getOrNull<EmbedSniffer>(),
                 )
             }
         },

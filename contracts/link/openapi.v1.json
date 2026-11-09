@@ -95,6 +95,14 @@
     {
       "name": "history",
       "description": "Watch-history sync between the user's own devices (wave A). The PC is the server; the phone keeps a `since` cursor. Replaces the removed cloud history."
+    },
+    {
+      "name": "remote",
+      "description": "Wave B (`link.remote-control`, `link.handoff`): the phone drives the PC player. Canonical wire of `tk-link/src/control.rs`; Android `core/link/LinkControl.kt` uses it as is."
+    },
+    {
+      "name": "events",
+      "description": "Wave B (`link.send-to-device`): PC -> phone events through a per-device long-poll, kept while the app is in the foreground."
     }
   ],
   "paths": {
@@ -841,6 +849,169 @@
           }
         }
       }
+    },
+    "/v1/control": {
+      "post": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "remote"
+        ],
+        "x-milestone": "wave B",
+        "summary": "Send a remote-control command to the PC player",
+        "description": "`play` / `pause` / `toggle` / `next` / `prev` / `seek` (`seconds`, absolute, <= 86400) act on the open player; `open` (`mediaId` 1..128 chars, `episode` >= 1, `positionSecs`) opens the player and is always taken: it is the phone's \"Continue on the PC\" hand-off (the phone pushes its history row first with `POST /v1/history`). Android mapping: `RemoteAction.PREV / PLAY_PAUSE / NEXT` -> `prev` / `toggle` / `next`. Body <= 4 KiB.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ControlCommand"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "The PC player took the command",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/request_invalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/client_certificate_required"
+          },
+          "403": {
+            "$ref": "#/components/responses/device_not_authorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/no_player_409"
+          },
+          "413": {
+            "$ref": "#/components/responses/body_too_large"
+          },
+          "500": {
+            "$ref": "#/components/responses/internal"
+          }
+        }
+      }
+    },
+    "/v1/player": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "remote"
+        ],
+        "x-milestone": "wave B",
+        "summary": "What the PC player shows right now",
+        "description": "There is no capability flag: a PC with no player open, or without remote control, answers `404 no_player` and the phone keeps the remote buttons disabled.",
+        "responses": {
+          "200": {
+            "description": "Player state",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlayerState"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/client_certificate_required"
+          },
+          "403": {
+            "$ref": "#/components/responses/device_not_authorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/no_player_404"
+          },
+          "500": {
+            "$ref": "#/components/responses/internal"
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "events"
+        ],
+        "x-milestone": "wave B",
+        "summary": "Long-poll the events the PC queued for this device",
+        "description": "Answers `200` as soon as events are queued for the calling device (they are drained on delivery; at most 16 kept per device, for 10 minutes), or `204` when `wait` runs out with nothing. Today the only event is `handoff` (\"Send to device\"): the PC already started the Link session `sessionId` for this device, and the phone plays `/v1/sessions/{sessionId}/master.m3u8` from `positionSecs`.",
+        "parameters": [
+          {
+            "name": "wait",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 25,
+              "default": 25
+            },
+            "description": "Seconds to wait; clamped to 1..=25 (`EVENTS_MAX_WAIT_SECS`)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Queued events",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventsPage"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No event before `wait` ran out",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/request_invalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/client_certificate_required"
+          },
+          "403": {
+            "$ref": "#/components/responses/device_not_authorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/internal"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1401,6 +1572,48 @@
               "error": {
                 "code": "handoff_rejected",
                 "message": "the handoff was rejected"
+              }
+            }
+          }
+        }
+      },
+      "no_player_409": {
+        "description": "409 no_player",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NoPlayerError"
+            },
+            "example": {
+              "error": {
+                "code": "no_player",
+                "message": "no player is open on this PC"
+              }
+            }
+          }
+        }
+      },
+      "no_player_404": {
+        "description": "404 no_player",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NoPlayerError"
+            },
+            "example": {
+              "error": {
+                "code": "no_player",
+                "message": "no player is open on this PC"
               }
             }
           }
@@ -2083,6 +2296,229 @@
             "description": "Rows the PC stored (new or newer than what it had)."
           }
         }
+      },
+      "ControlCommand": {
+        "description": "`ControlCommand` of tk-link/src/control.rs (internally tagged by `command`, camelCase fields).",
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "const": "play"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "const": "pause"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "const": "toggle"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "const": "next"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "command"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "const": "prev"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "command",
+              "seconds"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "const": "seek"
+              },
+              "seconds": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 86400
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "command",
+              "mediaId",
+              "episode"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "const": "open"
+              },
+              "mediaId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "episode": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "positionSecs": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 0
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "command"
+        }
+      },
+      "PlayerState": {
+        "type": "object",
+        "required": [
+          "playing"
+        ],
+        "properties": {
+          "playing": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string"
+          },
+          "episode": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "positionSecs": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          },
+          "durationSecs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "mediaId": {
+            "type": "string",
+            "description": "`String(anilistId)`, `mal:<id>` or `ext:<ext>:<source>:<item>`."
+          }
+        }
+      },
+      "PhoneEvent": {
+        "description": "`PhoneEvent` of control.rs (internally tagged by `type`, camelCase fields). Unknown types are skipped by the phone.",
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "sessionId"
+            ],
+            "properties": {
+              "type": {
+                "const": "handoff"
+              },
+              "sessionId": {
+                "type": "string"
+              },
+              "mediaId": {
+                "type": "string"
+              },
+              "episode": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "positionSecs": {
+                "type": "integer",
+                "minimum": 0,
+                "default": 0
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type"
+        }
+      },
+      "EventsPage": {
+        "type": "object",
+        "required": [
+          "events"
+        ],
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PhoneEvent"
+            }
+          }
+        }
+      },
+      "NoPlayerError": {
+        "description": "Wave B error body of `/v1/control` (409) and `/v1/player` (404). `no_player` is outside the 26-code M0 catalogue (`x-errors.extraCodes`).",
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "no_player"
+              },
+              "message": {
+                "const": "no player is open on this PC"
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -2245,15 +2681,23 @@
         "message": "the handoff was rejected",
         "m0": false
       }
+    ],
+    "extraCodes": [
+      {
+        "code": "no_player",
+        "http": [
+          404,
+          409
+        ],
+        "message": "no player is open on this PC",
+        "m0": false,
+        "note": "Wave B, outside the catalogue (the Rust `ErrorCode` and Kotlin `LinkError` tables stay at 26): 409 on POST /v1/control, 404 on GET /v1/player."
+      }
     ]
   },
   "x-out-of-m0": {
     "deferredToM1": [
-      "mDNS discovery + TOFU pairing",
       "GET/PUT /v1/settings",
-      "GET /v1/events",
-      "POST /v1/handoff",
-      "POST /v1/control",
       "source kind \"extension\"",
       "subtitle tracks (GET /v1/sessions/{id}/subtitles/{n}.vtt)",
       "Windows Firewall rule UI beyond the manual button"
@@ -2264,5 +2708,23 @@
       "source kind \"phone\" and its source channel",
       "HEVC"
     ]
+  },
+  "x-wave-b": {
+    "routes": [
+      "POST /v1/control",
+      "GET /v1/player",
+      "GET /v1/events"
+    ],
+    "handoff": "No /v1/handoff route: phone -> PC is POST /v1/control `open`; PC -> phone is the `handoff` event of GET /v1/events.",
+    "mdns": {
+      "serviceType": "_tatakai-link._tcp",
+      "txt": {
+        "v": "1",
+        "name": "server name",
+        "id": "instance_id of /v1/capabilities",
+        "fp": "sha256 (hex) of the Link CA certificate, the `ca=` pin of a tatakai-link:v1 pairing payload"
+      },
+      "note": "Announced by tk-link `discovery::Announcer` while Settings > Link \"Announce on the network\" is on. The phone (NsdManager) lists PCs, then pairs with the one-time code the PC shows and checks sha256(CA) == fp."
+    }
   }
 }

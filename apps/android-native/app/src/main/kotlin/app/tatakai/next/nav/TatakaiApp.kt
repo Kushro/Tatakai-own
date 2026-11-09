@@ -516,6 +516,9 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                 SearchScreen(
                     onMediaClick = { media -> media.ref.anilistId?.let { openDetails(it) } },
                     onOpenImageSearch = { push(Route.ImageSearch()) },
+                    // parity wave B (s, manga.route / novel.route): the Manga / Novel type chips open those homes.
+                    onOpenMangaSearch = { q -> push(Route.Manga(q.ifBlank { null })) },
+                    onOpenNovelSearch = { q -> push(Route.Novels(q.ifBlank { null })) },
                 )
             }
             entry<Route.SearchFor>(metadata = ListDetailSceneStrategy.listPane()) { key ->
@@ -526,6 +529,9 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     initialGenre = key.genre,
                     initialStudio = key.studio,
                     onOpenImageSearch = { push(Route.ImageSearch()) },
+                    // parity wave B (s, manga.route / novel.route): the Manga / Novel type chips open those homes.
+                    onOpenMangaSearch = { q -> push(Route.Manga(q.ifBlank { null })) },
+                    onOpenNovelSearch = { q -> push(Route.Novels(q.ifBlank { null })) },
                 )
             }
             // parity wave A (15 §3.1, worker o): image search (trace.moe), opened from the search bar or by sharing a picture.

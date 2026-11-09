@@ -25,9 +25,14 @@ test('link/openapi.v1.json: M0 scope (E6/E7 trims) and structural integrity', ()
     '/v1/sessions/{id}/master.m3u8', '/v1/sessions/{id}/media.m3u8', '/v1/sessions/{id}/init.mp4', '/v1/sessions/{id}/seg_{k}.m4s']) {
     assert.ok(paths.includes(p), `missing path ${p}`);
   }
-  for (const gone of ['settings', 'events', 'handoff', 'control', 'sync', 'downloads', 'source/', 'subtitles', 'mdns']) {
-    assert.ok(!paths.some((p) => p.includes(gone)), `${gone} must not be in the M0 API`);
+  for (const gone of ['settings', 'handoff', 'sync', 'downloads', 'source/', 'subtitles', 'mdns']) {
+    assert.ok(!paths.some((p) => p.includes(gone)), `${gone} must not be in the API`);
   }
+  // wave B (worker k): remote control, player state and the events long-poll (canonical wire of tk-link control.rs)
+  for (const p of ['/v1/control', '/v1/player', '/v1/events']) assert.ok(paths.includes(p), `missing wave B path ${p}`);
+  assert.deepEqual(doc.components.schemas.ControlCommand.oneOf.map((o) => o.properties.command.const), ['play', 'pause', 'toggle', 'next', 'prev', 'seek', 'open']);
+  assert.equal(doc['x-errors'].extraCodes.find((c) => c.code === 'no_player').message, 'no player is open on this PC');
+  assert.equal(doc['x-wave-b'].mdns.serviceType, '_tatakai-link._tcp');
   // mTLS everywhere except pairing
   for (const [path, item] of Object.entries(doc.paths)) {
     for (const [method, op] of Object.entries(item)) {

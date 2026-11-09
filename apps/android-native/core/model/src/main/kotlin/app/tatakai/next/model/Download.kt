@@ -78,8 +78,9 @@ data class DownloadRequest(
 @Serializable
 enum class DownloadProfile(val id: String) {
     @SerialName("best") BEST("best"),
-    @SerialName("balanced_1080") BALANCED_1080("balanced_1080"),
-    @SerialName("saver_720") SAVER_720("saver_720"),
+    // Wire ids shared with desktop `AutoProfileVm` (best / balanced / data_saver; desktop wins).
+    @SerialName("balanced") BALANCED_1080("balanced"),
+    @SerialName("data_saver") SAVER_720("data_saver"),
 }
 
 /** Auto-download rule of one series (classic `automation-engine.ts`): new episodes of a WATCHING title get queued automatically. */

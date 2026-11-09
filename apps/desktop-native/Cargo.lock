@@ -7545,10 +7545,12 @@ dependencies = [
 name = "tk-core"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "anyhow",
  "async-trait",
  "base64 0.22.1",
  "bytes",
+ "cbc",
  "directories",
  "futures-util",
  "hex 0.4.3",

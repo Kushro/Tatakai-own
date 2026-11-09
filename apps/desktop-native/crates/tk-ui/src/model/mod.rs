@@ -52,19 +52,9 @@ pub struct PaletteInfo {
     pub seed: &'static str,
 }
 
-/// The 10 palettes of docs/redesign/01 section 2 (ids match `packages/tokens/tokens.json`).
-pub const PALETTES: [PaletteInfo; 10] = [
-    PaletteInfo { id: "tatakai-violet", seed: "#7C4DFF" },
-    PaletteInfo { id: "midnight", seed: "#3D5AFE" },
-    PaletteInfo { id: "sakura", seed: "#E86A92" },
-    PaletteInfo { id: "matcha", seed: "#5E9E6E" },
-    PaletteInfo { id: "ocean", seed: "#0091C2" },
-    PaletteInfo { id: "neon-tokyo", seed: "#FF2E88" },
-    PaletteInfo { id: "blood-moon", seed: "#C62828" },
-    PaletteInfo { id: "royal-gold", seed: "#C9A227" },
-    PaletteInfo { id: "aurora", seed: "#00BFA5" },
-    PaletteInfo { id: "mono", seed: "#808080" },
-];
+/// Every palette of `packages/tokens/tokens.json`: the 10 of docs/redesign/01 section 2 plus the 10 ported from the
+/// classic themes in wave B (worker b, `settings.appearance.more-palettes`). Labels: `palette.<id>`.
+pub const PALETTES: [PaletteInfo; 20] = home::ALL_PALETTES;
 
 pub const DEFAULT_PALETTE: &str = "tatakai-violet";
 /// Metadata providers known to tk-core (default priority order).

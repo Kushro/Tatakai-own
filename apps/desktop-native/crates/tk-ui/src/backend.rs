@@ -910,6 +910,14 @@ pub struct MediaFactsVm {
     pub mal_id: Option<u32>,
     pub kitsu_id: Option<u32>,
     pub adult: bool,
+    /// Wave B (b): catalogues that contributed to these facts besides AniList (`mal`, `shikimori`, `tenrai`;
+    /// `data-facts-source`).
+    pub facts_sources: Vec<String>,
+    /// MAL score rank (`#n`) and member count, when MAL / Shikimori know the title.
+    pub rank: Option<u32>,
+    pub members: Option<u32>,
+    /// Absolute screenshot URLs (Shikimori).
+    pub screenshots: Vec<String>,
 }
 
 /// A related title (worker c). `relation` is AniList's `PREQUEL | SEQUEL | SIDE_STORY | PARENT | ADAPTATION |

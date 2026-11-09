@@ -37,6 +37,9 @@ futures-util = { workspace = true }
 m3u8-rs = { workspace = true }
 notify = { workspace = true }
 scraper = { workspace = true }
+# wave B h: AES-128-CBC for encrypted HLS segments (download/hls.rs)
+aes = { workspace = true }
+cbc = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

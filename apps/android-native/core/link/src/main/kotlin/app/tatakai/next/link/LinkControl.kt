@@ -54,7 +54,8 @@ internal object ControlWire {
     fun open(mediaId: String, episode: Int, positionSecs: Int): String = buildJsonObject {
         put("command", OPEN)
         put("mediaId", mediaId)
-        put("episode", episode.coerceAtLeast(0))
+        // control.rs `valid`: episodes start at 1.
+        put("episode", episode.coerceAtLeast(1))
         put("positionSecs", positionSecs.coerceAtLeast(0))
     }.toString()
 }

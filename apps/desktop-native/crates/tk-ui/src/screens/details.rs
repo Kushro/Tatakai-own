@@ -443,7 +443,10 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
     let extra_state: Option<Result<DetailsExtraVm, UiError>> = (*extra.read()).clone();
     let order_state = (*order.read()).clone();
     let adult = matches!(&extra_state, Some(Ok(x)) if x.facts.adult);
-    let allowed = adult_ok() || adult_session();
+    // Wave B (b, `settings.privacy.mature-content`): the "Show" mode skips the 18+ gate.
+    let allowed = adult_ok()
+        || adult_session()
+        || ui.settings.read().home.mature_content == crate::model::home::MatureContentVm::Show;
     // Images wait until we know the title is not adult (or the viewer accepted); an error never hides them.
     let images = match &extra_state {
         None => false,
@@ -921,6 +924,12 @@ fn DetailsHeader(
                     if !embedded {
                         // Wave A mount point (worker g): `components/list_button.rs` loads its own entry.
                         ListButton { media_id: vm.media.id.clone(), episodes_total: vm.episodes_total }
+                        // Wave B (b, `details.track-show`): follow the title in the airing calendar.
+                        crate::components::airing::TrackShowButton { media_id: vm.media.id.clone() }
+                        // Wave B (j, `ext.custom-providers.bookmark`): Save / Mark as completed for provider titles.
+                        if vm.media.id.starts_with("ext:") {
+                            crate::screens::provider::ProviderBookmarkButton { media_id: vm.media.id.clone() }
+                        }
                         Button {
                             label: t("details.send_device"),
                             icon: "cast".to_string(),

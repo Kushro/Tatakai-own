@@ -2,8 +2,9 @@
 //! ones. Library = AniList unread notifications (worker n, `anilist_unread_count`, every
 //! `Settings::social.notifications_poll_minutes`); Extensions = updates found (worker j, `ext_updates_check`, cached a
 //! day, polled hourly); Downloads = active rows (worker h, `downloads`, every 10 s while any is active, else every
-//! minute). Errors (incl. `NotWired`) count as 0, so nothing shows until each owner lands. Shared file: owners do not
-//! edit it; they only implement the backend calls.
+//! minute); Torrents = active torrents (worker b, `torrent_activity`, `home.torrent-activity`, same cadence). Errors
+//! count as 0. The AniList loop also wakes right after "Mark all read", a Settings change or window focus (worker n,
+//! `model::social::wait_unread_poll` + `screens::social::use_unread_focus_wake`).
 
 use std::time::Duration;
 
@@ -23,6 +24,8 @@ pub fn use_rail_badges() -> Vec<(NavDest, u32)> {
     let mut unread = use_signal(|| 0_u32);
     let mut updates = use_signal(|| 0_u32);
     let mut active = use_signal(|| 0_u32);
+    let mut torrents = use_signal(|| 0_u32);
+    crate::screens::social::use_unread_focus_wake();
 
     // n: AniList unread count (rail badge, `social.notifications.badge`).
     {
@@ -37,14 +40,14 @@ pub fn use_rail_badges() -> Vec<(NavDest, u32)> {
                     };
                     if poll_minutes == 0 || !badge {
                         unread.set(0);
-                        tokio::time::sleep(Duration::from_secs(60)).await;
+                        crate::model::social::wait_unread_poll(1).await;
                         continue;
                     }
                     let n = backend.anilist_unread_count().await.unwrap_or(0);
                     if *unread.peek() != n {
                         unread.set(n);
                     }
-                    tokio::time::sleep(Duration::from_secs(60 * u64::from(poll_minutes))).await;
+                    crate::model::social::wait_unread_poll(poll_minutes).await;
                 }
             }
         });
@@ -90,7 +93,29 @@ pub fn use_rail_badges() -> Vec<(NavDest, u32)> {
         });
     }
 
-    [(NavDest::Library, unread()), (NavDest::Extensions, updates()), (NavDest::Downloads, active())]
+    // b: active torrents (`home.torrent-activity`, Torrents rail entry).
+    {
+        let backend = services.backend.clone();
+        use_future(move || {
+            let backend = backend.clone();
+            async move {
+                loop {
+                    let n = backend.torrent_activity().await.map(|a| a.active).unwrap_or(0);
+                    if *torrents.peek() != n {
+                        torrents.set(n);
+                    }
+                    tokio::time::sleep(if n > 0 { DOWNLOADS_ACTIVE_POLL } else { DOWNLOADS_IDLE_POLL }).await;
+                }
+            }
+        });
+    }
+
+    [
+        (NavDest::Library, unread()),
+        (NavDest::Extensions, updates()),
+        (NavDest::Downloads, active()),
+        (NavDest::Torrents, torrents()),
+    ]
         .into_iter()
         .filter(|(_, n)| *n > 0)
         .collect()
