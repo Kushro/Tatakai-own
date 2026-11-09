@@ -566,4 +566,39 @@ mod tests {
         .sanitized();
         assert_eq!(p.reminder_minutes, REMINDER_MAX);
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn disabled_providers_are_deduped_and_unknown_ids_dropped() {
+        let p = HomePrefs { disabled_providers: vec!["kitsu".into(), "kitsu".into(), "bogus".into(), "mal".into()], ..HomePrefs::default() }.sanitized();
+        assert_eq!(p.disabled_providers, vec!["kitsu".to_owned(), "mal".to_owned()]);
+        assert!(p.is_provider_disabled("kitsu") && !p.is_provider_disabled("anilist"));
+        assert_eq!(p.clone().sanitized(), p, "idempotent");
+    }
+
+    #[test]
+    fn sanitizing_everything_off_keeps_the_first_provider() {
+        let mut all: Vec<String> = PROVIDERS.iter().rev().map(|s| (*s).to_owned()).collect();
+        all.push(PROVIDERS[0].to_owned());
+        let p = HomePrefs { disabled_providers: all, ..HomePrefs::default() }.sanitized();
+        assert_eq!(p.disabled_providers.len(), PROVIDERS.len() - 1);
+        assert!(!p.is_provider_disabled(PROVIDERS[0]));
+    }
+
+    #[test]
+    fn enabled_providers_keep_the_priority_order_and_unknown_entries() {
+        let p = HomePrefs::default().with_provider_enabled("kitsu", false);
+        let prio = vec!["mal".to_owned(), "kitsu".to_owned(), "custom".to_owned(), "anilist".to_owned()];
+        assert_eq!(p.enabled_providers(&prio), vec!["mal".to_owned(), "custom".to_owned(), "anilist".to_owned()]);
+        assert!(p.enabled_providers(&[]).is_empty());
+    }
+
+    #[test]
+    fn mature_modes_wire_ids() {
+        for m in MatureContentVm::ALL {
+            assert_eq!(serde_json::to_value(m).unwrap(), serde_json::Value::String(m.id().to_owned()));
+        }
+        let p: HomePrefs = serde_json::from_str(r#"{"mature_content":"blur","reminder_minutes":5}"#).unwrap();
+        assert_eq!(p, HomePrefs { mature_content: MatureContentVm::Blur, reminder_minutes: 5, ..HomePrefs::default() });
+    }
 }

@@ -323,4 +323,65 @@ mod tests {
         assert_eq!(test_state_attr(false, Some(false)), "error");
         assert_eq!(test_state_attr(false, None), "idle");
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn numeric_fields_are_clamped() {
+        let d = ServerPrefs::default();
+        let lo = ServerPrefs { timeout_secs: 1, concurrency: 0, sniffer_timeout_secs: 1, port: SERVER_MIN_PORT, ..d.clone() }.sanitized();
+        assert_eq!((lo.timeout_secs, lo.concurrency, lo.sniffer_timeout_secs, lo.port), (5, 1, SNIFF_MIN_SECS, SERVER_MIN_PORT));
+        let hi = ServerPrefs { timeout_secs: 250, concurrency: 99, sniffer_timeout_secs: 200, port: u16::MAX, ..d }.sanitized();
+        assert_eq!((hi.timeout_secs, hi.concurrency, hi.sniffer_timeout_secs, hi.port), (120, 8, SNIFF_MAX_SECS, u16::MAX));
+    }
+
+    #[test]
+    fn name_is_trimmed_and_capped() {
+        let p = ServerPrefs { name: format!("  {}  ", "n".repeat(80)), ..ServerPrefs::default() }.sanitized();
+        assert_eq!(p.name.chars().count(), 60);
+        let p = ServerPrefs { name: "  Sala  ".into(), ..ServerPrefs::default() }.sanitized();
+        assert_eq!(p.name, "Sala");
+    }
+
+    #[test]
+    fn valid_urls_are_normalized_not_dropped() {
+        let p = ServerPrefs {
+            allowed_origins: vec![" https://x.example/ ".into(), "".into(), "x.example".into()],
+            flaresolverr_url: Some(" http://127.0.0.1:8191/ ".into()),
+            outbound_proxy: Some("ftp://nope".into()),
+            ..ServerPrefs::default()
+        }
+        .sanitized();
+        assert_eq!(p.allowed_origins, vec!["https://x.example".to_owned()]);
+        assert_eq!(p.flaresolverr_url.as_deref(), Some("http://127.0.0.1:8191"));
+        assert_eq!(p.outbound_proxy, None);
+        // sanitizing twice changes nothing
+        assert_eq!(p.clone().sanitized(), p);
+    }
+
+    #[test]
+    fn proxy_url_edge_cases() {
+        assert!(proxy_url_ok("SOCKS5H://h:1"));
+        assert!(proxy_url_ok("https://user:pw@h:8443"));
+        assert!(!proxy_url_ok("http://:3128"));
+        assert!(!proxy_url_ok("http://h :1"));
+        assert!(!proxy_url_ok(""));
+    }
+
+    #[test]
+    fn missing_fields_take_the_defaults() {
+        let p: ServerPrefs = serde_json::from_str(r#"{"enabled":true,"port":9000}"#).unwrap();
+        assert_eq!(p, ServerPrefs { enabled: true, port: 9000, ..ServerPrefs::default() });
+    }
+
+    #[test]
+    fn more_stream_kinds_from_the_url() {
+        assert_eq!(stream_kind("http://localhost:8099/api/server/v1/media/t/x.mp4"), "proxy");
+        // a loopback url that is not the media proxy is a direct stream
+        assert_eq!(stream_kind("http://127.0.0.1:9000/other.m3u8"), "direct");
+        assert_eq!(stream_kind("file:///tmp/a.mkv"), "local");
+        note_stream_kind("https://cdn.example/f6-relabelled.m3u8", "embed");
+        note_stream_kind("https://cdn.example/f6-relabelled.m3u8", "proxy");
+        assert_eq!(stream_kind("https://cdn.example/f6-relabelled.m3u8"), "proxy", "the last label wins");
+        assert_eq!(test_state_attr(false, Some(true)), "ok");
+    }
 }

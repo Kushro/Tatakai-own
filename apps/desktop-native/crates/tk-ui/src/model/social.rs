@@ -405,4 +405,40 @@ mod tests {
         assert!(POLL_CHOICES.iter().all(|m| *m <= POLL_MAX_MINUTES));
         assert!(POLL_CHOICES.contains(&SocialPrefs::default().notifications_poll_minutes));
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn every_poll_choice_survives_sanitizing_and_booleans_are_kept() {
+        for m in POLL_CHOICES {
+            let p = SocialPrefs { notifications_poll_minutes: m, ..SocialPrefs::default() };
+            assert_eq!(p.clone().sanitized(), p, "{m}");
+        }
+        let off = SocialPrefs { notifications_poll_minutes: 0, badge: false, show_activity_on_details: false, show_reviews_on_details: false };
+        assert_eq!(off.clone().sanitized(), off);
+        let p: SocialPrefs = serde_json::from_str(r#"{"badge":false}"#).unwrap();
+        assert_eq!(p, SocialPrefs { badge: false, ..SocialPrefs::default() });
+    }
+
+    #[test]
+    fn day_bucket_edges() {
+        let now = 100 * 86_400;
+        assert_eq!(DayBucket::of(now, now - 86_399), DayBucket::Today);
+        assert_eq!(DayBucket::of(now, now - 2 * 86_400 + 1), DayBucket::Yesterday);
+        assert_eq!(DayBucket::of(now, now - 7 * 86_400 + 1), DayBucket::Week);
+        assert_eq!(DayBucket::of(now, now - 7 * 86_400), DayBucket::Month);
+        assert_eq!(DayBucket::of(now, now - 30 * 86_400), DayBucket::Older);
+        assert!(group_by_day(now, &Vec::<i64>::new(), |t| *t).is_empty());
+        // runs are consecutive: the same bucket after another one opens a new group
+        let g = group_by_day(now, &[now, now - 86_400, now], |t| *t);
+        assert_eq!(g.len(), 3);
+    }
+
+    #[test]
+    fn prefixes_strip_only_at_the_start() {
+        assert_eq!(social_target("xmanga:1"), SocialTarget::Anime("xmanga:1"));
+        assert_eq!(social_target("manga:"), SocialTarget::Manga(""));
+        assert_eq!(notification_group(""), "media");
+        assert_eq!(notification_group("activity_like"), "media", "AniList types are upper case");
+        assert_eq!(hours_watched(59), 0);
+    }
 }
