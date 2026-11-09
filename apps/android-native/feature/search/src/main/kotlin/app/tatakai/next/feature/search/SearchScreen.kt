@@ -26,7 +26,9 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Extension
@@ -118,6 +120,9 @@ fun SearchScreen(
     initialStudio: String? = null,
     /** Image-search entry (camera / gallery icon of the search bar) -> Route.ImageSearch(). */
     onOpenImageSearch: () -> Unit = {},
+    // --- parity wave B (docs/redesign/16 §3.5, worker s): type chips Manga / Novela, wired by :app to Route.Manga(query) / Route.Novels(query) ---
+    onOpenMangaSearch: (query: String) -> Unit = {},
+    onOpenNovelSearch: (query: String) -> Unit = {},
 ) {
     LaunchedEffect(initialQuery, initialFeed, initialGenre, initialStudio) {
         viewModel.applyInitial(initialQuery, initialFeed, initialGenre, initialStudio)
@@ -162,6 +167,8 @@ fun SearchScreen(
             onType = viewModel::setType,
             onExtension = viewModel::selectExtension,
             onOpenImageSearch = onOpenImageSearch,
+            onOpenMangaSearch = onOpenMangaSearch,
+            onOpenNovelSearch = onOpenNovelSearch,
         ),
         modifier = modifier,
     )
@@ -189,6 +196,8 @@ internal data class SearchActions(
     val onType: (SearchType) -> Unit = {},
     val onExtension: (String?) -> Unit = {},
     val onOpenImageSearch: () -> Unit = {},
+    val onOpenMangaSearch: (String) -> Unit = {},
+    val onOpenNovelSearch: (String) -> Unit = {},
 )
 
 @Composable
@@ -366,6 +375,19 @@ private fun ChipsRow(state: SearchUiState, actions: SearchActions) {
                 },
             )
         }
+        // parity wave B (16 §3.5, worker s): Manga / Novela open their own homes with the typed query (checklist manga.route / novel.route).
+        FilterChip(
+            selected = false,
+            onClick = { actions.onOpenMangaSearch(state.query.trim()) },
+            label = { Text(stringResource(UiR.string.nav_manga)) },
+            leadingIcon = { Icon(Icons.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(18.dp)) },
+        )
+        FilterChip(
+            selected = false,
+            onClick = { actions.onOpenNovelSearch(state.query.trim()) },
+            label = { Text(stringResource(UiR.string.nav_novels)) },
+            leadingIcon = { Icon(Icons.Filled.AutoStories, contentDescription = null, modifier = Modifier.size(18.dp)) },
+        )
         if (state.type == SearchType.ANIME) {
             Box(Modifier.width(1.dp).height(24.dp).background(MaterialTheme.colorScheme.outlineVariant))
             FilterChip(

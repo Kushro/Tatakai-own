@@ -3,6 +3,12 @@
 plugins { id("tatakai.android.feature") }
 
 dependencies {
+    // MangaCatalog / chapter logic / keymap of the readers (core module, no feature -> feature dependency).
+    implementation(projects.core.manga)
     implementation(libs.coil.compose)
-    implementation(libs.androidx.activity.compose) // BackHandler, SAF (nothing else from activity)
+    // NetworkHeaders / httpHeaders for page images that need the extension's Referer (coil-network-core through the OkHttp fetcher).
+    implementation(libs.coil.network.okhttp)
+    implementation(libs.androidx.activity.compose) // BackHandler
+    implementation(libs.androidx.core.ktx) // WindowCompat (immersive reader)
+    implementation(libs.compose.material.icons.extended)
 }
