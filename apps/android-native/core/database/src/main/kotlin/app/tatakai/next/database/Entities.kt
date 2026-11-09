@@ -56,3 +56,80 @@ data class PickedSourceRow(
     val key: String,
     val updatedAtMs: Long,
 )
+
+// --- parity wave A (docs/redesign/15-parity-wave-a-contract-android.md §3.3, worker q): AniList / MAL lists, local first ----------------
+
+/**
+ * One title of the user's list (the local copy is the source of truth). [key] = `HistoryEntry.animeIdOf(anilistId, malId)` (`"21"` or
+ * `"mal:5114"`). [status] is `ListStatus.id`; null = not on the list (a favorite-only row). [score] 0..100.
+ * [remoteJson] keeps, per provider, the last values both sides agreed on (`{"anilist":{...},"mal":{...}}`): the conflict base.
+ */
+@Entity(tableName = "list_entry", indices = [Index("status"), Index("favorite"), Index("updatedAtMs")])
+data class ListEntryRow(
+    @PrimaryKey val key: String,
+    val anilistId: Int?,
+    val malId: Int?,
+    val title: String,
+    val poster: String?,
+    val status: String?,
+    val progress: Int = 0,
+    val totalEpisodes: Int? = null,
+    val score: Int? = null,
+    val favorite: Boolean = false,
+    val updatedAtMs: Long,
+    val notes: String? = null,
+    val startedAt: String? = null,
+    val completedAt: String? = null,
+    val remoteJson: String? = null,
+)
+
+/**
+ * Offline queue: one pending push per (provider, title). [op] = `"save"` (status / progress / score from the current row), `"delete"`,
+ * `"favorite"` (AniList ToggleFavourite of the title; [favorite] = wanted value). Coalesced: a newer change replaces the older one.
+ */
+@Entity(tableName = "list_change", primaryKeys = ["provider", "key", "op"])
+data class ListChangeRow(
+    val provider: String,
+    val key: String,
+    val op: String,
+    val favorite: Boolean? = null,
+    val createdAtMs: Long,
+    val attempts: Int = 0,
+    val lastError: String? = null,
+)
+
+/** A title that changed on both sides with different values; [localJson] / [remoteJson] are `ListEntry` JSON. Id `<provider>:<key>`. */
+@Entity(tableName = "list_conflict")
+data class ListConflictRow(
+    @PrimaryKey val id: String,
+    val provider: String,
+    val key: String,
+    val localJson: String,
+    val remoteJson: String,
+    val createdAtMs: Long,
+)
+
+/** A linked list provider (no tokens here: they live in `SecretStore`). */
+@Entity(tableName = "linked_account")
+data class LinkedAccountRow(
+    @PrimaryKey val provider: String,
+    val userId: String,
+    val username: String,
+    val avatar: String?,
+    val linkedAtMs: Long,
+    val expiresAtMs: Long?,
+    /** AniList `mediaListOptions.scoreFormat` (POINT_100, POINT_10_DECIMAL, POINT_10, POINT_5, POINT_3) or "mal" (0..10). */
+    val scoreFormat: String? = null,
+    val lastSyncedAtMs: Long? = null,
+)
+
+/** Favorite character (classic `character.favorite`), mirrored to AniList `ToggleFavourite(characterId)` when linked. */
+@Entity(tableName = "favorite_character")
+data class FavoriteCharacterRow(
+    @PrimaryKey val id: Int,
+    val name: String,
+    val image: String?,
+    val addedAtMs: Long,
+    /** null = in sync; true / false = wanted AniList state not pushed yet. */
+    val pendingRemote: Boolean? = null,
+)

@@ -48,6 +48,10 @@ abstract class HistoryDao {
 
     @Query("DELETE FROM history")
     abstract suspend fun clear()
+
+    /** parity wave A (worker q): Settings › Datos › Exportar historial, newest first. */
+    @Query("SELECT * FROM history ORDER BY watchedAtMs DESC")
+    abstract suspend fun all(): List<HistoryRow>
 }
 
 @Dao
@@ -93,4 +97,110 @@ abstract class SourceStatsDao {
 
     @Query("DELETE FROM source_stats")
     abstract suspend fun clearStats()
+}
+
+/** parity wave A (15 §3.3, worker q): lists, offline queue, conflicts, linked accounts, favorite characters. */
+@Dao
+abstract class ListsDao {
+    // --- entries ---
+    @Query("SELECT * FROM list_entry WHERE status IS NOT NULL ORDER BY updatedAtMs DESC")
+    abstract fun observeListed(): Flow<List<ListEntryRow>>
+
+    @Query("SELECT * FROM list_entry WHERE status = :status ORDER BY updatedAtMs DESC")
+    abstract fun observeByStatus(status: String): Flow<List<ListEntryRow>>
+
+    @Query("SELECT * FROM list_entry WHERE favorite = 1 ORDER BY updatedAtMs DESC")
+    abstract fun observeFavorites(): Flow<List<ListEntryRow>>
+
+    @Query("SELECT * FROM list_entry WHERE `key` = :key")
+    abstract fun observe(key: String): Flow<ListEntryRow?>
+
+    @Query("SELECT * FROM list_entry WHERE `key` = :key")
+    abstract suspend fun get(key: String): ListEntryRow?
+
+    @Query("SELECT * FROM list_entry WHERE anilistId = :anilistId LIMIT 1")
+    abstract suspend fun byAniList(anilistId: Int): ListEntryRow?
+
+    @Query("SELECT * FROM list_entry WHERE malId = :malId LIMIT 1")
+    abstract suspend fun byMal(malId: Int): ListEntryRow?
+
+    @Query("SELECT * FROM list_entry")
+    abstract suspend fun all(): List<ListEntryRow>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsert(row: ListEntryRow)
+
+    @Query("DELETE FROM list_entry WHERE `key` = :key")
+    abstract suspend fun delete(key: String)
+
+    // --- offline queue ---
+    @Query("SELECT * FROM list_change ORDER BY createdAtMs ASC")
+    abstract suspend fun changes(): List<ListChangeRow>
+
+    @Query("SELECT COUNT(*) FROM list_change")
+    abstract fun observeChangeCount(): Flow<Int>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun putChange(row: ListChangeRow)
+
+    @Query("DELETE FROM list_change WHERE provider = :provider AND `key` = :key AND op = :op")
+    abstract suspend fun deleteChange(provider: String, key: String, op: String)
+
+    @Query("DELETE FROM list_change WHERE provider = :provider")
+    abstract suspend fun deleteChangesOf(provider: String)
+
+    // --- conflicts ---
+    @Query("SELECT * FROM list_conflict ORDER BY createdAtMs ASC")
+    abstract fun observeConflicts(): Flow<List<ListConflictRow>>
+
+    @Query("SELECT * FROM list_conflict WHERE id = :id")
+    abstract suspend fun conflict(id: String): ListConflictRow?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun putConflict(row: ListConflictRow)
+
+    @Query("DELETE FROM list_conflict WHERE id = :id")
+    abstract suspend fun deleteConflict(id: String)
+
+    @Query("DELETE FROM list_conflict WHERE provider = :provider")
+    abstract suspend fun deleteConflictsOf(provider: String)
+
+    // --- accounts ---
+    @Query("SELECT * FROM linked_account ORDER BY linkedAtMs ASC")
+    abstract fun observeAccounts(): Flow<List<LinkedAccountRow>>
+
+    @Query("SELECT * FROM linked_account")
+    abstract suspend fun accounts(): List<LinkedAccountRow>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun putAccount(row: LinkedAccountRow)
+
+    @Query("DELETE FROM linked_account WHERE provider = :provider")
+    abstract suspend fun deleteAccount(provider: String)
+
+    // --- favorite characters ---
+    @Query("SELECT * FROM favorite_character ORDER BY addedAtMs DESC")
+    abstract fun observeCharacters(): Flow<List<FavoriteCharacterRow>>
+
+    @Query("SELECT COUNT(*) FROM favorite_character WHERE id = :id")
+    abstract fun observeCharacterCount(id: Int): Flow<Int>
+
+    @Query("SELECT * FROM favorite_character WHERE id = :id")
+    abstract suspend fun character(id: Int): FavoriteCharacterRow?
+
+    @Query("SELECT * FROM favorite_character WHERE pendingRemote IS NOT NULL")
+    abstract suspend fun pendingCharacters(): List<FavoriteCharacterRow>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun putCharacter(row: FavoriteCharacterRow)
+
+    @Query("DELETE FROM favorite_character WHERE id = :id")
+    abstract suspend fun deleteCharacter(id: Int)
+
+    /** A favorite removed while offline is kept as a tombstone (pendingRemote = false) until AniList hears about it. */
+    @Query("SELECT * FROM favorite_character WHERE pendingRemote IS NULL OR pendingRemote = 1 ORDER BY addedAtMs DESC")
+    abstract fun observeVisibleCharacters(): Flow<List<FavoriteCharacterRow>>
+
+    @Query("SELECT COUNT(*) FROM favorite_character WHERE id = :id AND (pendingRemote IS NULL OR pendingRemote = 1)")
+    abstract fun observeVisibleCharacterCount(id: Int): Flow<Int>
 }

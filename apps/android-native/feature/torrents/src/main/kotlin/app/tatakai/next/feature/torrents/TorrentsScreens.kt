@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.TouchApp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,7 +27,11 @@ import androidx.compose.material3.adaptive.layout.ThreePaneScaffoldDestinationIt
 import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.layout.calculateThreePaneScaffoldValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -35,12 +40,16 @@ import app.tatakai.next.designsystem.components.EmptyState
 import app.tatakai.next.designsystem.components.LocalAppSnackbar
 import app.tatakai.next.designsystem.components.Segmented
 import app.tatakai.next.designsystem.components.SegmentedOption
+import app.tatakai.next.feature.torrents.ui.AddTorrentSheet
+import app.tatakai.next.feature.torrents.ui.DebridSection
 import app.tatakai.next.feature.torrents.ui.DetailContent
+import app.tatakai.next.feature.torrents.ui.HistorySection
 import app.tatakai.next.feature.torrents.ui.DownloadsBody
 import app.tatakai.next.feature.torrents.ui.LibraryContent
 import app.tatakai.next.feature.torrents.ui.MessagesEffect
 import app.tatakai.next.feature.torrents.ui.TorrentLoadState
 import app.tatakai.next.feature.torrents.ui.TorrentSettingsBody
+import app.tatakai.next.feature.torrents.vm.AddTorrentViewModel
 import app.tatakai.next.feature.torrents.vm.TorrentDetailViewModel
 import app.tatakai.next.feature.torrents.vm.TorrentDownloadsViewModel
 import app.tatakai.next.feature.torrents.vm.TorrentLibraryViewModel
@@ -58,7 +67,14 @@ import org.koin.core.parameter.parametersOf
 // feature/settings, feature/details). Data through TorrentRepository (Koin, torrentModule). Every screen: loading / empty / error.
 
 /** Sections reachable from the client header (the per-torrent ones open from a torrent). */
-private val CLIENT_SECTIONS = listOf(TorrentSection.LIBRARY, TorrentSection.DOWNLOADS, TorrentSection.SETTINGS)
+private val CLIENT_SECTIONS = listOf(
+    TorrentSection.LIBRARY,
+    TorrentSection.DOWNLOADS,
+    // parity wave A (15 §3.9, worker q)
+    TorrentSection.HISTORY,
+    TorrentSection.DEBRID,
+    TorrentSection.SETTINGS,
+)
 
 /**
  * Route entry of `Route.Torrents(section, torrentId)`: tablet rail destination and deep links (player "Abrir en el cliente", You ›
@@ -78,6 +94,27 @@ fun TorrentsScreen(
     val directive = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo())
     val twoPanes = directive.maxHorizontalPartitions > 1
     val headerSection = if (section.perTorrent) TorrentSection.LIBRARY else section
+
+    // parity wave A (worker q, torrent.add-* / torrent.magnet-link-handler): "Añadir torrent", also opened by a system magnet: / .torrent
+    val addVm: AddTorrentViewModel = koinViewModel()
+    var addOpen by rememberSaveable { mutableStateOf(false) }
+    val incoming by addVm.incoming.collectAsStateWithLifecycle()
+    LaunchedEffect(incoming) {
+        if (incoming) {
+            addOpen = true
+            addVm.incomingShown()
+        }
+    }
+    if (addOpen) {
+        AddTorrentSheet(
+            vm = addVm,
+            onDismiss = { addOpen = false },
+            onAdded = { id ->
+                addOpen = false
+                onNavigate(TorrentSection.OVERVIEW, id)
+            },
+        )
+    }
 
     // Phone with a torrent open: the detail is the whole screen (its back returns to the previous route).
     if (!twoPanes && torrentId != null && (section.perTorrent || section == TorrentSection.LIBRARY)) {
@@ -104,6 +141,14 @@ fun TorrentsScreen(
                         }
                     }
                 },
+                actions = {
+                    IconButton(onClick = {
+                        addVm.reset()
+                        addOpen = true
+                    }) {
+                        Icon(Icons.Outlined.Add, contentDescription = stringResource(R.string.torrent_add_title))
+                    }
+                },
             )
         },
     ) { padding ->
@@ -121,6 +166,8 @@ fun TorrentsScreen(
                     modifier = Modifier.fillMaxSize(),
                 )
                 TorrentSection.SETTINGS -> TorrentSettingsPage(modifier = Modifier.fillMaxSize(), onBack = null)
+                TorrentSection.HISTORY -> HistorySection(onOpenTorrent = { onNavigate(TorrentSection.OVERVIEW, it) }, modifier = Modifier.fillMaxSize())
+                TorrentSection.DEBRID -> DebridSection(modifier = Modifier.fillMaxSize())
                 else -> {
                     val destination = ThreePaneScaffoldDestinationItem(
                         if (torrentId != null) ListDetailPaneScaffoldRole.Detail else ListDetailPaneScaffoldRole.List,
