@@ -6,17 +6,25 @@
 //! means "resolve `sources[i]` now" (`Backend::playback_source`), tagged with [`FlowState::attempt`] so a
 //! late answer for an older attempt is ignored. Nothing else in here starts network work.
 
+use tk_player::{TrackInfo, TrackKind};
+
 use crate::backend::{SkipKindVm, SkipMarkVm, SourceKindVm, SourceVm};
-use crate::model::{ErrorKind, SourceModeVm, UiError};
+use crate::model::{ErrorKind, SourceModeVm, SourcePrefsVm, UiError};
 
 /// Legacy path (`Backend::sources` not wired): at most this many `PlaybackVm::streams` are tried.
 pub const MAX_LEGACY_STREAMS: usize = 3;
-/// Next-episode card countdown.
+/// Next-episode card countdown when no setting says otherwise (`Settings::flow.auto_next_secs` wins).
 pub const NEXT_COUNTDOWN_SECS: u64 = 10;
 /// Short confirmations over the video ("Off", "1.5×") disappear after this.
 pub const FLASH_MS: u64 = 2600;
-/// Speed menu (prototype `player.js`).
-pub const SPEEDS: [f64; 4] = [1.0, 1.25, 1.5, 2.0];
+/// Speed menu and `SpeedUp` / `SpeedDown` steps (classic `SpeedSelector.tsx`: 0.5x to 2x).
+pub const SPEEDS: [f64; 7] = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+/// `VolumeUp` / `VolumeDown` step, in percent.
+pub const VOLUME_STEP: u8 = 5;
+/// `SubDelayEarlier` / `SubDelayLater` step (100 ms, like the classic `Z` / `X`).
+pub const SUB_DELAY_STEP_SECS: f64 = 0.1;
+/// Sleep timer menu (classic `usePlayerEnhancements.ts`), in minutes; "end of episode" is a separate entry.
+pub const SLEEP_MINUTES: [u8; 4] = [15, 30, 45, 60];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Phase {
@@ -53,6 +61,48 @@ pub fn playable(s: &SourceVm) -> bool {
     s.ext_enabled
 }
 
+/// `lang` is in `list` (`es` also matches `es-419` / `es-ES`), ignoring case.
+fn has_lang(list: &[String], lang: &str) -> bool {
+    let lang = lang.trim();
+    !lang.is_empty()
+        && list.iter().any(|l| {
+            let l = l.trim();
+            l.eq_ignore_ascii_case(lang)
+                || (l.len() > lang.len() && l.is_char_boundary(lang.len()) && l[..lang.len()].eq_ignore_ascii_case(lang) && l[lang.len()..].starts_with(['-', '_']))
+        })
+}
+
+/// The source still fits the current preferences (wave A, worker e; audit bug `sources.remembered-vs-prefs`):
+/// its quality is unknown or at least `min_quality`, and either it is dubbed in the subtitle language (nothing to
+/// read) or its audio is `dub_lang` (or unknown) **and** it carries `sub_lang` subtitles. A Russian torrent without
+/// subtitles fails for "JA audio + ES subtitles"; a JA source with ES subtitles passes.
+pub fn meets_prefs(s: &SourceVm, prefs: &SourcePrefsVm) -> bool {
+    let rank = quality_rank(&s.quality);
+    let quality_ok = rank == 0 || rank >= quality_rank(prefs.min_quality.id());
+    let dubbed_in_reading_lang = has_lang(&s.dubs, &prefs.sub_lang);
+    let audio_ok = s.dubs.is_empty() || has_lang(&s.dubs, &prefs.dub_lang);
+    let subs_ok = has_lang(&s.subs, &prefs.sub_lang);
+    quality_ok && (dubbed_in_reading_lang || (audio_ok && subs_ok))
+}
+
+/// Forget a remembered pick that no longer fits the preferences, as long as some other playable source does
+/// (when nothing fits, the user's choice is no worse than the ranking's and it stays). Clears `picked` in place
+/// and returns the id that was dropped, so the screen also forgets it in the store (`Backend::set_picked_source`).
+pub fn drop_stale_pick(sources: &mut [SourceVm], prefs: &SourcePrefsVm) -> Option<String> {
+    let i = sources.iter().position(|s| s.picked)?;
+    if meets_prefs(&sources[i], prefs) {
+        return None;
+    }
+    if !sources.iter().enumerate().any(|(j, s)| j != i && playable(s) && meets_prefs(s, prefs)) {
+        return None;
+    }
+    let id = sources[i].id.clone();
+    for s in sources.iter_mut() {
+        s.picked = false;
+    }
+    Some(id)
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FlowState {
     pub phase: Phase,
@@ -67,14 +117,25 @@ pub struct FlowState {
     pub attempt: u64,
     /// Built from `Backend::playback` streams: no reliability reports, no picker.
     pub legacy: bool,
+    /// The remembered pick that `new` ignored because it no longer meets the preferences ([`drop_stale_pick`]);
+    /// the screen forgets it with `Backend::set_picked_source(None)`.
+    pub dropped_pick: Option<String>,
     started: bool,
 }
 
 impl FlowState {
-    pub fn new(sources: Vec<SourceVm>, mode: SourceModeVm) -> Self {
-        let mut s = Self { sources, mode, ..Self::default() };
+    /// `prefs` = `Settings::sources`: a remembered pick that no longer meets them is ignored (and reported in
+    /// [`FlowState::dropped_pick`]); the recommended source plays and the old pick stays in the list as an option.
+    pub fn new(mut sources: Vec<SourceVm>, mode: SourceModeVm, prefs: &SourcePrefsVm) -> Self {
+        let dropped_pick = drop_stale_pick(&mut sources, prefs);
+        let mut s = Self { sources, mode, dropped_pick, ..Self::default() };
         s.begin();
         s
+    }
+
+    /// A source is marked as the user's pick (`data-source-picked`).
+    pub fn has_pick(&self) -> bool {
+        self.sources.iter().any(|s| s.picked)
     }
 
     /// Sources synthesized from the old `PlaybackVm::streams` (always Auto, plain failover).
@@ -435,9 +496,115 @@ pub fn keeps_controls_up(phase: Phase, video_ready: bool) -> bool {
     }
 }
 
-/// Seconds left on the next-episode card that appeared at `since_ms`.
-pub fn countdown_left(since_ms: u64, now_ms: u64) -> u64 {
-    NEXT_COUNTDOWN_SECS.saturating_sub(now_ms.saturating_sub(since_ms) / 1000)
+/// Seconds left on a `secs`-long next-episode countdown that appeared at `since_ms`.
+pub fn countdown_left(since_ms: u64, now_ms: u64, secs: u64) -> u64 {
+    secs.saturating_sub(now_ms.saturating_sub(since_ms) / 1000)
+}
+
+/// Auto-skip intro (`Settings::flow.auto_skip_intro`): where to jump while `pos` is inside the intro, once per
+/// screen (`done` = already skipped, so seeking back into the intro lets the user watch it).
+pub fn auto_skip_target(markers: &Markers, pos: f64, done: bool) -> Option<f64> {
+    if done || !pos.is_finite() {
+        return None;
+    }
+    markers.skip_target(pos)
+}
+
+/// Next speed of [`SPEEDS`] above (`up`) or below `current`; stays at the ends.
+pub fn speed_step(current: f64, up: bool) -> f64 {
+    let current = if current.is_finite() { current } else { 1.0 };
+    if up {
+        SPEEDS.iter().copied().find(|s| *s > current + 1e-6).unwrap_or(SPEEDS[SPEEDS.len() - 1])
+    } else {
+        SPEEDS.iter().rev().copied().find(|s| *s < current - 1e-6).unwrap_or(SPEEDS[0])
+    }
+}
+
+/// `VolumeUp` / `VolumeDown`: one [`VOLUME_STEP`] up or down, within 0..=100.
+pub fn volume_step(current: u8, up: bool) -> u8 {
+    if up { current.saturating_add(VOLUME_STEP).min(100) } else { current.saturating_sub(VOLUME_STEP) }
+}
+
+/// `CycleSub` / `CycleAudio`: the track after `current` among the `kind` tracks, wrapping. With `with_off` the
+/// cycle includes 0 (off) after the last track (subtitles); `None` when there is no track of that kind.
+pub fn cycle_track(tracks: &[TrackInfo], kind: TrackKind, current: i64, with_off: bool) -> Option<i64> {
+    let mut ids: Vec<i64> = tracks.iter().filter(|t| t.kind == kind).map(|t| t.id).collect();
+    if ids.is_empty() {
+        return None;
+    }
+    if with_off {
+        ids.insert(0, 0);
+    }
+    let next = match ids.iter().position(|id| *id == current) {
+        Some(i) => ids[(i + 1) % ids.len()],
+        None => ids[if with_off && ids.len() > 1 { 1 } else { 0 }],
+    };
+    Some(next)
+}
+
+/// Sleep timer of the player screen (session state; classic `usePlayerEnhancements.ts`): when it runs out the
+/// video pauses and the next episode does not start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SleepTimer {
+    #[default]
+    Off,
+    /// Pause at `deadline_ms` (`minutes` is what the user chose, for the menu).
+    After { minutes: u8, deadline_ms: u64 },
+    /// Pause at the end of this episode instead of playing the next one.
+    EndOfEpisode,
+}
+
+/// A sleep timer menu entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SleepChoice {
+    Off,
+    Minutes(u8),
+    EndOfEpisode,
+}
+
+impl SleepTimer {
+    pub fn from_choice(choice: SleepChoice, now_ms: u64) -> Self {
+        match choice {
+            SleepChoice::Off | SleepChoice::Minutes(0) => Self::Off,
+            SleepChoice::Minutes(m) => Self::After { minutes: m, deadline_ms: now_ms + u64::from(m) * 60_000 },
+            SleepChoice::EndOfEpisode => Self::EndOfEpisode,
+        }
+    }
+
+    /// The menu entry this timer corresponds to.
+    pub fn choice(&self) -> SleepChoice {
+        match self {
+            Self::Off => SleepChoice::Off,
+            Self::After { minutes, .. } => SleepChoice::Minutes(*minutes),
+            Self::EndOfEpisode => SleepChoice::EndOfEpisode,
+        }
+    }
+
+    /// A timed sleep ran out.
+    pub fn due(&self, now_ms: u64) -> bool {
+        matches!(self, Self::After { deadline_ms, .. } if now_ms >= *deadline_ms)
+    }
+
+    /// Whole seconds left of a timed sleep (rounded up).
+    pub fn left_secs(&self, now_ms: u64) -> Option<u64> {
+        match self {
+            Self::After { deadline_ms, .. } => Some(deadline_ms.saturating_sub(now_ms).div_ceil(1000)),
+            _ => None,
+        }
+    }
+
+    pub fn is_on(&self) -> bool {
+        *self != Self::Off
+    }
+
+    /// `data-sleep-timer`: `off`, `15` / `30` / `45` / `60` (minutes) or `end`.
+    pub fn attr(&self) -> String {
+        match self {
+            Self::Off => "off".to_owned(),
+            Self::After { minutes, .. } => minutes.to_string(),
+            Self::EndOfEpisode => "end".to_owned(),
+        }
+    }
 }
 
 /// `1.25` -> `1.25×`, `2.0` -> `2×`.
@@ -509,6 +676,7 @@ pub fn mpv_mouse_button(button: u8) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::QualityVm;
 
     fn src(ext: &str, label: &str, kind: SourceKindVm, quality: &str) -> SourceVm {
         SourceVm {
@@ -551,13 +719,18 @@ mod tests {
         v
     }
 
+    /// Preferences every source of [`list`] meets (480p minimum, ES subtitles, JA audio).
+    fn any() -> SourcePrefsVm {
+        SourcePrefsVm { min_quality: QualityVm::P480, ..SourcePrefsVm::default() }
+    }
+
     fn err() -> UiError {
         UiError::new(ErrorKind::Extension, "HTTP 403")
     }
 
     #[test]
     fn manual_mode_does_not_resolve_any_stream_until_a_source_is_picked() {
-        let mut f = FlowState::new(list(), SourceModeVm::Manual);
+        let mut f = FlowState::new(list(), SourceModeVm::Manual, &any());
         assert_eq!(f.phase, Phase::Manual);
         assert_eq!(f.to_resolve(), None);
         assert_eq!(f.current, None);
@@ -582,17 +755,17 @@ mod tests {
     fn manual_mode_with_a_saved_pick_uses_it_directly() {
         let mut v = list();
         v[4].picked = true;
-        let f = FlowState::new(v, SourceModeVm::Manual);
+        let f = FlowState::new(v, SourceModeVm::Manual, &any());
         assert_eq!(f.to_resolve(), Some(4));
     }
 
     #[test]
     fn auto_mode_prefers_the_pick_then_the_first_playable() {
-        let f = FlowState::new(list(), SourceModeVm::Auto);
+        let f = FlowState::new(list(), SourceModeVm::Auto, &any());
         assert_eq!(f.to_resolve(), Some(0));
         let mut v = list();
         v[2].picked = true;
-        assert_eq!(FlowState::new(v, SourceModeVm::Auto).to_resolve(), Some(2));
+        assert_eq!(FlowState::new(v, SourceModeVm::Auto, &any()).to_resolve(), Some(2));
         // A disabled extension at the top is skipped; a torrent is played like any other source:
         // [Gamma(off), SubsPlease, Beta, Ok.ru].
         let mut v = list();
@@ -600,12 +773,12 @@ mod tests {
         v.swap(0, 2);
         v.swap(1, 2);
         assert_eq!((v[0].ext_id.as_str(), v[1].kind), ("off", SourceKindVm::Torrent));
-        assert_eq!(FlowState::new(v, SourceModeVm::Auto).to_resolve(), Some(1));
+        assert_eq!(FlowState::new(v, SourceModeVm::Auto, &any()).to_resolve(), Some(1));
     }
 
     #[test]
     fn failover_follows_the_list_and_lists_every_failure() {
-        let mut f = FlowState::new(list(), SourceModeVm::Auto);
+        let mut f = FlowState::new(list(), SourceModeVm::Auto, &any());
         let a = f.attempt;
         assert_eq!(f.fail(a, err()).as_deref(), Some("anipro|web|Alpha"));
         // The torrent is next in ranking order (wave 3: torrents play).
@@ -635,7 +808,7 @@ mod tests {
 
     #[test]
     fn stale_attempts_are_ignored() {
-        let mut f = FlowState::new(list(), SourceModeVm::Auto);
+        let mut f = FlowState::new(list(), SourceModeVm::Auto, &any());
         let old = f.attempt;
         f.pick("anipro|web|Beta");
         assert_eq!(f.fail(old, err()), None);
@@ -646,7 +819,7 @@ mod tests {
 
     #[test]
     fn manual_mode_stops_on_a_failed_torrent_and_offers_the_best_web_source() {
-        let mut f = FlowState::new(list(), SourceModeVm::Manual);
+        let mut f = FlowState::new(list(), SourceModeVm::Manual, &any());
         f.pick("nyaa|torrent|SubsPlease");
         assert_eq!(f.to_resolve(), Some(1), "a picked torrent is resolved, not rejected");
         let a = f.attempt;
@@ -656,13 +829,13 @@ mod tests {
         assert!(f.last_failed_torrent());
         assert_eq!(f.best_web().map(|s| s.label.as_str()), Some("Alpha"));
         // best_web never offers a torrent.
-        let only_torrents = FlowState::new(vec![src("nyaa", "Erai", SourceKindVm::Torrent, "1080p")], SourceModeVm::Manual);
+        let only_torrents = FlowState::new(vec![src("nyaa", "Erai", SourceKindVm::Torrent, "1080p")], SourceModeVm::Manual, &any());
         assert!(only_torrents.best_web().is_none());
     }
 
     #[test]
     fn started_reports_once_and_stalls_toggle_buffering() {
-        let mut f = FlowState::new(list(), SourceModeVm::Auto);
+        let mut f = FlowState::new(list(), SourceModeVm::Auto, &any());
         assert_eq!(f.started(), None, "not loaded yet");
         let a = f.attempt;
         f.resolved(a);
@@ -677,14 +850,14 @@ mod tests {
 
     #[test]
     fn empty_or_unplayable_lists_end_in_an_error() {
-        let f = FlowState::new(Vec::new(), SourceModeVm::Auto);
+        let f = FlowState::new(Vec::new(), SourceModeVm::Auto, &any());
         assert_eq!((f.phase, f.error.map(|e| e.kind)), (Phase::Error, Some(ErrorKind::NoSource)));
         // A torrent-only list plays the torrent (no more M2 rejection).
-        let f = FlowState::new(vec![src("nyaa", "Erai", SourceKindVm::Torrent, "1080p")], SourceModeVm::Auto);
+        let f = FlowState::new(vec![src("nyaa", "Erai", SourceKindVm::Torrent, "1080p")], SourceModeVm::Auto, &any());
         assert_eq!((f.phase, f.to_resolve()), (Phase::Resolving, Some(0)));
         let mut off = src("x", "y", SourceKindVm::Web, "");
         off.ext_enabled = false;
-        let f = FlowState::new(vec![off], SourceModeVm::Auto);
+        let f = FlowState::new(vec![off], SourceModeVm::Auto, &any());
         assert_eq!(f.error.map(|e| e.kind), Some(ErrorKind::NoSource));
     }
 
@@ -704,7 +877,7 @@ mod tests {
 
     #[test]
     fn quality_menu_lists_playable_qualities_highest_first() {
-        let f = FlowState::new(list(), SourceModeVm::Auto);
+        let f = FlowState::new(list(), SourceModeVm::Auto, &any());
         assert_eq!(f.qualities(), ["1080p", "720p", "480p"]);
         assert_eq!(f.source_for_quality("720p").map(|s| s.label.as_str()), Some("Beta"));
         assert!(f.source_for_quality("2160p").is_none());
@@ -791,9 +964,10 @@ mod tests {
         assert!(!keeps_controls_up(Phase::Buffering, true), "a stall mid-episode does not pin the controls");
         assert!(!keeps_controls_up(Phase::Playing, true));
         assert!(!keeps_controls_up(Phase::Error, false));
-        assert_eq!(countdown_left(1000, 1000), 10);
-        assert_eq!(countdown_left(1000, 4500), 7);
-        assert_eq!(countdown_left(1000, 60_000), 0);
+        assert_eq!(countdown_left(1000, 1000, 10), 10);
+        assert_eq!(countdown_left(1000, 4500, 10), 7);
+        assert_eq!(countdown_left(1000, 60_000, 10), 0);
+        assert_eq!(countdown_left(1000, 3000, 5), 3);
         assert_eq!(format_speed(1.0), "1×");
         assert_eq!(format_speed(1.25), "1.25×");
         assert_eq!(format_speed(1.5), "1.5×");
@@ -812,5 +986,115 @@ mod tests {
         assert_eq!(mpv_key_name("Unidentified", false, false, false, false), None);
         assert_eq!(mpv_mouse_button(2), Some("MBTN_RIGHT"));
         assert_eq!(mpv_mouse_button(9), None);
+    }
+    #[test]
+    fn a_remembered_pick_that_no_longer_meets_the_prefs_is_ignored() {
+        // Audit bug: JA audio + ES subtitles preferred; a Russian torrent without subtitles remembered from
+        // another session must not be preselected.
+        let mut v = list();
+        let mut ru = src("nyaa", "RuDub", SourceKindVm::Torrent, "1080p");
+        ru.subs = Vec::new();
+        ru.dubs = vec!["ru".into()];
+        ru.picked = true;
+        v.push(ru);
+        let prefs = SourcePrefsVm::default();
+        let f = FlowState::new(v, SourceModeVm::Auto, &prefs);
+        assert_eq!(f.dropped_pick.as_deref(), Some("nyaa|torrent|RuDub"));
+        assert!(!f.has_pick());
+        assert_eq!(f.to_resolve(), Some(0), "the recommended source plays");
+        assert!(f.sources.iter().any(|s| s.id == "nyaa|torrent|RuDub"), "the old pick stays as an option");
+        // In Manual mode the user is asked again instead of replaying the stale pick.
+        let mut v = list();
+        v[4].picked = true; // 480p, below the default 720p minimum
+        let f = FlowState::new(v, SourceModeVm::Manual, &prefs);
+        assert_eq!(f.dropped_pick.as_deref(), Some("toko|web|Ok.ru"));
+        assert_eq!(f.phase, Phase::Manual);
+    }
+
+    #[test]
+    fn a_pick_that_meets_the_prefs_or_has_no_better_alternative_stays() {
+        let prefs = SourcePrefsVm::default();
+        let mut v = list();
+        v[2].picked = true; // Beta 720p, ES subs, JA audio
+        let f = FlowState::new(v, SourceModeVm::Auto, &prefs);
+        assert_eq!((f.dropped_pick.clone(), f.to_resolve()), (None, Some(2)));
+        assert!(f.has_pick());
+        // Nothing meets the prefs: the user's choice is kept.
+        let mut only = src("nyaa", "RuDub", SourceKindVm::Torrent, "1080p");
+        only.subs = Vec::new();
+        only.dubs = vec!["ru".into()];
+        only.picked = true;
+        let mut other = src("nyaa", "EnDub", SourceKindVm::Torrent, "1080p");
+        other.subs = Vec::new();
+        other.dubs = vec!["en".into()];
+        let f = FlowState::new(vec![other, only], SourceModeVm::Auto, &prefs);
+        assert_eq!((f.dropped_pick.clone(), f.to_resolve()), (None, Some(1)));
+    }
+
+    #[test]
+    fn prefs_match_languages_quality_and_dubs_in_the_reading_language() {
+        let prefs = SourcePrefsVm::default(); // es subs, ja audio, 720p
+        let mut s = src("a", "b", SourceKindVm::Web, "1080p");
+        assert!(meets_prefs(&s, &prefs));
+        s.subs = vec!["es-419".into()];
+        assert!(meets_prefs(&s, &prefs), "regional variants count");
+        s.subs = vec!["en".into()];
+        assert!(!meets_prefs(&s, &prefs));
+        s.dubs = vec!["es".into()];
+        assert!(meets_prefs(&s, &prefs), "dubbed in the subtitle language needs no subtitles");
+        s.dubs = Vec::new();
+        s.subs = vec!["ES".into()];
+        assert!(meets_prefs(&s, &prefs), "unknown audio with the right subtitles");
+        s.quality = "480p".into();
+        assert!(!meets_prefs(&s, &prefs));
+        s.quality = String::new();
+        assert!(meets_prefs(&s, &prefs), "unknown quality is not held against a source");
+        s.subs = vec!["esperanto".into()];
+        assert!(!meets_prefs(&s, &prefs), "a prefix that is not a region does not count");
+    }
+
+    #[test]
+    fn auto_skip_jumps_once_to_the_end_of_the_intro() {
+        let m = Markers { intro: Some(Span { start: 85.0, end: 175.0 }), outro: None, recap: None };
+        assert_eq!(auto_skip_target(&m, 90.0, false), Some(175.0));
+        assert_eq!(auto_skip_target(&m, 90.0, true), None);
+        assert_eq!(auto_skip_target(&m, 20.0, false), None);
+        assert_eq!(auto_skip_target(&Markers::default(), 90.0, false), None);
+    }
+
+    #[test]
+    fn speed_volume_and_track_steps() {
+        assert_eq!(speed_step(1.0, true), 1.25);
+        assert_eq!(speed_step(1.0, false), 0.75);
+        assert_eq!(speed_step(2.0, true), 2.0);
+        assert_eq!(speed_step(0.5, false), 0.5);
+        assert_eq!(speed_step(1.1, true), 1.25);
+        assert_eq!(volume_step(98, true), 100);
+        assert_eq!(volume_step(3, false), 0);
+        assert_eq!(volume_step(50, true), 55);
+        let tr = |id, kind| TrackInfo { id, kind, lang: None, title: None, selected: false };
+        let tracks = [tr(1, TrackKind::Audio), tr(2, TrackKind::Audio), tr(1, TrackKind::Sub), tr(3, TrackKind::Sub)];
+        assert_eq!(cycle_track(&tracks, TrackKind::Sub, 0, true), Some(1));
+        assert_eq!(cycle_track(&tracks, TrackKind::Sub, 1, true), Some(3));
+        assert_eq!(cycle_track(&tracks, TrackKind::Sub, 3, true), Some(0), "off after the last subtitle");
+        assert_eq!(cycle_track(&tracks, TrackKind::Audio, 2, false), Some(1));
+        assert_eq!(cycle_track(&tracks, TrackKind::Audio, 9, false), Some(1));
+        assert_eq!(cycle_track(&[], TrackKind::Sub, 0, true), None);
+    }
+
+    #[test]
+    fn sleep_timer_runs_out_and_reports_its_state() {
+        let t = SleepTimer::from_choice(SleepChoice::Minutes(15), 1_000);
+        assert_eq!(t.attr(), "15");
+        assert!(!t.due(1_000 + 14 * 60_000));
+        assert!(t.due(1_000 + 15 * 60_000));
+        assert_eq!(t.left_secs(1_000 + 14 * 60_000 + 500), Some(60));
+        assert_eq!(t.choice(), SleepChoice::Minutes(15));
+        let e = SleepTimer::from_choice(SleepChoice::EndOfEpisode, 0);
+        assert_eq!((e.attr(), e.due(u64::MAX), e.left_secs(0)), ("end".to_owned(), false, None));
+        assert!(e.is_on());
+        let off = SleepTimer::from_choice(SleepChoice::Off, 0);
+        assert_eq!((off.attr(), off.is_on()), ("off".to_owned(), false));
+        assert_eq!(SleepTimer::from_choice(SleepChoice::Minutes(0), 0), SleepTimer::Off);
     }
 }

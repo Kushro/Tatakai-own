@@ -1,6 +1,10 @@
 //! `player_controls.rs`: the controls are ordinary web UI drawn over the hole (review E5), following the
 //! prototype `player.js`. Play/pause morphs between a circle and a rounded square (CSS `border-radius`).
-//! Pure props in, events out: the screen (`screens/player.rs`) owns mpv, the flow state and the backend.
+//! Pure props in, events out: the screen (`screens/player/mod.rs`) owns mpv, the flow state and the backend.
+//!
+//! Wave A (worker **e**): previous episode, episode list, loop, stable volume, sleep timer, the `?` shortcut panel
+//! ([`ShortcutHelp`]) and the flow state as `data-*` on `.tk-pc` (`data-auto-next`, `data-auto-next-secs`,
+//! `data-auto-skip`, `data-loop`, `data-sleep-timer`, `data-speed`, `data-stable-volume`, `data-source-picked`).
 
 use std::rc::Rc;
 
@@ -11,12 +15,31 @@ use crate::backend::SkipKindVm;
 use crate::components::button::{Button, ButtonSize, ButtonVariant, IconButton};
 use crate::components::chips::{Pill, Tone};
 use crate::components::loading::LoadingIndicator;
+use crate::components::chips::Kbd;
 use crate::components::menu::{Menu, MenuAlign, MenuItem, MenuPlacement, MenuSeparator};
 use crate::components::progress::WavyProgress;
+use crate::components::sheet::Sheet;
 use crate::i18n::{t, tf};
 use crate::icons::Icon;
-use crate::model::{PlayerState, format_time};
-use crate::player_state::{Markers, NEXT_COUNTDOWN_SECS, Phase, SPEEDS, format_speed, hover_fraction};
+use crate::model::{PlayerState, ShortcutMapVm, format_time};
+use crate::player_state::{
+    Markers, NEXT_COUNTDOWN_SECS, Phase, SLEEP_MINUTES, SPEEDS, SleepChoice, SleepTimer, format_speed, hover_fraction,
+};
+use crate::shortcuts::{Shortcut, binding, display_spec};
+
+/// `mm:ss` left on a timed sleep, for the menu hint.
+fn sleep_hint(left: Option<u64>) -> String {
+    match left {
+        Some(s) => format!("{}:{:02}", s / 60, s % 60),
+        None => String::new(),
+    }
+}
+
+/// `1.5` -> `1.5`, `1.0` -> `1` (`data-speed`).
+pub fn speed_attr(speed: f64) -> String {
+    let s = format!("{speed:.2}");
+    s.trim_end_matches('0').trim_end_matches('.').to_owned()
+}
 
 /// Menu label of an mpv track: its title, else its language, else `#id`.
 pub fn track_label(tr: &TrackInfo) -> String {
@@ -47,6 +70,8 @@ pub fn PlayerControls(
     /// The chip opens the source picker (false on the legacy path).
     #[props(default)] source_clickable: bool,
     #[props(default)] has_next: bool,
+    /// Episode > 1: the previous-episode button shows.
+    #[props(default)] has_prev: bool,
     #[props(default)] markers: Markers,
     /// Poster URL for the seek hover preview; empty = time only.
     #[props(default)] poster: String,
@@ -100,11 +125,36 @@ pub fn PlayerControls(
     /// Show "Open in the torrent client" (a torrent is playing).
     #[props(default)] torrent_client: bool,
     #[props(default)] on_torrent_client: EventHandler<()>,
+    // --- wave A (worker e) ---
+    #[props(default)] on_prev: EventHandler<()>,
+    /// "Episodes" in the top bar: the episode list over the player.
+    #[props(default)] on_episodes: EventHandler<()>,
+    /// Loop the file (`loop-file`).
+    #[props(default)] loop_on: bool,
+    #[props(default)] on_loop: EventHandler<()>,
+    /// Loudness normalisation (`Settings::flow.stable_volume`).
+    #[props(default)] stable_volume: bool,
+    #[props(default)] on_stable_volume: EventHandler<()>,
+    #[props(default)] sleep: SleepTimer,
+    /// Seconds left of a timed sleep.
+    #[props(default)] sleep_left: Option<u64>,
+    #[props(default)] on_sleep: EventHandler<SleepChoice>,
+    /// `?` / keyboard button: the shortcut panel.
+    #[props(default)] on_help: EventHandler<()>,
+    /// The user's key map (hint line).
+    #[props(default)] shortcuts: ShortcutMapVm,
+    /// Flow settings mirrored as `data-*` for checks.
+    #[props(default = true)] auto_next: bool,
+    #[props(default = 10)] auto_next_secs: u8,
+    #[props(default)] auto_skip: bool,
+    /// A source is the user's pick (not the system choice).
+    #[props(default)] source_picked: bool,
 ) -> Element {
     let mut preset_open = use_signal(|| false);
     let mut subs_open = use_signal(|| false);
     let mut audio_open = use_signal(|| false);
     let mut more_open = use_signal(|| false);
+    let mut sleep_open = use_signal(|| false);
     let mut hover = use_signal(|| None::<f64>);
     let mut seek_w = use_signal(|| 0.0_f64);
     let mut seek_el = use_signal(|| None::<Rc<MountedData>>);
@@ -141,8 +191,26 @@ pub fn PlayerControls(
     let speed_label = t("player.speed");
     let smoothing_hint = t("player.smoothing_hint");
     let src_title = t("src.title");
+    let speed_data = speed_attr(speed);
+    let sleep_data = sleep.attr();
+    let sleep_choice = sleep.choice();
+    let sleep_label = t("player.sleep");
+    let sleep_left_text = sleep_hint(sleep_left);
+    let help_key = t("player.key.help");
+    let pause_key = binding(&shortcuts, &Shortcut::TogglePause).map(|k| display_spec(&k)).unwrap_or_default();
+    let hint = tf("player.shortcuts_hint", &[("pause", &pause_key), ("help", &help_key)]);
     rsx! {
-        div { class: "tk-pc", "data-visible": "{visible}",
+        div {
+            class: "tk-pc",
+            "data-visible": "{visible}",
+            "data-auto-next": "{auto_next}",
+            "data-auto-next-secs": "{auto_next_secs}",
+            "data-auto-skip": "{auto_skip}",
+            "data-loop": "{loop_on}",
+            "data-sleep-timer": "{sleep_data}",
+            "data-speed": "{speed_data}",
+            "data-stable-volume": "{stable_volume}",
+            "data-source-picked": "{source_picked}",
             div { class: "tk-pc__top",
                 IconButton { icon: "back".to_string(), label: t("player.back"), onclick: move |_| on_back.call(()) }
                 div { class: "tk-pc__title",
@@ -176,6 +244,8 @@ pub fn PlayerControls(
                 if torrent_client {
                     IconButton { icon: "magnet".to_string(), label: client_label, onclick: move |_| on_torrent_client.call(()) }
                 }
+                IconButton { icon: "menu".to_string(), label: t("player.episodes"), onclick: move |_| on_episodes.call(()) }
+                IconButton { icon: "keyboard".to_string(), label: t("player.shortcuts_title"), onclick: move |_| on_help.call(()) }
                 Menu {
                     open: more_open(),
                     label: more_title.clone(),
@@ -227,6 +297,26 @@ pub fn PlayerControls(
                         on_select: move |_| {
                             more_open.set(false);
                             on_smoothing.call(());
+                        },
+                    }
+                    MenuItem {
+                        label: t("player.loop"),
+                        icon: "refresh".to_string(),
+                        hint: t("player.loop_hint"),
+                        checked: Some(loop_on),
+                        on_select: move |_| {
+                            more_open.set(false);
+                            on_loop.call(());
+                        },
+                    }
+                    MenuItem {
+                        label: t("player.stable_volume"),
+                        icon: "volume".to_string(),
+                        hint: t("player.stable_volume_hint"),
+                        checked: Some(stable_volume),
+                        on_select: move |_| {
+                            more_open.set(false);
+                            on_stable_volume.call(());
                         },
                     }
                 }
@@ -349,6 +439,14 @@ pub fn PlayerControls(
                         onclick: move |_| on_toggle_pause.call(()),
                         Icon { name: play_icon.to_string(), size: 28 }
                     }
+                    if has_prev {
+                        IconButton {
+                            icon: "next".to_string(),
+                            label: t("player.prev"),
+                            class: "tk-pc__prev".to_string(),
+                            onclick: move |_| on_prev.call(()),
+                        }
+                    }
                     IconButton { icon: "replay".to_string(), label: t("player.replay"), onclick: move |_| on_seek_by.call(-5.0) }
                     IconButton { icon: "forward".to_string(), label: t("player.forward"), onclick: move |_| on_seek_by.call(5.0) }
                     if has_next {
@@ -465,31 +563,80 @@ pub fn PlayerControls(
                             }
                         }
                     }
+                    Menu {
+                        open: sleep_open(),
+                        label: sleep_label.clone(),
+                        title: sleep_label.clone(),
+                        placement: MenuPlacement::Above,
+                        align: MenuAlign::End,
+                        on_close: move |_| sleep_open.set(false),
+                        trigger: rsx! {
+                            IconButton {
+                                icon: "clock".to_string(),
+                                label: sleep_label.clone(),
+                                toggled: sleep.is_on(),
+                                onclick: move |_| sleep_open.toggle(),
+                            }
+                        },
+                        MenuItem {
+                            label: t("player.off"),
+                            icon: "close".to_string(),
+                            checked: Some(sleep_choice == SleepChoice::Off),
+                            on_select: move |_| {
+                                sleep_open.set(false);
+                                on_sleep.call(SleepChoice::Off);
+                            },
+                        }
+                        for m in SLEEP_MINUTES {
+                            MenuItem {
+                                key: "{m}",
+                                label: tf("player.sleep.minutes", &[("n", &m.to_string())]),
+                                hint: if sleep_choice == SleepChoice::Minutes(m) { sleep_left_text.clone() } else { String::new() },
+                                checked: Some(sleep_choice == SleepChoice::Minutes(m)),
+                                on_select: move |_| {
+                                    sleep_open.set(false);
+                                    on_sleep.call(SleepChoice::Minutes(m));
+                                },
+                            }
+                        }
+                        MenuItem {
+                            label: t("player.sleep.end"),
+                            checked: Some(sleep_choice == SleepChoice::EndOfEpisode),
+                            on_select: move |_| {
+                                sleep_open.set(false);
+                                on_sleep.call(SleepChoice::EndOfEpisode);
+                            },
+                        }
+                    }
                     IconButton { icon: "pip".to_string(), label: t("player.pip"), toggled: pip, toggle: true, onclick: move |_| on_pip.call(()) }
                     IconButton { icon: "camera".to_string(), label: t("player.capture"), onclick: move |_| on_capture.call(()) }
                     IconButton { icon: "fullscreen".to_string(), label: t("player.fullscreen"), onclick: move |_| on_fullscreen.call(()) }
                 }
-                div { class: "tk-pc__shortcuts", {t("player.shortcuts")} }
+                div { class: "tk-pc__shortcuts", "{hint}" }
             }
         }
     }
 }
 
-/// End-of-episode card: poster, "Next episode · Episode n" and a ring counting down `left` seconds.
-/// The ring plays now; the close button cancels.
+/// End-of-episode card: poster, "Next episode · Episode n" and a ring counting down `left` of `total` seconds.
+/// The ring plays now; the close button cancels. With `counting: false` (auto-next off) the ring is a play
+/// button and nothing changes episode on its own.
 #[component]
 pub fn NextEpisodeCard(
     episode: u32,
     left: u64,
+    #[props(default = NEXT_COUNTDOWN_SECS)] total: u64,
+    #[props(default = true)] counting: bool,
     #[props(default)] poster: String,
     #[props(default)] on_play: EventHandler<()>,
     #[props(default)] on_cancel: EventHandler<()>,
 ) -> Element {
     let ep = tf("player.episode", &[("n", &episode.to_string())]);
-    let ring = left.min(NEXT_COUNTDOWN_SECS) * 100 / NEXT_COUNTDOWN_SECS;
-    let ring_label = tf("player.next_in", &[("s", &left.to_string())]);
+    let total = total.max(1);
+    let ring = if counting { left.min(total) * 100 / total } else { 100 };
+    let ring_label = if counting { tf("player.next_in", &[("s", &left.to_string())]) } else { t("player.next_play") };
     rsx! {
-        div { class: "tk-pc__next", role: "status",
+        div { class: "tk-pc__next", role: "status", "data-counting": "{counting}", "data-left": "{left}",
             div { class: "tk-pc__next-art",
                 if poster.is_empty() {
                     Icon { name: "film".to_string(), size: 28 }
@@ -508,9 +655,52 @@ pub fn NextEpisodeCard(
                 "aria-label": "{ring_label}",
                 title: "{ring_label}",
                 onclick: move |_| on_play.call(()),
-                i { "{left}" }
+                if counting {
+                    i { "{left}" }
+                } else {
+                    i { Icon { name: "play".to_string(), size: 20 } }
+                }
             }
             IconButton { icon: "close".to_string(), label: t("common.cancel"), onclick: move |_| on_cancel.call(()) }
+        }
+    }
+}
+
+/// The `?` panel (classic `KeyboardShortcutOverlay.tsx`): every player action with its current key, plus the fixed
+/// keys (Esc, Ctrl+1..6, `?`). Opens over the video; Esc or the close button hides it.
+#[component]
+pub fn ShortcutHelp(open: bool, shortcuts: ShortcutMapVm, #[props(default)] on_close: EventHandler<()>) -> Element {
+    if !open {
+        return rsx! {};
+    }
+    let rows: Vec<(&'static str, String, String)> = Shortcut::REBINDABLE
+        .into_iter()
+        .map(|a| {
+            let key = binding(&shortcuts, &a).map(|k| display_spec(&k)).unwrap_or_else(|| t("player.key.none"));
+            (a.id(), t(&format!("player.shortcut.{}", a.id())), key)
+        })
+        .collect();
+    let fixed = [
+        (t("player.shortcut.escape"), "Esc".to_owned()),
+        (t("player.shortcut.presets"), "Ctrl+1…6".to_owned()),
+        (t("player.shortcut.help"), "?".to_owned()),
+    ];
+    rsx! {
+        Sheet { title: t("player.shortcuts_title"), on_close: move |_| on_close.call(()),
+            div { class: "tk-keys", "data-shortcut-help": "true",
+                for (id , label , key) in rows {
+                    div { key: "{id}", class: "tk-keys__row", "data-shortcut-id": "{id}",
+                        span { class: "tk-keys__label", "{label}" }
+                        Kbd { keys: key }
+                    }
+                }
+                for (i , (label , key)) in fixed.into_iter().enumerate() {
+                    div { key: "fixed-{i}", class: "tk-keys__row tk-keys__row--fixed",
+                        span { class: "tk-keys__label", "{label}" }
+                        Kbd { keys: key }
+                    }
+                }
+            }
         }
     }
 }
@@ -532,5 +722,14 @@ mod tests {
         assert_eq!(track_label(&tr(Some("Toko"), None)), "Toko");
         assert_eq!(track_label(&tr(None, Some("ja"))), "JA");
         assert_eq!(track_label(&tr(None, None)), "#2");
+    }
+
+    #[test]
+    fn speed_and_sleep_attributes() {
+        assert_eq!(speed_attr(1.0), "1");
+        assert_eq!(speed_attr(1.5), "1.5");
+        assert_eq!(speed_attr(0.75), "0.75");
+        assert_eq!(sleep_hint(Some(125)), "2:05");
+        assert_eq!(sleep_hint(None), "");
     }
 }
