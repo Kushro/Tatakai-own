@@ -5,6 +5,8 @@
 //!   torrent", Files "Play this file"); `torrent_play` consults it before `pick_episode_file`. Episode `0` is never
 //!   stored (it means "selected, no episode").
 //! * `debrid_cache`: one row per `(service, info-hash)` with the last answer of the service and when it was asked.
+//! * Debrid preference order (Torrents > Debrid, checklist `sources.debrid.settings`): the service ids in the order
+//!   the user arranged them, kept in the `settings` table under `DEBRID_ORDER_KEY` (not a secret).
 //! * `torrent_sessions`: one row per torrent the engine ran (classic "Session history"), opened when it enters the
 //!   engine and closed when it leaves (or at the next engine start, for a run that died with it open).
 
@@ -12,6 +14,9 @@ use rusqlite::{OptionalExtension, params};
 
 use crate::error::StoreError;
 use crate::store::LocalStore;
+
+/// `settings` key of the debrid preference order (`LocalStore::debrid_order`).
+pub const DEBRID_ORDER_KEY: &str = "debrid.order";
 
 /// One row of `torrent_sessions` (classic "Session history": every torrent the engine ran, newest first).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +143,17 @@ impl LocalStore {
         })
     }
 
+    /// The saved debrid preference order (service ids, most preferred first); empty when never saved. The caller
+    /// normalises it (unknown ids dropped, missing services appended).
+    pub fn debrid_order(&self) -> Result<Vec<String>, StoreError> {
+        Ok(self.get_setting::<Vec<String>>(DEBRID_ORDER_KEY)?.unwrap_or_default())
+    }
+
+    /// Save the debrid preference order (service ids, most preferred first).
+    pub fn set_debrid_order(&self, ids: &[&str]) -> Result<(), StoreError> {
+        self.set_setting(DEBRID_ORDER_KEY, &ids)
+    }
+
     // ---- torrent session history (plan 14 section 0.1 #11; checklist `torrent.session-history`) ----
 
     /// Open a session row when a torrent enters the engine; returns the row id. A torrent that already has an open
@@ -253,6 +269,16 @@ mod tests {
             uploaded_bytes: 0,
             completed: false,
         }
+    }
+
+    #[test]
+    fn debrid_order_round_trips() {
+        let s = LocalStore::open_in_memory().unwrap();
+        assert!(s.debrid_order().unwrap().is_empty());
+        s.set_debrid_order(&["torbox", "real_debrid"]).unwrap();
+        assert_eq!(s.debrid_order().unwrap(), vec!["torbox".to_owned(), "real_debrid".to_owned()]);
+        s.set_debrid_order(&["premiumize"]).unwrap();
+        assert_eq!(s.debrid_order().unwrap(), vec!["premiumize".to_owned()]);
     }
 
     #[test]
