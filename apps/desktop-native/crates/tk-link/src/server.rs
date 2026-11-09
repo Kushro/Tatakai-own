@@ -83,6 +83,10 @@ pub fn router(state: AppState) -> Router {
         // wave A (worker f): watch-history sync between the user's devices (`crate::history`)
         .route("/v1/history", get(history_page).post(history_push).delete(history_clear))
         .route("/v1/devices/self", delete(forget_self))
+        // wave B (worker k): remote control, player state and the PC -> phone event long-poll (`crate::control`)
+        .route("/v1/control", post(control))
+        .route("/v1/player", get(player))
+        .route("/v1/events", get(events))
         .route("/v1/sessions", post(create_session))
         .route("/v1/sessions/{id}", get(session_state).delete(delete_session))
         .route("/v1/sessions/{id}/position", post(position))
@@ -109,9 +113,13 @@ async fn auth(State(st): State<AppState>, mut req: Request<Body>, next: Next) ->
         return ApiError(ErrorCode::ClientCertificateRequired).into_response();
     }
     let Some(device) = info.device_id else { return ApiError(ErrorCode::DeviceNotAuthorized).into_response() };
-    if !st.devices.is_active(&device, OffsetDateTime::now_utc().unix_timestamp()) {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    if !st.devices.is_active(&device, now) {
         return ApiError(ErrorCode::DeviceNotAuthorized).into_response();
     }
+    // wave B (worker k, `link.last-seen`): every authenticated request refreshes last-seen and the platform
+    let ua = req.headers().get(header::USER_AGENT).and_then(|v| v.to_str().ok()).map(str::to_owned);
+    st.devices.touch(&device, now, ua.as_deref());
     req.extensions_mut().insert(Authed(device));
     next.run(req).await
 }
@@ -255,6 +263,69 @@ async fn position(State(st): State<AppState>, axum::Extension(Authed(device)): a
     let s = st.manager.owned(&id, &device)?;
     st.manager.heartbeat(&s, hb.position_secs, hb.paused);
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---- wave B (worker k): remote control, player state, events (`crate::control`, canonical wire) -----------------
+
+/// `{"error":{"code":"no_player",...}}` with `status` (409 for `/v1/control`, 404 for `/v1/player`). Not part of the
+/// M0 `x-errors` catalogue: the integrator adds it to `contracts/link/openapi.v1.json` with the wave B routes.
+fn no_player(status: StatusCode) -> Response {
+    (status, Json(json!({ "error": { "code": crate::control::NO_PLAYER, "message": "no player is open on this PC" } }))).into_response()
+}
+
+/// `POST /v1/control`: `204` when the PC's player took the command, `409 no_player` when nothing is playing
+/// (`open` only needs the app: it opens the player itself).
+async fn control(State(st): State<AppState>, body: Body) -> ApiResult<Response> {
+    let cmd: crate::control::ControlCommand = read_json(body, 4 * 1024).await?;
+    if !crate::control::valid(&cmd) {
+        return Err(ErrorCode::RequestInvalid.into());
+    }
+    let opens = matches!(cmd, crate::control::ControlCommand::Open { .. });
+    if !opens && st.host.player_state().is_none() {
+        return Ok(no_player(StatusCode::CONFLICT));
+    }
+    if st.host.control(cmd) { Ok(StatusCode::NO_CONTENT.into_response()) } else { Ok(no_player(StatusCode::CONFLICT)) }
+}
+
+/// `GET /v1/player`: what the PC's player shows, or `404 no_player`.
+async fn player(State(st): State<AppState>) -> Response {
+    match st.host.player_state() {
+        Some(p) => Json(p).into_response(),
+        None => no_player(StatusCode::NOT_FOUND),
+    }
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct EventsQuery {
+    wait: Option<u32>,
+}
+
+/// `GET /v1/events?wait=`: long-poll of the calling device's mailbox (`200` + `EventsPage`, or `204` after `wait`).
+async fn events(
+    State(st): State<AppState>,
+    axum::Extension(Authed(device)): axum::Extension<Authed>,
+    q: Result<Query<EventsQuery>, QueryRejection>,
+) -> ApiResult<Response> {
+    let Query(q) = q.map_err(|_| ApiError(ErrorCode::RequestInvalid))?;
+    let wait = Duration::from_secs(u64::from(crate::control::clamp_wait(q.wait)));
+    let deadline = tokio::time::Instant::now() + wait;
+    let ready = st.devices.events_ready();
+    loop {
+        // registered before the check, so an event queued in between still wakes us
+        let notified = ready.notified();
+        let events = st.devices.take_events(&device, OffsetDateTime::now_utc().unix_timestamp());
+        if !events.is_empty() {
+            return Ok(Json(crate::control::EventsPage { events }).into_response());
+        }
+        tokio::select! {
+            () = notified => {}
+            () = tokio::time::sleep_until(deadline) => return Ok(StatusCode::NO_CONTENT.into_response()),
+        }
+        if !st.devices.is_active(&device, OffsetDateTime::now_utc().unix_timestamp()) {
+            return Err(ErrorCode::DeviceNotAuthorized.into());
+        }
+    }
 }
 
 fn with_type(body: impl Into<Body>, ct: &'static str, no_store: bool) -> Response {
