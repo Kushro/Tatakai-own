@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Remote media remains HTTPS-only. Cleartext is enabled solely for the
-         app-owned loopback HLS/torrent servers, both bound to this device. -->
-    <base-config cleartextTrafficPermitted="false" />
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
+    <!-- Cleartext is permitted at the platform level so the native HTTP client
+         (CapacitorHttp) and the app-owned loopback media proxy can reach the
+         extension server built into Tatakai on the user's Windows/Linux PC,
+         which serves plain HTTP on the LAN (http://192.168.x.x:<port>).
+         Android cannot express IP ranges here, so the real policy is the
+         app-level host guard (src/core/extensions/server/hostGuard.ts): http://
+         only for loopback, RFC1918, link-local, CGNAT/Tailscale, fc00::/7 and
+         *.local hosts; everything else must be https://. The WebView itself
+         still blocks mixed content (capacitor.config.ts allowMixedContent: false). -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>

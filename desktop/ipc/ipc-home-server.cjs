@@ -604,6 +604,30 @@ module.exports = function registerHomeServerIpc(
     };
   });
 
+  // Integrated extension server (server/). Errors propagate as Error(code):
+  // home_server_stopped, no_reachable_address, extension_server_unavailable,
+  // setup_required (see docs/redesign/13-integrated-server-contract.md §3.5-3.6).
+  ipcMain.handle('extension-server:pairing', async (_event, opts = {}) => {
+    const prefer = opts?.prefer === 'remote' ? 'remote' : 'lan';
+    const origin = typeof opts?.origin === 'string' ? opts.origin : undefined;
+    try {
+      return await runtime.getExtensionServerPairing({ prefer, origin });
+    } catch (err) {
+      const code = err?.code || err?.message || 'extension_server_unavailable';
+      logger?.warn?.('[HomeServer] extension pairing failed', code);
+      throw new Error(String(code));
+    }
+  });
+
+  ipcMain.handle('extension-server:info', async () => runtime.getExtensionServerInfo());
+
+  ipcMain.handle('extension-server:open-dashboard', async () => {
+    const url = runtime.getExtensionServerDashboardUrl();
+    const { shell } = require('electron');
+    await shell.openExternal(url);
+    return { url };
+  });
+
   ipcMain.handle('home-server:list-consent', async () => {
     const config = runtime.store.read();
     return { requests: config.consentRequests || [] };

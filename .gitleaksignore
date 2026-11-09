@@ -5,3 +5,8 @@
 # this project and grants nothing beyond the free translate-pa endpoint. The commit is part
 # of the merged upstream history and cannot be rewritten.
 71b073ea0be405c14db102908028f68cfa685cd5:src/lib/translation/providers.ts:gcp-api-key:147
+#
+# server/test/node-secrets.test.mjs: 'explicit-fixture-key-with-at-least-32-…' is a made-up
+# fixture value that only checks resolveNodeSecrets() keeps an explicitly configured secret.
+# It came with the verbatim import of TatakaiServer-own (b3a81f4) and protects nothing.
+b3a81f45464d7b808627f0ee89dc5f8d5996e809:server/test/node-secrets.test.mjs:generic-api-key:40

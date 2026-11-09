@@ -503,7 +503,7 @@ export default function ExtensionHubPage() {
             <Suspense fallback={<p role="status" className="py-6 text-sm text-muted-foreground">{uiI18n.t('extensionWorkspace.loadingSources')}</p>}>
               <CompatibilityExtensionsPanel embedded />
               <div className="mt-8 border-t border-border pt-6"><ExtensionServerStatus /></div>
-              <details className="mt-6 rounded-xl border border-border p-4" onToggle={event => { if (event.currentTarget.open) setServersOpen(true); }}><summary className="cursor-pointer font-semibold">Extension Servers</summary>{serversOpen && <div className="mt-4"><ExtensionServersSettings /></div>}</details>
+              <details className="mt-6 rounded-xl border border-border p-4" onToggle={event => { if (event.currentTarget.open) setServersOpen(true); }}><summary className="cursor-pointer font-semibold">{uiI18n.t('extensionServerClient.manageTitle')}</summary>{serversOpen && <div className="mt-4"><ExtensionServersSettings /></div>}</details>
             </Suspense>
           </TabsContent>}
         </Tabs>

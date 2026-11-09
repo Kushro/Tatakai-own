@@ -4,6 +4,21 @@ All notable changes to Tatakai are documented here.
 
 ---
 
+## [Unreleased]
+
+Servidor de extensiones integrado: un solo repositorio para la app y el servidor.
+
+- El servidor de extensiones (antes el repo aparte TatakaiServer-own) vive ahora en `server/` y no copia código de la app: usa directamente `src/core/extensions`, `src/components/ui`, `desktop/runtime/compatibility` y `shared/aniyomi`. Scripts raíz `server:build`, `server:start`, `server:dev` y `server:test`, con un solo lockfile.
+- La app de escritorio (Windows/Linux) vuelve a embeberlo en el Home Server: expone sus fuentes Aniyomi, Mihon y CloudStream y las extensiones `.kai` instaladas al teléfono, la web y la TV por `/api/server/v1`. El panel del servidor pasa a `/server/`, y `/` y `/home` vuelven a ser la UI remota legacy (antes respondían 503).
+- Emparejamiento sin web alojada: QR de un solo uso (5 min) con el enlace `tatakai://extensionserver/connect?server=…&code=…`. En escritorio no hay acceso anónimo: el teléfono se empareja con el QR o con la contraseña de viewer. Los tokens de dispositivo se pueden revocar desde la PC.
+- Las URLs de medios usan la dirección por la que llegó el cliente: el video en la LAN ya no pasa por el túnel remoto.
+- Ajustes del Home Server en Electron: nueva sección "Servidor de extensiones" con estado, direcciones LAN y remota, "Abrir panel del servidor", "Copiar secreto de configuración" y "Vincular teléfono" (QR, código, cuenta atrás, copiar enlace).
+- App clásica (web, Electron y APK): pegar el enlace de emparejamiento o usar URL + contraseña, y activar, desactivar o quitar servidores. HTTP solo se permite en la red local (loopback, RFC1918, link-local, Tailscale/CGNAT, `*.local`); el resto debe ser HTTPS. En el APK las peticiones pasan por el puente HTTP nativo. Si la PC no responde, la app sigue con sus extensiones locales.
+- Tatakai Next Android: nuevo módulo `:core:extension-server`. Conecta con la PC escaneando el QR, pegando el enlace o con URL + contraseña, y suma las fuentes del servidor a la búsqueda de fuentes como otro grupo de proveedores. Abre el deep link `tatakai://extensionserver/connect`.
+- Todas las pantallas explican en español e inglés las ventajas y desventajas de vincular el teléfono con la PC, los extras y lo que viene ("Próximamente": modo servidor opcional para Tatakai Next de escritorio).
+- Se eliminan los adaptadores serverless (Cloudflare Workers, D1, Postgres, Vercel, Render, Heroku). Se mantienen el modo autónomo en Node y `server/Dockerfile` (Linux) para VPS o homelab.
+- Se quitan el listado de servidores publicados y los enlaces de descarga del servidor de upstream.
+
 ## [7.0.0] - 2026-11-05
 
 Release mayor con los últimos cambios de Tatakai-own.

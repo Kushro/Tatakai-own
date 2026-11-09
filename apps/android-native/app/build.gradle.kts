@@ -81,6 +81,8 @@ dependencies {
     implementation(projects.core.playerMpv)
     implementation(projects.feature.torrents)
     implementation(projects.feature.you)
+    // integrated extension server client (docs/redesign/13 §3.10)
+    implementation(projects.core.extensionServer)
 
     implementation(libs.bundles.compose.core)
     implementation(libs.androidx.core.ktx)
