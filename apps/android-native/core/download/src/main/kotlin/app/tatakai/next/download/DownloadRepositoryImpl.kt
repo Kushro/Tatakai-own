@@ -367,13 +367,14 @@ class DownloadRepositoryImpl(
         val ranked = runCatching { extensions.resolveCandidates(media, episode) }.getOrDefault(emptyList())
         for (r in DownloadLogic.candidatesFor(ranked, profile, server, lang)) {
             val c: SourceCandidate = r.candidate
-            val stream = if (c.isEmbed) {
+            val resolved: StreamSource? = if (c.isEmbed) {
                 val w = c.web ?: continue
                 val sn = sniffer ?: continue
                 runCatching { sn.sniff(w.url, w.headers, c.extId).toStream(c) }.getOrNull()
             } else {
                 c.toStream()
-            } ?: continue
+            }
+            val stream = resolved ?: continue
             if (stream.container == Container.DASH) continue
             return stream to c.label
         }
