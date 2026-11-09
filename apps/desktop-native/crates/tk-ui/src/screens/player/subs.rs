@@ -549,7 +549,7 @@ fn spawn_pretranslate(job: PreJob) {
             let label = tf("subs.translate.track_label", &[("lang", &target.to_uppercase())]);
             let src = SubtitleSource { url: path.to_string_lossy().into_owned(), lang: target.clone(), label: label.clone() };
             player.add_subtitle(&src, true).map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))?;
-            Ok(label)
+            Ok::<String, UiError>(label)
         }
         .await;
         if pause {
