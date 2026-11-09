@@ -123,6 +123,8 @@ import app.tatakai.next.ui.R as UiR
 import app.tatakai.next.ui.format.formatDuration
 import app.tatakai.next.ui.media.MediaCard
 import app.tatakai.next.ui.media.MediaCover
+import app.tatakai.next.ui.media.alternativeTitle
+import app.tatakai.next.ui.media.displayTitle
 import app.tatakai.next.ui.media.progressFraction
 import app.tatakai.next.ui.state.userMessage
 import coil3.compose.AsyncImage

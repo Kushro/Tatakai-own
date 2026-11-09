@@ -7,7 +7,6 @@ import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaRelation
 import app.tatakai.next.model.NextAiring
 import app.tatakai.next.model.StaffRef
-import app.tatakai.next.model.TitleLanguage
 import java.time.Instant
 
 // Parity wave A (15 §5 o.2): pure helpers of the Details extras, unit-tested in DetailsLogicTest.
@@ -63,12 +62,7 @@ fun countdown(airingAtEpochSec: Long, nowSec: Long): Countdown? {
     return Countdown(days = left / 86_400, hours = (left % 86_400) / 3_600, minutes = (left % 3_600) / 60)
 }
 
-/** The title in [language] (`Media.titles` keys romaji / english / native), falling back to the provider's main title. */
-internal fun Media.displayTitle(language: TitleLanguage): String = titles[language.key]?.takeIf { it.isNotBlank() } ?: title
-
-/** A secondary line that differs from the [shown] title. */
-internal fun Media.alternativeTitle(shown: String): String? =
-    listOf("romaji", "native", "english").firstNotNullOfOrNull { key -> titles[key]?.takeIf { it.isNotBlank() && it != shown } }
+// Media.displayTitle / alternativeTitle moved up to :core:ui (app.tatakai.next.ui.media.TitleLanguage.kt).
 
 /** AniList's adult flag is on [app.tatakai.next.model.MediaDetails]; before it loads, the Hentai genre marks the title. */
 internal fun Media.looksAdult(): Boolean = genres.any { it.equals("Hentai", ignoreCase = true) }
