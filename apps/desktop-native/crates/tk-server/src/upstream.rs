@@ -4,13 +4,16 @@
 //! user's outbound HTTP / SOCKS5 proxy (`server.proxy`; SOCKS needs reqwest's `socks` feature, see NOTES-deps.md), and
 //! retries a Cloudflare challenge once through FlareSolverr when one is configured (`server.flaresolverr`; the
 //! `cf_clearance` cookie and User-Agent it returns are reused per host for 10 minutes).
+//!
+//! [`ExtOutbound`] carries the same proxy + FlareSolverr route to the extension `fetch` of `tk-ext` (the `SafeHttp`
+//! of every worker): the app installs it with `tk_core::net::set_extension_outbound` (see [`extension_route`]).
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use tk_core::net::{Policy, SafeHttp, origin_of};
+use tk_core::net::{Clearance, Outbound, OutboundFuture, Policy, SafeHttp, origin_of};
 use url::Url;
 
 /// How long a FlareSolverr clearance is reused for a host.
@@ -63,17 +66,40 @@ pub fn is_cloudflare_challenge(status: u16, headers: &HeaderMap) -> bool {
     get("cf-mitigated") == "challenge" || (get("server").contains("cloudflare") && get("content-type").contains("text/html"))
 }
 
+/// FlareSolverr clearances per host (`(obtained at, cookie header, user agent)`), valid for [`CLEARANCE_TTL`].
+#[derive(Default)]
+pub struct ClearanceCache(Mutex<HashMap<String, (Instant, String, String)>>);
+
+impl ClearanceCache {
+    /// The still-valid clearance of `host`: `(cookie header, user agent)`.
+    pub fn get(&self, host: &str) -> Option<(String, String)> {
+        let g = self.0.lock().ok()?;
+        g.get(&host.to_ascii_lowercase()).filter(|(at, _, _)| at.elapsed() < CLEARANCE_TTL).map(|(_, c, ua)| (c.clone(), ua.clone()))
+    }
+
+    pub fn put(&self, host: &str, s: Solution) {
+        self.put_at(host, s, Instant::now());
+    }
+
+    fn put_at(&self, host: &str, s: Solution, at: Instant) {
+        if let Ok(mut g) = self.0.lock() {
+            g.retain(|_, (t, _, _)| t.elapsed() < CLEARANCE_TTL);
+            g.insert(host.to_ascii_lowercase(), (at, s.cookie_header, s.user_agent));
+        }
+    }
+}
+
 pub struct Upstream {
     http: SafeHttp,
     proxy: Option<String>,
     flaresolverr: Option<String>,
     timeout: Duration,
-    clearances: Mutex<HashMap<String, (Instant, String, String)>>,
+    clearances: ClearanceCache,
 }
 
 impl Upstream {
     pub fn new(proxy: Option<String>, flaresolverr: Option<String>, timeout: Duration) -> Self {
-        Self { http: SafeHttp::new(Policy::extension_fetch()), proxy, flaresolverr, timeout, clearances: Mutex::new(HashMap::new()) }
+        Self { http: SafeHttp::new(Policy::extension_fetch()), proxy, flaresolverr, timeout, clearances: ClearanceCache::default() }
     }
 
     fn client(&self, url: &Url, addrs: &[std::net::SocketAddr]) -> Result<reqwest::Client, UpstreamError> {
@@ -94,8 +120,7 @@ impl Upstream {
     }
 
     fn clearance(&self, host: &str) -> Option<(String, String)> {
-        let g = self.clearances.lock().ok()?;
-        g.get(host).filter(|(at, _, _)| at.elapsed() < CLEARANCE_TTL).map(|(_, c, ua)| (c.clone(), ua.clone()))
+        self.clearances.get(host)
     }
 
     /// One request with SSRF re-validation on every hop. Returns the response (headers received; the body is
@@ -153,9 +178,7 @@ impl Upstream {
                 {
                     match solve(fs, url.as_str(), self.timeout.max(Duration::from_secs(60))).await {
                         Ok(s) => {
-                            if let Ok(mut g) = self.clearances.lock() {
-                                g.insert(host, (Instant::now(), s.cookie_header, s.user_agent));
-                            }
+                            self.clearances.put(&host, s);
                             continue;
                         }
                         Err(e) => tracing::debug!(error = %e, "FlareSolverr could not solve the challenge"),
@@ -164,6 +187,70 @@ impl Upstream {
             }
             return Ok((resp, url));
         }
+    }
+}
+
+/// The outbound route of the extension `fetch` (`server.proxy` + `server.flaresolverr` for `tk-ext`'s `SafeHttp`):
+/// the user's proxy, and FlareSolverr clearances cached per host like [`Upstream`] does. The SSRF checks stay in
+/// `tk_core::net::SafeHttp`; this only says where to send and what to add.
+pub struct ExtOutbound {
+    proxy: Option<String>,
+    flaresolverr: Option<String>,
+    timeout: Duration,
+    clearances: ClearanceCache,
+}
+
+/// How long FlareSolverr may work on one challenge of an extension fetch (a solve takes 15-45 s).
+pub const EXT_SOLVE_TIMEOUT: Duration = Duration::from_secs(60);
+
+impl ExtOutbound {
+    pub fn new(proxy: Option<String>, flaresolverr: Option<String>, timeout: Duration) -> Self {
+        let clean = |v: Option<String>| v.map(|u| u.trim().trim_end_matches('/').to_owned()).filter(|u| !u.is_empty());
+        Self { proxy: clean(proxy), flaresolverr: clean(flaresolverr), timeout, clearances: ClearanceCache::default() }
+    }
+
+    pub fn proxy_url(&self) -> Option<&str> {
+        self.proxy.as_deref()
+    }
+
+    pub fn flaresolverr_url(&self) -> Option<&str> {
+        self.flaresolverr.as_deref()
+    }
+}
+
+/// The route to install for extension fetches, or `None` (direct, no FlareSolverr) when neither is configured.
+pub fn extension_route(proxy: Option<String>, flaresolverr: Option<String>) -> Option<Arc<ExtOutbound>> {
+    let route = ExtOutbound::new(proxy, flaresolverr, EXT_SOLVE_TIMEOUT);
+    (route.proxy.is_some() || route.flaresolverr.is_some()).then(|| Arc::new(route))
+}
+
+impl Outbound for ExtOutbound {
+    fn proxy(&self) -> Option<String> {
+        self.proxy.clone()
+    }
+
+    fn clearance(&self, host: &str) -> Option<Clearance> {
+        self.clearances.get(host).map(|(cookie, user_agent)| Clearance { cookie, user_agent })
+    }
+
+    fn can_solve(&self) -> bool {
+        self.flaresolverr.is_some()
+    }
+
+    fn solve<'a>(&'a self, url: &'a Url) -> OutboundFuture<'a> {
+        Box::pin(async move {
+            let (Some(fs), Some(host)) = (self.flaresolverr.as_deref(), url.host_str()) else { return false };
+            match solve(fs, url.as_str(), self.timeout).await {
+                Ok(s) => {
+                    self.clearances.put(host, s);
+                    true
+                }
+                Err(e) => {
+                    tracing::debug!(error = %e, "FlareSolverr could not solve the challenge of an extension fetch");
+                    false
+                }
+            }
+        })
     }
 }
 
@@ -270,6 +357,52 @@ mod tests {
         g.insert("content-type", HeaderValue::from_static("text/html; charset=UTF-8"));
         assert!(is_cloudflare_challenge(503, &g));
         assert!(!is_cloudflare_challenge(503, &HeaderMap::new()));
+    }
+
+    fn sol(c: &str) -> Solution {
+        Solution { cookie_header: c.into(), user_agent: "UA".into() }
+    }
+
+    #[test]
+    fn clearances_are_per_host_and_expire() {
+        let cache = ClearanceCache::default();
+        cache.put("Example.com", sol("cf_clearance=a"));
+        assert_eq!(cache.get("example.com"), Some(("cf_clearance=a".into(), "UA".into())));
+        assert_eq!(cache.get("other.com"), None);
+        if let Some(old) = Instant::now().checked_sub(CLEARANCE_TTL + Duration::from_secs(1)) {
+            cache.put_at("stale.com", sol("cf_clearance=b"), old);
+            assert_eq!(cache.get("stale.com"), None);
+        }
+    }
+
+    #[test]
+    fn extension_route_is_installed_only_when_something_is_configured() {
+        assert!(extension_route(None, None).is_none());
+        assert!(extension_route(Some("  ".into()), Some(String::new())).is_none());
+        let r = extension_route(Some("socks5h://127.0.0.1:9050/".into()), None).unwrap();
+        assert_eq!(r.proxy_url(), Some("socks5h://127.0.0.1:9050"));
+        assert_eq!(Outbound::proxy(r.as_ref()).as_deref(), Some("socks5h://127.0.0.1:9050"));
+        assert!(!r.can_solve(), "no FlareSolverr, nothing to solve");
+        let r = extension_route(None, Some("http://localhost:8191/".into())).unwrap();
+        assert_eq!(r.flaresolverr_url(), Some("http://localhost:8191"));
+        assert!(r.can_solve() && Outbound::proxy(r.as_ref()).is_none());
+    }
+
+    #[test]
+    fn extension_route_hands_out_cached_clearances() {
+        let r = ExtOutbound::new(None, Some("http://localhost:8191".into()), EXT_SOLVE_TIMEOUT);
+        assert_eq!(r.clearance("site.test"), None);
+        r.clearances.put("site.test", sol("cf_clearance=z"));
+        assert_eq!(r.clearance("SITE.test"), Some(Clearance { cookie: "cf_clearance=z".into(), user_agent: "UA".into() }));
+    }
+
+    #[tokio::test]
+    async fn a_failed_solve_reports_false() {
+        // Port 9 (discard) on loopback: nothing answers, the solve fails quickly and nothing is cached.
+        let r = ExtOutbound::new(None, Some("http://127.0.0.1:9".into()), Duration::from_secs(2));
+        let u = Url::parse("https://site.test/").unwrap();
+        assert!(!r.solve(&u).await);
+        assert_eq!(r.clearance("site.test"), None);
     }
 
     #[test]

@@ -1,0 +1,335 @@
+diff --git a/apps/desktop-native/crates/tk-core/src/net.rs b/apps/desktop-native/crates/tk-core/src/net.rs
+index 46fb5301..94ceb3e5 100644
+--- a/apps/desktop-native/crates/tk-core/src/net.rs
++++ b/apps/desktop-native/crates/tk-core/src/net.rs
+@@ -131,6 +131,9 @@ pub struct Policy {
+     pub max_header_bytes: usize,
+     /// Test-only escape hatch: permit loopback addresses (never set in production code).
+     pub allow_loopback: bool,
++    /// Send through the user's extension [`Outbound`] route (proxy + FlareSolverr, [`set_extension_outbound`]) when
++    /// one is installed. Only the extension `fetch` policy sets it.
++    pub route_outbound: bool,
+ }
+ 
+ impl Policy {
+@@ -144,6 +147,7 @@ impl Policy {
+             header_allowlist: Some(vec!["referer", "origin", "user-agent", "accept", "accept-language", "cookie", "range"]),
+             max_header_bytes: 8 * 1024,
+             allow_loopback: false,
++            route_outbound: false,
+         }
+     }
+ 
+@@ -157,6 +161,7 @@ impl Policy {
+             header_allowlist: None,
+             max_header_bytes: 32 * 1024,
+             allow_loopback: false,
++            route_outbound: true,
+         }
+     }
+ }
+@@ -215,20 +220,87 @@ pub struct SafeResponse {
+ /// Extra per-host gate (e.g. an extension's `network:domain:*` permissions), checked on every hop.
+ pub type HostFilter = Arc<dyn Fn(&str) -> bool + Send + Sync>;
+ 
++/// A Cloudflare clearance obtained for one host (FlareSolverr): the `Cookie` pairs and the User-Agent bound to them.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct Clearance {
++    pub cookie: String,
++    pub user_agent: String,
++}
++
++/// Future of [`Outbound::solve`] (boxed by hand so implementors need no `async_trait`).
++pub type OutboundFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>;
++
++/// The user's outbound route for extension traffic (wave B, worker k: checklist `server.proxy`,
++/// `server.flaresolverr`). The app installs one (`tk_server::upstream::ExtOutbound`) with
++/// [`set_extension_outbound`]; every [`SafeHttp`] whose policy has `route_outbound` reads it on each request, so a
++/// settings change reaches extension workers that are already running.
++pub trait Outbound: Send + Sync {
++    /// `http://`, `https://`, `socks5://` or `socks5h://` proxy URL; `None` = direct.
++    fn proxy(&self) -> Option<String>;
++    /// A still-valid clearance for `host`.
++    fn clearance(&self, host: &str) -> Option<Clearance>;
++    /// Whether challenges can be solved at all (a FlareSolverr endpoint is configured).
++    fn can_solve(&self) -> bool;
++    /// Solve the Cloudflare challenge at `url`; `true` when a clearance for its host is now available.
++    fn solve<'a>(&'a self, url: &'a Url) -> OutboundFuture<'a>;
++}
++
++/// Where a [`SafeHttp`] reads its [`Outbound`] route from.
++pub type OutboundSlot = Arc<std::sync::RwLock<Option<Arc<dyn Outbound>>>>;
++
++fn extension_slot() -> &'static OutboundSlot {
++    static SLOT: std::sync::OnceLock<OutboundSlot> = std::sync::OnceLock::new();
++    SLOT.get_or_init(|| Arc::new(std::sync::RwLock::new(None)))
++}
++
++/// Install (or clear with `None`) the process-wide outbound route of the extension `fetch`.
++pub fn set_extension_outbound(route: Option<Arc<dyn Outbound>>) {
++    if let Ok(mut g) = extension_slot().write() {
++        *g = route;
++    }
++}
++
++/// Whether an answer is a Cloudflare challenge page (what FlareSolverr can solve).
++pub fn is_cloudflare_challenge(status: u16, headers: &HeaderMap) -> bool {
++    if !matches!(status, 403 | 429 | 503) {
++        return false;
++    }
++    let get = |n: &str| headers.get(n).and_then(|v| v.to_str().ok()).unwrap_or("").to_ascii_lowercase();
++    get("cf-mitigated") == "challenge" || (get("server").contains("cloudflare") && get("content-type").contains("text/html"))
++}
++
+ #[derive(Clone)]
+ pub struct SafeHttp {
+     resolver: Arc<dyn Resolver>,
+     policy: Policy,
+     host_filter: Option<HostFilter>,
++    /// Explicit route slot; `None` = the process-wide one when `policy.route_outbound`.
++    outbound: Option<OutboundSlot>,
+ }
+ 
+ impl SafeHttp {
+     pub fn new(policy: Policy) -> Self {
+-        Self { resolver: Arc::new(SystemResolver), policy, host_filter: None }
++        Self { resolver: Arc::new(SystemResolver), policy, host_filter: None, outbound: None }
+     }
+ 
+     pub fn with_resolver(policy: Policy, resolver: Arc<dyn Resolver>) -> Self {
+-        Self { resolver, policy, host_filter: None }
++        Self { resolver, policy, host_filter: None, outbound: None }
++    }
++
++    /// Read the [`Outbound`] route from `slot` instead of the process-wide one (tests, embedders).
++    pub fn with_outbound(mut self, slot: OutboundSlot) -> Self {
++        self.outbound = Some(slot);
++        self
++    }
++
++    /// The route this client sends through right now, if any.
++    fn route(&self) -> Option<Arc<dyn Outbound>> {
++        let slot = match &self.outbound {
++            Some(s) => s,
++            None if self.policy.route_outbound => extension_slot(),
++            None => return None,
++        };
++        slot.read().ok().and_then(|g| g.clone())
+     }
+ 
+     /// Require every hop's host to satisfy `filter` (in addition to the IP/port/scheme checks).
+@@ -288,33 +360,67 @@ impl SafeHttp {
+     }
+ 
+     /// Perform a request, following up to `max_redirects` redirects with full re-validation.
++    ///
++    /// With an [`Outbound`] route (extension `fetch` only): every hop is still validated here first, then sent through
++    /// the user's proxy (which connects, so the address pin does not apply), a cached Cloudflare clearance replaces
++    /// the User-Agent and joins the cookies of its host, and one Cloudflare challenge per request is solved and the
++    /// same hop retried.
+     pub async fn send(&self, req: SafeRequest) -> Result<SafeResponse, NetError> {
+         let origin0 = origin_of(&req.url);
+         let mut url = req.url;
+         let mut method = req.method;
+         let mut body = req.body;
+-        for hop in 0..=self.policy.max_redirects {
++        let route = self.route();
++        let proxy = match route.as_ref().and_then(|r| r.proxy()) {
++            Some(p) => Some(reqwest::Proxy::all(p.as_str())?),
++            None => None,
++        };
++        let mut hop = 0usize;
++        let mut solved = false;
++        loop {
+             let addrs = self.resolve_validated(&url).await?;
+             let mut builder = reqwest::Client::builder()
+                 .redirect(reqwest::redirect::Policy::none())
+-                .no_proxy()
+                 .timeout(self.policy.timeout)
+                 .connect_timeout(self.policy.timeout);
+-            if let Some(url::Host::Domain(d)) = url.host() {
+-                builder = builder.resolve_to_addrs(d, &addrs);
++            match &proxy {
++                Some(p) => builder = builder.proxy(p.clone()),
++                None => {
++                    builder = builder.no_proxy();
++                    if let Some(url::Host::Domain(d)) = url.host() {
++                        builder = builder.resolve_to_addrs(d, &addrs);
++                    }
++                }
+             }
+             let client = builder.build()?;
+ 
+             let cross_origin = origin_of(&url) != origin0;
++            let clearance = match (&route, url.host_str()) {
++                (Some(r), Some(h)) => r.clearance(h),
++                _ => None,
++            };
+             let mut hm = HeaderMap::new();
+             for (k, v) in &req.headers {
+                 if cross_origin && (k.eq_ignore_ascii_case("cookie") || k.eq_ignore_ascii_case("authorization")) {
+                     continue;
+                 }
++                if clearance.is_some() && k.eq_ignore_ascii_case("user-agent") {
++                    continue;
++                }
+                 let name = HeaderName::from_bytes(k.as_bytes()).map_err(|_| NetError::Header("illegal header name"))?;
+                 let val = HeaderValue::from_str(v).map_err(|_| NetError::Header("illegal header value"))?;
+                 hm.append(name, val);
+             }
++            if let Some(c) = &clearance {
++                let ua = HeaderValue::from_str(&c.user_agent).map_err(|_| NetError::Header("illegal header value"))?;
++                hm.insert(reqwest::header::USER_AGENT, ua);
++                let cookie = match hm.get(reqwest::header::COOKIE).and_then(|v| v.to_str().ok()) {
++                    Some(v) if !v.is_empty() => format!("{v}; {}", c.cookie),
++                    _ => c.cookie.clone(),
++                };
++                let cookie = HeaderValue::from_str(&cookie).map_err(|_| NetError::Header("illegal header value"))?;
++                hm.insert(reqwest::header::COOKIE, cookie);
++            }
+             let mut rb = client.request(method.clone(), url.clone()).headers(hm);
+             if let Some(b) = &body {
+                 rb = rb.body(b.clone());
+@@ -328,6 +434,7 @@ impl SafeHttp {
+                 if hop == self.policy.max_redirects {
+                     return Err(NetError::TooManyRedirects);
+                 }
++                hop += 1;
+                 let next = url.join(loc).map_err(|_| NetError::Host)?;
+                 if matches!(status.as_u16(), 301..=303) && method != reqwest::Method::GET && method != reqwest::Method::HEAD {
+                     method = reqwest::Method::GET;
+@@ -336,9 +443,17 @@ impl SafeHttp {
+                 url = next;
+                 continue;
+             }
++            if !solved
++                && let Some(r) = route.as_ref().filter(|r| r.can_solve())
++                && is_cloudflare_challenge(status.as_u16(), resp.headers())
++            {
++                solved = true;
++                if r.solve(&url).await {
++                    continue;
++                }
++            }
+             return Ok(SafeResponse { response: resp, final_url: url });
+         }
+-        Err(NetError::TooManyRedirects)
+     }
+ }
+ 
+@@ -570,6 +685,115 @@ mod tests {
+         assert!(reqs[1].starts_with("GET /next") && reqs[1].to_ascii_lowercase().contains("cookie: k=v"));
+     }
+ 
++    /// Test route: solves every challenge (or none) and counts the attempts.
++    struct MockRoute {
++        proxy: Option<String>,
++        solvable: bool,
++        solved: std::sync::atomic::AtomicBool,
++        solves: AtomicUsize,
++    }
++
++    impl MockRoute {
++        fn new(proxy: Option<String>, solvable: bool) -> Arc<Self> {
++            Arc::new(Self { proxy, solvable, solved: std::sync::atomic::AtomicBool::new(false), solves: AtomicUsize::new(0) })
++        }
++    }
++
++    impl Outbound for MockRoute {
++        fn proxy(&self) -> Option<String> {
++            self.proxy.clone()
++        }
++        fn clearance(&self, _host: &str) -> Option<Clearance> {
++            self.solved
++                .load(Ordering::SeqCst)
++                .then(|| Clearance { cookie: "cf_clearance=ok".into(), user_agent: "Solver/1.0".into() })
++        }
++        fn can_solve(&self) -> bool {
++            true
++        }
++        fn solve<'a>(&'a self, _url: &'a Url) -> OutboundFuture<'a> {
++            Box::pin(async move {
++                self.solves.fetch_add(1, Ordering::SeqCst);
++                self.solved.store(self.solvable, Ordering::SeqCst);
++                self.solvable
++            })
++        }
++    }
++
++    fn slot_of(route: Arc<MockRoute>) -> OutboundSlot {
++        let route: Arc<dyn Outbound> = route;
++        Arc::new(std::sync::RwLock::new(Some(route)))
++    }
++
++    fn challenge() -> String {
++        "HTTP/1.1 503 Service Unavailable\r\ncf-mitigated: challenge\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned()
++    }
++
++    #[test]
++    fn cloudflare_challenges_are_recognised() {
++        let mut h = HeaderMap::new();
++        h.insert("cf-mitigated", HeaderValue::from_static("challenge"));
++        assert!(is_cloudflare_challenge(403, &h));
++        assert!(!is_cloudflare_challenge(200, &h));
++        let mut g = HeaderMap::new();
++        g.insert("server", HeaderValue::from_static("cloudflare"));
++        g.insert("content-type", HeaderValue::from_static("text/html; charset=UTF-8"));
++        assert!(is_cloudflare_challenge(503, &g));
++        assert!(!is_cloudflare_challenge(503, &HeaderMap::new()));
++    }
++
++    #[test]
++    fn only_the_extension_policy_uses_the_process_wide_route() {
++        assert!(Policy::extension_fetch().route_outbound);
++        assert!(!Policy::link_source(true).route_outbound);
++        assert!(SafeHttp::new(Policy::link_source(true)).route().is_none());
++    }
++
++    #[tokio::test]
++    async fn a_cloudflare_challenge_is_solved_once_and_the_request_retried_with_the_clearance() {
++        let (port, seen) = stub(|req| if req.to_ascii_lowercase().contains("cf_clearance=ok") { ok("passed") } else { challenge() }).await;
++        let route = MockRoute::new(None, true);
++        let http = SafeHttp::with_resolver(lo_policy(), Arc::new(MapResolver(HashMap::new()))).with_outbound(slot_of(route.clone()));
++        let headers = vec![("user-agent".to_owned(), "Ext/1".to_owned()), ("cookie".to_owned(), "a=1".to_owned())];
++        let resp = http.send(SafeRequest::get(u(&format!("http://127.0.0.1:{port}/page")), headers)).await.unwrap();
++        assert_eq!(resp.response.status().as_u16(), 200);
++        assert_eq!(route.solves.load(Ordering::SeqCst), 1);
++        let reqs = seen.lock().unwrap().clone();
++        assert_eq!(reqs.len(), 2);
++        let retry = reqs[1].to_ascii_lowercase();
++        assert!(retry.contains("cookie: a=1; cf_clearance=ok"), "{retry}");
++        assert!(retry.contains("user-agent: solver/1.0") && !retry.contains("ext/1"), "{retry}");
++    }
++
++    #[tokio::test]
++    async fn an_unsolvable_challenge_returns_the_challenge_after_one_attempt() {
++        let (port, seen) = stub(|_| challenge()).await;
++        let route = MockRoute::new(None, false);
++        let http = SafeHttp::with_resolver(lo_policy(), Arc::new(MapResolver(HashMap::new()))).with_outbound(slot_of(route.clone()));
++        let resp = http.send(SafeRequest::get(u(&format!("http://127.0.0.1:{port}/")), vec![])).await.unwrap();
++        assert_eq!(resp.response.status().as_u16(), 503);
++        assert_eq!(route.solves.load(Ordering::SeqCst), 1);
++        assert_eq!(seen.lock().unwrap().len(), 1);
++    }
++
++    #[tokio::test]
++    async fn requests_go_through_the_configured_proxy_after_validation() {
++        // The stub plays an HTTP proxy: a proxied plain-HTTP request arrives with the absolute URL.
++        let (proxy_port, seen) = stub(|_| ok("via proxy")).await;
++        let mut m = HashMap::new();
++        m.insert("good.test", vec![ip("93.184.216.34")]);
++        m.insert("intranet.test", vec![ip("192.168.1.10")]);
++        let route = MockRoute::new(Some(format!("http://127.0.0.1:{proxy_port}")), false);
++        let http = SafeHttp::with_resolver(lo_policy(), Arc::new(MapResolver(m))).with_outbound(slot_of(route));
++        let resp = http.send(SafeRequest::get(u("http://good.test/x"), vec![])).await.unwrap();
++        assert_eq!(resp.response.status().as_u16(), 200);
++        assert!(seen.lock().unwrap()[0].starts_with("GET http://good.test/x"), "{:?}", seen.lock().unwrap());
++        // The SSRF rules still apply before anything reaches the proxy.
++        let r = http.send(SafeRequest::get(u("http://intranet.test/"), vec![])).await;
++        assert!(matches!(r, Err(NetError::BlockedIp(_))));
++        assert_eq!(seen.lock().unwrap().len(), 1);
++    }
++
+     #[tokio::test]
+     async fn read_capped_enforces_the_limit() {
+         let (port, _) = stub(|_| ok(&"x".repeat(1000))).await;
