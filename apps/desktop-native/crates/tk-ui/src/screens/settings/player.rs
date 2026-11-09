@@ -8,13 +8,18 @@ use tk_player::ShaderPreset;
 
 use super::{SettingRow, lang_seg, mpv_placeholder, seg};
 use crate::app::{Services, Ui};
-use crate::backend::{AnimeBuildVm, SourceKindVm};
+use crate::backend::{AnimeBuildVm, PresenceVm, SourceKindVm};
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, ErrorState, IconButton, IconButtonSize, LoadingIndicator, Pill, Segmented,
-    SkeletonLines, TextField, Tone, use_snackbar,
+    Button, ButtonSize, ButtonVariant, ErrorState, IconButton, IconButtonSize, Kbd, LoadingIndicator, Pill, Segmented,
+    SkeletonLines, Switch, TextField, Tone, use_snackbar,
 };
 use crate::i18n::{t, tf};
-use crate::model::{DUB_LANGS, EnhancedUiVm, PlatformVm, PlayerModeVm, QualityVm, SUB_LANGS, SettingsAction, SourceModeVm, UiError};
+use crate::model::{
+    DUB_LANGS, EnhancedUiVm, PlatformVm, PlayerFlowPrefs, PlayerModeVm, QualityVm, SUB_LANGS, SettingsAction,
+    ShortcutMapVm, SourceModeVm, UiError,
+};
+use crate::screens::player::presence;
+use crate::shortcuts::{Shortcut, assign, binding, conflicts, display_spec, is_reserved, spec_from_event, unassign};
 
 #[component]
 pub fn PlayerSection(commit_saved: Callback<SettingsAction>) -> Element {
@@ -99,6 +104,242 @@ pub fn PlayerSection(commit_saved: Callback<SettingsAction>) -> Element {
         }
         // Wave A (worker e): auto-next + countdown seconds, auto-skip intro, stable volume, Discord Rich Presence,
         // shortcuts editor (`SettingsAction::SetFlow`). Keys under `settings.player.*` (namespace `settings_player`).
+        PlayerFlowRows { on_action: commit_saved }
+        ShortcutEditor { on_action: commit_saved }
+    }
+}
+
+/// Countdown lengths offered for the next-episode card (`PlayerFlowPrefs::auto_next_secs`, classic 3 to 30 s).
+pub const AUTO_NEXT_CHOICES: [u8; 6] = [3, 5, 10, 15, 20, 30];
+
+/// Auto-next (+ countdown), auto-skip intro, stable volume and Discord Rich Presence (`Settings::flow`).
+#[component]
+fn PlayerFlowRows(on_action: EventHandler<SettingsAction>) -> Element {
+    let services = use_context::<Services>();
+    let ui = use_context::<Ui>();
+    let flow = ui.settings.read().flow.clone();
+    let set = move |f: PlayerFlowPrefs| on_action.call(SettingsAction::SetFlow(f));
+    let secs_options: Vec<(String, String)> = AUTO_NEXT_CHOICES
+        .iter()
+        .map(|s| (s.to_string(), tf("settings.player.auto_next_secs.value", &[("n", &s.to_string())])))
+        .collect();
+    let backend = services.backend.clone();
+    rsx! {
+        SettingRow { label: t("settings.player.auto_next"), hint: t("settings.player.auto_next_hint"),
+            div { "data-auto-next-setting": "{flow.auto_next}",
+                Switch {
+                    checked: flow.auto_next,
+                    label: t("settings.player.auto_next"),
+                    on_toggle: move |v: bool| {
+                        let mut f = ui.settings.peek().flow.clone();
+                        f.auto_next = v;
+                        set(f);
+                    },
+                }
+            }
+        }
+        SettingRow { label: t("settings.player.auto_next_secs"), hint: t("settings.player.auto_next_secs_hint"),
+            Segmented {
+                options: secs_options,
+                selected: flow.auto_next_secs.to_string(),
+                label: t("settings.player.auto_next_secs"),
+                small: true,
+                disabled_keys: if flow.auto_next { Vec::new() } else { AUTO_NEXT_CHOICES.iter().map(u8::to_string).collect() },
+                on_select: move |id: String| {
+                    if let Ok(n) = id.parse::<u8>() {
+                        let mut f = ui.settings.peek().flow.clone();
+                        f.auto_next_secs = n;
+                        set(f);
+                    }
+                },
+            }
+        }
+        SettingRow { label: t("settings.player.auto_skip"), hint: t("settings.player.auto_skip_hint"),
+            div { "data-auto-skip-setting": "{flow.auto_skip_intro}",
+                Switch {
+                    checked: flow.auto_skip_intro,
+                    label: t("settings.player.auto_skip"),
+                    on_toggle: move |v: bool| {
+                        let mut f = ui.settings.peek().flow.clone();
+                        f.auto_skip_intro = v;
+                        set(f);
+                    },
+                }
+            }
+        }
+        SettingRow { label: t("settings.player.stable_volume"), hint: t("settings.player.stable_volume_hint"),
+            div { "data-stable-volume-setting": "{flow.stable_volume}",
+                Switch {
+                    checked: flow.stable_volume,
+                    label: t("settings.player.stable_volume"),
+                    on_toggle: move |v: bool| {
+                        let mut f = ui.settings.peek().flow.clone();
+                        f.stable_volume = v;
+                        set(f);
+                    },
+                }
+            }
+        }
+        SettingRow { label: t("settings.player.discord"), hint: t("settings.player.discord_hint"),
+            div { "data-discord": "{flow.discord_presence}",
+                Switch {
+                    checked: flow.discord_presence,
+                    label: t("settings.player.discord"),
+                    on_toggle: move |v: bool| {
+                        let mut f = ui.settings.peek().flow.clone();
+                        f.discord_presence = v;
+                        set(f);
+                        // Turning it off clears Discord at once; turning it on shows this page as browsing.
+                        let state = if v { PresenceVm::Browsing } else { PresenceVm::Clear };
+                        presence::send(&backend, state);
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// Settings > Player > Shortcuts (classic `keybindings.ts`): one row per rebindable action with its key; "Change"
+/// captures the next key press (Esc cancels), clashes are marked on both rows, reserved keys are refused, and
+/// "Reset" goes back to the defaults. Saved in `Settings::flow.shortcuts`.
+#[component]
+fn ShortcutEditor(on_action: EventHandler<SettingsAction>) -> Element {
+    let ui = use_context::<Ui>();
+    let map = ui.settings.read().flow.shortcuts.clone();
+    let mut capturing = use_signal(|| None::<&'static str>);
+    let mut refused = use_signal(|| None::<(&'static str, String)>);
+    let clashes = conflicts(&map);
+    let customized = !map.0.is_empty();
+    let save = move |next: ShortcutMapVm| {
+        let mut f = ui.settings.peek().flow.clone();
+        f.shortcuts = next;
+        on_action.call(SettingsAction::SetFlow(f));
+    };
+    let rows: Vec<(Shortcut, &'static str, String, String, bool, bool)> = Shortcut::REBINDABLE
+        .into_iter()
+        .map(|a| {
+            let id = a.id();
+            let spec = binding(&map, &a).unwrap_or_default();
+            let shown = if spec.is_empty() { t("player.key.none") } else { display_spec(&spec) };
+            let custom = map.get(id).is_some();
+            let clash = clashes.contains(id);
+            (a, id, spec, shown, custom, clash)
+        })
+        .collect();
+    let conflict_count = clashes.len();
+    let row_count = rows.len();
+    rsx! {
+        SettingRow { label: t("settings.player.shortcuts"), hint: t("settings.player.shortcuts_hint"), stack: true,
+            div {
+                class: "tk-keymap",
+                "data-shortcuts": "{row_count}",
+                "data-conflicts": "{conflict_count}",
+                "data-customized": "{customized}",
+                for (action , id , spec , shown , custom , clash) in rows {
+                    {
+                        let editing = capturing() == Some(id);
+                        let refusal = refused().filter(|(rid, _)| *rid == id).map(|(_, text)| text);
+                        let label = t(&format!("player.shortcut.{id}"));
+                        let reset_action = action.clone();
+                        rsx! {
+                            div {
+                                key: "{id}",
+                                class: "tk-keymap__row",
+                                "data-shortcut-id": "{id}",
+                                "data-key": "{spec}",
+                                "data-conflict": "{clash}",
+                                "data-custom": "{custom}",
+                                "data-editing": "{editing}",
+                                span { class: "tk-keymap__label", "{label}" }
+                                div { class: "tk-keymap__keys",
+                                    if editing {
+                                        input {
+                                            class: "tk-keymap__capture",
+                                            r#type: "text",
+                                            readonly: true,
+                                            "aria-label": tf("settings.player.shortcuts.press_for", &[("action", &label)]),
+                                            placeholder: t("settings.player.shortcuts.press"),
+                                            onmounted: move |e| {
+                                                spawn(async move {
+                                                    let _ = e.set_focus(true).await;
+                                                });
+                                            },
+                                            onblur: move |_| capturing.set(None),
+                                            onkeydown: {
+                                                let action = action.clone();
+                                                move |e: KeyboardEvent| {
+                                                    e.prevent_default();
+                                                    let key = e.key().to_string();
+                                                    let m = e.modifiers();
+                                                    if key == "Escape" {
+                                                        capturing.set(None);
+                                                        return;
+                                                    }
+                                                    let Some(spec) = spec_from_event(&key, m.ctrl() || m.meta()) else { return };
+                                                    if is_reserved(&spec) {
+                                                        refused.set(Some((id, tf("settings.player.shortcuts.reserved", &[("key", &display_spec(&spec))]))));
+                                                        return;
+                                                    }
+                                                    refused.set(None);
+                                                    capturing.set(None);
+                                                    let current = ui.settings.peek().flow.shortcuts.clone();
+                                                    save(assign(&current, &action, &spec));
+                                                }
+                                            },
+                                        }
+                                    } else {
+                                        Kbd { keys: shown }
+                                    }
+                                    if clash {
+                                        Pill { text: t("settings.player.shortcuts.conflict"), tone: Tone::Warn }
+                                    }
+                                    Button {
+                                        label: if editing { t("common.cancel") } else { t("settings.player.shortcuts.change") },
+                                        variant: ButtonVariant::Text,
+                                        size: ButtonSize::Sm,
+                                        onclick: move |_| {
+                                            refused.set(None);
+                                            capturing.set(if editing { None } else { Some(id) });
+                                        },
+                                    }
+                                    if custom {
+                                        IconButton {
+                                            icon: "replay".to_string(),
+                                            label: t("settings.player.shortcuts.default_one"),
+                                            size: IconButtonSize::Sm,
+                                            onclick: move |_| {
+                                                let current = ui.settings.peek().flow.shortcuts.clone();
+                                                save(unassign(&current, &reset_action));
+                                            },
+                                        }
+                                    }
+                                }
+                                if let Some(text) = refusal {
+                                    div { class: "tk-keymap__refused", role: "alert", "data-reserved": "true", "{text}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            div { class: "tk-keymap__foot",
+                if conflict_count > 0 {
+                    span { class: "tk-keymap__note", role: "status", {t("settings.player.shortcuts.conflict_hint")} }
+                }
+                Button {
+                    label: t("settings.player.shortcuts.reset"),
+                    icon: "replay".to_string(),
+                    variant: ButtonVariant::Tonal,
+                    size: ButtonSize::Sm,
+                    disabled: !customized,
+                    onclick: move |_| {
+                        capturing.set(None);
+                        refused.set(None);
+                        save(ShortcutMapVm::default());
+                    },
+                }
+            }
+        }
     }
 }
 
