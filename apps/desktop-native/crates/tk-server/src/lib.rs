@@ -307,4 +307,30 @@ mod tests {
         assert_eq!(urls_for(&ips, 8099), vec!["http://192.168.1.10:8099".to_owned(), "http://127.0.0.1:8099".to_owned()]);
         assert!(!host_name().is_empty());
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn urls_dedupe_adjacent_and_always_end_with_loopback() {
+        let a = Ipv4Addr::new(10, 0, 0, 2);
+        assert_eq!(urls_for(&[a, a], 1), vec!["http://10.0.0.2:1".to_owned(), "http://127.0.0.1:1".to_owned()]);
+        assert_eq!(urls_for(&[], 8099), vec!["http://127.0.0.1:8099".to_owned()]);
+    }
+
+    #[test]
+    fn config_defaults() {
+        let c = ServerConfig::new(PathBuf::from("/tmp/x"), DEFAULT_PORT);
+        assert_eq!(c.port, 8099);
+        assert!(c.require_pairing && c.proxy_enabled && !c.loopback_only);
+        assert_eq!(c.timeout, std::time::Duration::from_secs(45));
+        assert_eq!(c.concurrency, 4);
+        assert!(c.outbound_proxy.is_none() && c.flaresolverr_url.is_none() && c.allowed_origins.is_empty());
+        assert_eq!(API_PREFIX, "/api/server/v1");
+    }
+
+    #[test]
+    fn host_name_is_short_and_printable() {
+        let n = host_name();
+        assert!(n.chars().count() <= 60);
+        assert!(!n.chars().any(char::is_control));
+    }
 }

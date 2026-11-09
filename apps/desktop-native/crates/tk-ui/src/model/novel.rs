@@ -559,4 +559,61 @@ mod tests {
             None
         );
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn typography_is_clamped_both_ways() {
+        let lo = NovelPrefs { font_size: 1, line_height: 10, paragraph_gap: 0, max_width: 10, ..NovelPrefs::default() }.sanitized();
+        assert_eq!((lo.font_size, lo.line_height, lo.paragraph_gap, lo.max_width), (FONT_SIZE_MIN, LINE_HEIGHT_MIN, 0, MAX_WIDTH_MIN));
+        let hi = NovelPrefs { font_size: 255, line_height: 255, paragraph_gap: 255, max_width: u16::MAX, ..NovelPrefs::default() }.sanitized();
+        assert_eq!((hi.font_size, hi.line_height, hi.paragraph_gap, hi.max_width), (FONT_SIZE_MAX, LINE_HEIGHT_MAX, PARAGRAPH_GAP_MAX, MAX_WIDTH_MAX));
+    }
+
+    #[test]
+    fn unknown_fonts_and_bad_families_fall_back_to_serif() {
+        let long = format!("family:{}", "f".repeat(121));
+        for bad in ["comic", "", "family:", "family:   ", "family:a\"b", "family:<x>", long.as_str()] {
+            let p = NovelPrefs { font: bad.to_owned(), ..NovelPrefs::default() }.sanitized();
+            assert_eq!(p.font, "serif", "{bad:?}");
+        }
+        let p = NovelPrefs { font: "  sans  ".into(), ..NovelPrefs::default() }.sanitized();
+        assert_eq!(p.font, "sans");
+        // a blank custom path counts as none
+        let p = NovelPrefs { font: "custom".into(), custom_font_path: Some("   ".into()), ..NovelPrefs::default() }.sanitized();
+        assert_eq!(p.font, "serif");
+        assert_eq!(p.custom_font_path, None);
+        let p = NovelPrefs { font: "custom".into(), custom_font_path: Some(" /f.otf ".into()), ..NovelPrefs::default() }.sanitized();
+        assert_eq!(p.font, "custom");
+        assert_eq!(p.custom_font_path.as_deref(), Some("/f.otf"));
+    }
+
+    #[test]
+    fn tts_prefs_are_sanitized_inside_novel_prefs() {
+        let tts = TtsPrefs {
+            voice: "  af_bella ".into(),
+            rate: 10,
+            pitch: 250,
+            endpoint: Some(" https://tts.example/v1/ ".into()),
+            model: Some("   ".into()),
+            ..TtsPrefs::default()
+        };
+        let p = NovelPrefs { tts, ..NovelPrefs::default() }.sanitized();
+        assert_eq!(p.tts.voice, "af_bella");
+        assert_eq!(p.tts.rate, TTS_RATE_MIN);
+        assert_eq!(p.tts.pitch, TTS_RATE_MAX);
+        assert_eq!(p.tts.endpoint.as_deref(), Some("https://tts.example/v1"));
+        assert_eq!(p.tts.model, None);
+        let t = TtsPrefs { endpoint: Some("tts.example".into()), model: Some(" tts-1 ".into()), ..TtsPrefs::default() }.sanitized();
+        assert_eq!(t.endpoint, None);
+        assert_eq!(t.model.as_deref(), Some("tts-1"));
+        assert_eq!(TtsPrefs::default().sanitized(), TtsPrefs::default());
+    }
+
+    #[test]
+    fn older_files_without_flow_load_the_defaults() {
+        let p: NovelPrefs = serde_json::from_str(r#"{"font":"sans","font_size":20}"#).unwrap();
+        assert_eq!(p.flow, NovelFlowPrefs::default());
+        assert_eq!(p.tts, TtsPrefs::default());
+        assert_eq!(p.font_size, 20);
+    }
 }

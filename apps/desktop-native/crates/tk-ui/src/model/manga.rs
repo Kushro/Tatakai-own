@@ -917,4 +917,68 @@ mod tests {
         let card = MediaVm { id: "1".into(), title: "x".into(), cover: None, color: None, subtitle: format!("{ADULT_BADGE} - 2020"), score: None };
         assert!(is_adult_card(&card));
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn reader_upper_bounds() {
+        let s = MangaReaderPrefs {
+            zoom_percent: 1000,
+            width_percent: 200,
+            max_width_px: u16::MAX,
+            brightness: 255,
+            auto_scroll_speed: 99,
+            gap_px: 0,
+            prefetch_pages: 0,
+            ..MangaReaderPrefs::default()
+        }
+        .sanitized();
+        assert_eq!(s.zoom_percent, ZOOM_MAX_PERCENT);
+        assert_eq!(s.width_percent, WIDTH_MAX_PERCENT);
+        assert_eq!(s.max_width_px, MAX_WIDTH_PX_MAX);
+        assert_eq!(s.brightness, BRIGHTNESS_MAX);
+        assert_eq!(s.auto_scroll_speed, AUTO_SCROLL_MAX);
+        assert_eq!((s.gap_px, s.prefetch_pages), (0, 0), "zero is a valid gap / prefetch");
+    }
+
+    #[test]
+    fn keybinds_are_normalized_and_defaults_dropped() {
+        let mut p = MangaReaderPrefs::default();
+        p.keybinds.insert("next_page".into(), "J".into());
+        p.keybinds.insert("next_chapter".into(), "n".into()); // its default
+        p.keybinds.insert("auto_scroll".into(), " ".into());
+        p.keybinds.insert("reload".into(), "Escape".into());
+        let s = p.sanitized();
+        assert_eq!(s.keybinds.get("next_page").map(String::as_str), Some("j"));
+        assert!(!s.keybinds.contains_key("next_chapter"));
+        assert_eq!(s.keybinds.get("auto_scroll").map(String::as_str), Some("space"));
+        assert!(!s.keybinds.contains_key("reload"));
+        assert_eq!(s.key_for(ReaderActionVm::Reload), "r");
+        assert_eq!(s.action_for("space"), Some(ReaderActionVm::AutoScroll));
+        assert_eq!(s.clone().sanitized(), s, "idempotent");
+    }
+
+    #[test]
+    fn language_and_source_are_normalized() {
+        let p = MangaPrefs { preferred_lang: " EN ".into(), preferred_source: Some("  ".into()), ..MangaPrefs::default() }.sanitized();
+        assert_eq!(p.preferred_lang, "en");
+        assert_eq!(p.preferred_source, None);
+        let p = MangaPrefs { preferred_source: Some(" @mangadex ".into()), ..MangaPrefs::default() }.sanitized();
+        assert_eq!(p.preferred_source.as_deref(), Some("@mangadex"));
+        for l in MANGA_TITLE_LANGUAGES {
+            let p = MangaPrefs { title_language: l.to_owned(), ..MangaPrefs::default() }.sanitized();
+            assert_eq!(p.title_language, l);
+        }
+        // the reader is sanitized too
+        let p = MangaPrefs { reader: MangaReaderPrefs { zoom_percent: 0, ..MangaReaderPrefs::default() }, ..MangaPrefs::default() }.sanitized();
+        assert_eq!(p.reader.zoom_percent, ZOOM_MIN_PERCENT);
+    }
+
+    #[test]
+    fn more_key_tokens() {
+        assert_eq!(key_token(""), None);
+        assert_eq!(key_token("Spacebar").as_deref(), Some("space"));
+        assert_eq!(key_token("Tab"), None);
+        assert_eq!(key_token("F5").as_deref(), Some("f5"));
+        assert_eq!(key_token("PageDown").as_deref(), Some("pagedown"));
+    }
 }

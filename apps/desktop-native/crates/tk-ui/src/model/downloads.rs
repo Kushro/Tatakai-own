@@ -647,4 +647,48 @@ mod tests {
         assert_eq!(p.preferred_audio, "ja");
         assert_eq!(p.library_dirs, vec!["/a".to_owned()]);
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn upper_bounds_trimming_and_dedupe() {
+        let p = DownloadPrefs {
+            dir: "  /media/d  ".into(),
+            concurrent: 200,
+            auto_check_minutes: u16::MAX,
+            preferred_server: Some("   ".into()),
+            preferred_audio: " ES ".into(),
+            library_dirs: vec!["/a".into(), " /a".into(), "/b".into(), "/a".into()],
+            ..DownloadPrefs::default()
+        }
+        .sanitized();
+        assert_eq!(p.dir, "/media/d");
+        assert_eq!(p.concurrent, CONCURRENT_MAX);
+        assert_eq!(p.auto_check_minutes, AUTO_CHECK_MAX_MINUTES);
+        assert_eq!(p.preferred_server, None);
+        assert_eq!(p.preferred_audio, "es");
+        // only adjacent duplicates collapse (Vec::dedup)
+        assert_eq!(p.library_dirs, vec!["/a".to_owned(), "/b".to_owned(), "/a".to_owned()]);
+        assert_eq!(p.clone().sanitized(), p, "idempotent");
+        let s = DownloadPrefs { preferred_server: Some(" toko ".into()), ..DownloadPrefs::default() }.sanitized();
+        assert_eq!(s.preferred_server.as_deref(), Some("toko"));
+    }
+
+    #[test]
+    fn profile_ids_round_trip_and_wire_is_snake_case() {
+        for p in AutoProfileVm::ALL {
+            assert_eq!(AutoProfileVm::from_id(p.id()), p);
+            assert_eq!(serde_json::to_value(p).unwrap(), serde_json::Value::String(p.id().to_owned()));
+        }
+        let d: DownloadPrefs = serde_json::from_str(r#"{"auto_profile":"best"}"#).unwrap();
+        assert_eq!(d, DownloadPrefs { auto_profile: AutoProfileVm::Best, ..DownloadPrefs::default() });
+    }
+
+    #[test]
+    fn short_or_blank_air_dates_count_as_aired() {
+        assert!(is_aired(Some("2026"), "2026-11-09"));
+        assert!(is_aired(Some("   "), "2026-11-09"));
+        assert!(is_aired(Some("2026-11-09"), "2026-11-09"), "same day is out");
+        assert_eq!(plan_new_episodes(0, &[1, 2, 3, 4], &[], 0), Vec::<u32>::new());
+        assert_eq!(plan_new_episodes(0, &[], &[], 3), Vec::<u32>::new());
+    }
 }
