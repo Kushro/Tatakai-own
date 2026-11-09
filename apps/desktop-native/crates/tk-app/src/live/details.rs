@@ -17,7 +17,7 @@ use tk_core::metadata::anilist::details::{
     media_titles, pick_title, watch_order_steps,
 };
 use tk_core::metadata::anilist::search::Person;
-use tk_core::{MediaKind, MediaRef};
+use tk_core::{Media, MediaKind, MediaRef};
 use tk_ui::backend::{
     AiringVm, CharacterRoleVm, DetailsExtraVm, MediaFactsVm, PersonVm, RelatedVm, TrailerVm, UiResult,
     WatchOrderEntryVm,
@@ -61,6 +61,15 @@ fn not_found(id: &str) -> UiError {
 
 fn person_vm(p: &Person) -> PersonVm {
     PersonVm { id: p.id.to_string(), name: p.name.clone(), image: p.image.clone(), role: p.role.clone() }
+}
+
+/// Title of a card in the preferred language (`english` | `romaji` | `native`; checklist
+/// `details.title-language`), falling back english -> romaji -> native -> the mapped title. tk-app's card mapper
+/// (`live/mod.rs::to_vm`) calls it once `Settings` carries the preference (integration note of worker c).
+// Unused until the integrator wires the preference (see the note above).
+#[allow(dead_code)]
+pub fn display_title(m: &Media, preferred: &str) -> String {
+    pick_title(&m.titles, preferred).unwrap_or_else(|| m.title.clone())
 }
 
 /// Alternative titles: the two titles not shown (english-first, as the card mapper picks) + AniList synonyms,
@@ -252,6 +261,17 @@ mod tests {
         assert_eq!(vm.relations[0].media.id, "9");
         assert_eq!(vm.trailer.unwrap().url(), "https://www.youtube.com/watch?v=abc");
         assert_eq!(vm.next_airing, Some(AiringVm { episode: 3, at_unix: 1_800_000_000 }));
+    }
+
+    #[test]
+    fn display_title_follows_the_preference() {
+        let raw = json!({ "id": 1, "title": { "romaji": "Shingeki no Kyojin", "english": "Attack on Titan", "native": "進撃の巨人" } });
+        let m = tk_core::metadata::mapping::map_anilist_media(&raw);
+        assert_eq!(display_title(&m, "native"), "進撃の巨人");
+        assert_eq!(display_title(&m, "romaji"), "Shingeki no Kyojin");
+        assert_eq!(display_title(&m, "english"), "Attack on Titan");
+        let bare = tk_core::metadata::mapping::map_anilist_media(&json!({ "id": 2, "title": { "romaji": "R" } }));
+        assert_eq!(display_title(&bare, "native"), "R");
     }
 
     #[test]
