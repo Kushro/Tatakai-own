@@ -66,7 +66,6 @@ import androidx.compose.ui.unit.sp
 import app.tatakai.next.designsystem.components.AdaptiveSheet
 import app.tatakai.next.designsystem.components.EmptyState
 import app.tatakai.next.designsystem.components.ErrorState
-import app.tatakai.next.designsystem.components.LocalAppSnackbar
 import app.tatakai.next.designsystem.components.Pill
 import app.tatakai.next.designsystem.components.PillTone
 import app.tatakai.next.designsystem.components.Segmented
@@ -95,6 +94,7 @@ import app.tatakai.next.ui.state.userMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import org.koin.compose.viewmodel.koinViewModel
 import app.tatakai.next.ui.R as UiR
 
 // ==================================================================== Apariencia
@@ -644,11 +644,11 @@ private val COMPONENT_VERSIONS = listOf(
 )
 
 @Composable
-internal fun AboutSection() {
+internal fun AboutSection(state: SettingsUiState, vm: SettingsViewModel) {
     val context = LocalContext.current
-    val snackbar = LocalAppSnackbar.current
-    val m1 = stringResource(UiR.string.ui_m1)
+    val system: SystemViewModel = koinViewModel()
     var showLicenses by rememberSaveable { mutableStateOf(false) }
+    var showLogs by rememberSaveable { mutableStateOf(false) }
     val version = produceState(initialValue = "") {
         value = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty()
     }.value
@@ -656,17 +656,25 @@ internal fun AboutSection() {
     AboutRow("Tatakai Next", listOf(version, context.packageName).filter(String::isNotBlank).joinToString(" · "))
     COMPONENT_VERSIONS.forEach { (name, v) -> AboutRow(name, v) }
     AboutRow(stringResource(R.string.settings_about_license), "AGPL-3.0-or-later")
+    // parity wave A (worker q, checklist system.update-check): GitHub Releases of Kushro/Tatakai-own, at most once a day on its own.
+    UpdateCheckRow(
+        system = system,
+        updateCheckEnabled = state.settings.updateCheck,
+        onToggle = { on -> vm.updateSettings { it.copy(updateCheck = on) } },
+    )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
         FilledTonalButton(onClick = { showLicenses = true }) {
             Icon(Icons.Outlined.Description, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
             Text(stringResource(R.string.settings_licenses), modifier = Modifier.padding(start = 8.dp))
         }
-        TextButton(onClick = { snackbar.show(m1) }) {
+        // parity wave A (worker q, checklist system.open-logs)
+        TextButton(onClick = { showLogs = true }) {
             Icon(Icons.Outlined.Terminal, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
             Text(stringResource(R.string.settings_logs), modifier = Modifier.padding(start = 8.dp))
         }
     }
     if (showLicenses) LicensesSheet(onDismiss = { showLicenses = false })
+    if (showLogs) LogsSheet(system = system, onDismiss = { showLogs = false })
 }
 
 @Composable
