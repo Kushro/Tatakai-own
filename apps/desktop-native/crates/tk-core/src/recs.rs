@@ -403,7 +403,7 @@ pub fn atlas(items: &[Vec<String>]) -> Vec<AtlasPoint> {
         }
     }
     let pc1 = principal(&cov, d, None);
-    let pc2 = principal(&cov, d, Some(&pc1));
+    let pc2 = principal(&cov, d, Some(pc1.as_slice()));
     let raw: Vec<(f32, f32)> = centred.iter().map(|r| (dot(r, &pc1), dot(r, &pc2))).collect();
     let (x0, x1) = span(raw.iter().map(|p| p.0));
     let (y0, y1) = span(raw.iter().map(|p| p.1));
