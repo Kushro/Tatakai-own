@@ -1,0 +1,293 @@
+{
+  "x-merge-note": "Wave A worker f: merge `tags`, `paths` and `components.schemas` into contracts/link/openapi.v1.json (docs/redesign/15 section 3.8). Delete this key when merging.",
+  "tags": [
+    {
+      "name": "history",
+      "description": "Watch-history sync between the user's own devices (wave A). The PC is the server; the phone keeps a `since` cursor. Replaces the removed cloud history."
+    }
+  ],
+  "paths": {
+    "/v1/history": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "history"
+        ],
+        "summary": "History rows watched after `since`, oldest first",
+        "description": "Rows with `watchedAt > since` (unix seconds, exclusive; absent or 0 = everything), OLDEST first, at most `limit`. `next_since_unix` = `watchedAt` of the last row (or the requested `since` when empty); with `truncated` the phone asks again from it.",
+        "x-milestone": "wave A",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 500
+            },
+            "description": "Clamped to 1..=500."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Page",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/request_invalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/client_certificate_required"
+          },
+          "403": {
+            "$ref": "#/components/responses/device_not_authorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/internal"
+          }
+        }
+      },
+      "post": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "history"
+        ],
+        "summary": "Merge the phone's rows into the PC history",
+        "description": "Per episode the row with the newest `watchedAt` wins; same instant -> more progress wins (`tk_core::HistoryEntry::wins_over`). Rows without `anilistId` and `malId`, or with an unparseable `watchedAt`, are dropped without failing the request. Body <= 256 KiB.",
+        "x-milestone": "wave A",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoryPush"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Merged",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryPushResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/request_invalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/client_certificate_required"
+          },
+          "403": {
+            "$ref": "#/components/responses/device_not_authorized"
+          },
+          "408": {
+            "$ref": "#/components/responses/body_timeout"
+          },
+          "413": {
+            "$ref": "#/components/responses/body_too_large"
+          },
+          "500": {
+            "$ref": "#/components/responses/internal"
+          }
+        }
+      },
+      "delete": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "history"
+        ],
+        "summary": "Drop the whole PC history",
+        "description": "Called by the phone only after the user confirmed \"also on the PC\".",
+        "x-milestone": "wave A",
+        "responses": {
+          "204": {
+            "description": "Cleared",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/client_certificate_required"
+          },
+          "403": {
+            "$ref": "#/components/responses/device_not_authorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/internal"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HistoryRow": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "camelCase JSON of `tk_core::HistoryEntry`. Optional values are omitted when unknown, never null, so a merge never overwrites a known value.",
+        "required": [
+          "animeId",
+          "title",
+          "episodeId",
+          "episode",
+          "watchedAt"
+        ],
+        "properties": {
+          "animeId": {
+            "type": "string",
+            "description": "`String(anilistId)` or `mal:<malId>`",
+            "example": "21"
+          },
+          "title": {
+            "type": "string"
+          },
+          "poster": {
+            "type": "string",
+            "format": "uri"
+          },
+          "episodeId": {
+            "type": "string",
+            "description": "`<animeId>?ep=<episode>`",
+            "example": "21?ep=3"
+          },
+          "episode": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "progressSec": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Exact resume position in seconds."
+          },
+          "durationSec": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "completed": {
+            "type": "boolean",
+            "default": false
+          },
+          "watchedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC 3339 UTC; the PC emits seconds, the phone may send milliseconds.",
+            "example": "2026-10-27T21:04:11Z"
+          },
+          "anilistId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "malId": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "HistoryPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_since_unix"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/HistoryRow"
+            }
+          },
+          "next_since_unix": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "truncated": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "HistoryPush": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/HistoryRow"
+            }
+          }
+        }
+      },
+      "HistoryPushResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "merged"
+        ],
+        "properties": {
+          "merged": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Rows the PC stored (new or newer than what it had)."
+          }
+        }
+      }
+    }
+  }
+}
