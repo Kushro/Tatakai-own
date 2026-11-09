@@ -602,4 +602,102 @@ mod tests {
         assert_eq!(atlas(&items), pts, "deterministic");
         assert!(atlas(&[]).is_empty());
     }
+    // ---- F6 (parity wave B): gaps not covered above ----
+
+    #[test]
+    fn reason_kind_ids_round_trip_and_tokens_are_trimmed() {
+        for k in [ReasonKind::Genre, ReasonKind::Studio, ReasonKind::Era, ReasonKind::Tag, ReasonKind::Score] {
+            assert_eq!(ReasonKind::from_id(k.id()), Some(k));
+            let r = Reason { kind: k, value: "v".into(), weight: 0.5 };
+            assert_eq!(Reason::parse_token(&r.token()), Some((k, "v".to_owned())));
+        }
+        assert_eq!(ReasonKind::from_id("Genre"), None);
+        assert_eq!(Reason::parse_token(" genre : Action "), Some((ReasonKind::Genre, "Action".into())));
+        assert_eq!(Reason::parse_token("genre"), None);
+    }
+
+    #[test]
+    fn empty_profile_scores_only_the_quality_prior() {
+        let p = TasteProfile::default();
+        assert!(p.is_empty());
+        assert!(TasteProfile::build(&[]).is_empty());
+        let (s, reasons) = score(&p, &cand(1, &["Action"], "MAPPA", 2020, 85));
+        assert!((s - QUALITY_WEIGHT * 0.85).abs() < 1e-4, "{s}");
+        assert_eq!(reasons.len(), 1);
+        assert_eq!(reasons[0].token(), "score:85");
+        // no mean score: neutral prior, no score reason
+        let mut c = cand(2, &["Action"], "MAPPA", 2020, 0);
+        c.mean_score = None;
+        let (s, reasons) = score(&p, &c);
+        assert!((s - QUALITY_WEIGHT * 0.5).abs() < 1e-4, "{s}");
+        assert!(reasons.is_empty());
+    }
+
+    #[test]
+    fn at_most_two_reasons_per_family() {
+        let p = TasteProfile::build(&[seen(1, &["A", "B", "C"], "S", 2019, 1.0)]);
+        let c = Candidate { anilist_id: 9, genres: vec!["C".into(), "B".into(), "A".into()], ..Default::default() };
+        let (_, reasons) = score(&p, &c);
+        let tokens: Vec<String> = reasons.iter().map(Reason::token).collect();
+        assert_eq!(tokens, ["genre:A", "genre:B"]);
+    }
+
+    #[test]
+    fn weak_matches_are_not_reasons() {
+        // Drama ends at 0.2 of Action: below REASON_MIN_WEIGHT
+        let p = TasteProfile::build(&[seen(1, &["Action"], "S", 2019, 1.0), seen(2, &["Action", "Drama"], "T", 2019, 0.25)]);
+        let c = Candidate { anilist_id: 9, genres: vec!["Drama".into()], ..Default::default() };
+        let (_, reasons) = score(&p, &c);
+        assert!(reasons.iter().all(|r| r.kind != ReasonKind::Genre), "{reasons:?}");
+    }
+
+    #[test]
+    fn rank_ignores_id_zero_and_breaks_ties_by_input_order() {
+        let p = TasteProfile::default();
+        let cands = vec![cand(0, &["Action"], "X", 2000, 70), cand(3, &["Action"], "X", 2000, 70), cand(2, &["Action"], "X", 2000, 70)];
+        let r = rank(&p, &cands, &HashSet::new());
+        let ids: Vec<u32> = r.iter().map(|x| cands[x.index].anilist_id).collect();
+        assert_eq!(ids, vec![3, 2]);
+    }
+
+    #[test]
+    fn accuracy_edge_cases() {
+        assert_eq!(accuracy(0, 0, 0), None);
+        assert_eq!(accuracy(1, 0, 0), Some(1.0));
+        assert_eq!(accuracy(0, 4, 4), Some(0.0));
+    }
+
+    #[test]
+    fn seen_weight_clamps_scores_above_100_and_zero_means_unscored() {
+        assert_eq!(seen_weight(Some(250), false, false), 1.0);
+        assert_eq!(seen_weight(Some(0), false, true), 0.15);
+    }
+
+    #[test]
+    fn single_title_atlas_stays_in_range() {
+        let pts = atlas(&[vec!["Action".to_owned()]]);
+        assert_eq!(pts.len(), 1);
+        assert!((0.0..=1.0).contains(&pts[0].x) && (0.0..=1.0).contains(&pts[0].y));
+        assert_eq!(pts[0].cluster, "Action");
+    }
+
+    #[test]
+    fn one_genre_atlas_spreads_titles_on_a_line() {
+        let a = vec!["Action".to_owned()];
+        let pts = atlas(&[a.clone(), a.clone(), a]);
+        let xs: Vec<f32> = pts.iter().map(|p| p.x).collect();
+        assert_eq!(xs, vec![0.0, 0.5, 1.0]);
+        assert!(pts.iter().all(|p| p.y == 0.5 && p.cluster == "Action"));
+    }
+
+    #[test]
+    fn profile_build_ignores_zero_weight_titles_and_low_tags() {
+        let mut s = seen(1, &["Action"], "S", 2019, 0.0);
+        assert!(TasteProfile::build(std::slice::from_ref(&s)).is_empty());
+        s.weight = 1.0;
+        s.tags = vec![("Gore".into(), MIN_TAG_RANK - 1), ("Shounen".into(), MIN_TAG_RANK)];
+        let p = TasteProfile::build(&[s]);
+        assert_eq!(p.tags.len(), 1);
+        assert_eq!(p.tags[0], ("Shounen".to_owned(), 1.0));
+    }
 }

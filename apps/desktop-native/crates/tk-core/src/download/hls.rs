@@ -324,4 +324,93 @@ https://cdn/s2.ts
         let mut bad = vec![1u8; 15];
         assert!(decrypt_aes128(&mut bad, &key, &iv).is_err());
     }
+    // ---- F6 (parity wave B): gaps not covered above ----
+
+    #[test]
+    fn i_frame_variants_are_never_picked_and_bandwidth_guesses_the_height() {
+        let v = vec![
+            VariantStream { is_i_frame: true, uri: "iframe.m3u8".into(), bandwidth: 9_000_000, ..Default::default() },
+            VariantStream { uri: "low.m3u8".into(), bandwidth: 900_000, ..Default::default() },
+            VariantStream { uri: "mid.m3u8".into(), bandwidth: 3_000_000, ..Default::default() },
+            VariantStream { uri: "high.m3u8".into(), bandwidth: 7_000_000, ..Default::default() },
+        ];
+        assert_eq!(v[pick_variant(&v, None).unwrap()].uri, "high.m3u8");
+        // 3 Mb/s guesses 720 lines
+        assert_eq!(v[pick_variant(&v, Some(720)).unwrap()].uri, "mid.m3u8");
+        assert_eq!(v[pick_variant(&v, Some(480)).unwrap()].uri, "low.m3u8");
+        // only I-frame variants: nothing to download
+        assert_eq!(pick_variant(&v[..1], None), None);
+    }
+
+    #[test]
+    fn same_height_ties_go_to_the_higher_bandwidth() {
+        let v = vec![
+            VariantStream { uri: "a.m3u8".into(), bandwidth: 4_000_000, resolution: Some(m3u8_rs::Resolution { width: 1920, height: 1080 }), ..Default::default() },
+            VariantStream { uri: "b.m3u8".into(), bandwidth: 6_000_000, resolution: Some(m3u8_rs::Resolution { width: 1920, height: 1080 }), ..Default::default() },
+        ];
+        assert_eq!(v[pick_variant(&v, Some(1080)).unwrap()].uri, "b.m3u8");
+        assert_eq!(v[pick_variant(&v, None).unwrap()].uri, "b.m3u8");
+    }
+
+    #[test]
+    fn tiny_or_textual_quality_labels_mean_best() {
+        assert_eq!(wanted_height(Some("")), None);
+        assert_eq!(wanted_height(Some("  720P ")), Some(720));
+        assert_eq!(wanted_height(Some("100")), None); // below 144 is not a height
+        assert_eq!(wanted_height(Some("auto")), None);
+    }
+
+    #[test]
+    fn iv_bounds() {
+        assert!(parse_iv("0x").is_none());
+        assert!(parse_iv(&format!("0x{}", "0".repeat(33))).is_none());
+        assert!(parse_iv("0xzz").is_none());
+        assert_eq!(parse_iv(" 0XFF ").unwrap()[15], 0xff);
+        assert_eq!(sequence_iv(0), [0u8; 16]);
+    }
+
+    #[test]
+    fn method_none_clears_the_key_for_following_segments() {
+        let text = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-KEY:METHOD=AES-128,URI=\"k.bin\"\n#EXTINF:4,\na.ts\n#EXT-X-KEY:METHOD=NONE\n#EXTINF:4,\nb.ts\n#EXTINF:4,\nc.ts\n";
+        let Parsed::Media(m) = parse(text.as_bytes()).unwrap() else { panic!("media expected") };
+        let p = plan("https://h/i.m3u8", &m).unwrap();
+        assert_eq!(p.segments.len(), 3);
+        assert!(p.segments[0].key.is_some());
+        assert!(p.segments[1].key.is_none());
+        assert!(p.segments[2].key.is_none());
+        assert_eq!(p.segments[0].duration, 4.0);
+    }
+
+    #[test]
+    fn drm_key_formats_are_refused() {
+        let text = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-KEY:METHOD=AES-128,URI=\"skd://x\",KEYFORMAT=\"com.apple.streamingkeydelivery\"\n#EXTINF:4,\na.ts\n";
+        let Parsed::Media(m) = parse(text.as_bytes()).unwrap() else { panic!("media expected") };
+        assert!(matches!(plan("https://h/i.m3u8", &m), Err(DownloadError::Playlist(s)) if s == "encrypted"));
+        // identity is plain AES-128
+        let text = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-KEY:METHOD=AES-128,URI=\"k.bin\",KEYFORMAT=\"identity\"\n#EXTINF:4,\na.ts\n";
+        let Parsed::Media(m) = parse(text.as_bytes()).unwrap() else { panic!("media expected") };
+        assert_eq!(plan("https://h/i.m3u8", &m).unwrap().segments[0].key.as_ref().unwrap().uri, "https://h/k.bin");
+    }
+
+    #[test]
+    fn empty_media_playlist_is_an_error() {
+        assert!(matches!(plan("https://h/i.m3u8", &MediaPlaylist::default()), Err(DownloadError::Playlist(s)) if s == "empty playlist"));
+    }
+
+    #[test]
+    fn byte_range_offset_restarts_on_another_resource() {
+        let text = "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXT-X-BYTERANGE:100@0\n#EXTINF:4,\na.m4s\n#EXT-X-BYTERANGE:40\n#EXTINF:4,\nb.m4s\n";
+        let Parsed::Media(m) = parse(text.as_bytes()).unwrap() else { panic!("media expected") };
+        let p = plan("https://h/i.m3u8", &m).unwrap();
+        assert_eq!(p.segments[1].range, Some((40, 0)));
+        assert!(!p.fmp4 && p.init.is_none());
+    }
+
+    #[test]
+    fn garbage_is_not_a_playlist() {
+        assert!(!is_playlist(b""));
+        assert!(!is_playlist(b"   "));
+        assert!(matches!(parse(b"<html>nope</html>"), Err(DownloadError::Playlist(_))));
+        assert!(absolute("not a url", "a.ts").is_err());
+    }
 }
