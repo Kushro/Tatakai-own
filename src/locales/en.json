@@ -7151,6 +7151,7 @@
   },
   "extensionServerClient": {
     "title": "Connect to your PC",
+    "manageTitle": "Extension servers",
     "description": "Link this device to Tatakai running on your Windows or Linux PC to use its extensions from here.",
     "scanQr": "Scan QR code",
     "pasteLink": "Paste pairing link",
@@ -7218,7 +7219,7 @@
     },
     "pair": "Pair this device",
     "pairWith": "Pair with {{host}}?",
-    "pasteLinkHint": "On the PC open Settings → Home Server → Link phone, then copy the link or scan its QR code with your camera. You can also paste just the code if the address is filled in below.",
+    "pasteLinkHint": "On the PC open App Settings → Extension server → Link phone, then copy the link or scan its QR code with your camera. You can also paste just the code if the address is filled in below.",
     "trustWarning": "This server will receive your source searches and stream media through its proxy. Connect only to your own PC or a server you trust.",
     "linkRefreshed": "This link was already opened. Paste the pairing link again or enter the address and password.",
     "reconnect": "Reconnect",

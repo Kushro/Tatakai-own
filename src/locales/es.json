@@ -7151,6 +7151,7 @@
   },
   "extensionServerClient": {
     "title": "Conectar con tu PC",
+    "manageTitle": "Servidores de extensiones",
     "description": "Vincula este dispositivo con Tatakai abierto en tu PC con Windows o Linux para usar sus extensiones desde aquí.",
     "scanQr": "Escanear código QR",
     "pasteLink": "Pegar enlace de emparejamiento",
@@ -7218,7 +7219,7 @@
     },
     "pair": "Emparejar este dispositivo",
     "pairWith": "¿Emparejar con {{host}}?",
-    "pasteLinkHint": "En la PC abre Ajustes → Home Server → Vincular teléfono y copia el enlace o escanea su código QR con la cámara. También puedes pegar solo el código si la dirección está escrita abajo.",
+    "pasteLinkHint": "En la PC abre Ajustes de la app → Servidor de extensiones → Vincular teléfono y copia el enlace o escanea su código QR con la cámara. También puedes pegar solo el código si la dirección está escrita abajo.",
     "trustWarning": "Este servidor recibirá tus búsquedas de fuentes y transmitirá el video a través de su proxy. Conéctate solo a tu propia PC o a un servidor de confianza.",
     "linkRefreshed": "Este enlace ya se abrió. Vuelve a pegar el enlace de emparejamiento o escribe la dirección y la contraseña.",
     "reconnect": "Reconectar",
