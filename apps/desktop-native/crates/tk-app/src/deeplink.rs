@@ -289,4 +289,57 @@ mod tests {
         assert!(take().is_some());
         assert!(take().is_none());
     }
+    // ---- F6 (parity wave B) ----
+    // (PENDING is process-wide and shared with `remember_and_take`, so these stay on the pure functions.)
+
+    #[test]
+    fn link_bounds_and_parameter_names() {
+        assert!(!is_connect_link(CONNECT_PREFIX), "prefix alone");
+        assert!(!is_connect_link(""));
+        assert!(is_connect_link("  tatakai://extensionserver/connect?server=a&code=b \n"));
+        // parameters must be whole names
+        assert!(!is_connect_link("tatakai://extensionserver/connect?xserver=a&xcode=b"));
+        assert!(!is_connect_link("tatakai://extensionserver/connect?server=a&mycode=b"));
+        // other paths of the scheme are not pairing links
+        assert!(!is_connect_link("tatakai://extensionserver/other?server=a&code=b"));
+        assert!(!is_connect_link("https://extensionserver/connect?server=a&code=b"));
+        // 4 KiB cap
+        let base = "tatakai://extensionserver/connect?server=a&code=b&pad=";
+        let at_cap = format!("{base}{}", "x".repeat(4 * 1024 - base.len()));
+        assert_eq!(at_cap.len(), 4 * 1024);
+        assert!(is_connect_link(&at_cap));
+        assert!(!is_connect_link(&format!("{at_cap}x")));
+    }
+
+    #[test]
+    fn from_args_skips_the_program_and_takes_the_first_link() {
+        let link = "tatakai://extensionserver/connect?server=a&code=b".to_owned();
+        assert_eq!(from_args([link.clone()]), None, "argv[0] is never a link");
+        assert_eq!(from_args(Vec::<String>::new()), None);
+        let args = vec![
+            "exe".to_owned(),
+            "--flag".to_owned(),
+            format!(" {link} "),
+            "tatakai://extensionserver/connect?server=z&code=y".to_owned(),
+        ];
+        assert_eq!(from_args(args).as_deref(), Some(link.as_str()));
+        assert_eq!(from_args(["exe".to_owned(), "magnet:?xt=urn:btih:abc".to_owned()]), None);
+    }
+
+    #[test]
+    fn desktop_exec_escapes_special_characters() {
+        let exe = std::path::Path::new("/opt/a\"b`c$d\\e%f/tk");
+        assert_eq!(desktop_exec(exe), "\"/opt/a\\\"b\\`c\\$d\\\\e%%f/tk\" %u");
+        let file = desktop_file(exe);
+        assert!(file.starts_with("[Desktop Entry]\n"));
+        assert!(file.contains(&format!("Exec={}\n", desktop_exec(exe))));
+        assert_eq!(DESKTOP_ID, "tatakai-next-link.desktop");
+    }
+
+    #[test]
+    fn only_a_target_component_marks_a_dev_build() {
+        assert!(!is_dev_build(std::path::Path::new("/home/u/mytarget/tk")));
+        assert!(!is_dev_build(std::path::Path::new("/usr/bin/target-tk")));
+        assert!(is_dev_build(std::path::Path::new("C:/src/target/release/tk.exe")));
+    }
 }

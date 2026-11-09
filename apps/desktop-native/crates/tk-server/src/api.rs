@@ -146,4 +146,60 @@ mod tests {
         let g = Failure::new(StatusCode::TOO_MANY_REQUESTS, "login_throttled");
         assert_eq!(g.body()["error"]["message"], "login_throttled");
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn whole_catalogue_matches_the_classic_server() {
+        let table = [
+            (ApiError::AuthenticationRequired, "authentication_required", StatusCode::UNAUTHORIZED),
+            (ApiError::PairingRequired, "pairing_required", StatusCode::UNAUTHORIZED),
+            (ApiError::PairingExpired, "pairing_expired", StatusCode::UNAUTHORIZED),
+            (ApiError::DeviceNotAuthorized, "device_not_authorized", StatusCode::UNAUTHORIZED),
+            (ApiError::Forbidden, "forbidden", StatusCode::FORBIDDEN),
+            (ApiError::PairingLimit, "pairing_limit", StatusCode::CONFLICT),
+            (ApiError::NotFound, "not_found", StatusCode::NOT_FOUND),
+            (ApiError::BadRequest("x".into()), "bad_request", StatusCode::BAD_REQUEST),
+            (ApiError::Upstream("x".into()), "upstream_failed", StatusCode::BAD_GATEWAY),
+            (ApiError::Internal, "internal", StatusCode::INTERNAL_SERVER_ERROR),
+        ];
+        for (e, code, status) in table {
+            assert_eq!(e.code(), code);
+            assert_eq!(e.status(), status, "{code}");
+            let f = Failure::from(e);
+            assert_eq!(f.code, code);
+            assert_eq!(f.status, status);
+        }
+    }
+
+    #[test]
+    fn only_bad_request_and_upstream_carry_a_message() {
+        assert_eq!(Failure::from(ApiError::Upstream("boom".into())).message.as_deref(), Some("boom"));
+        assert_eq!(Failure::from(ApiError::Forbidden).message, None);
+        // without a message the code doubles as the message
+        assert_eq!(Failure::from(ApiError::Forbidden).body()["error"]["message"], "forbidden");
+        let f = Failure::new(StatusCode::GONE, "media_expired").with_message("ticket expired");
+        assert_eq!(f.body(), serde_json::json!({ "success": false, "error": { "code": "media_expired", "message": "ticket expired" } }));
+    }
+
+    #[tokio::test]
+    async fn error_responses_are_not_cached_and_keep_the_status() {
+        let r = ApiError::PairingLimit.into_response();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        assert_eq!(r.headers().get(axum::http::header::CACHE_CONTROL).unwrap(), "no-store");
+        let bytes = axum::body::to_bytes(r.into_body(), 64 * 1024).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v["success"], false);
+        assert_eq!(v["error"]["code"], "pairing_limit");
+    }
+
+    #[tokio::test]
+    async fn ok_wraps_data_in_the_success_envelope() {
+        let r = ok(serde_json::json!({ "a": 1 }));
+        assert_eq!(r.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(r.into_body(), 64 * 1024).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(v, serde_json::json!({ "success": true, "data": { "a": 1 } }));
+        let bytes = axum::body::to_bytes(ok(Vec::<u32>::new()).into_body(), 1024).await.unwrap();
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["data"], serde_json::json!([]));
+    }
 }

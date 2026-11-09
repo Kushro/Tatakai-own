@@ -67,4 +67,27 @@ mod tests {
         note_position(50);
         assert_eq!(shortcut_for(&RemoteCommandVm::Seek(300)), Some(Shortcut::SeekForward));
     }
+    // ---- F6 (parity wave B) ----
+    // (POSITION is a process-wide static shared with the test above, so these stay on the pure paths.)
+
+    #[test]
+    fn play_pause_and_prev_map_like_the_classic_remote() {
+        assert_eq!(shortcut_for(&RemoteCommandVm::Play), Some(Shortcut::TogglePause));
+        assert_eq!(shortcut_for(&RemoteCommandVm::Pause), Some(Shortcut::TogglePause));
+        assert_eq!(shortcut_for(&RemoteCommandVm::PrevEpisode), Some(Shortcut::PrevEpisode));
+    }
+
+    #[test]
+    fn seek_tolerance_is_two_seconds_each_way() {
+        assert_eq!(seek_step(52, 50), None);
+        assert_eq!(seek_step(53, 50), Some(Shortcut::SeekForward));
+        assert_eq!(seek_step(48, 50), None);
+        assert_eq!(seek_step(47, 50), Some(Shortcut::SeekBack));
+        assert_eq!(seek_step(0, 0), None);
+        assert_eq!(seek_step(0, 3), Some(Shortcut::SeekBack));
+        // no overflow at the extremes
+        assert_eq!(seek_step(u32::MAX, u32::MAX - 1), None);
+        assert_eq!(seek_step(u32::MAX - 1, u32::MAX), None);
+        assert_eq!(seek_step(u32::MAX, 0), Some(Shortcut::SeekForward));
+    }
 }

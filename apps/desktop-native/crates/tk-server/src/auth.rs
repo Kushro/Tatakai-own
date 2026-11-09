@@ -127,4 +127,62 @@ mod tests {
         assert!(!secrets_equal("abc", "abd"));
         assert!(password_len_ok("0123456789") && !password_len_ok("012345678"));
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn url_encode_keeps_unreserved_and_escapes_the_rest() {
+        assert_eq!(url_encode("AZaz09-_.~"), "AZaz09-_.~");
+        assert_eq!(url_encode("a b&c=d/e"), "a%20b%26c%3Dd%2Fe");
+        assert_eq!(url_encode("ñ"), "%C3%B1");
+        assert_eq!(url_encode(""), "");
+        assert_eq!(deep_link("http://[::1]:8099", "000042"), "tatakai://extensionserver/connect?server=http%3A%2F%2F%5B%3A%3A1%5D%3A8099&code=000042");
+    }
+
+    #[test]
+    fn token_hash_is_sha256_hex() {
+        assert_eq!(token_hash("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_ne!(token_hash("a"), token_hash("b"));
+    }
+
+    #[test]
+    fn tokens_are_hex_and_unique() {
+        let a = new_token();
+        let b = new_token();
+        assert_ne!(a, b);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn password_bounds_count_characters_not_bytes() {
+        assert!(password_len_ok(&"ñ".repeat(PASSWORD_MIN_CHARS)));
+        assert!(password_len_ok(&"a".repeat(PASSWORD_MAX_CHARS)));
+        assert!(!password_len_ok(&"a".repeat(PASSWORD_MAX_CHARS + 1)));
+        assert!(!password_len_ok(""));
+    }
+
+    #[test]
+    fn hashes_are_salted_and_too_long_passwords_never_verify() {
+        let pwd = "correct horse battery";
+        let a = hash_password(pwd).unwrap();
+        let b = hash_password(pwd).unwrap();
+        assert_ne!(a, b, "a fresh salt each time");
+        assert!(verify_password(pwd, &a) && verify_password(pwd, &b));
+        assert!(!verify_password(&"a".repeat(PASSWORD_MAX_CHARS + 1), &a));
+        assert!(!verify_password(pwd, ""));
+    }
+
+    #[test]
+    fn secrets_equal_handles_different_lengths() {
+        assert!(!secrets_equal("abc", "abcd"));
+        assert!(secrets_equal("", ""));
+    }
+
+    #[test]
+    fn pairing_serializes_camel_case() {
+        let p = Pairing { code: "123456".into(), expires_in: PAIRING_TTL_SECS, url: "u".into(), deep_link: "u".into() };
+        let v = serde_json::to_value(&p).unwrap();
+        assert_eq!(v["expiresIn"], 300);
+        assert_eq!(v["deepLink"], "u");
+        assert!(v.get("expires_in").is_none());
+    }
 }

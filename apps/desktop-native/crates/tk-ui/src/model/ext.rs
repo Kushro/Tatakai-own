@@ -312,4 +312,23 @@ mod tests {
         assert_eq!(d.clone().sanitized(), d);
         assert_eq!(ExtPrefs { check_interval_hours: 0, ..d }.sanitized().check_interval_hours, CHECK_INTERVAL_MIN_HOURS);
     }
+    // ---- F6 (parity wave B) ----
+
+    #[test]
+    fn check_interval_is_clamped_both_ways_and_kept_in_range() {
+        let d = ExtPrefs::default();
+        assert_eq!(ExtPrefs { check_interval_hours: 255, ..d.clone() }.sanitized().check_interval_hours, CHECK_INTERVAL_MAX_HOURS);
+        assert_eq!(ExtPrefs { check_interval_hours: 6, ..d.clone() }.sanitized().check_interval_hours, 6);
+        // the booleans are never touched
+        let off = ExtPrefs { auto_check_updates: false, notify_updates: false, server_fallback_local: false, stremio_enabled: false, ..d };
+        assert_eq!(off.clone().sanitized(), off);
+    }
+
+    #[test]
+    fn missing_fields_take_the_defaults() {
+        let p: ExtPrefs = serde_json::from_str(r#"{"stremio_enabled":false}"#).unwrap();
+        assert_eq!(p, ExtPrefs { stremio_enabled: false, ..ExtPrefs::default() });
+        let p: ExtPrefs = serde_json::from_str("{}").unwrap();
+        assert_eq!(p, ExtPrefs::default());
+    }
 }

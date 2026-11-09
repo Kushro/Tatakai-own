@@ -532,4 +532,34 @@ mod tests {
         let order: Vec<String> = rank(vec![a, b, c], &prefs, |_| true).into_iter().map(|(c, _)| c.label).collect();
         assert_eq!(order, ["Alpha", "Beta", "Gamma"]);
     }
+    #[test]
+    fn embed_pages_rank_below_direct_streams_of_the_same_quality() {
+        let prefs = SourcePrefs::default();
+        let direct = SourceCandidate::from_stream(&stream(Some("1080p")), "Toko");
+        assert!(!direct.web.as_ref().unwrap().embed, "from_stream never marks an embed");
+        let mut embed = direct.clone();
+        embed.label = "Embed".to_owned();
+        embed.web.as_mut().unwrap().embed = true;
+        let d = score(&direct, &prefs, true);
+        let e = score(&embed, &prefs, true);
+        assert!((d - e - EMBED_PENALTY).abs() < 1e-4, "{d} vs {e}");
+        // listed first, the embed still loses
+        let order: Vec<String> = rank(vec![embed.clone(), direct.clone()], &prefs, |_| true).into_iter().map(|(c, _)| c.label).collect();
+        assert_eq!(order, ["Alpha", "Embed"]);
+        // the penalty only touches web candidates: a torrent with a stray web.embed flag is unaffected
+        let mut t = embed.clone();
+        t.kind = SourceKind::Torrent;
+        t.torrent = Some(TorrentInfo { info_hash: "ab".repeat(20), size_bytes: None, seeders: 100, leechers: 1, magnet: None });
+        let mut t_plain = t.clone();
+        t_plain.web.as_mut().unwrap().embed = false;
+        assert!((score(&t, &prefs, true) - score(&t_plain, &prefs, true)).abs() < 1e-4);
+    }
+
+    #[test]
+    fn embed_flag_defaults_to_false_when_missing_from_json() {
+        let w: WebInfo = serde_json::from_str(r#"{"url":"https://x.example/e/1"}"#).unwrap();
+        assert!(!w.embed);
+        let w: WebInfo = serde_json::from_str(r#"{"url":"https://x.example/e/1","embed":true}"#).unwrap();
+        assert!(w.embed);
+    }
 }
