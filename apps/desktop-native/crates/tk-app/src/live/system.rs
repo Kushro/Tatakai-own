@@ -38,6 +38,9 @@ const EXPORT_LIMIT: u32 = 1_000_000;
 const WEBVIEW_CACHE_DIRS: &[&str] = &["cache", "code cache", "gpucache", "shadercache", "grshadercache", "cachestorage", "dawncache", "service worker"];
 
 static LAST_UPDATE: Mutex<Option<(Instant, UpdateCheckVm)>> = Mutex::new(None);
+/// One GitHub request at a time: the start-up job and the shell's notice ask at the same moment, the second one
+/// then finds the cached answer.
+static FETCHING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn other(e: impl std::fmt::Display) -> UiError {
     UiError::new(ErrorKind::Other, e.to_string())
@@ -269,7 +272,7 @@ pub async fn storage_usage(b: &LiveBackend) -> UiResult<StorageUsageVm> {
     let store = b.store.clone();
     let root = paths.root.clone();
     let vm = tokio::task::spawn_blocking(move || {
-        let (_, cache_rows_bytes) = store.cache_stats().unwrap_or((0, 0));
+        let (_, cache_rows_bytes) = metadata_rows(&store);
         let cache_bytes = cache_rows_bytes.saturating_add(disk_caches(&root).iter().map(|p| dir_size(p)).sum::<u64>());
         let torrent_state = dir_size(&paths.torrent_dir());
         // the download folder may live inside `torrents/` (fallback layout): never count it twice
@@ -297,7 +300,7 @@ pub async fn clear_cache(b: &LiveBackend) -> UiResult<u64> {
     let store = b.store.clone();
     let root = b.paths().root;
     let freed = tokio::task::spawn_blocking(move || {
-        let (_, rows_bytes) = store.cache_stats().unwrap_or((0, 0));
+        let (_, rows_bytes) = metadata_rows(&store);
         let mut freed = 0u64;
         if store.cache_purge(i64::MAX).is_ok() {
             freed = freed.saturating_add(rows_bytes);
@@ -325,6 +328,44 @@ pub async fn clear_cache(b: &LiveBackend) -> UiResult<u64> {
     .map_err(other)?;
     b.invalidate_sources();
     Ok(freed)
+}
+
+/// `(rows, bytes)` of the metadata TTL cache (`cache` table of the store).
+fn metadata_rows(store: &tk_core::LocalStore) -> (u64, u64) {
+    store.cache_stats().unwrap_or((0, 0))
+}
+
+/// Metadata cache of Settings > Data (`system.metadata-cache-control`): `(rows, bytes)`.
+pub async fn metadata_cache(b: &LiveBackend) -> UiResult<(u64, u64)> {
+    let store = b.store.clone();
+    tokio::task::spawn_blocking(move || metadata_rows(&store)).await.map_err(other)
+}
+
+/// Empty only the metadata TTL cache (details, characters, watch order are asked again); bytes freed.
+pub async fn clear_metadata_cache(b: &LiveBackend) -> UiResult<u64> {
+    let store = b.store.clone();
+    let freed = tokio::task::spawn_blocking(move || {
+        let (_, bytes) = metadata_rows(&store);
+        store.cache_purge(i64::MAX).map(|_| bytes)
+    })
+    .await
+    .map_err(other)?
+    .map_err(other)?;
+    b.invalidate_sources();
+    Ok(freed)
+}
+
+/// Settings > Data "Clear watch history": the local history (paired phones keep theirs; they get an empty page on
+/// their next pull and may push their rows back). Returns the rows removed.
+pub async fn clear_watch_history(b: &LiveBackend) -> UiResult<u32> {
+    let n = b.store.clear_history().map_err(other)?;
+    tracing::info!(rows = n, "watch history cleared");
+    Ok(u32::try_from(n).unwrap_or(u32::MAX))
+}
+
+/// When a paired phone last used `/v1/history` (Settings > Data, `data-history-sync-unix`).
+pub async fn history_last_sync(b: &LiveBackend) -> UiResult<Option<i64>> {
+    Ok(super::history_sync::last_sync_unix(&b.store))
 }
 
 // ---- open --------------------------------------------------------------------------------------------------------
@@ -466,11 +507,15 @@ async fn fetch_update() -> UiResult<UpdateCheckVm> {
     Ok(update_vm(env!("CARGO_PKG_VERSION"), latest, now_unix()))
 }
 
+fn cached_update() -> Option<UpdateCheckVm> {
+    let guard = LAST_UPDATE.lock().unwrap_or_else(|e| e.into_inner());
+    guard.as_ref().filter(|(at, _)| at.elapsed() < UPDATE_CACHE).map(|(_, vm)| vm.clone())
+}
+
 /// `Backend::check_updates`: one request per [`UPDATE_CACHE`].
 pub async fn check_updates(_b: &LiveBackend) -> UiResult<UpdateCheckVm> {
-    if let Some((at, vm)) = LAST_UPDATE.lock().unwrap_or_else(|e| e.into_inner()).clone()
-        && at.elapsed() < UPDATE_CACHE
-    {
+    let _one_at_a_time = FETCHING.lock().await;
+    if let Some(vm) = cached_update() {
         return Ok(vm);
     }
     let vm = fetch_update().await?;
@@ -496,7 +541,7 @@ pub fn system_caps(_b: &LiveBackend) -> SystemCapsVm {
     SystemCapsVm {
         platform: PlatformVm::current(),
         autostart: crate::autostart::supported(),
-        tray: cfg!(any(target_os = "windows", target_os = "linux", target_os = "macos")),
+        tray: tk_ui::tray::available(),
         magnet_handler: crate::magnet::supported(),
     }
 }
