@@ -227,6 +227,8 @@ pub async fn add_download(b: &LiveBackend, source: &str, id: &str, episode: Opti
 /// Background downloads are always added kept (`persist: true`, OR-ed by the engine), so a torrent that is still
 /// not kept is never one. The action runs after `END_GRACE` in a background task (see the module docs).
 pub async fn playback_ended(b: &LiveBackend, torrent_id: &str, completed: bool) -> UiResult<()> {
+    // Wave A (worker i): the session-history row of this playback ends here (a batch's next episode opens a new one).
+    b.torrent.close_session(torrent_id);
     let Some(engine) = b.torrent.running() else { return Ok(()) };
     let Some(entry) = engine.list().into_iter().find(|e| e.id == torrent_id) else { return Ok(()) };
     let background = background_enabled(b).await.unwrap_or(false);

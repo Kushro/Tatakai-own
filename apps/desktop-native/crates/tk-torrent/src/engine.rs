@@ -34,9 +34,10 @@ use tokio_util::sync::CancellationToken;
 use crate::error::TorrentError;
 use crate::labels::{LabelRecord, LabelStore, now_unix};
 use crate::stream;
+use crate::tracker_probe;
 use crate::types::{
     AddOptions, AddSource, EngineConfig, LibraryEntry, Limits, PeerInfo, ProtocolStatus, TorrentEvent, TorrentFile,
-    TorrentId, TorrentLabel, TorrentState, TorrentStats, TrackerInfo, TrackerStatus,
+    TorrentId, TorrentLabel, TorrentPreview, TorrentState, TorrentStats, TrackerInfo, TrackerStatus,
 };
 
 /// Capacity of the events channel; slow receivers get `RecvError::Lagged` and keep going.
@@ -51,6 +52,10 @@ const BLOCKING_THREADS: usize = 16;
 const MONITOR_INTERVAL: Duration = Duration::from_secs(1);
 /// Peer speed samples closer than this reuse the previous rate (the UI polls about once a second).
 const PEER_RATE_MIN_SAMPLE: Duration = Duration::from_millis(500);
+/// Tracker answers older than this are asked again when the Trackers table is read (wave A, worker i).
+const TRACKER_REPROBE: Duration = Duration::from_secs(15 * 60);
+/// Longest `reannounce` waits for the tracker answers.
+const REANNOUNCE_WAIT: Duration = Duration::from_secs(15);
 
 pub struct TorrentEngine {
     config: EngineConfig,
@@ -75,6 +80,14 @@ struct Seen {
     files_done: Vec<bool>,
 }
 
+/// Last tracker answers of one torrent (`tracker_probe`).
+#[derive(Debug, Default)]
+struct TrackerProbes {
+    results: HashMap<String, TrackerInfo>,
+    probing: bool,
+    at: Option<Instant>,
+}
+
 /// Shared state of the engine (session, labels, stream counters), also the state of the HTTP server.
 pub(crate) struct Inner {
     pub(crate) session: Arc<Session>,
@@ -96,6 +109,10 @@ pub(crate) struct Inner {
     /// its metadata) and not kept: their first `select_file` narrows the selection to that file.
     narrow_on_select: Mutex<HashSet<String>>,
     monitor: Mutex<HashMap<String, Seen>>,
+    /// `id -> tracker answers` (wave A, worker i: the real status of each tracker).
+    tracker_probes: Mutex<HashMap<String, TrackerProbes>>,
+    /// Random peer id of the probe's announce fallback (never librqbit's).
+    probe_peer_id: [u8; 20],
     pub(crate) cancel: CancellationToken,
     stopped: AtomicBool,
 }
@@ -240,6 +257,8 @@ impl TorrentEngine {
             peer_rates: Mutex::new(HashMap::new()),
             narrow_on_select: Mutex::new(HashSet::new()),
             monitor: Mutex::new(HashMap::new()),
+            tracker_probes: Mutex::new(HashMap::new()),
+            probe_peer_id: probe_peer_id(),
             cancel: CancellationToken::new(),
             stopped: AtomicBool::new(false),
         });
@@ -303,6 +322,29 @@ impl TorrentEngine {
         .await
     }
 
+    /// Make exactly `files` wanted (Files "Download only this", manual adds with an alignment): every other file is
+    /// deselected. An empty list is refused (it would stop the torrent without saying so).
+    pub async fn set_files(&self, id: &str, files: &[usize]) -> Result<(), TorrentError> {
+        let id = id.to_owned();
+        let files: Vec<usize> = files.to_vec();
+        self.on_engine(move |inner| async move {
+            let handle = inner.get(&id)?;
+            let hash = handle.info_hash().as_string();
+            let count = handle.metadata.load_full().map(|m| m.file_infos.len()).unwrap_or(0);
+            if files.is_empty() {
+                return Err(TorrentError::InvalidSource("no file selected".into()));
+            }
+            if let Some(&bad) = files.iter().find(|&&f| f >= count) {
+                return Err(TorrentError::NoSuchFile { id: hash, index: bad });
+            }
+            lock(&inner.narrow_on_select).remove(&hash);
+            let wanted: HashSet<usize> = files.into_iter().collect();
+            handle.wait_until_initialized().await.map_err(engine_err)?;
+            inner.session.update_only_files(&handle, &wanted).await.map_err(engine_err)
+        })
+        .await
+    }
+
     /// `http://127.0.0.1:<port>/<token>/<id>/<index>/<url-encoded file name>`. The server answers `Range`
     /// requests; a read selects the file and prioritises the pieces from the read position onwards (librqbit
     /// `FileStream`), so mpv plays while downloading. Works for every player mode (embedded, enhanced, external mpv).
@@ -342,8 +384,40 @@ impl TorrentEngine {
         self.inner.peers(id)
     }
 
+    /// Every tracker of the torrent (its own + `EngineConfig::trackers`) with the last answer it gave: `Working` with
+    /// the scrape counts, `Failed` with the message, `Updating` while the first question is in flight. Reading the
+    /// list starts a probe when the answers are missing or older than 15 min (see `tracker_probe`).
     pub fn trackers(&self, id: &str) -> Result<Vec<TrackerInfo>, TorrentError> {
-        self.inner.trackers(id)
+        Inner::trackers(&self.inner, id)
+    }
+
+    /// Ask every tracker again now (Trackers "Reannounce") and wait for the answers (at most 15 s). A live torrent
+    /// that nothing streams is also paused and resumed, which makes librqbit announce to its trackers again.
+    pub async fn reannounce(&self, id: &str) -> Result<(), TorrentError> {
+        let id = id.to_owned();
+        self.on_engine(move |inner| async move {
+            let handle = inner.get(&id)?;
+            let id = handle.info_hash().as_string();
+            let restart = !handle.is_paused() && !is_error(&handle) && inner.open_streams(&id) == 0 && handle.live().is_some();
+            if restart {
+                inner.session.pause(&handle).await.map_err(engine_err)?;
+                inner.session.unpause(&handle).await.map_err(engine_err)?;
+            }
+            let urls = inner.tracker_urls(&handle);
+            let probe = inner.clone().probe_trackers(id, handle.info_hash().0, urls);
+            if tokio::time::timeout(REANNOUNCE_WAIT, probe).await.is_err() {
+                tracing::debug!("some trackers did not answer the reannounce in time");
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    /// Files, name and size of a magnet / info-hash / `.torrent` without adding it (librqbit `list_only`; a magnet
+    /// waits for its metadata, bounded by [`METADATA_TIMEOUT_SECS`]). A torrent already in the session answers from
+    /// the session.
+    pub async fn preview(&self, source: AddSource) -> Result<TorrentPreview, TorrentError> {
+        self.on_engine(move |inner| async move { inner.preview(source).await }).await
     }
 
     /// Every torrent of the session, newest first.
@@ -624,6 +698,7 @@ impl Inner {
         lock(&self.peer_rates).remove(&id);
         lock(&self.monitor).remove(&id);
         lock(&self.narrow_on_select).remove(&id);
+        lock(&self.tracker_probes).remove(&id);
         tracing::info!(%id, delete_files, "torrent removed");
         self.emit(TorrentEvent::Removed { id });
         Ok(())
@@ -822,8 +897,8 @@ impl Inner {
         Ok(out)
     }
 
-    fn trackers(&self, id: &str) -> Result<Vec<TrackerInfo>, TorrentError> {
-        let handle = self.get(id)?;
+    /// The torrent's own trackers plus the configured ones, normalised and deduplicated.
+    fn tracker_urls(&self, handle: &ManagedTorrent) -> Vec<String> {
         let mut urls: Vec<String> = handle.shared().trackers.iter().map(|u| u.to_string()).collect();
         for t in &self.config.trackers {
             if let Ok(u) = url::Url::parse(t.trim()) {
@@ -832,11 +907,152 @@ impl Inner {
         }
         urls.sort();
         urls.dedup();
-        // librqbit does not expose announce results: every tracker is `Unknown`.
-        Ok(urls
-            .into_iter()
-            .map(|url| TrackerInfo { url, status: TrackerStatus::Unknown, message: None, downloaded: None, seeders: None, leechers: None })
-            .collect())
+        urls
+    }
+
+    fn trackers(self: &Arc<Self>, id: &str) -> Result<Vec<TrackerInfo>, TorrentError> {
+        let handle = self.get(id)?;
+        let id = handle.info_hash().as_string();
+        let urls = self.tracker_urls(&handle);
+        let (out, start) = {
+            let mut probes = lock(&self.tracker_probes);
+            let state = probes.entry(id.clone()).or_default();
+            let stale = state.at.is_none_or(|at| at.elapsed() >= TRACKER_REPROBE);
+            let missing = urls.iter().any(|u| !state.results.contains_key(u));
+            let start = !state.probing && (stale || missing);
+            let probing = state.probing || start;
+            let out: Vec<TrackerInfo> = urls
+                .iter()
+                .map(|url| match state.results.get(url) {
+                    Some(known) => known.clone(),
+                    None => TrackerInfo {
+                        url: url.clone(),
+                        status: if probing { TrackerStatus::Updating } else { TrackerStatus::Unknown },
+                        message: None,
+                        downloaded: None,
+                        seeders: None,
+                        leechers: None,
+                    },
+                })
+                .collect();
+            (out, start)
+        };
+        if start {
+            let inner = self.clone();
+            let hash = handle.info_hash().0;
+            self.handle.spawn(async move { inner.probe_trackers(id, hash, urls).await });
+        }
+        Ok(out)
+    }
+
+    /// Ask every url about the torrent (in parallel) and store the answers. Only one probe per torrent at a time.
+    async fn probe_trackers(self: Arc<Self>, id: String, info_hash: [u8; 20], urls: Vec<String>) {
+        {
+            let mut probes = lock(&self.tracker_probes);
+            let state = probes.entry(id.clone()).or_default();
+            state.probing = true;
+            for url in &urls {
+                if let Some(r) = state.results.get_mut(url) {
+                    r.status = TrackerStatus::Updating;
+                }
+            }
+        }
+        let port = self.session.announce_port().unwrap_or(6881);
+        let peer_id = self.probe_peer_id;
+        let answers = futures_util::future::join_all(urls.iter().map(|url| {
+            let url = url.clone();
+            async move {
+                let answer = tracker_probe::probe(&url, info_hash, peer_id, port).await;
+                (url, answer)
+            }
+        }))
+        .await;
+        let mut probes = lock(&self.tracker_probes);
+        let state = probes.entry(id).or_default();
+        state.probing = false;
+        state.at = Some(Instant::now());
+        state.results.retain(|url, _| urls.contains(url));
+        for (url, answer) in answers {
+            state.results.insert(url.clone(), tracker_info(url, answer));
+        }
+    }
+
+    async fn preview(self: &Arc<Self>, source: AddSource) -> Result<TorrentPreview, TorrentError> {
+        self.ensure_running()?;
+        let known = match &source {
+            AddSource::Magnet(m) => Magnet::parse(m).ok().and_then(|m| m.as_id20()),
+            AddSource::InfoHash(h) => parse_hash(h),
+            AddSource::TorrentBytes(_) | AddSource::Url(_) => None,
+        };
+        if let Some(hash) = known
+            && let Some(handle) = self.session.get(TorrentIdOrHash::Hash(hash))
+        {
+            return self.preview_existing(&handle);
+        }
+        let add = match source {
+            AddSource::Magnet(m) => AddTorrent::from_url(m),
+            AddSource::InfoHash(h) => AddTorrent::from_url(format!("magnet:?xt=urn:btih:{h}")),
+            AddSource::TorrentBytes(b) => AddTorrent::from_bytes(b),
+            AddSource::Url(u) => AddTorrent::from_url(u),
+        };
+        let opts = AddTorrentOptions { list_only: true, ..Default::default() };
+        let session = self.session.clone();
+        let response =
+            match tokio::time::timeout(Duration::from_secs(METADATA_TIMEOUT_SECS), session.add_torrent(add, Some(opts))).await {
+                Ok(r) => r.map_err(engine_err)?,
+                Err(_) => {
+                    return Err(TorrentError::Timeout(format!(
+                        "no torrent metadata after {METADATA_TIMEOUT_SECS} s (no peers?)"
+                    )));
+                }
+            };
+        match response {
+            AddTorrentResponse::ListOnly(r) => {
+                let id = r.info_hash.as_string();
+                let mut files = Vec::new();
+                for (index, fd) in r.info.iter_file_details().enumerate() {
+                    if fd.attrs().padding {
+                        continue;
+                    }
+                    let parts = fd.filename.to_vec();
+                    let path = parts.join("/");
+                    let name = parts.last().cloned().unwrap_or_else(|| path.clone());
+                    files.push(TorrentFile {
+                        index,
+                        path,
+                        name,
+                        size_bytes: fd.len,
+                        downloaded_bytes: 0,
+                        progress: 0.0,
+                        selected: true,
+                        streams: 0,
+                    });
+                }
+                Ok(TorrentPreview {
+                    name: r.info.name().map(|n| n.into_owned()).unwrap_or_else(|| id.clone()),
+                    size_bytes: r.info.lengths().total_length(),
+                    id,
+                    files,
+                    torrent_bytes: Some(r.torrent_bytes.to_vec()),
+                    in_session: false,
+                })
+            }
+            AddTorrentResponse::AlreadyManaged(_, handle) | AddTorrentResponse::Added(_, handle) => self.preview_existing(&handle),
+        }
+    }
+
+    fn preview_existing(&self, handle: &Arc<ManagedTorrent>) -> Result<TorrentPreview, TorrentError> {
+        let id = handle.info_hash().as_string();
+        let files = self.files(&id)?;
+        let size_bytes = handle.metadata.load_full().map(|m| m.lengths().total_length()).unwrap_or(0);
+        Ok(TorrentPreview {
+            name: handle.name().unwrap_or_else(|| id.clone()),
+            id,
+            size_bytes,
+            files,
+            torrent_bytes: None,
+            in_session: true,
+        })
     }
 
     fn list(&self) -> Vec<LibraryEntry> {
@@ -948,6 +1164,31 @@ impl Inner {
     }
 }
 
+/// A probe answer as a table row.
+fn tracker_info(url: String, answer: Result<tracker_probe::ProbeOk, String>) -> TrackerInfo {
+    match answer {
+        Ok(ok) => TrackerInfo {
+            url,
+            status: TrackerStatus::Working,
+            message: ok.warning,
+            downloaded: ok.downloaded,
+            seeders: ok.seeders,
+            leechers: ok.leechers,
+        },
+        Err(message) => {
+            TrackerInfo { url, status: TrackerStatus::Failed, message: Some(message), downloaded: None, seeders: None, leechers: None }
+        }
+    }
+}
+
+/// `-TK0001-` + 12 random bytes (Azureus style), distinct from librqbit's own peer id.
+fn probe_peer_id() -> [u8; 20] {
+    let mut id = [0u8; 20];
+    id[..8].copy_from_slice(b"-TK0001-");
+    id[8..].copy_from_slice(&uuid::Uuid::new_v4().into_bytes()[..12]);
+    id
+}
+
 fn is_error(handle: &ManagedTorrent) -> bool {
     handle.with_state(|s| matches!(s, ManagedTorrentState::Error(_)))
 }
@@ -1051,6 +1292,20 @@ mod tests {
         let f = fi(0, 1, 0..1);
         assert_eq!(file_path(&f), "Season 1/[Group] Show - 01.mkv");
         assert_eq!(file_name(&f), "[Group] Show - 01.mkv");
+    }
+
+    #[test]
+    fn probe_answers_map_to_rows() {
+        let ok = tracker_info(
+            "udp://t:1/announce".into(),
+            Ok(tracker_probe::ProbeOk { seeders: Some(3), leechers: Some(1), downloaded: Some(9), warning: None }),
+        );
+        assert_eq!((ok.status, ok.seeders, ok.leechers, ok.downloaded), (TrackerStatus::Working, Some(3), Some(1), Some(9)));
+        let failed = tracker_info("udp://t:1/announce".into(), Err("timed out".into()));
+        assert_eq!((failed.status, failed.message.as_deref()), (TrackerStatus::Failed, Some("timed out")));
+        let id = probe_peer_id();
+        assert_eq!(&id[..8], b"-TK0001-");
+        assert_ne!(probe_peer_id(), id);
     }
 
     #[test]

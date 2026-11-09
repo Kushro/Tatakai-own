@@ -80,3 +80,12 @@ Anime4K shaders (MIT / Unlicense, bloc97), FSR.glsl (MIT, agyild), Space Grotesk
 | `tk-link/src/devices.rs`, `tk-link/src/server.rs` structure | Enigmata-Temple `devices.rs` / `server.rs` | AGPL-3.0-or-later | rewritten for axum 0.8 + hyper-util without the `tower` crate |
 | `tk-ext/src/js/prelude.js` shim semantics | `src/core/extensions/mobile/{requireShim,parseHtml}.ts` of this repository (MPL-2.0) | MPL-2.0 | re-implemented in JS for QuickJS |
 | metadata router semantics | `src/lib/metadata/router.ts` of this repository | MPL-2.0 | |
+
+### Torrents and debrid (wave A, worker i)
+
+| Code | Origin | License | Notes |
+|---|---|---|---|
+| `tk-core/src/debrid/{realdebrid,torbox,alldebrid,premiumize}.rs` (endpoints, cache-check strategy, file pick) | `src/core/providers/{realdebrid-client,torbox-client,cloud-debrid-client,debrid-orchestrator}.ts` of this repository | MPL-2.0 | re-implemented in Rust over `reqwest`; keys in `tk_core::Secrets` |
+| `tk-app/src/live/torrent_manual.rs` (episode alignment suggestion), `tk-ui/src/screens/torrents/library.rs` ("Add torrent" sheet) | `src/components/modals/{TorrentDownloadModal,MagnetAlignmentModal}.tsx` of this repository | MPL-2.0 | behaviour ported; alignment from `tk_core::release::parse_release` |
+| `tk-ui/src/screens/torrents/history.rs`, session rows in `tk-app/src/live/torrent.rs` | `src/components/settings/TorrentSessionHistory.tsx` of this repository | MPL-2.0 | sessions stored in `data.db` (`torrent_sessions`) |
+| `tk-torrent/src/tracker_probe.rs` (UDP BEP 15 / HTTP BEP 3 + BEP 48 scrape) | written for this app from the BEP texts | - | librqbit 9.1.0 exposes no per-tracker announce result; the engine asks the trackers itself |

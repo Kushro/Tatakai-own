@@ -278,6 +278,24 @@ pub struct LibraryEntry {
     pub label: Option<TorrentLabel>,
 }
 
+/// What [`crate::TorrentEngine::preview`] found for a magnet / `.torrent` without adding it (wave A, worker i:
+/// Torrents > Library "Add torrent"): its files and, for a source that is not in the session yet, the `.torrent`
+/// bytes so the following add does not resolve the metadata again.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TorrentPreview {
+    pub id: TorrentId,
+    pub name: String,
+    pub size_bytes: u64,
+    /// Padding files left out; indices are the torrent's (same as `TorrentEngine::files`).
+    pub files: Vec<TorrentFile>,
+    /// `None` when the torrent is already in the session.
+    #[serde(skip)]
+    pub torrent_bytes: Option<Vec<u8>>,
+    /// Already in the session (added before, maybe with another selection).
+    pub in_session: bool,
+}
+
 /// Engine notifications (`TorrentEngine::events`). The UI polls stats; events are for tk-app policies
 /// (after-watch deletion, background downloads, logs).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

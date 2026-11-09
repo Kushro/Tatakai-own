@@ -1,15 +1,19 @@
 //! Torrent client > Trackers: sortable table url / status (`torrent.tracker.*` pill) / downloaded / seeders /
 //! leechers / message (`torrent_trackers`, polled every 3 s). Counts the tracker did not report show a dash.
 //! Compact windows get a list of cards (CSS). Owner: wave 3 C.
+//!
+//! Wave A (worker i, checklist `torrent.trackers.status`): the status is the tracker's real answer (the engine asks
+//! every tracker; `Updating` while the question is in flight) and "Reannounce" (`Backend::torrent_reannounce`) asks
+//! them all again. Rows expose `data-tracker-status`.
 
 use dioxus::prelude::*;
 
 use super::layout::common::{POLL_SLOW, SortBy, SortTh, TorrentPicker, format_opt, tracker_tone, use_torrent_poll};
-use crate::app::Ui;
+use crate::app::{Services, Ui};
 use crate::backend::{TorrentTrackerVm, TrackerStatusVm};
-use crate::components::{EmptyState, ErrorState, Pill, SkeletonLines};
+use crate::components::{Button, ButtonSize, ButtonVariant, EmptyState, ErrorState, Pill, SkeletonLines, use_snackbar};
 use crate::i18n::{t, tf};
-use crate::model::ErrorKind;
+use crate::model::{ErrorKind, UiError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Col {
@@ -57,6 +61,29 @@ pub fn TorrentTrackersPage() -> Element {
     let ui = use_context::<Ui>();
     let trackers = use_torrent_poll(POLL_SLOW, |b, id| async move { b.torrent_trackers(&id).await });
     let mut sort = use_signal(|| SortBy::new(Col::Status, false));
+    let services = use_context::<Services>();
+    let snack = use_snackbar();
+    let mut announcing = use_signal(|| false);
+    let mut announce_error = use_signal(|| None::<UiError>);
+    let reannounce = use_callback({
+        let backend = services.backend.clone();
+        move |id: String| {
+            if announcing() {
+                return;
+            }
+            announcing.set(true);
+            announce_error.set(None);
+            let backend = backend.clone();
+            spawn(async move {
+                match backend.torrent_reannounce(&id).await {
+                    Ok(()) => snack.show(t("torrent.trackers.reannounced")),
+                    Err(e) => announce_error.set(Some(e)),
+                }
+                announcing.set(false);
+                trackers.refresh();
+            });
+        }
+    });
 
     let selected = ui.torrent.read().clone();
     let Some(id) = selected else {
@@ -118,7 +145,7 @@ pub fn TorrentTrackersPage() -> Element {
                                     let tone = tracker_tone(tr_vm.status);
                                     let message = tr_vm.message.clone().unwrap_or_default();
                                     rsx! {
-                                        tr { key: "{tr_vm.url}", "data-status": "{tr_vm.status.id()}",
+                                        tr { key: "{tr_vm.url}", "data-status": "{tr_vm.status.id()}", "data-tracker-status": "{tr_vm.status.id()}",
                                             td { class: "tk-ttable__main tk-mono tk-selectable tk-ttrackers__url", "data-label": "{l_url}", title: "{tr_vm.url}", "{tr_vm.url}" }
                                             td { "data-label": "{l_status}",
                                                 Pill { text: status, tone: tone }
@@ -138,8 +165,24 @@ pub fn TorrentTrackersPage() -> Element {
         }
     };
 
+    let announce_id = id.clone();
     rsx! {
         section { class: "tk-tpage tk-ttrackers",
+            div { class: "tk-ttable__toolbar",
+                Button {
+                    label: if announcing() { t("torrent.trackers.reannouncing") } else { t("torrent.trackers.reannounce") },
+                    icon: "refresh".to_string(),
+                    variant: ButtonVariant::Tonal,
+                    size: ButtonSize::Sm,
+                    disabled: announcing(),
+                    onclick: move |_| reannounce.call(announce_id.clone()),
+                }
+            }
+            if let Some(e) = announce_error() {
+                ErrorState { error: e, compact: true, retry: false, title: Some(t("torrent.trackers.reannounce_failed")),
+                    Button { label: t("common.close"), variant: ButtonVariant::Text, size: ButtonSize::Sm, onclick: move |_| announce_error.set(None) }
+                }
+            }
             {content}
         }
     }
