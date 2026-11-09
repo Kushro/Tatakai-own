@@ -236,7 +236,13 @@ async fn history_needs_a_client_certificate_and_an_active_device() {
     let (phone, device) = pair(&s, "Pixel").await;
     assert_eq!(phone.get(format!("{}/v1/history", s.base)).send().await.unwrap().status(), 200);
     s.link.revoke(&device);
-    let r = phone.get(format!("{}/v1/history", s.base)).send().await.unwrap();
-    assert_eq!(r.status(), 403);
-    assert_eq!(body(r).await["error"]["code"], "device_not_authorized");
+    // Revoking drops the device's live keep-alive connection (as in e2e.rs), so a request may fail at the transport
+    // level; that is a valid refusal too. Any answer that does arrive must be the 403.
+    for _ in 0..2 {
+        if let Ok(r) = phone.get(format!("{}/v1/history", s.base)).send().await {
+            assert_eq!(r.status(), 403);
+            assert_eq!(body(r).await["error"]["code"], "device_not_authorized");
+        }
+    }
+    assert_eq!(s.host.rows.lock().unwrap().len(), 1, "a revoked device reads and clears nothing");
 }

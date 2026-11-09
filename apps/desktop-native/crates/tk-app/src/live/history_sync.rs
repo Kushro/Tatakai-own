@@ -104,10 +104,11 @@ mod tests {
         store.record_history(&row(1, 100, 10)).unwrap();
         // older row for ep 1 loses, newer row for ep 2 is new: one row counts
         assert_eq!(merge(&store, vec![row(1, 50, 5), row(2, 300, 20)]), 1);
+        // pages are oldest first and the cursor is unix seconds, exclusive (rows were watched at 10 s and 20 s)
         let page = since(&store, 0, 10);
-        assert_eq!(page.iter().map(|e| (e.episode, e.progress_sec)).collect::<Vec<_>>(), [(2, 300), (1, 100)]);
-        assert_eq!(since(&store, 10_000, 10).len(), 1);
-        assert!(since(&store, 20_000, 10).is_empty());
+        assert_eq!(page.iter().map(|e| (e.episode, e.progress_sec)).collect::<Vec<_>>(), [(1, 100), (2, 300)]);
+        assert_eq!(since(&store, 10, 10).iter().map(|e| e.episode).collect::<Vec<_>>(), [2]);
+        assert!(since(&store, 20, 10).is_empty());
         assert!(clear(&store));
         assert!(since(&store, 0, 10).is_empty());
     }

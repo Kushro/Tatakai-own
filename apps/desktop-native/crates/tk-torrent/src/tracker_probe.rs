@@ -361,7 +361,7 @@ mod tests {
             parse_http(&scrape, &hash),
             Ok(ProbeOk { seeders: Some(5), leechers: Some(10), downloaded: Some(50), warning: None })
         );
-        assert_eq!(parse_http(b"d14:failure reason11:unregisterede", &hash), Err("unregistered".to_owned()));
+        assert_eq!(parse_http(b"d14:failure reason12:unregisterede", &hash), Err("unregistered".to_owned()));
         let announce = b"d8:completei3e10:incompletei1e8:intervali1800e5:peers0:e";
         assert_eq!(parse_http(announce, &hash).unwrap().seeders, Some(3));
         assert!(parse_http(b"<html>", &hash).is_err());
