@@ -10,6 +10,10 @@
 //!   apply safely to `http://127.0.0.1:<port>/api/server/v1/media/<ticket>/...` (HLS playlists rewritten, segments
 //!   and keys proxied with per-origin headers, `Range` passthrough). It uses the LAN server when it runs, else a
 //!   private instance bound to 127.0.0.1 on an ephemeral port, started on demand.
+//! * Extension fetches (`server.proxy`, `server.flaresolverr`): the same outbound proxy and FlareSolverr are installed
+//!   as the route of `tk-ext`'s `SafeHttp` ([`apply_extension_route`] -> `tk_core::net::set_extension_outbound`), so
+//!   extension HTTP goes through the proxy and a Cloudflare challenge is solved once and retried. It does not depend
+//!   on the LAN server being on.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -40,6 +44,29 @@ struct Running {
     error: Option<UiError>,
     /// Loopback-only instance for mpv while the LAN server is off, and the prefs it was started with.
     local: Option<(Arc<ServerHandle>, ServerPrefs)>,
+    /// `(outbound proxy, FlareSolverr)` installed for extension fetches (`None` = never installed).
+    route: Option<RouteKey>,
+}
+
+/// What the extension route is built from.
+type RouteKey = (Option<String>, Option<String>);
+
+/// The extension route `prefs` asks for (pure).
+pub fn route_key(p: &ServerPrefs) -> RouteKey {
+    (p.outbound_proxy.clone(), p.flaresolverr_url.clone())
+}
+
+/// Install the outbound route of `prefs` for extension fetches (`server.proxy`, `server.flaresolverr`), only when it
+/// changed: the cached Cloudflare clearances survive unrelated saves.
+fn apply_extension_route(run: &mut Running, prefs: &ServerPrefs) {
+    let key = route_key(prefs);
+    if run.route.as_ref() == Some(&key) {
+        return;
+    }
+    let route = tk_server::upstream::extension_route(key.0.clone(), key.1.clone())
+        .map(|r| r as Arc<dyn tk_core::net::Outbound>);
+    tk_core::net::set_extension_outbound(route);
+    run.route = Some(key);
 }
 
 /// The in-process server handles and their config.
@@ -156,23 +183,25 @@ async fn stop_lan(run: &mut Running) {
     run.lan_prefs = None;
 }
 
-/// Start-up: start `tk-server` when `Settings::server.enabled` (`server.native-mode`) and apply the mDNS switch of
-/// Link (`link.discovery`). A failed start is only logged (the Server page shows it).
+/// Start-up: install the extension route, start `tk-server` when `Settings::server.enabled` (`server.native-mode`)
+/// and apply the mDNS switch of Link (`link.discovery`). A failed start is only logged (the Server page shows it).
 pub async fn on_start(b: &LiveBackend) {
     let prefs = prefs_of(b);
     super::link::set_announce(b, prefs.link_announce).await;
+    let mut run = b.server.running.lock().await;
+    apply_extension_route(&mut run, &prefs);
     if prefs.enabled {
-        let mut run = b.server.running.lock().await;
         let _ = start_lan(b, &mut run, &prefs).await;
     }
 }
 
-/// `Settings::server` changed: start / stop / restart the LAN server, drop a loopback instance started with other
-/// proxy settings, and apply the mDNS switch.
+/// `Settings::server` changed: re-install the extension route, start / stop / restart the LAN server, drop a
+/// loopback instance started with other proxy settings, and apply the mDNS switch.
 pub async fn on_settings(b: &LiveBackend, settings: &Settings) {
     let prefs = settings.server.clone().sanitized();
     super::link::set_announce(b, prefs.link_announce).await;
     let mut run = b.server.running.lock().await;
+    apply_extension_route(&mut run, &prefs);
     if let Some((local, used)) = run.local.as_ref()
         && (used.outbound_proxy != prefs.outbound_proxy || used.flaresolverr_url != prefs.flaresolverr_url)
     {
@@ -443,6 +472,18 @@ mod tests {
         assert!(!needs_restart(&a, &ServerPrefs { sniffer_timeout_secs: 30, enabled: true, ..a.clone() }));
         assert!(needs_restart(&a, &ServerPrefs { port: 9000, ..a.clone() }));
         assert!(needs_restart(&a, &ServerPrefs { outbound_proxy: Some("socks5://h:1".into()), ..a.clone() }));
+    }
+
+    #[test]
+    fn extension_route_follows_proxy_and_flaresolverr_only() {
+        let a = ServerPrefs::default();
+        assert_eq!(route_key(&a), (None, None));
+        let b = ServerPrefs { port: 9000, sniffer_timeout_secs: 30, ..a.clone() };
+        assert_eq!(route_key(&a), route_key(&b), "unrelated fields keep the installed route (and its clearances)");
+        let c = ServerPrefs { outbound_proxy: Some("socks5h://127.0.0.1:9050".into()), ..a.clone() };
+        assert_ne!(route_key(&a), route_key(&c));
+        let d = ServerPrefs { flaresolverr_url: Some("http://localhost:8191".into()), ..a.clone() };
+        assert_eq!(route_key(&d), (None, Some("http://localhost:8191".to_owned())));
     }
 
     #[test]
