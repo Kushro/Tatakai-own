@@ -279,7 +279,14 @@ pub enum PageSource {
 /// A paginated grid of cards for `source`; `on_open` receives the card id. Key the component by its source: it
 /// loads once per mount.
 #[component]
-pub fn PagedGrid(source: PageSource, origin: String, on_open: EventHandler<String>) -> Element {
+pub fn PagedGrid(
+    source: PageSource,
+    origin: String,
+    on_open: EventHandler<String>,
+    /// Empty state texts (default: `browse.empty.*`).
+    #[props(default)] empty_title: String,
+    #[props(default)] empty_body: String,
+) -> Element {
     let services = use_context::<Services>();
     let mut paged = use_signal(Paged::default);
 
@@ -320,7 +327,11 @@ pub fn PagedGrid(source: PageSource, origin: String, on_open: EventHandler<Strin
             ErrorState { error: e, on_retry: move |_| load.call(1) }
         },
         Phase::Ready if p.items.is_empty() => rsx! {
-            EmptyState { icon: "search".to_string(), title: t("browse.empty.title"), body: t("browse.empty.body") }
+            EmptyState {
+                icon: "search".to_string(),
+                title: if empty_title.is_empty() { t("browse.empty.title") } else { empty_title.clone() },
+                body: if empty_body.is_empty() { t("browse.empty.body") } else { empty_body.clone() },
+            }
         },
         Phase::Ready => {
             let count = match p.total {
