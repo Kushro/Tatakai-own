@@ -603,15 +603,10 @@ async fn details_anilist(b: &LiveBackend, id: &str, al: u32, lang: &str) -> UiRe
     let mut info = info_of(&d.card.media, lang, d.card.chapters);
     let year = d.card.media.year;
     let titles_for_lookup = info.titles.clone();
+    let (mu_client, md_client) = (MangaUpdates::new(client().clone()), mangadex_client());
     let (mu, md) = tokio::join!(
-        tokio::time::timeout(
-            ENRICH_TIMEOUT,
-            MangaUpdates::new(client().clone()).lookup(&titles_for_lookup, year)
-        ),
-        tokio::time::timeout(
-            ENRICH_TIMEOUT,
-            mangadex_client().find(Some(al), info.mal_id, &titles_for_lookup)
-        ),
+        tokio::time::timeout(ENRICH_TIMEOUT, mu_client.lookup(&titles_for_lookup, year)),
+        tokio::time::timeout(ENRICH_TIMEOUT, md_client.find(Some(al), info.mal_id, &titles_for_lookup)),
     );
     let mu = match mu {
         Ok(Ok(m)) => m,
@@ -969,7 +964,7 @@ impl ChapterCtx {
             lang: None,
             chapters,
         };
-        Ok(finish_list(list))
+        Ok(vec![finish_list(list)])
     }
 
     /// Every provider's lists for a title: `(ext_id, Ok(lists) | Err(error))`, cached `CHAPTER_TTL_SECS`; a
