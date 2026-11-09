@@ -1,2 +1,11 @@
 /* provider.css - wave B, worker j (provider pages, extension servers / Stremio / repositories / updates / preferences UI in Extensions). Registered in app.rs APP_CSS by the contract; tokens only (no color literals);
    animations through --md-sys-motion-* / --tk-mo-* and [data-reduce-motion="true"]. Prefix: .tk-provider. */
+
+.tk-provider__open { display: inline-flex; align-items: center; gap: var(--tk-space-8); padding: 0; border: 0; background: none; color: var(--md-sys-color-primary); font: inherit; font-family: var(--tk-font-display); font-size: var(--md-sys-typescale-title-medium-size); cursor: pointer; text-align: start; border-radius: var(--md-sys-shape-corner-small); transition: color var(--tk-mo-fx); }
+.tk-provider__open:hover, .tk-provider__open:focus-visible { color: var(--md-sys-color-on-surface); text-decoration: underline; }
+.tk-provider__open:disabled { color: var(--md-sys-color-on-surface-variant); cursor: default; text-decoration: none; }
+.tk-provider__search { display: flex; flex-direction: column; gap: var(--tk-space-12); margin-block-end: var(--tk-space-16); }
+.tk-provider .tk-section { margin-block-start: var(--tk-space-16); }
+.tk-provider__bookmark { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); }
+.tk-provider__bookmark[data-bookmarked="true"] .tk-btn:first-child { color: var(--md-sys-color-on-secondary-container); }
+[data-reduce-motion="true"] .tk-provider__open { transition: none; }
