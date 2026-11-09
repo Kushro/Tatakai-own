@@ -58,6 +58,7 @@
     <string name="search_adult_hint">Los títulos para adultos se ocultan salvo que lo actives.</string>
     <string name="search_adult_on">+18 incluido</string>
     <string name="search_adult_badge">+18</string>
+    <string name="search_mature_tap">Contenido para adultos · toca para descubrir</string>
     <string name="search_filters_clear">Limpiar</string>
     <string name="search_sort">Ordenar por</string>
     <string name="search_sort_relevance">Relevancia</string>

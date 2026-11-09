@@ -58,6 +58,7 @@
     <string name="search_adult_hint">Adult titles are hidden unless this is on.</string>
     <string name="search_adult_on">18+ included</string>
     <string name="search_adult_badge">18+</string>
+    <string name="search_mature_tap">Adult content · tap to uncover</string>
     <string name="search_filters_clear">Clear</string>
     <string name="search_sort">Sort by</string>
     <string name="search_sort_relevance">Relevance</string>

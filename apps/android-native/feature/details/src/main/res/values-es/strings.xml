@@ -83,6 +83,7 @@
     <string name="details_adult_show">Mostrar</string>
     <string name="details_adult_back">Volver</string>
     <string name="details_adult_badge">+18</string>
+    <string name="details_mature_tap">Contenido para adultos · toca para ver</string>
     <string name="details_characters">Personajes</string>
     <string name="details_characters_empty_title">Sin personajes</string>
     <string name="details_characters_empty">El proveedor de metadatos no lista personajes para este título.</string>

@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Movie
+import androidx.compose.material.icons.outlined.NoAdultContent
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Schedule
@@ -80,6 +81,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -198,21 +200,34 @@ private fun Header(media: Media, state: DetailsUiState, actions: DetailsActions)
     val details = state.detailsOrNull
     val title = media.displayTitle(state.titleLanguage)
     Column(Modifier.fillMaxWidth()) {
+        // matureContent BLUR: banner and cover stay blurred until the first tap on either.
+        val blurred = state.coverBlurred
+        val blurModifier = if (blurred) Modifier.blur(24.dp).clickable(onClick = actions.onRevealCover) else Modifier
         Box(Modifier.fillMaxWidth().height(220.dp)) {
             AsyncImage(
                 model = media.banner ?: media.cover,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest).then(blurModifier),
             )
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(background.copy(alpha = 0f), background))))
+            if (blurred) {
+                Row(
+                    Modifier.align(Alignment.Center).clickable(onClick = actions.onRevealCover).padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Outlined.NoAdultContent, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
+                    Text(stringResource(R.string.details_mature_tap), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
         }
         Row(
             Modifier.padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
-            MediaCover(url = media.cover, modifier = Modifier.width(110.dp))
+            MediaCover(url = media.cover, modifier = Modifier.width(110.dp).then(blurModifier))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, style = MaterialTheme.typography.headlineSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 media.alternativeTitle(title)?.let {

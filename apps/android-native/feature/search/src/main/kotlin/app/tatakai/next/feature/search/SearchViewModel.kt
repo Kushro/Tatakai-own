@@ -10,6 +10,7 @@ import app.tatakai.next.model.ExtensionRepository
 import app.tatakai.next.model.FeedKind
 import app.tatakai.next.model.FeedPage
 import app.tatakai.next.model.InstalledExtension
+import app.tatakai.next.model.MatureContentMode
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaSearchQuery
@@ -162,6 +163,8 @@ data class SearchUiState(
     /** Include 18+ titles (initial value AppSettings.showAdult, then the sheet's toggle). */
     val adult: Boolean = false,
     val titleLanguage: TitleLanguage = TitleLanguage.ROMAJI,
+    /** AppSettings.matureContent: BLUR blurs adult result covers until tapped (WARN is asked by the Details gate). */
+    val matureContent: MatureContentMode = MatureContentMode.WARN,
     /** Provider catalogues for the sheet (fallback: [KNOWN_GENRES]); tags are loaded on the first sheet open. */
     val genreOptions: List<String> = KNOWN_GENRES,
     val tagOptions: List<MediaTag> = emptyList(),
@@ -216,6 +219,7 @@ class SearchViewModel(
             history = historyStore.load(),
             adult = settings?.settings?.value?.showAdult ?: false,
             titleLanguage = settings?.settings?.value?.titleLanguage ?: TitleLanguage.ROMAJI,
+            matureContent = settings?.settings?.value?.matureContent ?: MatureContentMode.WARN,
         ),
     )
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
@@ -254,7 +258,7 @@ class SearchViewModel(
                     // The Settings toggle is the initial value; a change there wins over the sheet's last choice.
                     val adultChanged = lastShowAdult != null && lastShowAdult != s.showAdult
                     lastShowAdult = s.showAdult
-                    _state.update { it.copy(titleLanguage = s.titleLanguage, adult = if (adultChanged) s.showAdult else it.adult) }
+                    _state.update { it.copy(titleLanguage = s.titleLanguage, matureContent = s.matureContent, adult = if (adultChanged) s.showAdult else it.adult) }
                     if (adultChanged) refresh()
                 }
             }
