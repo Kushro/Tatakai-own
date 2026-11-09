@@ -10,6 +10,16 @@ mod sources;
 mod torrent;
 mod torrent_play;
 mod torrent_settings;
+// wave A (docs/redesign/15 section 2): one file per owner. a search, c details, d subs, e presence, f account,
+// g lists, i debrid + torrent_manual. This file only delegates; nobody edits it after the contract.
+mod account;
+mod debrid;
+mod details;
+mod lists;
+mod presence;
+mod search;
+mod subs;
+mod torrent_manual;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -23,11 +33,15 @@ use tk_core::{
     SupabaseError,
 };
 use tk_ui::backend::{
-    AccountVm, AnimeBuildVm, Backend, ContinueVm, DetailsVm, EpisodeVm, ExtLogVm, ExtensionDetailVm, ExtensionVm, HistoryItemVm,
-    HomeVm, LibraryVm, LinkCapsVm, LinkStatusVm, MediaVm, PlaybackVm, SectionVm, SkipMarkVm, SourceVm, TorrentFileVm,
-    TorrentLibraryItemVm, TorrentPeerVm, TorrentPlaybackVm, TorrentSettingsVm, TorrentStatsVm, TorrentTrackerVm, UiResult,
+    AccountVm, AnimeBuildVm, Backend, CharacterVm, ConflictSideVm, ContinueVm, CueVm, DebridAccountVm, DebridServiceVm,
+    DetailsExtraVm, DetailsVm, EpisodeVm, ExportFormatVm, ExtLogVm, ExtensionDetailVm, ExtensionVm, HistoryItemVm, HomeVm,
+    ImageMatchVm, ImageQueryVm, LibraryVm, LinkCapsVm, LinkStatusVm, ListAccountVm, ListConflictVm, ListEntryUpdateVm,
+    ListEntryVm, ListImportVm, ListStatusVm, ListSyncVm, MediaVm, PlaybackVm, PresenceVm, SearchPageVm, SearchQueryVm,
+    SectionVm, SignUpVm, SkipMarkVm, SourceVm, StorageUsageVm, SystemCapsVm, TorrentFileVm, TorrentLibraryItemVm,
+    TorrentPeerVm, TorrentPlaybackVm, TorrentPreviewVm, TorrentSettingsVm, TorrentStatsVm, TorrentTrackerVm,
+    TranslateRequestVm, TranslationTestVm, UiResult, UpdateCheckVm, WatchOrderEntryVm,
 };
-use tk_ui::model::{ErrorKind, Pairing, Settings, UiError};
+use tk_ui::model::{ErrorKind, ListServiceVm, Pairing, Settings, UiError};
 use tk_ui::ui_thread::UiThread;
 
 use crate::backend_common::{IdKind, parse_media_id};
@@ -52,6 +66,8 @@ pub struct LiveBackend {
     candidates: Mutex<HashMap<(String, u32), (Instant, Vec<SourceCandidate>)>>,
     /// Torrent engine, started on demand (wave 3 A, `live/torrent.rs`).
     torrent: torrent::TorrentService,
+    /// OS keyring / fallback file (wave A): Supabase session (f), AniList / MAL tokens (g), debrid keys (i).
+    secrets: tk_core::Secrets,
 }
 
 /// How long a resolved source list is reused before the extensions are asked again.
@@ -93,12 +109,19 @@ impl LiveBackend {
             link,
             candidates: Mutex::new(HashMap::new()),
             torrent: torrent::TorrentService::new(paths.clone()),
+            secrets: tk_core::Secrets::open(&paths.root),
         })
     }
 
     /// The data directory layout (`AppPaths`) of this backend.
     fn paths(&self) -> AppPaths {
         AppPaths::from_root(self.data_root.clone())
+    }
+
+    /// Wave A, worker f: load the persisted Supabase session (`live/account.rs::restore_session`). tk-app's `main.rs`
+    /// spawns it right after building the backend; a stub until f lands.
+    pub async fn restore_session(&self) {
+        account::restore_session(self).await;
     }
 
     fn remember_title(&self, id: &str, title: &str, poster: Option<&str>) {
@@ -374,6 +397,8 @@ impl Backend for LiveBackend {
                 tracing::warn!(error = %e, "could not clear the picked source");
             }
         }
+        // Wave A, worker g: automatic list progress (never fails the local write).
+        lists::on_progress(self, id, episode, progress_secs, duration_secs, entry.completed).await;
         self.sync_history().await;
         Ok(())
     }
@@ -427,6 +452,8 @@ impl Backend for LiveBackend {
             Err(e) => tracing::warn!(error = %e, "pulling remote history failed"),
         }
         self.sync_history().await;
+        // Wave A, worker f: persist the session (`live/account.rs`).
+        account::after_sign_in(self).await;
         self.account().await
     }
     async fn sign_out(&self) -> UiResult<()> {
@@ -436,6 +463,7 @@ impl Backend for LiveBackend {
         if let Ok(mut e) = self.email.lock() {
             *e = None;
         }
+        account::after_sign_out(self).await;
         Ok(())
     }
 
@@ -461,7 +489,9 @@ impl Backend for LiveBackend {
         let enabled: HashMap<String, bool> =
             self.ext.installed().into_iter().map(|e| (e.id, e.enabled && e.compat != Compat::Unsupported)).collect();
         let picked = self.store.picked_source(id, episode).ok().flatten();
-        Ok(sources::ranked_vms(candidates, &prefs, |ext_id| enabled.get(ext_id).copied().unwrap_or(false), picked.as_deref()))
+        let ranked = sources::ranked_vms(candidates, &prefs, |ext_id| enabled.get(ext_id).copied().unwrap_or(false), picked.as_deref());
+        // Wave A, worker i: `SourceVm::debrid` from the connected debrid services (best effort).
+        Ok(debrid::mark_cached(self, ranked).await)
     }
 
     async fn playback_source(&self, id: &str, episode: u32, source_id: &str) -> UiResult<PlaybackVm> {
@@ -622,5 +652,172 @@ impl Backend for LiveBackend {
     }
     async fn skip_marks(&self, id: &str, episode: u32) -> UiResult<Vec<SkipMarkVm>> {
         torrent_play::skip_marks(self, id, episode).await
+    }
+
+    // --- wave A (docs/redesign/15-parity-wave-a-contract.md section 3): one delegation per method, bodies in
+    // live/<area>.rs. Nobody edits these delegations. ---
+
+    // a: live/search.rs
+    async fn search_filtered(&self, q: &SearchQueryVm) -> UiResult<SearchPageVm> {
+        search::search_filtered(self, q).await
+    }
+    async fn search_in_extension(&self, ext_id: &str, query: &str, page: u32) -> UiResult<Vec<MediaVm>> {
+        search::search_in_extension(self, ext_id, query, page).await
+    }
+    async fn feed(&self, feed: &str, page: u32) -> UiResult<SearchPageVm> {
+        search::feed(self, feed, page).await
+    }
+    async fn search_by_studio(&self, studio: &str, page: u32) -> UiResult<SearchPageVm> {
+        search::search_by_studio(self, studio, page).await
+    }
+    async fn search_by_image(&self, image: ImageQueryVm) -> UiResult<Vec<ImageMatchVm>> {
+        search::search_by_image(self, image).await
+    }
+    async fn character(&self, character_id: &str) -> UiResult<CharacterVm> {
+        search::character(self, character_id).await
+    }
+
+    // c: live/details.rs
+    async fn details_extra(&self, id: &str) -> UiResult<DetailsExtraVm> {
+        details::details_extra(self, id).await
+    }
+    async fn watch_order(&self, id: &str) -> UiResult<Vec<WatchOrderEntryVm>> {
+        details::watch_order(self, id).await
+    }
+
+    // d: live/subs.rs
+    async fn fetch_subtitle(&self, url: &str, headers: &[(String, String)]) -> UiResult<String> {
+        subs::fetch_subtitle(self, url, headers).await
+    }
+    async fn translate_cues(&self, req: &TranslateRequestVm) -> UiResult<Vec<CueVm>> {
+        subs::translate_cues(self, req).await
+    }
+    async fn translation_test(&self) -> UiResult<TranslationTestVm> {
+        subs::translation_test(self).await
+    }
+    async fn screenshot_path(&self, title: &str, episode: u32) -> UiResult<std::path::PathBuf> {
+        subs::screenshot_path(self, title, episode).await
+    }
+
+    // e: live/presence.rs
+    async fn presence(&self, state: &PresenceVm) -> UiResult<()> {
+        presence::presence(self, state).await
+    }
+
+    // f: live/account.rs
+    async fn sign_up(&self, email: &str, password: &str) -> UiResult<SignUpVm> {
+        account::sign_up(self, email, password).await
+    }
+    async fn verify_email(&self, email: &str, code: &str) -> UiResult<AccountVm> {
+        account::verify_email(self, email, code).await
+    }
+    async fn resend_verification(&self, email: &str) -> UiResult<()> {
+        account::resend_verification(self, email).await
+    }
+    async fn request_password_reset(&self, email: &str) -> UiResult<()> {
+        account::request_password_reset(self, email).await
+    }
+    async fn reset_password(&self, email: &str, code: &str, new_password: &str) -> UiResult<()> {
+        account::reset_password(self, email, code, new_password).await
+    }
+    async fn storage_usage(&self) -> UiResult<StorageUsageVm> {
+        account::storage_usage(self).await
+    }
+    async fn clear_cache(&self) -> UiResult<u64> {
+        account::clear_cache(self).await
+    }
+    async fn open_data_folder(&self) -> UiResult<()> {
+        account::open_data_folder(self).await
+    }
+    async fn open_logs(&self) -> UiResult<()> {
+        account::open_logs(self).await
+    }
+    async fn export_history(&self, format: ExportFormatVm) -> UiResult<std::path::PathBuf> {
+        account::export_history(self, format).await
+    }
+    async fn licenses_text(&self) -> UiResult<String> {
+        account::licenses_text(self).await
+    }
+    async fn check_updates(&self) -> UiResult<UpdateCheckVm> {
+        account::check_updates(self).await
+    }
+    fn system_caps(&self) -> SystemCapsVm {
+        account::system_caps(self)
+    }
+    async fn autostart_enabled(&self) -> UiResult<bool> {
+        account::autostart_enabled(self).await
+    }
+    async fn set_autostart(&self, enabled: bool) -> UiResult<()> {
+        account::set_autostart(self, enabled).await
+    }
+    async fn open_url(&self, url: &str) -> UiResult<()> {
+        account::open_url(self, url).await
+    }
+
+    // g: live/lists.rs
+    async fn list_accounts(&self) -> UiResult<Vec<ListAccountVm>> {
+        lists::list_accounts(self).await
+    }
+    async fn list_connect(&self, service: ListServiceVm) -> UiResult<ListAccountVm> {
+        lists::list_connect(self, service).await
+    }
+    async fn list_disconnect(&self, service: ListServiceVm) -> UiResult<()> {
+        lists::list_disconnect(self, service).await
+    }
+    async fn list_entry(&self, media_id: &str) -> UiResult<Option<ListEntryVm>> {
+        lists::list_entry(self, media_id).await
+    }
+    async fn set_list_entry(&self, media_id: &str, update: &ListEntryUpdateVm) -> UiResult<ListEntryVm> {
+        lists::set_list_entry(self, media_id, update).await
+    }
+    async fn remove_list_entry(&self, media_id: &str) -> UiResult<()> {
+        lists::remove_list_entry(self, media_id).await
+    }
+    async fn list_entries(&self, status: Option<ListStatusVm>) -> UiResult<Vec<ListEntryVm>> {
+        lists::list_entries(self, status).await
+    }
+    async fn favorites(&self) -> UiResult<Vec<MediaVm>> {
+        lists::favorites(self).await
+    }
+    async fn is_favorite(&self, media_id: &str) -> UiResult<bool> {
+        lists::is_favorite(self, media_id).await
+    }
+    async fn set_favorite(&self, media_id: &str, favorite: bool) -> UiResult<()> {
+        lists::set_favorite(self, media_id, favorite).await
+    }
+    async fn list_sync_now(&self) -> UiResult<ListSyncVm> {
+        lists::list_sync_now(self).await
+    }
+    async fn list_conflicts(&self) -> UiResult<Vec<ListConflictVm>> {
+        lists::list_conflicts(self).await
+    }
+    async fn resolve_list_conflict(&self, conflict_id: i64, keep: ConflictSideVm) -> UiResult<()> {
+        lists::resolve_list_conflict(self, conflict_id, keep).await
+    }
+    async fn import_list(&self, path: &str) -> UiResult<ListImportVm> {
+        lists::import_list(self, path).await
+    }
+    async fn export_list(&self, format: ExportFormatVm) -> UiResult<std::path::PathBuf> {
+        lists::export_list(self, format).await
+    }
+
+    // i: live/torrent_manual.rs + live/debrid.rs
+    async fn torrent_preview(&self, source: &str) -> UiResult<TorrentPreviewVm> {
+        torrent_manual::torrent_preview(self, source).await
+    }
+    async fn torrent_add_manual(&self, source: &str, media_id: Option<&str>, alignment: &[(usize, u32)]) -> UiResult<String> {
+        torrent_manual::torrent_add_manual(self, source, media_id, alignment).await
+    }
+    async fn torrent_preload_next(&self, id: &str, episode: u32) -> UiResult<()> {
+        torrent_manual::torrent_preload_next(self, id, episode).await
+    }
+    async fn debrid_accounts(&self) -> UiResult<Vec<DebridAccountVm>> {
+        debrid::debrid_accounts(self).await
+    }
+    async fn set_debrid_key(&self, service: DebridServiceVm, key: Option<&str>) -> UiResult<DebridAccountVm> {
+        debrid::set_debrid_key(self, service, key).await
+    }
+    async fn debrid_play(&self, source: &str, id: &str, episode: u32) -> UiResult<PlaybackVm> {
+        debrid::debrid_play(self, source, id, episode).await
     }
 }

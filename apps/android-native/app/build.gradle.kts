@@ -17,6 +17,9 @@ fun cfg(name: String): String = (localProps.getProperty(name) ?: System.getenv(n
 
 val supabaseUrl = cfg("TATAKAI_SUPABASE_URL")
 val supabaseAnonKey = cfg("TATAKAI_SUPABASE_ANON_KEY")
+// parity wave A (docs/redesign/15 §3.3): OAuth client ids of the list providers (optional: empty = "Vincular" disabled with a hint).
+val anilistClientId = cfg("TATAKAI_ANILIST_CLIENT_ID")
+val malClientId = cfg("TATAKAI_MAL_CLIENT_ID")
 fun String.asBuildConfigString() = "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
@@ -28,6 +31,8 @@ android {
         versionName = "0.1.0-m0"
         buildConfigField("String", "TATAKAI_SUPABASE_URL", supabaseUrl.asBuildConfigString())
         buildConfigField("String", "TATAKAI_SUPABASE_ANON_KEY", supabaseAnonKey.asBuildConfigString())
+        buildConfigField("String", "TATAKAI_ANILIST_CLIENT_ID", anilistClientId.asBuildConfigString())
+        buildConfigField("String", "TATAKAI_MAL_CLIENT_ID", malClientId.asBuildConfigString())
     }
     buildFeatures { buildConfig = true }
     // The check*AarMetadata tasks are disabled repo-wide (see root build.gradle.kts), but release lintVital

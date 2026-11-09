@@ -81,6 +81,9 @@ fun YouScreen(
     onOpenSettings: () -> Unit,
     onSignIn: () -> Unit,
     modifier: Modifier = Modifier,
+    // --- parity wave A (docs/redesign/15 §3.3, worker q): appended, wired by :app ---
+    /** "Listas y cuentas" row (AniList / MAL) -> Route.SettingsSection(ACCOUNTS). */
+    onOpenAccounts: () -> Unit = {},
 ) {
     val viewModel: YouViewModel = koinViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()

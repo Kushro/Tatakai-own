@@ -4,6 +4,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- parity wave A (docs/redesign/15 §3.3): package visibility for the Custom Tabs service (AniList / MAL OAuth, worker q). -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
+
     <application
         android:name=".TatakaiApplication"
         android:allowBackup="false"
@@ -35,6 +42,21 @@
                     android:host="extensionserver"
                     android:pathPrefix="/connect"
                     android:scheme="tatakai" />
+            </intent-filter>
+            <!-- parity wave A (docs/redesign/15 §3.3, worker q): OAuth redirect of AniList / MAL: tatakai://oauth/<anilist|mal>?code=…&state=… -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="oauth"
+                    android:scheme="tatakai" />
+            </intent-filter>
+            <!-- parity wave A (docs/redesign/15 §3.1, worker o): share a picture to the app = image search (trace.moe). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
     </application>

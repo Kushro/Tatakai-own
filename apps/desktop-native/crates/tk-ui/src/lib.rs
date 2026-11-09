@@ -15,6 +15,8 @@ pub mod player_state;
 pub mod qr;
 pub mod screens;
 pub mod shortcuts;
+/// Tray icon + close-to-tray (wave A, worker f).
+pub mod tray;
 pub mod ui_thread;
 
 pub use app::{App, Services};

@@ -50,3 +50,40 @@ data class SkipMark(val kind: SkipKind, val startSecs: Double, val endSecs: Doub
 interface SkipMarksRepository {
     suspend fun skipMarks(media: MediaRef, episode: Int): List<SkipMark>
 }
+
+// --- parity wave A (docs/redesign/15-parity-wave-a-contract-android.md §3.2, worker p) -----------------------------------------------
+
+/** Subtitle translation backend (classic Settings › Traducción). [NONE] = translation off. */
+@Serializable
+enum class TranslationProvider(val id: String) {
+    @SerialName("none") NONE("none"),
+    @SerialName("google") GOOGLE("google"),
+    @SerialName("deepl") DEEPL("deepl"),
+    @SerialName("deeplx") DEEPLX("deeplx"),
+    @SerialName("azure") AZURE("azure"),
+    @SerialName("openai") OPENAI("openai"),
+}
+
+/** [LIVE] translates each cue as it is shown (cached); [PRELOAD] translates the whole track before playback starts. */
+@Serializable
+enum class TranslationMode {
+    @SerialName("live") LIVE,
+    @SerialName("preload") PRELOAD,
+}
+
+/**
+ * Subtitle translation settings (`AppSettings.subtitleTranslation`). [endpoint] is only used by DEEPLX / AZURE / OPENAI-compatible
+ * servers (empty = the provider's default); [model] by OPENAI; [region] by AZURE. [apiKey] is stored in the settings DataStore
+ * (app-private); it is never logged or exported.
+ */
+@Serializable
+data class SubtitleTranslation(
+    val provider: TranslationProvider = TranslationProvider.NONE,
+    val mode: TranslationMode = TranslationMode.LIVE,
+    /** ISO 639-1 target language (default = the app's subtitle preference, `es`). */
+    val targetLang: String = "es",
+    val endpoint: String = "",
+    val apiKey: String = "",
+    val model: String = "",
+    val region: String = "",
+)

@@ -28,6 +28,10 @@ class RoutesTest {
             .forEach { assertEquals(Route.You, it.topLevel(wide = false), "$it") }
         assertEquals(Route.Search, Route.SearchFor(feed = FeedKind.entries.first()).topLevel(wide = false))
         assertEquals(Route.You, Route.Extensions.topLevel())
+        // parity wave A (15 §3.6)
+        assertEquals(Route.Search, Route.SearchFor(studio = "MAPPA").topLevel(wide = false))
+        assertEquals(Route.Search, Route.ImageSearch().topLevel(wide = false))
+        assertEquals(Route.Search, Route.ImageSearch("content://x").topLevel(wide = true))
     }
 
     @Test

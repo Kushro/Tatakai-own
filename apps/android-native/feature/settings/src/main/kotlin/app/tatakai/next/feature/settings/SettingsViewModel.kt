@@ -236,6 +236,9 @@ class SettingsViewModel(
         }
     }
 
+    /** parity wave A (15 §3.2): generic setter for rows owned by other modules (`PlayerSettingsExtras` of worker p). Announces "saved". */
+    fun updateSettings(transform: (AppSettings) -> AppSettings) = update(announce = true, transform)
+
     private fun update(announce: Boolean = false, transform: (AppSettings) -> AppSettings) {
         viewModelScope.launch {
             settingsRepo.update(transform)

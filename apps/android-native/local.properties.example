@@ -3,3 +3,7 @@ sdk.dir=D:/Android-SDK
 # Own Supabase project (E8). Also readable from env: TATAKAI_SUPABASE_URL / TATAKAI_SUPABASE_ANON_KEY
 TATAKAI_SUPABASE_URL=https://YOUR-PROJECT.supabase.co
 TATAKAI_SUPABASE_ANON_KEY=YOUR_ANON_KEY
+# parity wave A (docs/redesign/15-parity-wave-a-contract-android.md §3.3): OAuth client ids of the list providers (public ids, not secrets;
+# still not committed). Also readable from env. Redirect URI registered at both providers: tatakai://oauth/anilist and tatakai://oauth/mal
+TATAKAI_ANILIST_CLIENT_ID=
+TATAKAI_MAL_CLIENT_ID=

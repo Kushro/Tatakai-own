@@ -63,4 +63,18 @@
     <string name="ui_time_h_ago">%1$d h ago</string>
     <string name="ui_time_yesterday">yesterday</string>
     <string name="ui_time_d_ago">%1$d days ago</string>
+    <!-- parity wave A (docs/redesign/15 §3.7): shared keys of the lists (Library tabs, ListButton in Details, Settings › Listas y cuentas). -->
+    <string name="list_status_watching">Watching</string>
+    <string name="list_status_planning">Plan to watch</string>
+    <string name="list_status_completed">Completed</string>
+    <string name="list_status_paused">On hold</string>
+    <string name="list_status_dropped">Dropped</string>
+    <string name="list_status_repeating">Rewatching</string>
+    <string name="list_provider_anilist">AniList</string>
+    <string name="list_provider_mal">MyAnimeList</string>
+    <string name="list_add">Add to list</string>
+    <string name="list_remove">Remove from list</string>
+    <string name="list_favorite">Favorite</string>
+    <string name="list_queued_offline">Saved. It will sync when you are back online.</string>
+    <string name="ui_wave_a_placeholder">This part is being built.</string>
 </resources>

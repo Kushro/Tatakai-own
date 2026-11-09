@@ -40,8 +40,16 @@ sealed interface Route : NavKey {
     /** Settings deep link (scroll to a section; TORRENTS opens the Torrents subpage). */
     @Serializable data class SettingsSection(val section: app.tatakai.next.model.SettingsSection) : Route
 
-    /** Search pre-filled from Home (feed "Ver todo", genre chip, extension row item). */
-    @Serializable data class SearchFor(val query: String? = null, val feed: FeedKind? = null, val genre: String? = null) : Route
+    /**
+     * Search pre-filled from Home (feed "Ver todo", genre chip, extension row item). parity wave A (15 §3.1): [studio] browses a
+     * studio / producer (Details technical sheet chip).
+     */
+    @Serializable data class SearchFor(
+        val query: String? = null,
+        val feed: FeedKind? = null,
+        val genre: String? = null,
+        val studio: String? = null,
+    ) : Route
 
     /** Library opened on a given tab (You › Historial). */
     @Serializable data class LibraryTab(val tab: app.tatakai.next.feature.library.LibraryTab) : Route
@@ -51,6 +59,14 @@ sealed interface Route : NavKey {
      * `tatakai://extensionserver/connect` deep link (the link itself waits in PendingServerLink, never in the back stack).
      */
     @Serializable data object ExtensionServers : Route
+
+    // --- parity wave A contract (docs/redesign/15-parity-wave-a-contract-android.md §3.6). Owner: contract / integrator. ---
+
+    /** Character page (classic `/character/:name`), from the Characters tab of Details. Detail pane on expanded windows. Screen: worker o. */
+    @Serializable data class Character(val characterId: Int) : Route
+
+    /** Image search with trace.moe (classic `/image-search`); [imageUri] when opened by sharing a picture to the app. Screen: worker o. */
+    @Serializable data class ImageSearch(val imageUri: String? = null) : Route
 }
 
 /** Compact (bottom bar, 4 items): Inicio · Buscar · Biblioteca · Tú. Torrents is a tab inside Library (11 §3.1, 12 §0). */
@@ -76,7 +92,7 @@ fun Route.topLevel(): Route = topLevel(wide = false)
  * Routes without an owner (Details, Player) return themselves; the shell then highlights the entry below them in the back stack.
  */
 fun Route.topLevel(wide: Boolean): Route = when (this) {
-    is Route.SearchFor -> Route.Search
+    is Route.SearchFor, is Route.ImageSearch -> Route.Search
     is Route.LibraryTab -> Route.Library
     is Route.Torrents -> if (wide) Route.Torrents() else Route.Library
     Route.Extensions -> if (wide) Route.Extensions else Route.You

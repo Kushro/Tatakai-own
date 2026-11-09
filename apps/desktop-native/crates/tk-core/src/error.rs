@@ -76,3 +76,117 @@ pub enum StoreError {
     #[error("store lock poisoned")]
     Poisoned,
 }
+
+// ---- wave A (docs/redesign/15-parity-wave-a-contract.md section 3): one error type per new area ----
+
+/// `secrets.rs` (worker f): OS keyring or the encrypted-at-rest fallback file.
+#[derive(Debug, Error)]
+pub enum SecretError {
+    #[error("keyring: {0}")]
+    Keyring(String),
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("json: {0}")]
+    Json(#[from] serde_json::Error),
+    /// No keyring backend and no fallback directory configured.
+    #[error("no secret store available")]
+    Unavailable,
+}
+
+/// `translate/` (worker d).
+#[derive(Debug, Error)]
+pub enum TranslateError {
+    #[error("translation is off")]
+    Off,
+    #[error("provider {0} is not configured (key / endpoint)")]
+    NotConfigured(String),
+    #[error("http status {0}")]
+    Http(u16),
+    #[error("network error: {0}")]
+    Network(String),
+    #[error("unexpected payload: {0}")]
+    Parse(String),
+    #[error("rate limited")]
+    RateLimited,
+    /// Contract stub answer: the body is not implemented yet.
+    #[error("unsupported")]
+    Unsupported,
+}
+
+impl From<reqwest::Error> for TranslateError {
+    fn from(e: reqwest::Error) -> Self {
+        match e.status() {
+            Some(s) if s.as_u16() == 429 => Self::RateLimited,
+            Some(s) => Self::Http(s.as_u16()),
+            None => Self::Network(e.without_url().to_string()),
+        }
+    }
+}
+
+/// `lists/` (worker g): AniList / MAL OAuth and GraphQL / REST.
+#[derive(Debug, Error)]
+pub enum ListError {
+    #[error("not connected")]
+    NotConnected,
+    /// The token was rejected: the UI asks to connect again.
+    #[error("token expired or revoked")]
+    Unauthorized,
+    #[error("oauth: {0}")]
+    OAuth(String),
+    #[error("http status {0}")]
+    Http(u16),
+    #[error("network error: {0}")]
+    Network(String),
+    #[error("unexpected payload: {0}")]
+    Parse(String),
+    #[error("rate limited")]
+    RateLimited,
+    #[error("store: {0}")]
+    Store(#[from] StoreError),
+    #[error("secrets: {0}")]
+    Secret(#[from] SecretError),
+    #[error("unsupported")]
+    Unsupported,
+}
+
+impl From<reqwest::Error> for ListError {
+    fn from(e: reqwest::Error) -> Self {
+        match e.status() {
+            Some(s) if s.as_u16() == 401 => Self::Unauthorized,
+            Some(s) if s.as_u16() == 429 => Self::RateLimited,
+            Some(s) => Self::Http(s.as_u16()),
+            None => Self::Network(e.without_url().to_string()),
+        }
+    }
+}
+
+/// `debrid/` (worker i).
+#[derive(Debug, Error)]
+pub enum DebridError {
+    #[error("no api key for {0}")]
+    NoKey(String),
+    #[error("api key rejected")]
+    Unauthorized,
+    #[error("not cached on the service")]
+    NotCached,
+    #[error("no video file matched the episode")]
+    NoFile,
+    #[error("http status {0}")]
+    Http(u16),
+    #[error("network error: {0}")]
+    Network(String),
+    #[error("unexpected payload: {0}")]
+    Parse(String),
+    #[error("unsupported")]
+    Unsupported,
+}
+
+impl From<reqwest::Error> for DebridError {
+    fn from(e: reqwest::Error) -> Self {
+        match e.status() {
+            Some(s) if s.as_u16() == 401 || s.as_u16() == 403 => Self::Unauthorized,
+            Some(s) => Self::Http(s.as_u16()),
+            None => Self::Network(e.without_url().to_string()),
+        }
+    }
+}

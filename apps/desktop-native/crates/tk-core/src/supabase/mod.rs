@@ -1,6 +1,12 @@
 //! Minimal Supabase client (GoTrue password auth + PostgREST `watch_history`).
 //! Contract: `contracts/supabase/m0-tables.md`. The session is sent ONLY to the configured Supabase URL.
 
+//! Wave A (worker **f**): [`auth`] adds sign-up, the 6-digit code verification and password recovery;
+//! [`session_store`] persists the session through `crate::secrets`. This file keeps sign-in, refresh and history.
+
+pub mod auth;
+pub mod session_store;
+
 use std::sync::RwLock;
 
 use serde::{Deserialize, Serialize};

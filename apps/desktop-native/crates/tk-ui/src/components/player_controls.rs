@@ -87,6 +87,9 @@ pub fn PlayerControls(
     #[props(default)] on_smoothing: EventHandler<()>,
     #[props(default)] on_pip: EventHandler<()>,
     #[props(default)] on_capture: EventHandler<()>,
+    /// "Subtitle style..." entry of the subtitles menu: opens worker d's `screens::player::subs::SubtitleSheet`
+    /// (wave A; docs/redesign/15 section 4).
+    #[props(default)] on_subtitle_settings: EventHandler<()>,
     /// Torrent playback (docs/redesign/10 section 5.5): downloaded ranges of the file as `(left %, width %)` of the
     /// seek bar (`player_state::range_spans`).
     #[props(default)] have: Vec<(f64, f64)>,
@@ -396,6 +399,15 @@ pub fn PlayerControls(
                                     on_sub.call(tr.id);
                                 },
                             }
+                        }
+                        MenuSeparator {}
+                        MenuItem {
+                            label: t("player.subtitle_style"),
+                            icon: "tune".to_string(),
+                            on_select: move |_| {
+                                subs_open.set(false);
+                                on_subtitle_settings.call(());
+                            },
                         }
                     }
                     Menu {

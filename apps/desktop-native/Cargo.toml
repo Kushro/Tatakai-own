@@ -112,6 +112,23 @@ librqbit-core = { version = "=9.1.0", default-features = false, features = ["sha
 librqbit-sha1-wrapper = { version = "=9.1.0", default-features = false, features = ["sha1-crypto-hash"] }
 reqwest-rqbit = { package = "reqwest", version = "0.13", default-features = false, features = ["native-tls"] }
 
+# --- wave A (docs/redesign/15-parity-wave-a-contract.md section 3.7): OS integration, accounts, lists ---
+# Tray icon: NOT a new crate. dioxus-desktop 0.7.10 already depends on tray-icon 0.21 + muda and re-exports them
+# (`dioxus::desktop::trayicon::{init_tray_icon, use_tray_menu_event_handler, Icon}`, `dioxus::desktop::muda`,
+# `dioxus::desktop::icon_from_memory`); adding our own version would duplicate the crate.
+# Start with the system: `.desktop` in ~/.config/autostart on Linux, HKCU Run key on Windows, LaunchAgent on macOS.
+auto-launch = "0.6"
+# Discord Rich Presence over the local IPC socket / named pipe (std + serde_json only; no TLS, no telemetry).
+discord-rich-presence = "1.1"
+# Open URLs / folders / files with the system handler (xdg-open, explorer, open); no shell.
+open = "5.4"
+# OS keyring for the Supabase session, AniList / MAL tokens and debrid keys. Pure Rust everywhere: Secret Service
+# over zbus on Linux (no libdbus), Credential Manager on Windows, Keychain on macOS; `crypto-rust` = no OpenSSL.
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "async-secret-service", "tokio", "crypto-rust"] }
+# Version comparison for the GitHub releases update check.
+semver = "1"
+# OAuth / PKCE: no crate. SHA-256 (`sha2`) + base64url (`base64`) + a tokio TcpListener on 127.0.0.1 (all above).
+
 # --- tests only ---
 tempfile = "3"
 

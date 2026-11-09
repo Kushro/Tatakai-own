@@ -1,4 +1,14 @@
 //! AniList GraphQL provider (anime + manga catalogue; no episode list).
+//!
+//! Wave A split (docs/redesign/15-parity-wave-a-contract.md section 2): this file keeps the client, `post`,
+//! the feed / search / media queries and the `MetadataProvider` impl (frozen); [`search`] (worker a) adds the
+//! filtered search, studios and characters; [`details`] (worker c) the relations / characters / staff /
+//! recommendations / facts query; [`lists`] (worker g) the authenticated viewer / `MediaList` queries and
+//! mutations. The three are child modules: they call the private `post` of this file.
+
+pub mod details;
+pub mod lists;
+pub mod search;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};

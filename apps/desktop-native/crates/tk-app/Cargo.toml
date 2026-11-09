@@ -46,6 +46,13 @@ time = { workspace = true, optional = true }
 sha2 = { workspace = true }
 zip = { workspace = true }
 
+# wave A (docs/redesign/15 section 3.7): autostart.rs (f), discord.rs (e), update_check.rs (f), open folders / URLs
+# (f, g, c). The tray icon comes from dioxus-desktop's own tray-icon re-export (tk-ui/src/tray.rs).
+auto-launch = { workspace = true }
+discord-rich-presence = { workspace = true }
+open = { workspace = true }
+semver = { workspace = true }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true }
 

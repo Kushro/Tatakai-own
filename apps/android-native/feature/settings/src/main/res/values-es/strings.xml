@@ -88,6 +88,8 @@
     <string name="settings_measuring">Midiendo…</string>
     <string name="settings_unknown_size">Desconocido</string>
     <string name="settings_account">Cuenta</string>
+    <!-- parity wave A (15 §3.3, worker q): título de la sección AniList / MAL; el resto de sus claves son de q (settings_accounts_*). -->
+    <string name="settings_accounts">Listas y cuentas</string>
     <string name="settings_account_title">Sincroniza tu historial</string>
     <string name="settings_account_hint">Iniciar sesión solo sincroniza tu historial. Todo lo demás funciona sin cuenta.</string>
     <string name="settings_email">Correo electrónico</string>

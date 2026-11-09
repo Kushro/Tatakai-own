@@ -12,14 +12,16 @@ use crate::i18n::{self, resolve, t};
 use crate::model::{NavAction, NavDest, NavState, Settings, TorrentSection, nav_expanded, reduce_nav};
 use crate::platform;
 use crate::screens::torrents::{
-    downloads::TorrentDownloadsPage, files::TorrentFilesPage, layout::TorrentsLayout, library::TorrentLibraryPage,
-    overview::TorrentOverviewPage, peers::TorrentPeersPage, settings::TorrentSettingsPage, trackers::TorrentTrackersPage,
+    debrid::TorrentDebridPage, downloads::TorrentDownloadsPage, files::TorrentFilesPage, layout::TorrentsLayout,
+    library::TorrentLibraryPage, overview::TorrentOverviewPage, peers::TorrentPeersPage, settings::TorrentSettingsPage,
+    trackers::TorrentTrackersPage,
 };
 use crate::screens::{
-    details::DetailsPage, extensions::ExtensionsPage, gallery::GalleryPage, home::HomePage, library::LibraryPage,
-    link::LinkPage, player::PlayerPage, search::SearchPage, settings::SettingsPage,
+    browse::BrowsePage, character::CharacterPage, details::DetailsPage, extensions::ExtensionsPage, gallery::GalleryPage,
+    home::HomePage, image_search::ImageSearchPage, library::LibraryPage, link::LinkPage, player::PlayerPage,
+    search::SearchPage, settings::SettingsPage, studio::StudioPage,
 };
-use crate::shortcuts::{BRIDGE_JS, JsMsg, Shortcut, shortcut};
+use crate::shortcuts::{BRIDGE_JS, JsMsg, Shortcut, shortcut_in};
 use crate::ui_thread::UiJobs;
 
 const TOKENS_CSS: &str = include_str!("../assets/tokens.css");
@@ -40,6 +42,12 @@ const APP_CSS: &[&str] = &[
     // wave 3 (docs/redesign/10): torrent client shell + per-torrent pages (C), library / downloads / settings (D)
     include_str!("../assets/css/torrents.css"),
     include_str!("../assets/css/torrents_manage.css"),
+    // wave A (docs/redesign/15 section 2): one stylesheet per owner: a, d, f, g, i (e keeps player.css, c details.css)
+    include_str!("../assets/css/character.css"),
+    include_str!("../assets/css/subs.css"),
+    include_str!("../assets/css/account.css"),
+    include_str!("../assets/css/lists.css"),
+    include_str!("../assets/css/debrid.css"),
 ];
 
 /// What tk-app injects (`LaunchBuilder::with_context`).
@@ -51,6 +59,9 @@ pub struct Services {
     pub fonts_dir: PathBuf,
     /// Jobs app services post to the UI thread (`ui_thread::channel`); drained by `App`.
     pub ui_jobs: Arc<UiJobs>,
+    /// Wave A: run once by `App` on its first render, inside the Dioxus / tokio runtime (tk-app spawns the session
+    /// restore and other start-up jobs from here). `None` = nothing to do.
+    pub on_start: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl PartialEq for Services {
@@ -98,6 +109,15 @@ pub enum Route {
     HomePage {},
     #[route("/search")]
     SearchPage {},
+    // Wave A (docs/redesign/15 section 2), worker a: image search, "See all" of a feed, studio and character pages.
+    #[route("/search/image")]
+    ImageSearchPage {},
+    #[route("/browse/:feed")]
+    BrowsePage { feed: String },
+    #[route("/studio/:name")]
+    StudioPage { name: String },
+    #[route("/character/:id")]
+    CharacterPage { id: String },
     #[route("/library")]
     LibraryPage {},
     #[route("/details/:id")]
@@ -125,6 +145,9 @@ pub enum Route {
             TorrentLibraryPage {},
             #[route("/downloads")]
             TorrentDownloadsPage {},
+            // Wave A, worker i: debrid services as sources.
+            #[route("/debrid")]
+            TorrentDebridPage {},
             #[route("/settings")]
             TorrentSettingsPage {},
         #[end_layout]
@@ -138,7 +161,9 @@ impl Route {
     pub fn nav_dest(&self) -> Option<NavDest> {
         match self {
             Self::HomePage {} | Self::DetailsPage { .. } => Some(NavDest::Home),
-            Self::SearchPage {} => Some(NavDest::Search),
+            Self::SearchPage {} | Self::ImageSearchPage {} | Self::BrowsePage { .. } | Self::StudioPage { .. } | Self::CharacterPage { .. } => {
+                Some(NavDest::Search)
+            }
             Self::LibraryPage {} => Some(NavDest::Library),
             Self::ExtensionsPage {} => Some(NavDest::Extensions),
             Self::LinkPage {} => Some(NavDest::Link),
@@ -157,6 +182,7 @@ impl Route {
             Self::TorrentTrackersPage {} => Some(TorrentSection::Trackers),
             Self::TorrentLibraryPage {} => Some(TorrentSection::Library),
             Self::TorrentDownloadsPage {} => Some(TorrentSection::Downloads),
+            Self::TorrentDebridPage {} => Some(TorrentSection::Debrid),
             Self::TorrentSettingsPage {} => Some(TorrentSection::Settings),
             _ => None,
         }
@@ -170,6 +196,7 @@ impl Route {
             TorrentSection::Trackers => Self::TorrentTrackersPage {},
             TorrentSection::Library => Self::TorrentLibraryPage {},
             TorrentSection::Downloads => Self::TorrentDownloadsPage {},
+            TorrentSection::Debrid => Self::TorrentDebridPage {},
             TorrentSection::Settings => Self::TorrentSettingsPage {},
         }
     }
@@ -203,6 +230,17 @@ pub fn App() -> Element {
     let mut sys_dark = use_signal(|| true);
     use_context_provider(|| Ui { settings, width, nav, shortcut: shortcut_sig, torrent });
     use_context_provider(Snackbar::new);
+
+    // Wave A: start-up jobs of the app (session restore ...) and the tray icon (worker f, `tray.rs`).
+    use_hook({
+        let on_start = services.on_start.clone();
+        move || {
+            if let Some(f) = on_start {
+                f();
+            }
+        }
+    });
+    crate::tray::use_tray();
 
     let fonts_css = use_hook({
         let dir = services.fonts_dir.clone();
@@ -251,7 +289,9 @@ pub fn App() -> Element {
                     }
                 }
                 JsMsg::Key { key, ctrl, editable, player, .. } => {
-                    if let Some(action) = shortcut(&key, ctrl, editable, player) {
+                    // Wave A (worker e): the user's rebinds (`Settings::flow.shortcuts`) apply here.
+                    let action = shortcut_in(&settings.peek().flow.shortcuts, &key, ctrl, editable, player);
+                    if let Some(action) = action {
                         seq += 1;
                         shortcut_sig.set(Some(ShortcutEvt { seq, action }));
                     }

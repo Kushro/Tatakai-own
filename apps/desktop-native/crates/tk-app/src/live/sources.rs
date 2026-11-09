@@ -116,6 +116,7 @@ fn source_vm(c: SourceCandidate, score: f32, ext_enabled: bool, picked: Option<&
         recommended,
         picked,
         tags,
+        debrid: None,
     }
 }
 

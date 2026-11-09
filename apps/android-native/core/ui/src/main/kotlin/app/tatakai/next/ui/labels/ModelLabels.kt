@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.ui.labels
 
+import app.tatakai.next.model.ListProvider
+import app.tatakai.next.model.ListStatus
 import app.tatakai.next.model.SkipKind
 import app.tatakai.next.model.SourceKind
 import app.tatakai.next.model.torrent.AfterWatch
@@ -51,4 +53,20 @@ fun SkipKind.labelRes(): Int = when (this) {
 fun SourceKind.labelRes(): Int = when (this) {
     SourceKind.WEB -> R.string.src_web
     SourceKind.TORRENT -> R.string.src_torrent
+}
+
+// parity wave A (docs/redesign/15 §3.7): list labels shared by Library (q), ListButton (q, mounted by o) and Settings (q). Implemented here (contract).
+
+fun ListStatus.labelRes(): Int = when (this) {
+    ListStatus.WATCHING -> R.string.list_status_watching
+    ListStatus.PLANNING -> R.string.list_status_planning
+    ListStatus.COMPLETED -> R.string.list_status_completed
+    ListStatus.PAUSED -> R.string.list_status_paused
+    ListStatus.DROPPED -> R.string.list_status_dropped
+    ListStatus.REPEATING -> R.string.list_status_repeating
+}
+
+fun ListProvider.labelRes(): Int = when (this) {
+    ListProvider.ANILIST -> R.string.list_provider_anilist
+    ListProvider.MAL -> R.string.list_provider_mal
 }

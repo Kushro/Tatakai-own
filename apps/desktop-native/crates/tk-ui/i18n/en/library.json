@@ -1,0 +1,10 @@
+{
+  "lib.title": "Library",
+  "lib.local": "Local on this PC",
+  "lib.history": "History",
+  "lib.m1": "AniList and MAL lists (Watching, Planned, Completed…) arrive in M1.",
+  "lib.watched_on": "Watched {when}",
+  "lib.empty.title": "Nothing here yet",
+  "lib.empty.body": "Episodes you watch show up here to continue later.",
+  "settings.accounts": "Accounts"
+}

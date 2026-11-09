@@ -8,7 +8,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::model::{CompatLevel, Pairing, Settings, UiError};
+use crate::model::{CompatLevel, ListServiceVm, Pairing, PlatformVm, Settings, UiError};
 
 /// A poster card. `id` is the AniList id as text (`"mal:<id>"` when only MAL is known).
 #[derive(Debug, Clone, PartialEq)]
@@ -204,6 +204,9 @@ pub struct SourceVm {
     pub picked: bool,
     /// Release tags for the picker chips / filters (wave 3, docs/redesign/10 section 3); default for web sources.
     pub tags: ReleaseTagsVm,
+    /// Torrent only (wave A, worker i): whether a connected debrid service has this torrent cached. `None` = no
+    /// debrid account or not checked. A cached torrent plays through `Backend::debrid_play` instead of the engine.
+    pub debrid: Option<DebridStatusVm>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -575,6 +578,15 @@ pub struct TorrentSettingsVm {
     pub background_downloads: bool,
     /// The user accepted the CPU / network usage warning ("I understand").
     pub background_ack: bool,
+    // --- wave A (worker i): manual torrents, trackers, schedule, cache, preload ---
+    /// Extra tracker URLs announced for every torrent (classic "custom trackers").
+    pub trackers: Vec<String>,
+    /// Bandwidth schedule: alternative limits during a daily window.
+    pub schedule: BandwidthScheduleVm,
+    /// Disk cap for torrents that are not kept (GiB); 0 = no cap. The oldest non-persisted torrents go first.
+    pub cache_limit_gib: u32,
+    /// Start downloading the next episode of a batch (or the next episode's best torrent) while one plays.
+    pub preload_next: bool,
 }
 
 /// Bounds of `TorrentSettingsVm::sanitized`.
@@ -597,6 +609,10 @@ impl Default for TorrentSettingsVm {
             after_watch: AfterWatchVm::Delete,
             background_downloads: false,
             background_ack: false,
+            trackers: Vec::new(),
+            schedule: BandwidthScheduleVm::default(),
+            cache_limit_gib: 0,
+            preload_next: false,
         }
     }
 }
@@ -612,7 +628,55 @@ impl TorrentSettingsVm {
         if !self.background_ack {
             self.background_downloads = false;
         }
+        self.trackers = self
+            .trackers
+            .into_iter()
+            .map(|t| t.trim().to_owned())
+            .filter(|t| t.starts_with("udp://") || t.starts_with("http://") || t.starts_with("https://") || t.starts_with("wss://"))
+            .collect();
+        self.schedule = self.schedule.sanitized();
         self
+    }
+}
+
+/// Daily window with its own limits (Torrents > Settings > Schedule; classic "bandwidth schedule"). Hours are
+/// local, `0..=23`; a window that ends before it starts crosses midnight (`22` -> `7`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BandwidthScheduleVm {
+    pub enabled: bool,
+    pub start_hour: u8,
+    pub end_hour: u8,
+    /// KiB/s inside the window, 0 = unlimited.
+    pub download_limit_kib: u32,
+    pub upload_limit_kib: u32,
+}
+
+impl Default for BandwidthScheduleVm {
+    fn default() -> Self {
+        Self { enabled: false, start_hour: 0, end_hour: 7, download_limit_kib: 0, upload_limit_kib: 0 }
+    }
+}
+
+impl BandwidthScheduleVm {
+    pub fn sanitized(mut self) -> Self {
+        self.start_hour = self.start_hour.min(23);
+        self.end_hour = self.end_hour.min(23);
+        self.download_limit_kib = self.download_limit_kib.min(TORRENT_MAX_LIMIT_KIB);
+        self.upload_limit_kib = self.upload_limit_kib.min(TORRENT_MAX_LIMIT_KIB);
+        self
+    }
+
+    /// Whether `hour` (local, 0..=23) falls inside the window.
+    pub fn active_at(&self, hour: u8) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        if self.start_hour <= self.end_hour {
+            (self.start_hour..self.end_hour).contains(&hour)
+        } else {
+            hour >= self.start_hour || hour < self.end_hour
+        }
     }
 }
 
@@ -655,6 +719,520 @@ pub struct SkipMarkVm {
     pub kind: SkipKindVm,
     pub start_secs: f64,
     pub end_secs: f64,
+}
+
+// ---------------------------------------------------------------------------------------------
+// Wave A contract (docs/redesign/15-parity-wave-a-contract.md section 3). View-models per owner: a (search,
+// character), c (details), d (subtitles / translation / capture), e (presence), f (account / system), g (lists),
+// i (manual torrents / debrid). Frozen after the contract: workers map to these, never change them.
+// ---------------------------------------------------------------------------------------------
+
+/// Sort orders of the search (worker a). `id()` is the i18n suffix `search.sort.<id>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchSortVm {
+    /// Text relevance when there is a query, popularity otherwise.
+    #[default]
+    Relevance,
+    Popularity,
+    Score,
+    Trending,
+    Newest,
+    Title,
+}
+
+impl SearchSortVm {
+    pub const ALL: [SearchSortVm; 6] = [Self::Relevance, Self::Popularity, Self::Score, Self::Trending, Self::Newest, Self::Title];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Relevance => "relevance",
+            Self::Popularity => "popularity",
+            Self::Score => "score",
+            Self::Trending => "trending",
+            Self::Newest => "newest",
+            Self::Title => "title",
+        }
+    }
+}
+
+/// A filtered, paginated search (worker a; classic `SearchPage` anime filters). Every filter is optional; the
+/// backend turns them into AniList `Page(media(...))` variables (`tk_core::metadata::anilist::search`). Values are
+/// AniList's own ids where it has them: genres as shown (`"Action"`), tags by name, `format` in
+/// `TV | TV_SHORT | MOVIE | OVA | ONA | SPECIAL | MUSIC`, `status` in `releasing | finished | upcoming | cancelled |
+/// hiatus`, `season` in `winter | spring | summer | fall`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SearchQueryVm {
+    pub query: String,
+    pub genres: Vec<String>,
+    pub tags: Vec<String>,
+    pub format: Option<String>,
+    pub status: Option<String>,
+    pub season: Option<String>,
+    /// Exact season year (with `season`) or the only year when the range is unused.
+    pub year: Option<i32>,
+    pub year_from: Option<i32>,
+    pub year_to: Option<i32>,
+    pub episodes_min: Option<u32>,
+    pub episodes_max: Option<u32>,
+    /// Average score 0..=100.
+    pub score_min: Option<u32>,
+    pub score_max: Option<u32>,
+    pub sort: SearchSortVm,
+    /// Include 18+ titles (off by default).
+    pub adult: bool,
+    /// 1-based.
+    pub page: u32,
+}
+
+/// One page of results (worker a): search, feeds ("See all"), studio pages, list pages.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SearchPageVm {
+    pub items: Vec<MediaVm>,
+    pub page: u32,
+    pub has_next: bool,
+    /// Total results when the provider says (AniList `pageInfo.total`).
+    pub total: Option<u32>,
+}
+
+/// What `Backend::search_by_image` receives (worker a; trace.moe).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageQueryVm {
+    /// A public image URL (trace.moe fetches it).
+    Url(String),
+    /// Image bytes picked locally with their MIME type (`image/png`, `image/jpeg`).
+    Bytes { data: Vec<u8>, mime: String },
+}
+
+/// One trace.moe hit (worker a).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageMatchVm {
+    pub media: MediaVm,
+    pub episode: Option<u32>,
+    /// Scene start / end in the episode.
+    pub from_secs: f64,
+    pub to_secs: f64,
+    /// 0.0..=1.0
+    pub similarity: f32,
+    pub preview_image: Option<String>,
+    pub preview_video: Option<String>,
+}
+
+/// A person (voice actor, staff) (workers a and c). `id` is the AniList staff id as text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonVm {
+    pub id: String,
+    pub name: String,
+    pub image: Option<String>,
+    /// Voice actor language ("Japanese") or staff role ("Director"), display-ready.
+    pub role: Option<String>,
+}
+
+/// Character page (worker a; classic `/character/:name`). `id` is the AniList character id as text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CharacterVm {
+    pub id: String,
+    pub name: String,
+    pub native_name: Option<String>,
+    pub alternative_names: Vec<String>,
+    pub image: Option<String>,
+    /// Markdown-ish description from AniList, cleaned like synopses.
+    pub description: Option<String>,
+    pub gender: Option<String>,
+    pub age: Option<String>,
+    /// Display-ready ("24 June").
+    pub birthday: Option<String>,
+    pub blood_type: Option<String>,
+    pub favourites: Option<u32>,
+    pub appearances: Vec<CharacterAppearanceVm>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CharacterAppearanceVm {
+    pub media: MediaVm,
+    /// `MAIN | SUPPORTING | BACKGROUND` (i18n `character.role.<lowercase>`).
+    pub role: String,
+    pub voice_actors: Vec<PersonVm>,
+}
+
+/// Technical facts of a title (worker c; classic "facts" block of `AnimeDetailLayout`). Display-ready strings;
+/// `None` / empty when the provider does not say.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MediaFactsVm {
+    /// `TV`, `Movie`, ... (i18n `details.format.<lowercase>` when known).
+    pub format: Option<String>,
+    /// Original material (`Manga`, `Light novel`, ...).
+    pub source: Option<String>,
+    /// `winter` .. `fall` (lowercase) + `season_year`.
+    pub season: Option<String>,
+    pub season_year: Option<i32>,
+    pub duration_min: Option<u32>,
+    /// ISO dates `YYYY-MM-DD` (partial dates trimmed: `2024-10`).
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub studios: Vec<String>,
+    pub producers: Vec<String>,
+    pub country: Option<String>,
+    pub mean_score: Option<u32>,
+    pub popularity: Option<u32>,
+    pub favourites: Option<u32>,
+    pub synonyms: Vec<String>,
+    /// `(tag name, rank 0..=100)`, spoiler tags excluded.
+    pub tags: Vec<(String, u8)>,
+    pub anilist_id: Option<u32>,
+    pub mal_id: Option<u32>,
+    pub kitsu_id: Option<u32>,
+    pub adult: bool,
+}
+
+/// A related title (worker c). `relation` is AniList's `PREQUEL | SEQUEL | SIDE_STORY | PARENT | ADAPTATION |
+/// ALTERNATIVE | SPIN_OFF | CHARACTER | SUMMARY | OTHER | SOURCE | COMPILATION | CONTAINS` (i18n
+/// `details.relation.<lowercase>`); `kind` is `anime` or `manga` (manga opens nothing until wave B).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RelatedVm {
+    pub media: MediaVm,
+    pub relation: String,
+    pub kind: String,
+}
+
+/// A character of a title with its voice actors (worker c).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CharacterRoleVm {
+    /// AniList character id as text (opens `Route::CharacterPage`).
+    pub id: String,
+    pub name: String,
+    pub image: Option<String>,
+    /// `MAIN | SUPPORTING | BACKGROUND`.
+    pub role: String,
+    pub voice_actors: Vec<PersonVm>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrailerVm {
+    /// `youtube` | `dailymotion`
+    pub site: String,
+    pub id: String,
+    pub thumbnail: Option<String>,
+}
+
+impl TrailerVm {
+    /// Watch URL for `Backend::open_url`.
+    pub fn url(&self) -> String {
+        match self.site.as_str() {
+            "dailymotion" => format!("https://www.dailymotion.com/video/{}", self.id),
+            _ => format!("https://www.youtube.com/watch?v={}", self.id),
+        }
+    }
+}
+
+/// Next episode to air (worker c; classic `NextEpisodeSchedule`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AiringVm {
+    pub episode: u32,
+    pub at_unix: i64,
+}
+
+/// Everything the details page shows beyond `DetailsVm` (worker c), loaded separately so the header never waits.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct DetailsExtraVm {
+    pub facts: MediaFactsVm,
+    pub relations: Vec<RelatedVm>,
+    pub characters: Vec<CharacterRoleVm>,
+    pub staff: Vec<PersonVm>,
+    pub recommendations: Vec<MediaVm>,
+    pub trailer: Option<TrailerVm>,
+    pub next_airing: Option<AiringVm>,
+    /// `(site name, url)` external / streaming links.
+    pub external_links: Vec<(String, String)>,
+}
+
+/// One step of the watch order / season chain (worker c; classic `AnimeSeasons`), prequels first.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WatchOrderEntryVm {
+    pub media: MediaVm,
+    /// 1-based position in the chain.
+    pub position: u32,
+    /// Relation to the previous entry (`SEQUEL`, `SIDE_STORY`, ...), empty for the first.
+    pub relation: String,
+    /// The title whose page is open.
+    pub current: bool,
+}
+
+/// One subtitle cue (worker d), milliseconds. Text keeps the track's inline tags (`<i>`, ASS overrides) as-is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CueVm {
+    pub index: u32,
+    pub start_ms: u64,
+    pub end_ms: u64,
+    pub text: String,
+}
+
+/// `Backend::translate_cues` input (worker d). The provider and key come from `Settings::subs.translation`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TranslateRequestVm {
+    pub cues: Vec<CueVm>,
+    /// ISO 639-1; `None` = let the provider detect.
+    pub source_lang: Option<String>,
+    pub target_lang: String,
+    /// Cache key (media id + episode + track) so a re-watch does not pay again; empty = no cache.
+    pub cache_key: String,
+}
+
+/// `Backend::translation_test` result (worker d).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TranslationTestVm {
+    pub sample_in: String,
+    pub sample_out: String,
+    pub latency_ms: u32,
+}
+
+/// Discord Rich Presence state (worker e; classic browsing / viewing / watching / paused).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PresenceVm {
+    /// Nothing shown (also sent when the setting turns off).
+    Clear,
+    Browsing,
+    Viewing { title: String },
+    Watching { title: String, episode: u32, position_secs: u32, duration_secs: Option<u32>, paused: bool, poster: Option<String> },
+}
+
+/// `Backend::sign_up` result (worker f). Supabase projects with email confirmation on return
+/// `needs_verification: true`: the UI then asks for the 6-digit code (`verify_email`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SignUpVm {
+    pub account: AccountVm,
+    pub needs_verification: bool,
+}
+
+/// Disk use of the data directory (worker f; Settings > Data).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct StorageUsageVm {
+    pub data_dir: String,
+    /// Metadata / image / translation caches (what `clear_cache` removes).
+    pub cache_bytes: u64,
+    pub torrents_bytes: u64,
+    pub logs_bytes: u64,
+    pub extensions_bytes: u64,
+    /// Free space on the volume, when known.
+    pub free_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportFormatVm {
+    Json,
+    Csv,
+}
+
+impl ExportFormatVm {
+    pub const ALL: [ExportFormatVm; 2] = [Self::Json, Self::Csv];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Json => "json",
+            Self::Csv => "csv",
+        }
+    }
+}
+
+/// `Backend::check_updates` result (worker f; GitHub releases of this repository).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateCheckVm {
+    /// This build (`CARGO_PKG_VERSION`).
+    pub current: String,
+    /// Latest release tag (`v0.2.0`), `None` when there is no release yet.
+    pub latest: Option<String>,
+    pub newer: bool,
+    /// Release page for `Backend::open_url`.
+    pub url: Option<String>,
+    pub notes: Option<String>,
+    pub checked_unix: i64,
+}
+
+/// Which OS features this build can offer (worker f; the Settings > System rows hide what is `false`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SystemCapsVm {
+    pub platform: PlatformVm,
+    pub autostart: bool,
+    pub tray: bool,
+}
+
+/// List statuses, shared by AniList and MAL (worker g). `id()` is the i18n suffix `lists.status.<id>` and the
+/// Library tab id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ListStatusVm {
+    Watching,
+    Planning,
+    Completed,
+    Paused,
+    Dropped,
+    Repeating,
+}
+
+impl ListStatusVm {
+    pub const ALL: [ListStatusVm; 6] = [Self::Watching, Self::Planning, Self::Completed, Self::Paused, Self::Dropped, Self::Repeating];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Watching => "watching",
+            Self::Planning => "planning",
+            Self::Completed => "completed",
+            Self::Paused => "paused",
+            Self::Dropped => "dropped",
+            Self::Repeating => "repeating",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.id() == id)
+    }
+}
+
+/// A connected (or not) list service (worker g; Settings > Accounts).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListAccountVm {
+    pub service: ListServiceVm,
+    pub connected: bool,
+    pub username: Option<String>,
+    pub avatar: Option<String>,
+    pub profile_url: Option<String>,
+    /// Queued offline changes waiting to be pushed.
+    pub pending_changes: u32,
+    pub last_sync_unix: Option<i64>,
+}
+
+/// One list entry as the UI shows it (worker g). `media.id` is the usual UI media id.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListEntryVm {
+    pub media: MediaVm,
+    pub service: ListServiceVm,
+    pub status: ListStatusVm,
+    /// Episodes watched.
+    pub progress: u32,
+    pub episodes_total: Option<u32>,
+    /// 0..=100 on the service's own scale mapped to percent; `None` = unscored.
+    pub score: Option<u8>,
+    /// ISO dates.
+    pub started: Option<String>,
+    pub finished: Option<String>,
+    pub repeats: u32,
+    pub notes: Option<String>,
+    pub updated_unix: i64,
+    /// The service's entry id, when known.
+    pub remote_id: Option<u64>,
+    /// Written locally, not yet pushed (offline queue).
+    pub pending: bool,
+}
+
+/// A partial update of a list entry (worker g); `None` = leave as is. `score: Some(0)` clears the score.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ListEntryUpdateVm {
+    pub status: Option<ListStatusVm>,
+    pub progress: Option<u32>,
+    pub score: Option<u8>,
+    pub notes: Option<String>,
+}
+
+/// `Backend::list_sync_now` summary (worker g).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ListSyncVm {
+    pub pushed: u32,
+    pub pulled: u32,
+    pub conflicts: u32,
+    /// Per-service errors, display-ready.
+    pub errors: Vec<String>,
+}
+
+/// A local-vs-remote disagreement about one entry (worker g).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListConflictVm {
+    pub id: i64,
+    pub local: ListEntryVm,
+    pub remote: ListEntryVm,
+    pub detected_unix: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictSideVm {
+    Local,
+    Remote,
+}
+
+/// `Backend::import_list` summary (worker g; MAL XML export or AniList JSON).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ListImportVm {
+    pub imported: u32,
+    pub skipped: u32,
+    pub errors: Vec<String>,
+}
+
+/// What `Backend::torrent_preview` returns for a magnet / `.torrent` added by hand (worker i; classic
+/// `MagnetAlignmentModal`): its files and a suggested `(file index, episode)` alignment with a confidence.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TorrentPreviewVm {
+    pub name: String,
+    pub info_hash: String,
+    pub size_bytes: u64,
+    pub files: Vec<TorrentFileVm>,
+    /// `tk_core::release::parse_release` per video file; files without a number are left out.
+    pub suggested: Vec<(usize, u32)>,
+    /// 0.0..=1.0 share of video files that got an episode number.
+    pub confidence: f32,
+}
+
+/// Debrid services (worker i). `id()` is the i18n suffix `debrid.service.<id>` and the settings key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DebridServiceVm {
+    RealDebrid,
+    TorBox,
+    AllDebrid,
+    Premiumize,
+}
+
+impl DebridServiceVm {
+    pub const ALL: [DebridServiceVm; 4] = [Self::RealDebrid, Self::TorBox, Self::AllDebrid, Self::Premiumize];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::RealDebrid => "real_debrid",
+            Self::TorBox => "torbox",
+            Self::AllDebrid => "alldebrid",
+            Self::Premiumize => "premiumize",
+        }
+    }
+
+    /// Brand name (never translated).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::RealDebrid => "Real-Debrid",
+            Self::TorBox => "TorBox",
+            Self::AllDebrid => "AllDebrid",
+            Self::Premiumize => "Premiumize",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|s| s.id() == id)
+    }
+}
+
+/// A debrid account (worker i; Torrents > Debrid). The key itself never leaves the backend.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DebridAccountVm {
+    pub service: DebridServiceVm,
+    pub connected: bool,
+    pub username: Option<String>,
+    pub premium_until_unix: Option<i64>,
+    /// Why the key was rejected, display-ready.
+    pub error: Option<String>,
+}
+
+/// Cache status of a torrent on a debrid service (`SourceVm::debrid`, worker i).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DebridStatusVm {
+    pub service: DebridServiceVm,
+    pub cached: bool,
 }
 
 pub type UiResult<T> = Result<T, UiError>;
@@ -835,6 +1413,233 @@ pub trait Backend: Send + Sync + 'static {
     /// Works for web sources too.
     async fn skip_marks(&self, _id: &str, _episode: u32) -> UiResult<Vec<SkipMarkVm>> {
         Err(UiError::not_wired("skip_marks"))
+    }
+
+    // --- wave A (docs/redesign/15-parity-wave-a-contract.md section 3). Same rule: defaults return `NotWired`
+    // so every implementation keeps compiling; `LiveBackend` delegates each one to `live/<area>.rs`. ---
+
+    // ----- a: search, feeds, character pages -----
+
+    /// Filtered, paginated search (`SearchQueryVm`), through the metadata router with AniList's real filters.
+    async fn search_filtered(&self, _q: &SearchQueryVm) -> UiResult<SearchPageVm> {
+        Err(UiError::not_wired("search_filtered"))
+    }
+    /// Search inside one installed extension (`search` route of `.kai` bundles); results carry `MediaVm::id` when
+    /// the extension maps to AniList / MAL, else an `ext:<id>:<key>` id the details page can resolve.
+    async fn search_in_extension(&self, _ext_id: &str, _query: &str, _page: u32) -> UiResult<Vec<MediaVm>> {
+        Err(UiError::not_wired("search_in_extension"))
+    }
+    /// One page of a home feed ("See all"): `feed` is the suffix of `SectionVm::title_key` (`trending`, `airing`,
+    /// `seasonal`, `popular`, `top_rated`, `upcoming`, `recently_completed`).
+    async fn feed(&self, _feed: &str, _page: u32) -> UiResult<SearchPageVm> {
+        Err(UiError::not_wired("feed"))
+    }
+    /// Titles by studio / producer name (classic `/search/producer/:name`).
+    async fn search_by_studio(&self, _studio: &str, _page: u32) -> UiResult<SearchPageVm> {
+        Err(UiError::not_wired("search_by_studio"))
+    }
+    /// Scene search through trace.moe (`tk_core::tracemoe`), best match first.
+    async fn search_by_image(&self, _image: ImageQueryVm) -> UiResult<Vec<ImageMatchVm>> {
+        Err(UiError::not_wired("search_by_image"))
+    }
+    /// Character page (AniList character id as text).
+    async fn character(&self, _character_id: &str) -> UiResult<CharacterVm> {
+        Err(UiError::not_wired("character"))
+    }
+
+    // ----- c: details -----
+
+    /// Relations, characters, staff, recommendations, trailer, next airing episode and the technical facts.
+    async fn details_extra(&self, _id: &str) -> UiResult<DetailsExtraVm> {
+        Err(UiError::not_wired("details_extra"))
+    }
+    /// Season chain / watch order of a title (prequels first), the open title marked `current`.
+    async fn watch_order(&self, _id: &str) -> UiResult<Vec<WatchOrderEntryVm>> {
+        Err(UiError::not_wired("watch_order"))
+    }
+
+    // ----- d: subtitles, translation, capture -----
+
+    /// Download an external subtitle track (SRT / VTT / ASS text) with the stream's headers, for translation and
+    /// the cue overlay. The player itself loads tracks through mpv (`Player::add_subtitle`).
+    async fn fetch_subtitle(&self, _url: &str, _headers: &[(String, String)]) -> UiResult<String> {
+        Err(UiError::not_wired("fetch_subtitle"))
+    }
+    /// Translate cues with the configured provider (`Settings::subs.translation`), cached in the store by
+    /// `TranslateRequestVm::cache_key`. Returns the same cues (same `index`) with translated `text`.
+    async fn translate_cues(&self, _req: &TranslateRequestVm) -> UiResult<Vec<CueVm>> {
+        Err(UiError::not_wired("translate_cues"))
+    }
+    /// Translate one sample sentence with the saved provider settings (Settings > Subtitles > "Test").
+    async fn translation_test(&self) -> UiResult<TranslationTestVm> {
+        Err(UiError::not_wired("translation_test"))
+    }
+    /// Where the next screenshot goes (`<Pictures>/Tatakai/<title> - E<episode> - <timestamp>.png`, parent created).
+    /// The UI then calls `Player::screenshot_to_file(path)`.
+    async fn screenshot_path(&self, _title: &str, _episode: u32) -> UiResult<PathBuf> {
+        Err(UiError::not_wired("screenshot_path"))
+    }
+
+    // ----- e: Discord Rich Presence -----
+
+    /// Update the Discord presence (no-op when `Settings::flow.discord_presence` is off or Discord is not running:
+    /// never an error for the UI).
+    async fn presence(&self, _state: &PresenceVm) -> UiResult<()> {
+        Err(UiError::not_wired("presence"))
+    }
+
+    // ----- f: account, system -----
+
+    /// Create a Supabase account. With email confirmation on, `needs_verification` is true and the UI asks for the
+    /// 6-digit code (`verify_email`); otherwise the user is signed in.
+    async fn sign_up(&self, _email: &str, _password: &str) -> UiResult<SignUpVm> {
+        Err(UiError::not_wired("sign_up"))
+    }
+    /// Confirm the sign-up code (GoTrue `verify`, type `signup` / `email`) and sign in.
+    async fn verify_email(&self, _email: &str, _code: &str) -> UiResult<AccountVm> {
+        Err(UiError::not_wired("verify_email"))
+    }
+    async fn resend_verification(&self, _email: &str) -> UiResult<()> {
+        Err(UiError::not_wired("resend_verification"))
+    }
+    /// Send the recovery code / link (GoTrue `recover`).
+    async fn request_password_reset(&self, _email: &str) -> UiResult<()> {
+        Err(UiError::not_wired("request_password_reset"))
+    }
+    /// Verify the recovery code (type `recovery`) and set the new password.
+    async fn reset_password(&self, _email: &str, _code: &str, _new_password: &str) -> UiResult<()> {
+        Err(UiError::not_wired("reset_password"))
+    }
+    /// Sizes of the data directory (Settings > Data).
+    async fn storage_usage(&self) -> UiResult<StorageUsageVm> {
+        Err(UiError::not_wired("storage_usage"))
+    }
+    /// Remove the caches (metadata cache rows, images, translations, web view cache); returns the bytes freed.
+    async fn clear_cache(&self) -> UiResult<u64> {
+        Err(UiError::not_wired("clear_cache"))
+    }
+    /// Open the data directory in the file manager.
+    async fn open_data_folder(&self) -> UiResult<()> {
+        Err(UiError::not_wired("open_data_folder"))
+    }
+    /// Open the logs directory (or the current log file) with the system handler.
+    async fn open_logs(&self) -> UiResult<()> {
+        Err(UiError::not_wired("open_logs"))
+    }
+    /// Write the local history to `<Downloads>/tatakai-history-<date>.<ext>`; returns the file.
+    async fn export_history(&self, _format: ExportFormatVm) -> UiResult<PathBuf> {
+        Err(UiError::not_wired("export_history"))
+    }
+    /// `THIRD_PARTY_NOTICES.md` of this build (Markdown text) for the Licenses sheet.
+    async fn licenses_text(&self) -> UiResult<String> {
+        Err(UiError::not_wired("licenses_text"))
+    }
+    /// Ask GitHub releases of this repository for a newer version (never auto-downloads).
+    async fn check_updates(&self) -> UiResult<UpdateCheckVm> {
+        Err(UiError::not_wired("check_updates"))
+    }
+    /// What the OS integration offers on this platform / build.
+    fn system_caps(&self) -> SystemCapsVm {
+        SystemCapsVm { platform: PlatformVm::current(), autostart: false, tray: false }
+    }
+    /// Whether the OS autostart entry exists right now (may differ from `Settings::system.start_with_system`).
+    async fn autostart_enabled(&self) -> UiResult<bool> {
+        Err(UiError::not_wired("autostart_enabled"))
+    }
+    /// Create / remove the OS autostart entry (`.desktop` in `~/.config/autostart`, `Run` registry key).
+    async fn set_autostart(&self, _enabled: bool) -> UiResult<()> {
+        Err(UiError::not_wired("set_autostart"))
+    }
+    /// Open an `http(s)` URL in the system browser (trailers, release pages, OAuth fallbacks, profiles).
+    async fn open_url(&self, _url: &str) -> UiResult<()> {
+        Err(UiError::not_wired("open_url"))
+    }
+
+    // ----- g: lists (AniList / MAL) -----
+
+    /// Both services, connected or not (Settings > Accounts, Library header).
+    async fn list_accounts(&self) -> UiResult<Vec<ListAccountVm>> {
+        Err(UiError::not_wired("list_accounts"))
+    }
+    /// OAuth (PKCE for MAL, implicit/code for AniList) through the system browser and a loopback redirect on
+    /// `127.0.0.1`; resolves when the service answers or after a timeout (`ErrorKind::Auth`). Cancel-safe.
+    async fn list_connect(&self, _service: ListServiceVm) -> UiResult<ListAccountVm> {
+        Err(UiError::not_wired("list_connect"))
+    }
+    async fn list_disconnect(&self, _service: ListServiceVm) -> UiResult<()> {
+        Err(UiError::not_wired("list_disconnect"))
+    }
+    /// The entry of a title on the primary (or only) connected service; `None` when not in any list.
+    async fn list_entry(&self, _media_id: &str) -> UiResult<Option<ListEntryVm>> {
+        Err(UiError::not_wired("list_entry"))
+    }
+    /// Create or update the entry (local write + offline queue + push when online). Returns the stored entry.
+    async fn set_list_entry(&self, _media_id: &str, _update: &ListEntryUpdateVm) -> UiResult<ListEntryVm> {
+        Err(UiError::not_wired("set_list_entry"))
+    }
+    async fn remove_list_entry(&self, _media_id: &str) -> UiResult<()> {
+        Err(UiError::not_wired("remove_list_entry"))
+    }
+    /// Entries of the local mirror, newest update first; `status: None` = every status.
+    async fn list_entries(&self, _status: Option<ListStatusVm>) -> UiResult<Vec<ListEntryVm>> {
+        Err(UiError::not_wired("list_entries"))
+    }
+    async fn favorites(&self) -> UiResult<Vec<MediaVm>> {
+        Err(UiError::not_wired("favorites"))
+    }
+    async fn is_favorite(&self, _media_id: &str) -> UiResult<bool> {
+        Err(UiError::not_wired("is_favorite"))
+    }
+    async fn set_favorite(&self, _media_id: &str, _favorite: bool) -> UiResult<()> {
+        Err(UiError::not_wired("set_favorite"))
+    }
+    /// Push the offline queue and pull every connected service; disagreements become `list_conflicts`.
+    async fn list_sync_now(&self) -> UiResult<ListSyncVm> {
+        Err(UiError::not_wired("list_sync_now"))
+    }
+    async fn list_conflicts(&self) -> UiResult<Vec<ListConflictVm>> {
+        Err(UiError::not_wired("list_conflicts"))
+    }
+    async fn resolve_list_conflict(&self, _conflict_id: i64, _keep: ConflictSideVm) -> UiResult<()> {
+        Err(UiError::not_wired("resolve_list_conflict"))
+    }
+    /// Import a MAL XML export or an AniList JSON export from a local file into the local mirror (+ queue).
+    async fn import_list(&self, _path: &str) -> UiResult<ListImportVm> {
+        Err(UiError::not_wired("import_list"))
+    }
+    /// Write the local mirror to `<Downloads>/tatakai-lists-<date>.<ext>`; returns the file.
+    async fn export_list(&self, _format: ExportFormatVm) -> UiResult<PathBuf> {
+        Err(UiError::not_wired("export_list"))
+    }
+
+    // ----- i: manual torrents, debrid -----
+
+    /// Inspect a magnet link, a `.torrent` file path or a `.torrent` URL without downloading its data: files and a
+    /// suggested episode alignment.
+    async fn torrent_preview(&self, _source: &str) -> UiResult<TorrentPreviewVm> {
+        Err(UiError::not_wired("torrent_preview"))
+    }
+    /// Add the torrent to the library with the confirmed `(file index, episode)` alignment, labelled for `media_id`
+    /// (`None` = unlabelled). Returns the torrent id.
+    async fn torrent_add_manual(&self, _source: &str, _media_id: Option<&str>, _alignment: &[(usize, u32)]) -> UiResult<String> {
+        Err(UiError::not_wired("torrent_add_manual"))
+    }
+    /// Start fetching the next episode's file (same batch) or its best torrent in the background while `episode`
+    /// plays (`TorrentSettingsVm::preload_next`).
+    async fn torrent_preload_next(&self, _id: &str, _episode: u32) -> UiResult<()> {
+        Err(UiError::not_wired("torrent_preload_next"))
+    }
+    async fn debrid_accounts(&self) -> UiResult<Vec<DebridAccountVm>> {
+        Err(UiError::not_wired("debrid_accounts"))
+    }
+    /// Save (`Some`) or remove (`None`) a service API key, validating it against the service.
+    async fn set_debrid_key(&self, _service: DebridServiceVm, _key: Option<&str>) -> UiResult<DebridAccountVm> {
+        Err(UiError::not_wired("set_debrid_key"))
+    }
+    /// Play a torrent source through a connected debrid service (cached only): resolves the episode file to a
+    /// direct HTTPS link, returned like a web stream.
+    async fn debrid_play(&self, _source: &str, _id: &str, _episode: u32) -> UiResult<PlaybackVm> {
+        Err(UiError::not_wired("debrid_play"))
     }
 }
 

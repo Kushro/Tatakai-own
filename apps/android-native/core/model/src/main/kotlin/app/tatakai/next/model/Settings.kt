@@ -30,6 +30,32 @@ data class AppSettings(
     val metadataCacheTtlHours: Int = 24,
     /** Package of the external player (mpv-android `is.xyz.mpv`, VLC `org.videolan.vlc`); null = system chooser. */
     val externalPlayerPackage: String? = null,
+    // --- parity wave A (docs/redesign/15-parity-wave-a-contract-android.md §3.5); persisted by SettingsCodec (contract), defaults = classic app ---
+    /** Worker p: subtitle translation (provider, mode, target language, credentials). */
+    val subtitleTranslation: SubtitleTranslation = SubtitleTranslation(),
+    /** Worker p: second subtitle track shown under the first (ISO 639-1); null = off. */
+    val secondarySubLang: String? = null,
+    /** Worker p: seconds of the "next episode" countdown when [autoNext] is on. 3..30 (checklist player.auto-next.countdown). */
+    val autoNextCountdownSecs: Int = 10,
+    /** Worker p: loudness normalisation (classic "stable volume"). */
+    val stableVolume: Boolean = false,
+    /** Worker p: keep playing audio when the app goes to the background (`PlaybackService`, MediaSession notification). */
+    val backgroundPlayback: Boolean = true,
+    /**
+     * Worker p: hardware-keyboard / remote shortcuts, `action id -> key name` (`"seek_forward" -> "L"`). Empty = defaults.
+     * Action ids and the default map live in :core:player (`PlayerKeymap`).
+     */
+    val playerKeymap: Map<String, String> = emptyMap(),
+    /** Worker q: advance AniList / MAL progress when an episode completes (classic Integrations auto-sync). */
+    val autoListProgress: Boolean = true,
+    /** Worker q: playing a title that is not on the list adds it as WATCHING (checklist lists.auto-add). Off by default. */
+    val autoListAdd: Boolean = false,
+    /** Worker q: check the release feed once a day and show the new-version notice in Acerca de. */
+    val updateCheck: Boolean = true,
+    /** Worker o: include 18+ titles in search and feeds (classic "mature content" toggle). */
+    val showAdult: Boolean = false,
+    /** Worker o: which title to show in cards, rows and Details (checklist details.title-language). */
+    val titleLanguage: TitleLanguage = TitleLanguage.ROMAJI,
 ) {
     companion object {
         const val DEFAULT_PALETTE_ID = "tatakai-violet"
@@ -47,6 +73,9 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 /** Settings › Apariencia › Idioma: system / en / es only (decision 4 of 06). */
 enum class AppLanguage(val tag: String?) { SYSTEM(null), EN("en"), ES("es") }
 
+/** parity wave A (15 §3.5, worker o): preferred title (`Media.titles` keys `romaji` / `english` / `native`, falling back to `Media.title`). */
+enum class TitleLanguage(val key: String) { ROMAJI("romaji"), ENGLISH("english"), NATIVE("native") }
+
 /** Sections of the single Settings screen (prototype order) + the Torrents subpage. Deep links: `Route.SettingsSection(section)`. */
 enum class SettingsSection(val id: String) {
     APPEARANCE("appearance"),
@@ -57,4 +86,7 @@ enum class SettingsSection(val id: String) {
     TORRENTS("torrents"),
     DATA("data"),
     ABOUT("about"),
+
+    /** Parity wave A (worker q): AniList / MAL accounts, lists sync, import / export. Rendered after ACCOUNT. */
+    ACCOUNTS("accounts"),
 }

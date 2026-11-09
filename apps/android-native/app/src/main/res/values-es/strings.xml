@@ -14,4 +14,7 @@
         <item quantity="many">%1$d descargas activas</item>
         <item quantity="other">%1$d descargas activas</item>
     </plurals>
+    <!-- parity wave A (15 §3.4): aviso de versión nueva que muestra el shell al arrancar. -->
+    <string name="app_update_available">Tatakai Next %1$s está disponible</string>
+    <string name="app_update_view">Ver</string>
 </resources>

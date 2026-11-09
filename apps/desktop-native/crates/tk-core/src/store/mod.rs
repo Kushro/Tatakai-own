@@ -1,5 +1,13 @@
 //! Local SQLite store (history, settings, TTL cache). The path is injected by the caller: the app resolves
 //! `%APPDATA%\Tatakai-Next\data.db`, tests pass a tempdir.
+//!
+//! Wave A (docs/redesign/15-parity-wave-a-contract.md section 3): every new table is in `SCHEMA` below as
+//! `CREATE TABLE IF NOT EXISTS` (existing databases upgrade in place); the methods over them live in one file per
+//! owner: [`lists`] (worker g), [`translate`] (worker d), [`torrents`] (worker i). This file stays frozen.
+
+pub mod lists;
+pub mod torrents;
+pub mod translate;
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -45,6 +53,80 @@ CREATE TABLE IF NOT EXISTS picked_source (
   source_key TEXT NOT NULL,
   picked_at  INTEGER NOT NULL,
   PRIMARY KEY (media_id, episode)
+);
+-- wave A, worker g: local mirror of the AniList / MAL lists (one row per service and title)
+CREATE TABLE IF NOT EXISTS list_entries (
+  service      TEXT NOT NULL,
+  media_id     TEXT NOT NULL,
+  anilist_id   INTEGER,
+  mal_id       INTEGER,
+  title        TEXT NOT NULL,
+  poster       TEXT,
+  status       TEXT NOT NULL,
+  progress     INTEGER NOT NULL DEFAULT 0,
+  episodes     INTEGER,
+  score        INTEGER,
+  started_at   TEXT,
+  finished_at  TEXT,
+  repeats      INTEGER NOT NULL DEFAULT 0,
+  notes        TEXT,
+  remote_id    INTEGER,
+  updated_at   INTEGER NOT NULL,
+  dirty        INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (service, media_id)
+);
+CREATE INDEX IF NOT EXISTS idx_list_entries_status ON list_entries (service, status, updated_at DESC);
+-- wave A, worker g: offline queue of list writes, replayed in order by `list_sync_now`
+CREATE TABLE IF NOT EXISTS list_queue (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  service     TEXT NOT NULL,
+  media_id    TEXT NOT NULL,
+  op          TEXT NOT NULL,
+  payload     TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  last_error  TEXT
+);
+-- wave A, worker g: local vs remote disagreements waiting for the user
+CREATE TABLE IF NOT EXISTS list_conflicts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  service      TEXT NOT NULL,
+  media_id     TEXT NOT NULL,
+  local_json   TEXT NOT NULL,
+  remote_json  TEXT NOT NULL,
+  detected_at  INTEGER NOT NULL
+);
+-- wave A, worker g: favourites (local, mirrored to AniList favourites when connected)
+CREATE TABLE IF NOT EXISTS favorites (
+  media_id   TEXT PRIMARY KEY NOT NULL,
+  title      TEXT NOT NULL,
+  poster     TEXT,
+  added_at   INTEGER NOT NULL
+);
+-- wave A, worker d: translated subtitle cues (key = sha256 of provider + langs + cache_key + text)
+CREATE TABLE IF NOT EXISTS translation_cache (
+  key         TEXT PRIMARY KEY NOT NULL,
+  provider    TEXT NOT NULL,
+  source_lang TEXT,
+  target_lang TEXT NOT NULL,
+  text        TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+-- wave A, worker i: episode alignment of torrents added by hand (file index -> episode)
+CREATE TABLE IF NOT EXISTS torrent_episode_map (
+  torrent_id  TEXT NOT NULL,
+  file_index  INTEGER NOT NULL,
+  media_id    TEXT,
+  episode     INTEGER NOT NULL,
+  PRIMARY KEY (torrent_id, file_index)
+);
+-- wave A, worker i: debrid cache checks (info-hash per service), short TTL
+CREATE TABLE IF NOT EXISTS debrid_cache (
+  service     TEXT NOT NULL,
+  info_hash   TEXT NOT NULL,
+  cached      INTEGER NOT NULL,
+  checked_at  INTEGER NOT NULL,
+  PRIMARY KEY (service, info_hash)
 );
 ";
 

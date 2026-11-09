@@ -81,6 +81,8 @@ import app.tatakai.next.designsystem.components.rememberAfterDelay
 import app.tatakai.next.designsystem.generated.PaletteInfo
 import app.tatakai.next.designsystem.generated.TatakaiTokens
 import app.tatakai.next.designsystem.theme.TatakaiFonts
+import app.tatakai.next.feature.player.PlayerSettingsExtras
+import app.tatakai.next.feature.search.DiscoverSettingsExtras
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppLanguage
 import app.tatakai.next.model.ContrastPref
@@ -272,6 +274,8 @@ internal fun PlayerSection(state: SettingsUiState, vm: SettingsViewModel, onOpen
     }
     SwitchRow(stringResource(R.string.settings_autonext), s.autoNext, vm::setAutoNext, hint = stringResource(R.string.settings_autonext_hint))
     SwitchRow(stringResource(R.string.settings_skip), s.skipIntro, vm::setSkipIntro, hint = stringResource(R.string.settings_skip_hint))
+    // parity wave A (15 §3.2): worker p's rows (translation, secondary subtitle, countdown, stable volume, background playback, shortcuts).
+    PlayerSettingsExtras(settings = s, onUpdate = vm::updateSettings)
     SettingRow(stringResource(R.string.settings_subs), subtitleSummary(s.subtitleStyle)) {
         FilledTonalButton(onClick = { editingSubs = true }) {
             Icon(Icons.Outlined.ClosedCaption, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
@@ -438,6 +442,8 @@ internal fun MetadataSection(state: SettingsUiState, vm: SettingsViewModel) {
             small = true,
         )
     }
+    // parity wave A (15 §3.1): worker o's rows (title language, 18+ content, clear recent searches).
+    DiscoverSettingsExtras(settings = state.settings, onUpdate = vm::updateSettings)
 }
 
 @Composable

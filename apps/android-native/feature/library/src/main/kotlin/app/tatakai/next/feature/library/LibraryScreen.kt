@@ -82,6 +82,9 @@ fun LibraryScreen(
     initialTab: LibraryTab = LibraryTab.CONTINUE,
     /** Torrents tab card -> Route.Torrents(OVERVIEW, torrentId). */
     onOpenTorrent: (torrentId: String) -> Unit = {},
+    // --- parity wave A (15 §3.3, worker q) ---
+    /** Lists / Favorites empty state "Vincular AniList o MAL" -> Route.SettingsSection(ACCOUNTS). */
+    onOpenAccounts: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = LocalAppSnackbar.current
@@ -104,6 +107,7 @@ fun LibraryScreen(
             onPlay = onPlay,
             onExplore = onExplore,
             onOpenTorrent = onOpenTorrent,
+            onOpenAccounts = onOpenAccounts,
         ),
         modifier = modifier,
     )
@@ -116,6 +120,8 @@ internal data class LibraryActions(
     val onPlay: (PlayerArgs) -> Unit = {},
     val onExplore: () -> Unit = {},
     val onOpenTorrent: (String) -> Unit = {},
+    /** parity wave A (worker q) */
+    val onOpenAccounts: () -> Unit = {},
 )
 
 @Composable
@@ -142,6 +148,17 @@ internal fun LibraryContent(
             when (LibraryTab.entries[tab]) {
                 LibraryTab.CONTINUE -> ContinueTab(state.continueWatching, actions)
                 LibraryTab.HISTORY -> HistoryTab(state.history, actions)
+                // parity wave A (15 §3.3, worker q)
+                LibraryTab.LISTS -> ListsTab(
+                    onOpenDetails = actions.onOpenDetails,
+                    onOpenAccounts = actions.onOpenAccounts,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                LibraryTab.FAVORITES -> FavoritesTab(
+                    onOpenDetails = actions.onOpenDetails,
+                    onOpenAccounts = actions.onOpenAccounts,
+                    modifier = Modifier.fillMaxSize(),
+                )
                 LibraryTab.TORRENTS -> TorrentsLibraryTab(
                     onOpenTorrent = actions.onOpenTorrent,
                     onPlay = actions.onPlay,
@@ -213,6 +230,8 @@ private fun LibraryTabs(selected: LibraryTab, activeDownloads: Int, onSelect: (L
 private fun LibraryTab.labelRes(): Int = when (this) {
     LibraryTab.CONTINUE -> R.string.library_tab_continue
     LibraryTab.HISTORY -> R.string.library_tab_history
+    LibraryTab.LISTS -> R.string.library_tab_lists
+    LibraryTab.FAVORITES -> R.string.library_tab_favorites
     LibraryTab.TORRENTS -> R.string.library_tab_torrents
 }
 
