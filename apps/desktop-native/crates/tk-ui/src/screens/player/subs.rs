@@ -77,6 +77,16 @@ pub(crate) fn remember_fonts_dir(dir: &Path) {
     }
 }
 
+/// Hand the app fonts folder to libass (`sub-fonts-dir`), when known.
+fn apply_fonts_dir(p: &Player) {
+    let fonts_dir = FONTS_DIR.lock().ok().and_then(|g| g.clone());
+    if let Some(dir) = fonts_dir
+        && let Err(e) = p.set_option_str("sub-fonts-dir", &dir)
+    {
+        tracing::debug!(error = %e, "mpv refused sub-fonts-dir");
+    }
+}
+
 /// `Option<Arc<Player>>` as a component prop (`Player` has no `PartialEq`; identity is what matters).
 #[derive(Clone, Default)]
 pub struct PlayerHandle(pub Option<Arc<Player>>);
@@ -191,12 +201,7 @@ pub fn on_tracks(player: Option<&Arc<Player>>, list: &[TrackInfo], subs: &Subtit
     let sid = choice.sub.unwrap_or_else(|| selected_id(list, TrackKind::Sub));
     let aid = choice.audio.unwrap_or_else(|| selected_id(list, TrackKind::Audio));
     let Some(p) = player else { return (sid, aid) };
-    let fonts_dir = FONTS_DIR.lock().ok().and_then(|g| g.clone());
-    if let Some(dir) = fonts_dir
-        && let Err(e) = p.set_option_str("sub-fonts-dir", &dir)
-    {
-        tracing::debug!(error = %e, "mpv refused sub-fonts-dir");
-    }
+    apply_fonts_dir(p);
     if let Err(e) = p.set_sub_style(&to_sub_style(&subs.style)) {
         tracing::debug!(error = %e, "subtitle style not applied");
     }
@@ -665,7 +670,7 @@ pub(crate) fn use_font_families(extra: PathBuf) -> (Resource<Vec<String>>, Signa
 // ---------------------------------------------------------------------------------------------
 
 /// Persist new subtitle preferences.
-fn commit_subs(ui: Ui, backend: &BackendRef, next: SubtitlePrefs) {
+pub(crate) fn commit_subs(ui: Ui, backend: &BackendRef, next: SubtitlePrefs) {
     let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetSubs(next.sanitized()));
     ui.commit_settings(backend, s);
 }
@@ -882,10 +887,19 @@ pub fn SubtitleSheet(
             let (cell, backend, subs_dir, pre_for, media_id) = (cell.clone(), backend.clone(), subs_dir.clone(), pre_for.clone(), media_id.clone());
             async move {
                 let mut last = String::new();
+                let mut fonts_for: Option<Arc<Player>> = None;
                 loop {
                     tokio::time::sleep(Duration::from_millis(POLL_MS)).await;
                     let p = cell.borrow().0.clone();
                     let prefs = ui.settings.peek().subs.clone();
+                    // The app fonts folder reaches libass as soon as a player exists (the instance is reused by
+                    // the next files, which then load with it), not only from `on_tracks`.
+                    if let Some(p) = &p
+                        && !fonts_for.as_ref().is_some_and(|f| Arc::ptr_eq(f, p))
+                    {
+                        fonts_for = Some(p.clone());
+                        apply_fonts_dir(p);
+                    }
                     if let Some(p) = &p {
                         let o = observe(p);
                         if *obs.peek() != o {
@@ -1149,6 +1163,8 @@ pub fn SubtitleSheet(
             if let Some(p) = cell.borrow().0.clone() {
                 let _ = p.set_sub_delay(ms as f64 / 1000.0);
             }
+            // A local copy keeps this closure `Fn` (it is cloned into several buttons).
+            let mut obs = obs;
             obs.write().delay_ms = ms;
         }
     };
@@ -1157,6 +1173,7 @@ pub fn SubtitleSheet(
         move |id: i64| {
             let p = cell.borrow().0.clone();
             select_sub(p.as_ref(), id);
+            let mut obs = obs;
             obs.write().sid = id;
             bump_tracks();
         }
@@ -1167,6 +1184,7 @@ pub fn SubtitleSheet(
             if let Some(p) = cell.borrow().0.clone() {
                 let _ = p.set_secondary_sub_track(if id == 0 { None } else { Some(id) });
             }
+            let mut obs = obs;
             obs.write().secondary = id;
             let mut next = ui.settings.peek().subs.clone();
             next.secondary_lang = lang;
@@ -1188,6 +1206,7 @@ pub fn SubtitleSheet(
         let cell = cell.clone();
         move |path: PathBuf, name: String| {
             let Some(p) = cell.borrow().0.clone() else { return };
+            let mut file_err = file_err;
             // "Episode 1.es.srt" -> es
             let lang = Path::new(&name)
                 .file_stem()
@@ -1209,7 +1228,7 @@ pub fn SubtitleSheet(
     };
     let translate_now = {
         let (cell, backend, subs_dir, media_id) = (cell.clone(), backend.clone(), subs_dir.clone(), media_id.clone());
-        move |_| {
+        move |_: ()| {
             let Some(p) = cell.borrow().0.clone() else { return };
             let tr = ui.settings.peek().subs.translation.clone();
             let o = obs.peek().clone();
@@ -1235,7 +1254,7 @@ pub fn SubtitleSheet(
     };
     let retry_live = {
         let cache = live_cache.clone();
-        move |_| {
+        move |_: ()| {
             cache.borrow_mut().track.clear();
             let mut e = live_err;
             e.set(None);
@@ -1450,13 +1469,13 @@ pub fn SubtitleSheet(
                             div { class: "tk-subs-actions",
                                 Button {
                                     label: t("subs.translate.now"),
-                                    icon: "translate".to_string(),
+                                    icon: "language".to_string(),
                                     variant: ButtonVariant::Tonal,
                                     size: ButtonSize::Sm,
                                     disabled: !has_player || matches!(pre_now, Pre::Running { .. }),
                                     onclick: {
                                         let go = translate_now.clone();
-                                        move |e| go(e)
+                                        move |_| go(())
                                     },
                                 }
                             }
