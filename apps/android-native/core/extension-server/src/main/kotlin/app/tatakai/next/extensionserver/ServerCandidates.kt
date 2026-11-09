@@ -15,7 +15,7 @@ import kotlinx.serialization.json.contentOrNull
  * `extId = "server:<serverId>/<provider row id>"`, `extName = providerName` (the server already sends `"<source> · <server name>"`).
  * The entries go through the same [Candidates.mapCandidates] as the installed extensions, so the existing ranking orders them.
  *
- * Safety: a web entry is kept only when its URL is on the server's own origin (the PC's media proxy `/api/server/v1/media/*`) and passes
+ * Safety: a web entry is kept only when its URL is on the server's own origin (the PC's media proxy under `/api/server/v1/media/`) and passes
  * [HostGuard]; `embed` / `custom` pages (not proxied by the server) are dropped by the mapper. Subtitle tracks follow the same rule.
  * Torrent entries (magnet / info-hash) are kept: they are played by this phone's torrent engine.
  */
