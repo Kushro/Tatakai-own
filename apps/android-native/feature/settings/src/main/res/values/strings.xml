@@ -112,6 +112,7 @@
     <string name="settings_torrents_open_sub">Speed · Network · Storage · Background</string>
     <string name="settings_data">Data &amp; storage</string>
     <string name="settings_data_hint">Everything stays on this device (Android/data/app.tatakai.own.next).</string>
+    <string name="settings_data_images">Images on disk</string>
     <string name="settings_data_cache">Metadata cache</string>
     <string name="settings_data_torrents">Torrents</string>
     <string name="settings_data_free">Free</string>
@@ -122,8 +123,8 @@
     <string name="settings_telemetry_hint">This build sends nothing. There is no switch because there is nothing to turn off.</string>
     <string name="settings_telemetry_none">None</string>
     <string name="settings_clear_cache">Clear cache</string>
-    <string name="settings_clear_cache_body">Deletes %1$s of cached metadata. Your history and torrents are kept.</string>
-    <string name="settings_clear_cache_body_unknown">Deletes the cached metadata. Your history and torrents are kept.</string>
+    <string name="settings_clear_cache_body">Deletes %1$s of cached metadata and images. Your history and torrents are kept.</string>
+    <string name="settings_clear_cache_body_unknown">Deletes the cached metadata and images. Your history and torrents are kept.</string>
     <string name="settings_cache_cleared">Cache cleared (%1$s freed)</string>
     <string name="settings_action_failed">That did not work. Try again.</string>
     <string name="settings_about">About</string>
@@ -165,6 +166,20 @@
     <string name="settings_accounts_auto_progress_hint">When you finish an episode of a title on your list, its progress moves forward.</string>
     <string name="settings_accounts_auto_add">Add to Watching when I start</string>
     <string name="settings_accounts_auto_add_hint">Finishing an episode of a title not on your list adds it as Watching.</string>
+    <!-- lists.import-export (parity wave A closure, worker q): first-sync mode sheet -->
+    <string name="settings_accounts_sync_mode_title">How to sync with %1$s</string>
+    <string name="settings_accounts_sync_mode_body_first">Your list on this phone already has titles. Choose how to combine it with your %1$s list.</string>
+    <string name="settings_accounts_sync_mode_body">Choose how your list on this phone and your %1$s list are combined this time.</string>
+    <string name="settings_accounts_mode_merge">Merge (recommended)</string>
+    <string name="settings_accounts_mode_merge_hint">Keeps both lists; titles that differ become conflicts you resolve.</string>
+    <string name="settings_accounts_mode_import">Import from %1$s</string>
+    <string name="settings_accounts_mode_import_hint">Your %1$s list overwrites the titles that are in both; titles only on this phone stay here.</string>
+    <string name="settings_accounts_mode_export">Export to %1$s</string>
+    <string name="settings_accounts_mode_export_hint">This phone\'s list overwrites %1$s for the titles that are in both; titles only on %1$s are still added here.</string>
+    <string name="settings_accounts_mode_later">Later</string>
+    <string name="settings_accounts_first_sync_pending">First sync pending</string>
+    <string name="settings_accounts_choose">Choose</string>
+    <string name="settings_accounts_sync_mode">Import / export</string>
     <string name="settings_accounts_transfer">Import and export</string>
     <string name="settings_accounts_transfer_hint">JSON file with your list, the same format as Tatakai for PC.</string>
     <string name="settings_accounts_export">Export list</string>
@@ -207,6 +222,15 @@
     <string name="settings_onboarding_welcome_body">Watch anime with your extensions, keep your lists on AniList or MyAnimeList and continue on your PC. Everything here can be changed later in Settings.</string>
     <string name="settings_onboarding_appearance_title">Language and theme</string>
     <string name="settings_onboarding_appearance_body">Pick how Tatakai looks.</string>
+    <string name="settings_onboarding_playback_title">Playback</string>
+    <string name="settings_onboarding_playback_body">Choose the player and which sources Tatakai picks first. The rest is in Settings › Player.</string>
+    <string name="settings_onboarding_permissions_title">Permissions</string>
+    <string name="settings_onboarding_permissions_body">Tatakai only asks for what it uses. Everything here is optional.</string>
+    <string name="settings_onboarding_notifications">Notifications</string>
+    <string name="settings_onboarding_notifications_hint">Show torrent downloads running in the background and the playback controls.</string>
+    <string name="settings_onboarding_notifications_allow">Allow</string>
+    <string name="settings_onboarding_notifications_granted">Allowed</string>
+    <string name="settings_onboarding_notifications_denied">Not allowed. You can turn them on later in the Android settings for Tatakai.</string>
     <string name="settings_onboarding_lists_title">Your lists</string>
     <string name="settings_onboarding_lists_body">Optional: link AniList or MyAnimeList to bring your lists, progress and favorites. Without an account they stay on this phone.</string>
     <string name="settings_onboarding_link_title">Your PC</string>

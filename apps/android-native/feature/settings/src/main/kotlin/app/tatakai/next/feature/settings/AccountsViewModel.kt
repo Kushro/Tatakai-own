@@ -3,7 +3,9 @@ package app.tatakai.next.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.tatakai.next.data.InitialSyncMode
 import app.tatakai.next.data.ListErrors
+import app.tatakai.next.data.ListsSyncControl
 import app.tatakai.next.data.PendingOAuthRedirect
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.ConflictChoice
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -68,6 +71,11 @@ data class AccountsUiState(
     val linkError: Pair<ListProvider?, AccountsError>? = null,
     val lastReport: ListSyncReport? = null,
     val transferring: Boolean = false,
+    // lists.import-export (parity wave A closure, worker q)
+    /** Linked providers whose first sync waits for import remote / export local / merge (the card shows "Elegir"). */
+    val firstSyncPending: Set<ListProvider> = emptySet(),
+    /** Provider whose sync-mode sheet is open: right after a link with a local list, or reopened from the card. */
+    val syncModeSheet: ListProvider? = null,
 )
 
 sealed interface AccountsEvent {
@@ -95,19 +103,25 @@ class AccountsViewModel(
         val lastReport: ListSyncReport? = null,
         val transferring: Boolean = false,
         val exchanging: Boolean = false,
+        /** Sheet reopened from the card (not a pending first sync). */
+        val asking: ListProvider? = null,
+        /** Pending first syncs whose sheet the user closed this time (the card keeps the "Elegir" button). */
+        val dismissed: Set<ListProvider> = emptySet(),
     )
 
     private val local = MutableStateFlow(Local())
     private val _events = Channel<AccountsEvent>(Channel.BUFFERED)
     val events: Flow<AccountsEvent> = _events.receiveAsFlow()
 
+    private val control = lists as? ListsSyncControl
+
     val state: StateFlow<AccountsUiState> = combine(
         lists.accounts,
         lists.pendingChanges,
         lists.lastSyncedAt,
         lists.conflicts().catch { emit(emptyList()) },
-        local,
-    ) { accounts, pending, synced, conflicts, l ->
+        combine(local, control?.firstSyncPending ?: flowOf(emptySet<ListProvider>())) { l, p -> l to p },
+    ) { accounts, pending, synced, conflicts, (l, firstPending) ->
         AccountsUiState(
             accounts = accounts,
             configured = configured,
@@ -119,6 +133,8 @@ class AccountsViewModel(
             linkError = l.linkError,
             lastReport = l.lastReport,
             transferring = l.transferring,
+            firstSyncPending = firstPending,
+            syncModeSheet = syncModeSheetOf(l.asking, firstPending, l.dismissed, l.syncing),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AccountsUiState(configured = configured))
 
@@ -193,6 +209,36 @@ class AccountsViewModel(
         }
     }
 
+    // ---------------------------------------------------------------- first sync mode (lists.import-export)
+
+    /** Opens the import / export / merge sheet for a linked [provider] (card action; also how a closed first-sync sheet comes back). */
+    fun askSyncMode(provider: ListProvider) {
+        if (lists.accounts.value.none { it.provider == provider }) return
+        local.update { it.copy(asking = provider, dismissed = it.dismissed - provider) }
+    }
+
+    /** Closes the sheet; a pending first sync stays pending (no merge behind the user's back) and the card offers it again. */
+    fun dismissSyncMode() {
+        val l = local.value
+        val open = syncModeSheetOf(l.asking, control?.firstSyncPending?.value.orEmpty(), l.dismissed, l.syncing)
+        local.update { it.copy(asking = null, dismissed = if (open != null) it.dismissed + open else it.dismissed) }
+    }
+
+    /** Runs the sync of [provider] in [mode]: IMPORT = remote wins, EXPORT = local wins, MERGE = disagreements become conflicts. */
+    fun syncWithMode(provider: ListProvider, mode: InitialSyncMode) {
+        val c = control ?: return
+        if (local.value.syncing) return
+        local.update { it.copy(syncing = true, asking = null, dismissed = it.dismissed - provider) }
+        viewModelScope.launch {
+            val result = runCatchingApp { c.syncWith(provider, mode).getOrThrow() }
+            local.update { it.copy(syncing = false, lastReport = result.getOrNull() ?: it.lastReport) }
+            result.fold(
+                onSuccess = { _events.trySend(AccountsEvent.Synced(it)) },
+                onFailure = { _events.trySend(AccountsEvent.Failed(it.toAppError().toAccountsError())) },
+            )
+        }
+    }
+
     fun resolve(conflict: ListConflict, choice: ConflictChoice) {
         viewModelScope.launch {
             runCatchingApp { lists.resolveConflict(conflict.id, choice) }
@@ -243,4 +289,19 @@ class AccountsViewModel(
     }
 
     private fun providerOf(uri: String): ListProvider? = app.tatakai.next.data.OAuthRedirect.providerOf(uri)
+}
+
+/**
+ * Which provider's sync-mode sheet is open: the one reopened from the card first, else the first pending first sync the user did not
+ * close; none while a sync runs. Pure, unit tested.
+ */
+internal fun syncModeSheetOf(
+    asking: ListProvider?,
+    firstSyncPending: Set<ListProvider>,
+    dismissed: Set<ListProvider>,
+    syncing: Boolean,
+): ListProvider? {
+    if (syncing) return null
+    if (asking != null) return asking
+    return ListProvider.entries.firstOrNull { it in firstSyncPending && it !in dismissed }
 }
