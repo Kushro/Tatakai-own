@@ -143,8 +143,13 @@ mdns-sd = "0.21"
 # tk-core download (h): file-system watcher of the local-library folders (inotify / ReadDirectoryChangesW / FSEvents).
 notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
 # HLS playlists (h) reuse `m3u8-rs` above (already in tk-link); novel HTML -> text (m) reuses `scraper` above (tk-ext).
-# TTS: NO crate (system voice through an external process, cloud voices through reqwest, KittenTTS as a local Python
-# daemon); manga reader: NO image crate (the web view decodes pages). See the contract's section 3.7.
+# TTS: no TTS crate (system voice through an external process, cloud voices through reqwest). KittenTTS (m) runs in
+# process over ONNX Runtime: `load-dynamic` = nothing linked or downloaded at build time (no `download-binaries`, no
+# `tls-native` / OpenSSL); the runtime library is downloaded on demand with the model and loaded with
+# `ort::init_from`. `api-22` = works with any ONNX Runtime >= 1.22. Manga reader: NO image crate (the web view decodes
+# pages). See the contract's section 3.7.
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-22"] }
+ndarray = { version = "0.17", default-features = false, features = ["std"] }
 
 # --- tests only ---
 tempfile = "3"

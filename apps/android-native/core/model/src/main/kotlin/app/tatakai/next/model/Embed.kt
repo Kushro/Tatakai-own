@@ -4,7 +4,7 @@ package app.tatakai.next.model
 // Parity wave B contract (docs/redesign/16-parity-wave-b-contract-android.md §3.3, plan 14 §0.1 #13): embed-source sniffer in the hidden
 // WebView. An extension source of type `embed` (an iframe page, not a media URL) is opened in a hidden WebView; the first m3u8 / mp4
 // request the page makes is captured with its headers and played by the normal engine. Desktop counterpart: tk-app/src/live/browser.rs
-// (worker k). Signatures FINAL; body: worker r (`WebViewEmbedSniffer` in :core:extensions-quickjs, bound in `extensionsModule`).
+// (worker k). Signatures FINAL; body: worker t (`WebViewEmbedSniffer` in :core:extensions-quickjs, bound in `extensionsModule`).
 
 /** Display string of `SourceCandidate.container` for an embed page (never parses to a [Container]: it is not playable as is). */
 const val EMBED_CONTAINER_LABEL: String = "EMBED"

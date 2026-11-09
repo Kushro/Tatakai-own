@@ -45,7 +45,7 @@ data class ExtensionHomeRow(val extensionId: String, val sourceId: String, val t
 
 data class ExtensionHomeItem(val id: String, val title: String, val poster: String?)
 
-// --- parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.4, worker r): updates, preferences, repositories, custom providers ---
+// --- parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.4, worker t): updates, preferences, repositories, custom providers ---
 
 /** A newer version of an installed extension found in one of the user's repositories (`ExtensionRepository.checkUpdates`). */
 data class ExtensionUpdate(

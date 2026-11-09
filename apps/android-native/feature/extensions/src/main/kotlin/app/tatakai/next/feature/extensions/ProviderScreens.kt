@@ -9,7 +9,7 @@ import app.tatakai.next.model.MangaReaderArgs
 import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.ui.state.WaveBPlaceholder
 
-// Parity wave B contract (docs/redesign/16-parity-wave-b-contract-android.md §3.4, worker r). Signatures FINAL; bodies: r.
+// Parity wave B contract (docs/redesign/16-parity-wave-b-contract-android.md §3.4, worker t). Signatures FINAL; bodies: t.
 
 /**
  * `Route.Provider(extensionId, sourceId)` (checklist ext.custom-providers.home / .list): the provider page of one custom source
@@ -55,5 +55,5 @@ fun ProviderItemScreen(
  */
 @Composable
 fun SourcesSettingsExtras(settings: AppSettings, onUpdate: (transform: (AppSettings) -> AppSettings) -> Unit, modifier: Modifier = Modifier) {
-    // wave B (r): rows described above.
+    // wave B (t): rows described above.
 }

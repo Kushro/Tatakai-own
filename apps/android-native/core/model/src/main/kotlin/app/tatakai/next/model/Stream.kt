@@ -42,7 +42,7 @@ data class PlayerArgs(
     /** A completed download (file path or `content://`): play offline, no network, no source resolution. */
     val localUri: String? = null,
     /**
-     * parity wave B (16 §3.4, worker r, checklist ext.custom-providers.watch / .continue): a `watch` entry of a custom provider page. The
+     * parity wave B (16 §3.4, worker t, checklist ext.custom-providers.watch / .continue): a `watch` entry of a custom provider page. The
      * player resolves it with `ExtensionRepository.providerWatch` instead of `resolveCandidates`; history is recorded under
      * `HistoryEntry.animeId = "ext:<extensionId>:<sourceId>:<itemId>"` (anilistId / malId null) unless [media] has an AniList id.
      */

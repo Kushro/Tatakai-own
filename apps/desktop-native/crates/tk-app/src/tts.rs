@@ -6,10 +6,22 @@
 //! library is linked (Linux `spd-say` of speech-dispatcher, or `espeak-ng` as fallback; Windows PowerShell
 //! `System.Speech.Synthesis.SpeechSynthesizer` writing a WAV with `SetOutputToWaveFile`; macOS `say -o`), the cloud
 //! providers are plain `reqwest` calls (`POST /v1/audio/speech` for OpenAI-compatible, `POST /v1/text-to-speech/<voice>`
-//! for ElevenLabs), and KittenTTS is a local Python daemon (`python3 -m kittentts` style script m ships under
-//! `<data>/tts/kitten/`, model downloaded on demand with progress) spoken to over stdin / stdout JSON lines. Clips are
-//! WAV / MP3 files under `<data>/tts/cache/<sha256>.{wav,mp3}` (row in `tts_cache`), served to the reader's `<audio>`
-//! by the app's asset handler.
+//! for ElevenLabs).
+//!
+//! KittenTTS runs **in process over ONNX Runtime** (`ort` crate, feature `load-dynamic`; user decision 2026-11-09,
+//! no Python). Nothing is linked or downloaded at build time: `kitten_install` downloads, with progress, into
+//! `<data>/tts/kitten/` (1) the ONNX Runtime shared library of a pinned release (>= 1.22, `api-22`) from
+//! `github.com/microsoft/onnxruntime/releases` into `runtime/` (`libonnxruntime.so` / `onnxruntime.dll` /
+//! `libonnxruntime.dylib`, ~30 MB) and (2) the model of `huggingface.co/KittenML/<repo>` into `models/<id>/`
+//! (`nano-int8` ~25 MB by default, `mini` ~80 MB on request; same ids and eight voices as the classic
+//! `desktop/services/kitten-tts.cjs`); then `ort::init_from(<runtime lib>)` loads it once. Text -> phonemes goes
+//! through the external `espeak-ng --ipa -q` process (same engine the classic used through phonemizer / WASM);
+//! without `espeak-ng` the status says so and how to install it. Model I/O (token ids, voice embedding from
+//! `voices.npz` read with the `zip` crate, speed, 24 kHz float output -> WAV) follows the classic daemon
+//! `desktop/services/kitten-tts-daemon.py` and the Apache-2.0 JS SDK `node_modules/@biwills/kittentts/dist/runtime-*.js`
+//! / `text-preprocess-*.js`. Inference runs on `tokio::task::spawn_blocking`. Clips are WAV / MP3 files under
+//! `<data>/tts/cache/<sha256>.{wav,mp3}` (row in `tts_cache`), served to the reader's `<audio>` by the app's asset
+//! handler.
 
 use tk_ui::backend::{KittenStatusVm, TtsRequestVm, TtsSpeakVm, TtsVoiceVm, UiResult};
 use tk_ui::model::{TtsProviderVm, UiError};
