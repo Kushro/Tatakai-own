@@ -87,4 +87,52 @@ impl Player {
     pub fn events(&self) -> broadcast::Receiver<PlayerEvent> {
         self.tx.subscribe()
     }
+
+    // --- wave A wrappers (same shape as `mpv_player::Player`) ---
+
+    pub fn set_sub_track(&self, _id: Option<i64>) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn set_secondary_sub_track(&self, _id: Option<i64>) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn set_audio_track(&self, _id: Option<i64>) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn set_speed(&self, _speed: f64) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn set_interpolation(&self, _on: bool) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn set_loop_file(&self, _on: bool) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn set_sub_delay(&self, _secs: f64) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn set_sub_style(&self, _style: &crate::subs::SubStyle) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn add_subtitle(&self, _sub: &crate::types::SubtitleSource, _select: bool) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn screenshot_to_file(&self, _path: &std::path::Path, _with_subs: bool) -> Result<(), PlayerError> {
+        Err(PlayerError::Unavailable)
+    }
+    pub fn set_stable_volume(&self, _on: bool) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn set_option_str(&self, _name: &str, _value: &str) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn command_raw(&self, _name: &str, _args: &[&str]) -> Result<(), PlayerError> {
+        Ok(())
+    }
+    pub fn property_f64(&self, _name: &str) -> Option<f64> {
+        None
+    }
+    pub fn property_str(&self, _name: &str) -> Option<String> {
+        None
+    }
 }

@@ -278,6 +278,109 @@ impl Player {
     pub fn events(&self) -> broadcast::Receiver<PlayerEvent> {
         self.tx.subscribe()
     }
+
+    // --- wave A (docs/redesign/15-parity-wave-a-contract.md section 3): thin mpv property / command wrappers so
+    // workers d (subtitles) and e (flow) never edit this file. Each one maps 1:1 to an mpv option. ---
+
+    /// Select a subtitle track by mpv id (`sid`); `None` turns subtitles off.
+    pub fn set_sub_track(&self, id: Option<i64>) -> Result<(), PlayerError> {
+        match id {
+            Some(id) => self.mpv.set_property("sid", id),
+            None => self.mpv.set_property("sid", "no"),
+        }
+        .map_err(mpv_err)
+    }
+
+    /// Secondary subtitle (`secondary-sid`, drawn at the top); `None` turns it off.
+    pub fn set_secondary_sub_track(&self, id: Option<i64>) -> Result<(), PlayerError> {
+        match id {
+            Some(id) => self.mpv.set_property("secondary-sid", id),
+            None => self.mpv.set_property("secondary-sid", "no"),
+        }
+        .map_err(mpv_err)
+    }
+
+    /// Select an audio track by mpv id (`aid`); `None` mutes the audio track selection.
+    pub fn set_audio_track(&self, id: Option<i64>) -> Result<(), PlayerError> {
+        match id {
+            Some(id) => self.mpv.set_property("aid", id),
+            None => self.mpv.set_property("aid", "no"),
+        }
+        .map_err(mpv_err)
+    }
+
+    /// Playback speed (`speed`), clamped to 0.25..=4.0.
+    pub fn set_speed(&self, speed: f64) -> Result<(), PlayerError> {
+        let v = if speed.is_finite() { speed.clamp(0.25, 4.0) } else { 1.0 };
+        self.mpv.set_property("speed", v).map_err(mpv_err)
+    }
+
+    /// Motion interpolation ("Smoothing"): `interpolation` + `video-sync=display-resample` (what it needs to work).
+    pub fn set_interpolation(&self, on: bool) -> Result<(), PlayerError> {
+        self.mpv.set_property("video-sync", if on { "display-resample" } else { "audio" }).map_err(mpv_err)?;
+        self.mpv.set_property("interpolation", on).map_err(mpv_err)
+    }
+
+    /// Repeat the current file (`loop-file`).
+    pub fn set_loop_file(&self, on: bool) -> Result<(), PlayerError> {
+        self.mpv.set_property("loop-file", if on { "inf" } else { "no" }).map_err(mpv_err)
+    }
+
+    /// Subtitle delay in seconds (`sub-delay`; positive = subtitles later).
+    pub fn set_sub_delay(&self, secs: f64) -> Result<(), PlayerError> {
+        let v = if secs.is_finite() { secs.clamp(-60.0, 60.0) } else { 0.0 };
+        self.mpv.set_property("sub-delay", v).map_err(mpv_err)
+    }
+
+    /// Apply a subtitle style (`sub-*` options from `crate::subs::sub_options`). Best effort per option: an mpv
+    /// build that refuses one option logs it and keeps the rest.
+    pub fn set_sub_style(&self, style: &crate::subs::SubStyle) -> Result<(), PlayerError> {
+        for (key, value) in crate::subs::sub_options(style) {
+            if let Err(e) = self.mpv.set_property(key, value.as_str()) {
+                tracing::warn!(key, error = %e, "mpv refused a subtitle option");
+            }
+        }
+        Ok(())
+    }
+
+    /// Load an external subtitle file or URL (`sub-add`); `select` makes it the active track at once.
+    pub fn add_subtitle(&self, sub: &SubtitleSource, select: bool) -> Result<(), PlayerError> {
+        let title = if sub.label.is_empty() { sub.lang.clone() } else { sub.label.clone() };
+        let flag = if select { "select" } else { "auto" };
+        self.mpv.command("sub-add", &[&mpv_quote(&sub.url), flag, &mpv_quote(&title), &mpv_quote(&sub.lang)]).map_err(mpv_err)
+    }
+
+    /// Save the current video frame (without the UI, with subtitles when `with_subs`) to `path` (PNG by extension).
+    pub fn screenshot_to_file(&self, path: &std::path::Path, with_subs: bool) -> Result<(), PlayerError> {
+        let p = path.to_string_lossy();
+        self.mpv.command("screenshot-to-file", &[&mpv_quote(&p), if with_subs { "subtitles" } else { "video" }]).map_err(mpv_err)
+    }
+
+    /// Loudness normalisation ("stable volume"): `af=lavfi=[dynaudnorm]` on, empty filter chain off.
+    pub fn set_stable_volume(&self, on: bool) -> Result<(), PlayerError> {
+        self.mpv.set_property("af", if on { "lavfi=[dynaudnorm=f=150:g=15]" } else { "" }).map_err(mpv_err)
+    }
+
+    /// Escape hatch for an option this API does not wrap yet (string form, like `mpv --name=value`).
+    pub fn set_option_str(&self, name: &str, value: &str) -> Result<(), PlayerError> {
+        self.mpv.set_property(name, value).map_err(mpv_err)
+    }
+
+    /// Escape hatch for a raw mpv command. Arguments are passed as given (quote with `crate::headers::mpv_quote`
+    /// when they may contain spaces).
+    pub fn command_raw(&self, name: &str, args: &[&str]) -> Result<(), PlayerError> {
+        self.mpv.command(name, args).map_err(mpv_err)
+    }
+
+    /// Read a numeric property (`sub-delay`, `speed`, `volume` ...); `None` when mpv has no value.
+    pub fn property_f64(&self, name: &str) -> Option<f64> {
+        self.mpv.get_property::<f64>(name).ok()
+    }
+
+    /// Read a string property (`sid`, `aid`, `media-title` ...); `None` when mpv has no value.
+    pub fn property_str(&self, name: &str) -> Option<String> {
+        self.mpv.get_property::<String>(name).ok()
+    }
 }
 
 impl Drop for Player {

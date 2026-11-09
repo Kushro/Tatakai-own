@@ -17,6 +17,8 @@ pub mod headers;
 pub mod host;
 pub mod preset;
 pub mod rect;
+/// Subtitle style -> mpv `sub-*` options (pure; wave A, worker d).
+pub mod subs;
 #[cfg(all(windows, feature = "mpv"))]
 mod surface;
 pub mod types;
@@ -41,6 +43,7 @@ pub use enhanced_conf::shader_presets_apply;
 pub use external::{ExternalEvent, ExternalPlayer, find_mpv, mpv_version};
 pub use host::PlayerHost;
 pub use preset::{ShaderPreset, glsl_shaders_value, list_separator, shader_paths};
+pub use subs::{SubStyle, sub_options};
 pub use types::{KeyAction, MediaSource, PlayerError, PlayerEvent, Rect, SubtitleSource, TrackInfo, TrackKind};
 
 /// True when this build can actually play video.

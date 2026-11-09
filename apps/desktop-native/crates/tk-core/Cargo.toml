@@ -25,6 +25,12 @@ time = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 url = { workspace = true }
+# wave A (docs/redesign/15): PKCE + translation cache keys (sha2, base64, hex, uuid), OS keyring (secrets.rs, worker f)
+base64 = { workspace = true }
+hex = { workspace = true }
+keyring = { workspace = true }
+sha2 = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

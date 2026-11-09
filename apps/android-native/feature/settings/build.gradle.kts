@@ -12,3 +12,12 @@ dependencies {
     // android wave (worker b): BackHandler for the Torrents subpage (already in the catalog).
     implementation(libs.androidx.activity.compose)
 }
+
+dependencies {
+    // parity wave A (docs/redesign/15-parity-wave-a-contract-android.md §3.2 / §3.3):
+    // PlayerSettingsExtras (worker p's rows inside Settings › Reproductor), DiscoverSettingsExtras (worker o's rows inside Metadatos)
+    // and Custom Tabs for the AniList / MAL OAuth (worker q).
+    implementation(projects.feature.player)
+    implementation(projects.feature.search)
+    implementation(libs.androidx.browser)
+}

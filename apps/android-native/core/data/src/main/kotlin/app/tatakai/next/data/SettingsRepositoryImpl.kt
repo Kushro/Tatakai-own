@@ -11,6 +11,7 @@ import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SourcePrefs
 import app.tatakai.next.model.SubtitleStyle
+import app.tatakai.next.model.SubtitleTranslation
 import app.tatakai.next.model.torrent.TorrentSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +23,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
 /**
@@ -80,6 +83,22 @@ internal object SettingsCodec {
     private val METADATA_TTL = intPreferencesKey("metadata_cache_ttl_hours")
     private val EXTERNAL_PLAYER = stringPreferencesKey("external_player_package")
 
+    // --- parity wave A (15 §3.5): one key per new AppSettings field; objects as JSON (contract, so p / o / q never edit this file) ---
+    private val SUBTITLE_TRANSLATION = stringPreferencesKey("subtitle_translation_json")
+    private val SECONDARY_SUB_LANG = stringPreferencesKey("secondary_sub_lang")
+    private val AUTO_NEXT_COUNTDOWN = intPreferencesKey("auto_next_countdown_secs")
+    private val STABLE_VOLUME = booleanPreferencesKey("stable_volume")
+    private val BACKGROUND_PLAYBACK = booleanPreferencesKey("background_playback")
+    private val PLAYER_KEYMAP = stringPreferencesKey("player_keymap_json")
+    private val AUTO_LIST_PROGRESS = booleanPreferencesKey("auto_list_progress")
+    private val UPDATE_CHECK = booleanPreferencesKey("update_check")
+    private val SHOW_ADULT = booleanPreferencesKey("show_adult")
+    private val AUTO_LIST_ADD = booleanPreferencesKey("auto_list_add")
+    private val TITLE_LANGUAGE = stringPreferencesKey("title_language")
+    private val KEYMAP_SERIALIZER = MapSerializer(String.serializer(), String.serializer())
+    const val COUNTDOWN_MIN_SECS = 3
+    const val COUNTDOWN_MAX_SECS = 30
+
     private val PRESETS = setOf("off", "anime4k-a", "anime4k-aa", "anime4k-b", "anime4k-c", "fsr")
 
     fun read(p: Preferences): AppSettings {
@@ -103,6 +122,17 @@ internal object SettingsCodec {
             torrent = decode(p[TORRENT], TorrentSettings.serializer())?.sanitized() ?: d.torrent,
             metadataCacheTtlHours = (p[METADATA_TTL] ?: d.metadataCacheTtlHours).coerceIn(TTL_MIN_HOURS, TTL_MAX_HOURS),
             externalPlayerPackage = p[EXTERNAL_PLAYER]?.takeIf { it.isNotBlank() } ?: d.externalPlayerPackage,
+            subtitleTranslation = decode(p[SUBTITLE_TRANSLATION], SubtitleTranslation.serializer()) ?: d.subtitleTranslation,
+            secondarySubLang = p[SECONDARY_SUB_LANG]?.takeIf { it.isNotBlank() } ?: d.secondarySubLang,
+            autoNextCountdownSecs = (p[AUTO_NEXT_COUNTDOWN] ?: d.autoNextCountdownSecs).coerceIn(COUNTDOWN_MIN_SECS, COUNTDOWN_MAX_SECS),
+            stableVolume = p[STABLE_VOLUME] ?: d.stableVolume,
+            backgroundPlayback = p[BACKGROUND_PLAYBACK] ?: d.backgroundPlayback,
+            playerKeymap = decode(p[PLAYER_KEYMAP], KEYMAP_SERIALIZER) ?: d.playerKeymap,
+            autoListProgress = p[AUTO_LIST_PROGRESS] ?: d.autoListProgress,
+            updateCheck = p[UPDATE_CHECK] ?: d.updateCheck,
+            showAdult = p[SHOW_ADULT] ?: d.showAdult,
+            autoListAdd = p[AUTO_LIST_ADD] ?: d.autoListAdd,
+            titleLanguage = enumOr(p[TITLE_LANGUAGE], d.titleLanguage),
         )
     }
 
@@ -126,6 +156,19 @@ internal object SettingsCodec {
         p[METADATA_TTL] = s.metadataCacheTtlHours.coerceIn(TTL_MIN_HOURS, TTL_MAX_HOURS)
         val pkg = s.externalPlayerPackage?.trim()
         if (pkg.isNullOrEmpty()) p.remove(EXTERNAL_PLAYER) else p[EXTERNAL_PLAYER] = pkg
+        // parity wave A
+        p[SUBTITLE_TRANSLATION] = json.encodeToString(SubtitleTranslation.serializer(), s.subtitleTranslation)
+        val secondary = s.secondarySubLang?.trim()
+        if (secondary.isNullOrEmpty()) p.remove(SECONDARY_SUB_LANG) else p[SECONDARY_SUB_LANG] = secondary
+        p[AUTO_NEXT_COUNTDOWN] = s.autoNextCountdownSecs.coerceIn(COUNTDOWN_MIN_SECS, COUNTDOWN_MAX_SECS)
+        p[STABLE_VOLUME] = s.stableVolume
+        p[BACKGROUND_PLAYBACK] = s.backgroundPlayback
+        p[PLAYER_KEYMAP] = json.encodeToString(KEYMAP_SERIALIZER, s.playerKeymap)
+        p[AUTO_LIST_PROGRESS] = s.autoListProgress
+        p[UPDATE_CHECK] = s.updateCheck
+        p[SHOW_ADULT] = s.showAdult
+        p[AUTO_LIST_ADD] = s.autoListAdd
+        p[TITLE_LANGUAGE] = s.titleLanguage.name
     }
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =

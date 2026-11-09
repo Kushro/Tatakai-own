@@ -88,6 +88,11 @@ fun DetailsScreen(
     onOpenDownloads: () -> Unit = {},
     /** Genre chip -> Route.SearchFor(genre = genre). */
     onOpenGenre: (String) -> Unit = {},
+    // --- parity wave A (docs/redesign/15 §3.1, worker o): appended, wired by :app ---
+    /** Characters tab card -> Route.Character(anilistId of the character). */
+    onOpenCharacter: (characterId: Int) -> Unit = {},
+    /** Studio chip of the technical sheet -> Route.SearchFor(studio = name). */
+    onOpenStudio: (String) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val resources = LocalContext.current.resources

@@ -10,6 +10,8 @@ import kotlinx.coroutines.flow.flowOf
 
 // android wave (docs/redesign/12 §3.6): every member added to an EXISTING interface has a default body so the fakes in the
 // feature tests keep compiling; the real implementations (owners in 12 §2) override them.
+// parity wave A (docs/redesign/15-parity-wave-a-contract-android.md §3): same rule. New interfaces of the wave live in their own files
+// (Lists.kt: ListsRepository; Diagnostics.kt: LogRepository, UpdateRepository).
 
 interface MetadataRepository {
     suspend fun feed(kind: MediaKind, feed: FeedKind, page: Int = 1): FeedPage
@@ -23,9 +25,49 @@ interface MetadataRepository {
 
     /** Settings › Datos y almacenamiento › Borrar caché. */
     suspend fun clearCache() {}
+
+    // --- parity wave A (15 §3.1, worker o: :core:metadata + core/data/MetadataRepositoryImpl.kt). Defaults = "not available". ---
+    /**
+     * Search with every AniList filter applied server-side (genres, tags, format, status, season, year / episode / score ranges, sort,
+     * 18+, studio). Default: plain [search] with `query.query` (filters ignored). Pagination through [FeedPage.hasNext].
+     */
+    suspend fun searchAdvanced(kind: MediaKind, query: MediaSearchQuery, page: Int = 1): FeedPage =
+        search(kind, query.query.orEmpty(), page)
+
+    /** Technical sheet, trailer and next airing episode of a title; null when the provider has nothing. */
+    suspend fun details(ref: MediaRef): MediaDetails? = null
+
+    /** Related anime and manga (AniList `relations`). */
+    suspend fun relations(ref: MediaRef): List<MediaRelation> = emptyList()
+
+    /** Seasons / watch order: the chain of PREQUEL / SEQUEL relations from the first season, chronological, [ref] included. */
+    suspend fun seasons(ref: MediaRef): List<Media> = emptyList()
+
+    suspend fun characters(ref: MediaRef, page: Int = 1): CharactersPage = CharactersPage(emptyList(), page, false)
+
+    suspend fun staff(ref: MediaRef): List<StaffEdge> = emptyList()
+
+    suspend fun recommendations(ref: MediaRef): List<Recommendation> = emptyList()
+
+    suspend fun character(id: Int): Character? = null
+
+    /** Search type "Personajes" (classic unified search): AniList character search, one page of [PER_PAGE_CHARACTERS]. */
+    suspend fun searchCharacters(query: String, page: Int = 1): List<CharacterRef> = emptyList()
+
+    /** The genre list of the provider (search filter chips); default = the 18 hardcoded genres of the current filter sheet. */
+    suspend fun genres(kind: MediaKind): List<String> = emptyList()
+
+    /** AniList tag catalogue (name, category, isSpoiler) for the tag filter. */
+    suspend fun tags(kind: MediaKind): List<MediaTag> = emptyList()
+
+    /** trace.moe image search (classic `/image-search`): the picked image's bytes; results best first. */
+    suspend fun searchByImage(image: ByteArray, mimeType: String): List<ImageMatch> = emptyList()
 }
 
 data class MetadataCacheStats(val entries: Int, val bytes: Long)
+
+/** Page size of [MetadataRepository.searchCharacters]. */
+const val PER_PAGE_CHARACTERS: Int = 20
 
 interface HistoryRepository {
     fun continueWatching(limit: Int = 20): Flow<List<HistoryEntry>>
@@ -41,12 +83,43 @@ interface HistoryRepository {
 
     /** Epoch ms of the last successful sync; null = never / no account. */
     val lastSyncedAt: StateFlow<Long?> get() = NO_SYNC
+
+    // --- parity wave A (15 §3.4, worker q) ---
+    /** Settings › Datos › Exportar historial: JSON array of every local row (the desktop export format), newest first. */
+    suspend fun exportJson(): String = "[]"
+
+    /** Settings › Datos › Borrar historial (with confirmation): local rows, and the remote ones too when [includeRemote] and signed in. */
+    suspend fun clearHistory(includeRemote: Boolean): Result<Unit> = Result.failure(NotImplementedError("clearHistory"))
 }
 
 interface AuthRepository {
     val session: StateFlow<UserSession?>
     suspend fun signIn(email: String, password: String): Result<Unit>
     suspend fun signOut()
+
+    // --- parity wave A (15 §3.4, worker q): Supabase GoTrue sign-up, email OTP and password recovery (classic AuthPage.tsx). ---
+    /** Creates the account ([username] goes to `profiles.username` as in the classic app); GoTrue then emails a 6-digit code to confirm. */
+    suspend fun signUp(email: String, password: String, username: String? = null): Result<Unit> =
+        Result.failure(NotImplementedError("signUp"))
+
+    /** Confirms the email with the code (`verifyOtp` type `signup` / `email` / `email_change`). On success the session is active. */
+    suspend fun verifyEmail(email: String, code: String): Result<Unit> = Result.failure(NotImplementedError("verifyEmail"))
+
+    suspend fun resendVerification(email: String): Result<Unit> = Result.failure(NotImplementedError("resendVerification"))
+
+    /** Sends the password-recovery email (`resetPasswordForEmail`, type `recovery`); [resetPassword] finishes it with the emailed code. */
+    suspend fun requestPasswordReset(email: String): Result<Unit> = Result.failure(NotImplementedError("requestPasswordReset"))
+
+    /** `verifyOtp(recovery)` + `updateUser(password)`: the classic ResetPasswordPage flow, in-app. */
+    suspend fun resetPassword(email: String, code: String, newPassword: String): Result<Unit> =
+        Result.failure(NotImplementedError("resetPassword"))
+
+    /** Signed in: re-authenticates with [currentPassword] and sets [newPassword]. */
+    suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> =
+        Result.failure(NotImplementedError("changePassword"))
+
+    /** Signed in: `updateUser(email)`; GoTrue emails a code that [verifyEmail] confirms (type `email_change`). */
+    suspend fun changeEmail(newEmail: String): Result<Unit> = Result.failure(NotImplementedError("changeEmail"))
 }
 
 interface SettingsRepository {
@@ -94,6 +167,13 @@ interface ExtensionRepository {
 
     /** Lazy Home rows from `custom/home` of extensions with custom sources. */
     suspend fun customHomeRows(): List<ExtensionHomeRow> = emptyList()
+
+    // --- parity wave A (15 §3.1, worker o: override in core/extensions-quickjs/ExtensionRepositoryImpl.kt, additive) ---
+    /**
+     * Search inside one extension (route `search` of the extension host, same shape as `custom/home` items). Tapping a result
+     * searches its title in the metadata provider (as the Home extension rows do). Default: nothing.
+     */
+    suspend fun searchExtension(extensionId: String, query: String): List<ExtensionHomeItem> = emptyList()
 
     // --- integrated extension server (docs/redesign/13 §3.10) ---
     /**

@@ -533,6 +533,7 @@ mod tests {
             recommended: false,
             picked: false,
             tags: Default::default(),
+            debrid: None,
         }
     }
 

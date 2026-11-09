@@ -97,6 +97,7 @@ import app.tatakai.next.designsystem.components.rememberAppSnackbarController
 import app.tatakai.next.designsystem.theme.LocalReduceMotion
 import app.tatakai.next.designsystem.theme.TatakaiTheme
 import app.tatakai.next.designsystem.theme.rememberReduceMotion
+import app.tatakai.next.feature.details.CharacterScreen
 import app.tatakai.next.feature.details.DetailsScreen
 import app.tatakai.next.feature.extensions.ExtensionsScreen
 import app.tatakai.next.feature.home.HomeScreen
@@ -105,6 +106,7 @@ import app.tatakai.next.feature.library.LibraryTab
 import app.tatakai.next.feature.link.ExtensionServersScreen
 import app.tatakai.next.feature.link.LinkedDeviceScreen
 import app.tatakai.next.feature.player.PlayerScreen
+import app.tatakai.next.feature.search.ImageSearchScreen
 import app.tatakai.next.feature.search.SearchScreen
 import app.tatakai.next.feature.settings.SettingsScreen
 import app.tatakai.next.feature.torrents.TorrentsScreen
@@ -115,6 +117,7 @@ import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SettingsSection
 import app.tatakai.next.model.ThemeMode
+import app.tatakai.next.model.UpdateRepository
 import app.tatakai.next.model.torrent.TorrentRepository
 import app.tatakai.next.model.torrent.TorrentSection
 import app.tatakai.next.model.torrent.TorrentServiceStatus
@@ -131,7 +134,13 @@ import app.tatakai.next.ui.R as UiR
  * the app-wide CompositionLocals (LocalReduceMotion, LocalAppSnackbar) + adaptive shell + Navigation3 back stack (12 §3.15, §4 b.1).
  */
 @Composable
-fun TatakaiApp(torrentLinks: MutableStateFlow<TorrentLink?>? = null, serverLinks: MutableStateFlow<Boolean>? = null) {
+fun TatakaiApp(
+    torrentLinks: MutableStateFlow<TorrentLink?>? = null,
+    serverLinks: MutableStateFlow<Boolean>? = null,
+    // parity wave A (15 §3.6): OAuth redirect arrived (open Settings › Listas y cuentas) / an image was shared to the app (image search).
+    accountLinks: MutableStateFlow<Boolean>? = null,
+    imageLinks: MutableStateFlow<String?>? = null,
+) {
     val settingsRepo = koinInject<SettingsRepository>()
     val settings by settingsRepo.settings.collectAsStateWithLifecycle()
     val dark = when (settings.themeMode) {
@@ -155,7 +164,7 @@ fun TatakaiApp(torrentLinks: MutableStateFlow<TorrentLink?>? = null, serverLinks
             LocalReduceMotion provides reduceMotion,
             LocalAppSnackbar provides snackbar,
         ) {
-            AppShell(snackbar, torrentLinks, serverLinks)
+            AppShell(snackbar, torrentLinks, serverLinks, accountLinks, imageLinks)
         }
     }
 }
@@ -200,9 +209,38 @@ private fun AppShell(
     snackbar: AppSnackbarController,
     torrentLinks: MutableStateFlow<TorrentLink?>? = null,
     serverLinks: MutableStateFlow<Boolean>? = null,
+    accountLinks: MutableStateFlow<Boolean>? = null,
+    imageLinks: MutableStateFlow<String?>? = null,
 ) {
     val backStack = rememberNavBackStack(Route.Home)
     val current = backStack.lastOrNull() as? Route
+
+    // parity wave A (15 §3.3): tatakai://oauth/<provider> came back from the Custom Tab. The redirect itself waits in PendingOAuthRedirect
+    // (worker q's ListsRepository finishes the exchange); the shell only shows the Accounts section so the user sees the result.
+    if (accountLinks != null) {
+        LaunchedEffect(accountLinks) {
+            accountLinks.collect { open ->
+                if (open) {
+                    val target = Route.SettingsSection(SettingsSection.ACCOUNTS)
+                    if (backStack.lastOrNull() != target) backStack.add(target)
+                    accountLinks.value = false
+                }
+            }
+        }
+    }
+
+    // parity wave A (15 §3.1): an image shared to the app opens the image search with it.
+    if (imageLinks != null) {
+        LaunchedEffect(imageLinks) {
+            imageLinks.collect { uri ->
+                if (uri != null) {
+                    val target = Route.ImageSearch(uri)
+                    if (backStack.lastOrNull() != target) backStack.add(target)
+                    imageLinks.value = null
+                }
+            }
+        }
+    }
 
     // Torrent notification taps (integration of f's notification extras): open the client section, Back returns to where we were.
     if (torrentLinks != null) {
@@ -246,6 +284,18 @@ private fun AppShell(
     val activeDownloads = torrentStatus.activeDownloads
     val online = rememberIsOnline()
     val showOffline = !online && !onPlayer
+
+    // parity wave A (15 §3.4, checklist system.update-startup-notice): one snackbar per newer release, "Ver" opens Acerca de.
+    // Worker q's UpdateRepository publishes it (the contract stub never does); AppSettings.updateCheck is honoured inside the repository.
+    val updates = koinInject<UpdateRepository>()
+    val latestUpdate by updates.latest.collectAsStateWithLifecycle()
+    val updateMessage = latestUpdate?.let { stringResource(R.string.app_update_available, it.version) }
+    val updateAction = stringResource(R.string.app_update_view)
+    LaunchedEffect(latestUpdate?.version) {
+        if (updateMessage != null) {
+            snackbar.show(updateMessage, updateAction) { backStack.add(Route.SettingsSection(SettingsSection.ABOUT)) }
+        }
+    }
 
     NavigationSuiteScaffold(
         navigationItems = {
@@ -382,7 +432,10 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                 )
             }
             entry<Route.Search>(metadata = ListDetailSceneStrategy.listPane()) {
-                SearchScreen(onMediaClick = { media -> media.ref.anilistId?.let { openDetails(it) } })
+                SearchScreen(
+                    onMediaClick = { media -> media.ref.anilistId?.let { openDetails(it) } },
+                    onOpenImageSearch = { push(Route.ImageSearch()) },
+                )
             }
             entry<Route.SearchFor>(metadata = ListDetailSceneStrategy.listPane()) { key ->
                 SearchScreen(
@@ -390,6 +443,16 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     initialQuery = key.query,
                     initialFeed = key.feed,
                     initialGenre = key.genre,
+                    initialStudio = key.studio,
+                    onOpenImageSearch = { push(Route.ImageSearch()) },
+                )
+            }
+            // parity wave A (15 §3.1, worker o): image search (trace.moe), opened from the search bar or by sharing a picture.
+            entry<Route.ImageSearch>(metadata = ListDetailSceneStrategy.listPane()) { key ->
+                ImageSearchScreen(
+                    onBack = ::back,
+                    onMediaClick = { media -> media.ref.anilistId?.let { openDetails(it) } },
+                    imageUri = key.imageUri,
                 )
             }
             entry<Route.Library>(metadata = ListDetailSceneStrategy.listPane()) {
@@ -398,6 +461,7 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onPlay = ::play,
                     onExplore = { backStack.navigateTop(Route.Home) },
                     onOpenTorrent = ::openTorrent,
+                    onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
                 )
             }
             entry<Route.LibraryTab>(metadata = ListDetailSceneStrategy.listPane()) { key ->
@@ -407,6 +471,7 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onExplore = { backStack.navigateTop(Route.Home) },
                     initialTab = key.tab,
                     onOpenTorrent = ::openTorrent,
+                    onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
                 )
             }
             entry<Route.Details>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
@@ -421,6 +486,16 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onOpenLinked = { push(Route.Linked) },
                     onOpenDownloads = { push(Route.Torrents(TorrentSection.DOWNLOADS)) },
                     onOpenGenre = ::openGenre,
+                    onOpenCharacter = { id -> push(Route.Character(id)) },
+                    onOpenStudio = { studio -> push(Route.SearchFor(studio = studio)) },
+                )
+            }
+            // parity wave A (15 §3.1, worker o): character page, detail pane like Details.
+            entry<Route.Character>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
+                CharacterScreen(
+                    characterId = key.characterId,
+                    onBack = ::back,
+                    onMediaClick = { media -> media.ref.anilistId?.let { openDetails(it) } },
                 )
             }
             entry<Route.Player> { key ->
@@ -442,6 +517,7 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onOpenLinked = { push(Route.Linked) },
                     onOpenSettings = { push(Route.Settings) },
                     onSignIn = { openSettings(SettingsSection.ACCOUNT) },
+                    onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
                 )
             }
             entry<Route.Settings> {

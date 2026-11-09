@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- android wave (docs/redesign/12 §0.3, owner worker d): package visibility for the EXTERNAL player engine (Android 11+). -->
+<!-- android wave (docs/redesign/12 §0.3, owner worker d): package visibility for the EXTERNAL player engine (Android 11+).
+     parity wave A (docs/redesign/15 §3.2, owner worker p): PlaybackService (MediaSessionService) for background playback. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <queries>
         <package android:name="is.xyz.mpv" />
         <package android:name="org.videolan.vlc" />
@@ -9,4 +14,15 @@
             <data android:mimeType="video/*" />
         </intent>
     </queries>
+
+    <application>
+        <service
+            android:name="app.tatakai.next.player.PlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+    </application>
 </manifest>

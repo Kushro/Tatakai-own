@@ -19,6 +19,15 @@ Precedencia: este documento no cambia `00`-`13`. Cada ola escribe su contrato (`
 7. Modelos: contrato **Fable 5.1 high**; programadores **Opus 5.5 medium**; integrador, auditor y fixer **Opus 5.5 high**; build y re-revisión **Sonnet 5.5**.
 8. **2 workflows por ola**, cortando después del contrato: el contrato se revisa (yo y el usuario) antes de lanzar a los programadores.
 
+### 0.1 Enmiendas del 2026-11-09 (prevalecen sobre el resto de este documento)
+
+9. **Sin login propio.** Se elimina el login de Supabase de Next (desktop y Android): la cuenta es **AniList y/o MAL** (OAuth). Listas, progreso por episodio, favoritos y puntuación viven en AniList/MAL (**g**/**q**). Antes de quitar el código de Supabase se integra lo que daba (ver `analyze-before-removing`): el historial con la **posición exacta para retomar** queda local y se **sincroniza entre tus dispositivos por Tatakai Link** (la PC sirve una ruta de historial por mTLS; el teléfono la consume). En la ola A esto lo hacen **f** (desktop: quitar Supabase, ruta de historial en `tk-link`) y **q** (Android: quitar Supabase y `checkTatakaiConfig`, cliente de historial por Link). La configuración `TATAKAI_SUPABASE_*` desaparece.
+10. Por lo anterior quedan **fuera**: registro, verificación por código, recuperar contraseña, cambio de email/contraseña, sesiones, sincronizar ajustes en la nube, y lo social que necesitaba backend propio (comentarios por episodio, salas para ver juntos, perfiles propios). **Lo social se reduce a lo que ofrece AniList** (perfil, seguidores/seguidos, actividad, notificaciones de AniList): sigue siendo **n** (desktop) y **t** (Android) en la ola B. Los ids OAuth (`TATAKAI_ANILIST_CLIENT_ID`, `TATAKAI_MAL_CLIENT_ID`; uno por plataforma porque AniList admite una sola redirección por cliente) los registra el usuario; sin ellos, "Conectar" muestra un error claro.
+11. Entran en la ola A: asistente de primer arranque y "restablecer la app" (**f**); abrir enlaces `magnet:` desde el sistema, historial de sesiones de torrent y estado de trackers (**i**). **Torrents y debrid de Android pasan a q en la ola A** (antes r, ola B).
+12. Android: reproducción en segundo plano con **Media3 y libmpv** (**p**). Para libmpv, referencia: `Enigmata/app/src/main/java/app/enigmata/ui/player/MediaPlaybackService.kt` (servicio con `MediaSessionCompat` que observa el core de mpv); copiar está permitido conservando el aviso y anotándolo en `THIRD_PARTY_NOTICES.md`.
+13. Ola B: **sniffer de fuentes embed** en la WebView oculta (abre el embed, captura la URL m3u8/mp4 y la reproduce con mpv) en **k** (desktop) y **r** (Android); **MAL, Shikimori y Tenrai** en el router de metadata (**b**; si un proveedor ya no responde, se descarta con nota); **KittenTTS** local opcional (**m**).
+14. Quedan **fuera**: cloudflared, WARP, y los extras sociales del clásico (encuestas, GIFs, salas).
+
 ## 1. Fases
 
 "‖" = en paralelo.

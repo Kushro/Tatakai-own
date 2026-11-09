@@ -36,6 +36,8 @@ splashscreen = "1.2.0"
 # android wave (docs/redesign/12-android-wave-contract.md)
 libtorrent4j = "2.1.0-39"        # MIT; torrent engine behind TorrentRepository (11 §5.1 fallback chosen by the user)
 libmpv = "1.0.0"                 # dev.jdtech.mpv:libmpv, MIT; prebuilt libmpv AAR (minSdk 26)
+# parity wave A (docs/redesign/15-parity-wave-a-contract-android.md §3.8)
+androidxBrowser = "1.8.0"        # Custom Tabs for the AniList / MAL OAuth (worker q)
 
 [libraries]
 # --- AndroidX core ---
@@ -134,6 +136,9 @@ libtorrent4j-android-arm = { module = "org.libtorrent4j:libtorrent4j-android-arm
 libtorrent4j-android-x64 = { module = "org.libtorrent4j:libtorrent4j-android-x86_64", version.ref = "libtorrent4j" }
 libmpv = { module = "dev.jdtech.mpv:libmpv", version.ref = "libmpv" }
 androidx-lifecycle-service = { module = "androidx.lifecycle:lifecycle-service", version.ref = "lifecycle" }
+
+# --- parity wave A (15-parity-wave-a-contract-android.md) ---
+androidx-browser = { module = "androidx.browser:browser", version.ref = "androidxBrowser" }
 
 # --- Gradle plugins on build-logic's classpath ---
 android-gradle-plugin = { module = "com.android.tools.build:gradle", version.ref = "agp" }

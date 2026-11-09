@@ -729,6 +729,7 @@ mod tests {
             recommended: false,
             picked: false,
             tags,
+            debrid: None,
         }
     }
 

@@ -92,6 +92,11 @@ fun SearchScreen(
     initialQuery: String? = null,
     initialFeed: FeedKind? = null,
     initialGenre: String? = null,
+    // --- parity wave A (docs/redesign/15 §3.1, worker o): appended, wired by :app ---
+    /** Studio / producer browse from Details (`Route.SearchFor(studio)`): worker o feeds it into `MediaSearchQuery.studio`. */
+    initialStudio: String? = null,
+    /** Image-search entry (camera / gallery icon of the search bar) -> Route.ImageSearch(). */
+    onOpenImageSearch: () -> Unit = {},
 ) {
     LaunchedEffect(initialQuery, initialFeed, initialGenre) {
         viewModel.applyInitial(initialQuery, initialFeed, initialGenre)

@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Link
@@ -138,6 +139,8 @@ internal val SETTINGS_SECTIONS: List<SettingsSection> = listOf(
     SettingsSection.PLAYER,
     SettingsSection.METADATA,
     SettingsSection.ACCOUNT,
+    // parity wave A (15 §3.3, worker q): AniList / MAL accounts right after the Supabase account.
+    SettingsSection.ACCOUNTS,
     SettingsSection.LINK,
     SettingsSection.TORRENTS,
     SettingsSection.DATA,
@@ -149,6 +152,7 @@ internal fun SettingsSection.icon(): ImageVector = when (this) {
     SettingsSection.PLAYER -> Icons.Outlined.PlayCircle
     SettingsSection.METADATA -> Icons.Outlined.Sync
     SettingsSection.ACCOUNT -> Icons.Outlined.Person
+    SettingsSection.ACCOUNTS -> Icons.Outlined.Bookmarks
     SettingsSection.LINK -> Icons.Outlined.Link
     SettingsSection.TORRENTS -> Icons.Outlined.Download
     SettingsSection.DATA -> Icons.Outlined.Storage
@@ -160,6 +164,7 @@ internal fun SettingsSection.titleRes(): Int = when (this) {
     SettingsSection.PLAYER -> R.string.settings_player
     SettingsSection.METADATA -> R.string.settings_metadata
     SettingsSection.ACCOUNT -> R.string.settings_account
+    SettingsSection.ACCOUNTS -> R.string.settings_accounts
     SettingsSection.LINK -> R.string.settings_link
     SettingsSection.TORRENTS -> UiR.string.nav_torrents
     SettingsSection.DATA -> R.string.settings_data
@@ -304,6 +309,7 @@ private fun SettingsList(
                     SettingsSection.PLAYER -> PlayerSection(state, viewModel, onOpenExtensions)
                     SettingsSection.METADATA -> MetadataSection(state, viewModel)
                     SettingsSection.ACCOUNT -> AccountSection(state, viewModel)
+                    SettingsSection.ACCOUNTS -> AccountsSection(state, viewModel)
                     SettingsSection.LINK -> LinkSection(onOpenLinked)
                     SettingsSection.TORRENTS -> TorrentsSection(onOpenTorrents)
                     SettingsSection.DATA -> DataSection(state, viewModel)

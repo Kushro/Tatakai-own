@@ -5,14 +5,19 @@ import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
 import app.tatakai.next.metadata.ProviderPriority
+import app.tatakai.next.model.AppLog
 import app.tatakai.next.model.AuthRepository
 import app.tatakai.next.model.HistoryRepository
+import app.tatakai.next.model.ListsRepository
+import app.tatakai.next.model.LogRepository
 import app.tatakai.next.model.MetadataRepository
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SourceStatsStore
+import app.tatakai.next.model.UpdateRepository
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.Module
 import org.koin.dsl.module
+import java.io.File
 
 /**
  * Wires the repositories. Needs networkModule, metadataModule, databaseModule and supabaseModule loaded too, and the
@@ -39,4 +44,11 @@ val dataModule: Module = module {
     single<SourceStatsStore> { SourceStatsStoreImpl(get()) }
 
     single<AuthRepository> { AuthRepositoryImpl(get(), get(), get(), get()) }
+
+    // parity wave A (docs/redesign/15-parity-wave-a-contract-android.md §3.3-3.4, worker q): lists + OAuth redirect, app log, update check.
+    // One binding per type (nobody else binds these). Client ids arrive as Koin properties PROP_ANILIST_CLIENT_ID / PROP_MAL_CLIENT_ID.
+    single { PendingOAuthRedirect() }
+    single<ListsRepository> { ListsRepositoryImpl() }
+    single<LogRepository> { AppLogStore(File(androidContext().filesDir, "logs")).also { AppLog.sink = it } }
+    single<UpdateRepository> { UpdateRepositoryImpl() }
 }

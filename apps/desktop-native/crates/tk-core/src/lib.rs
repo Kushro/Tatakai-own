@@ -5,17 +5,28 @@
 //! tests never touch the real user profile.
 
 pub mod config;
+/// Debrid services as torrent sources (wave A, worker i).
+pub mod debrid;
 pub mod error;
+/// AniList / MyAnimeList lists: OAuth, read / write, offline queue (wave A, worker g).
+pub mod lists;
 pub mod metadata;
 pub mod model;
 pub mod net;
 pub mod release;
+/// OS keyring with a file fallback for tokens and the Supabase session (wave A, worker f).
+pub mod secrets;
 pub mod sources;
 pub mod store;
 pub mod supabase;
+/// trace.moe scene search (wave A, worker a).
+pub mod tracemoe;
+/// Subtitle translation providers (wave A, worker d).
+pub mod translate;
 
 pub use config::AppConfig;
-pub use error::{ProviderError, StoreError, SupabaseError};
+pub use error::{DebridError, ListError, ProviderError, SecretError, StoreError, SupabaseError, TranslateError};
+pub use secrets::Secrets;
 pub use metadata::{MetadataProvider, MetadataRouter};
 pub use model::*;
 pub use store::LocalStore;

@@ -1,11 +1,26 @@
 //! Pure UI state and reducers - no Dioxus, fully unit-tested. Screens keep these in signals and
 //! feed them actions; nothing in here touches the DOM, the backend or the clock (callers pass `now`).
+//!
+//! Wave A (docs/redesign/15-parity-wave-a-contract.md section 2): the per-area preference structs that
+//! `Settings` embeds live in their owner's file and are re-exported here, so a worker extends its own prefs
+//! (fields with serde defaults + `sanitized()`) without touching this module: [`subs`] (d), [`flow`] (e),
+//! [`system`] (f), [`lists`] (g). This file (`mod.rs`) stays frozen after the contract.
 
 use serde::{Deserialize, Serialize};
 use tk_player::ShaderPreset;
 
 use crate::backend::SourceKindVm;
 use crate::i18n::LangChoice;
+
+pub mod flow;
+pub mod lists;
+pub mod subs;
+pub mod system;
+
+pub use flow::{PlayerFlowPrefs, ShortcutMapVm};
+pub use lists::{ListPrefsVm, ListServiceVm};
+pub use subs::{SubtitlePrefs, SubtitleStyleVm, TranslationPrefs, TranslationProviderVm};
+pub use system::SystemPrefs;
 
 // ---------------------------------------------------------------------------------------------
 // Appearance / settings
@@ -104,6 +119,15 @@ pub struct Settings {
     pub enhanced_ui: EnhancedUiVm,
     /// External mode: the mpv executable; `None` = autodetect on PATH (`tk_player::find_mpv`).
     pub external_mpv_path: Option<String>,
+    // --- wave A (docs/redesign/15): one prefs struct per owner; each file sanitizes its own values. ---
+    /// Subtitles, secondary subtitle, subtitle translation (worker d, `model/subs.rs`).
+    pub subs: SubtitlePrefs,
+    /// Auto-next / auto-skip / stable volume / shortcuts / Discord presence (worker e, `model/flow.rs`).
+    pub flow: PlayerFlowPrefs,
+    /// Start with the system, tray, update check (worker f, `model/system.rs`).
+    pub system: SystemPrefs,
+    /// AniList / MAL list behaviour (worker g, `model/lists.rs`).
+    pub lists: ListPrefsVm,
 }
 
 impl Default for Settings {
@@ -121,6 +145,10 @@ impl Default for Settings {
             player_mode: PlayerModeVm::default(),
             enhanced_ui: EnhancedUiVm::default(),
             external_mpv_path: None,
+            subs: SubtitlePrefs::default(),
+            flow: PlayerFlowPrefs::default(),
+            system: SystemPrefs::default(),
+            lists: ListPrefsVm::default(),
         }
     }
 }
@@ -358,6 +386,10 @@ impl Settings {
         self.volume = self.volume.min(100);
         self.sources = self.sources.sanitized();
         self.external_mpv_path = clean_mpv_path(self.external_mpv_path);
+        self.subs = self.subs.sanitized();
+        self.flow = self.flow.sanitized();
+        self.system = self.system.sanitized();
+        self.lists = self.lists.sanitized();
         self
     }
 }
@@ -401,6 +433,16 @@ pub enum SettingsAction {
     SetEnhancedUi(EnhancedUiVm),
     /// Trimmed; blank = `None` (autodetect).
     SetExternalMpvPath(Option<String>),
+    // --- wave A: whole-struct setters. The owner builds the struct (`Settings::subs` + change) and dispatches;
+    // the reducer stores it sanitized (`<prefs>::sanitized`, owned by the same worker). ---
+    /// Worker d.
+    SetSubs(SubtitlePrefs),
+    /// Worker e.
+    SetFlow(PlayerFlowPrefs),
+    /// Worker f.
+    SetSystem(SystemPrefs),
+    /// Worker g.
+    SetLists(ListPrefsVm),
 }
 
 pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
@@ -441,6 +483,10 @@ pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
         SettingsAction::SetPlayerMode(m) => n.player_mode = m,
         SettingsAction::SetEnhancedUi(u) => n.enhanced_ui = u,
         SettingsAction::SetExternalMpvPath(p) => n.external_mpv_path = clean_mpv_path(p),
+        SettingsAction::SetSubs(p) => n.subs = p.sanitized(),
+        SettingsAction::SetFlow(p) => n.flow = p.sanitized(),
+        SettingsAction::SetSystem(p) => n.system = p.sanitized(),
+        SettingsAction::SetLists(p) => n.lists = p.sanitized(),
     }
     n
 }
@@ -490,12 +536,22 @@ pub enum TorrentSection {
     Trackers,
     Library,
     Downloads,
+    /// Debrid services as sources (wave A, worker i; docs/redesign/15 section 4).
+    Debrid,
     Settings,
 }
 
 impl TorrentSection {
-    pub const ALL: [TorrentSection; 7] =
-        [Self::Overview, Self::Files, Self::Peers, Self::Trackers, Self::Library, Self::Downloads, Self::Settings];
+    pub const ALL: [TorrentSection; 8] = [
+        Self::Overview,
+        Self::Files,
+        Self::Peers,
+        Self::Trackers,
+        Self::Library,
+        Self::Downloads,
+        Self::Debrid,
+        Self::Settings,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
@@ -505,6 +561,7 @@ impl TorrentSection {
             Self::Trackers => "trackers",
             Self::Library => "library",
             Self::Downloads => "downloads",
+            Self::Debrid => "debrid",
             Self::Settings => "settings",
         }
     }
@@ -518,6 +575,7 @@ impl TorrentSection {
             Self::Trackers => "torrent.section.trackers",
             Self::Library => "torrent.section.library",
             Self::Downloads => "torrent.section.downloads",
+            Self::Debrid => "torrent.section.debrid",
             Self::Settings => "torrent.section.settings",
         }
     }
@@ -530,6 +588,7 @@ impl TorrentSection {
             Self::Trackers => "cast",
             Self::Library => "library",
             Self::Downloads => "download",
+            Self::Debrid => "bolt",
             Self::Settings => "settings",
         }
     }
@@ -1169,7 +1228,7 @@ mod tests {
         assert_eq!(acked.download_limit_kib, crate::backend::TORRENT_MAX_LIMIT_KIB);
         let json = serde_json::to_string(&TorrentSettingsVm { default_download_dir: "/x".into(), ..Default::default() }).unwrap();
         assert!(!json.contains("default_download_dir"));
-        assert_eq!(TorrentSection::ALL.len(), 7);
+        assert_eq!(TorrentSection::ALL.len(), 8);
         assert!(TorrentSection::Files.per_torrent() && !TorrentSection::Library.per_torrent());
     }
 

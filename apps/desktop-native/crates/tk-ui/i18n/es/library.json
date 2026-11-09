@@ -1,0 +1,10 @@
+{
+  "lib.title": "Biblioteca",
+  "lib.local": "Local en esta PC",
+  "lib.history": "Historial",
+  "lib.m1": "Las listas de AniList y MAL (Viendo, Planeado, Completado…) llegan en M1.",
+  "lib.watched_on": "Visto {when}",
+  "lib.empty.title": "Todavía no hay nada",
+  "lib.empty.body": "Los episodios que veas aparecen aquí para seguir después.",
+  "settings.accounts": "Cuentas"
+}

@@ -1,6 +1,8 @@
 package app.tatakai.next
 
 import android.app.Application
+import app.tatakai.next.data.PROP_ANILIST_CLIENT_ID
+import app.tatakai.next.data.PROP_MAL_CLIENT_ID
 import app.tatakai.next.data.dataModule
 import app.tatakai.next.database.databaseModule
 import app.tatakai.next.extensions.extensionsModule
@@ -47,6 +49,9 @@ class TatakaiApplication : Application() {
                 mapOf(
                     PROP_SUPABASE_URL to BuildConfig.TATAKAI_SUPABASE_URL,
                     PROP_SUPABASE_ANON_KEY to BuildConfig.TATAKAI_SUPABASE_ANON_KEY,
+                    // parity wave A (15 §3.3): list provider OAuth client ids (worker q's ListsRepositoryImpl reads them with getProperty)
+                    PROP_ANILIST_CLIENT_ID to BuildConfig.TATAKAI_ANILIST_CLIENT_ID,
+                    PROP_MAL_CLIENT_ID to BuildConfig.TATAKAI_MAL_CLIENT_ID,
                 ),
             )
             modules(

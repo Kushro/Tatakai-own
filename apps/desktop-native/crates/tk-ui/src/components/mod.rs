@@ -4,9 +4,12 @@
 
 pub mod button;
 pub mod chips;
+pub mod comments;
 pub mod dialog;
+pub mod download_season;
 pub mod floating_toolbar;
 pub mod form;
+pub mod list_button;
 pub mod loading;
 pub mod media;
 pub mod menu;
@@ -22,9 +25,12 @@ pub mod title_bar;
 
 pub use button::{Button, ButtonSize, ButtonVariant, IconButton, IconButtonSize, IconButtonVariant, SplitButton};
 pub use chips::{Banner, Chip, ChipKind, InfoChip, Kbd, Pill, Tone};
+pub use comments::Comments;
 pub use dialog::ConfirmDialog;
+pub use download_season::DownloadSeasonSheet;
 pub use floating_toolbar::{FloatingToolbar, ToolbarSeparator};
 pub use form::{Switch, TextField, use_uncontrolled_input};
+pub use list_button::ListButton;
 pub use loading::LoadingIndicator;
 pub use media::{EpisodeRow, MediaCard, MediaCover};
 pub use media::{ContinueCard, HeroCarousel, format_score, monogram, safe_css_color};

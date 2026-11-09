@@ -11,9 +11,9 @@ use crate::app::{Route, Services, Ui};
 use crate::backend::{DetailsVm, DeviceVm, EpisodeVm, LinkStatusVm, SourceVm};
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, ConfirmDialog, EmptyState, ErrorState, FloatingToolbar, IconButton,
-    IconButtonVariant, InfoChip, LoadingIndicator, MediaCover, Pill, Segmented, Sheet, SkeletonLines, SourcePicker,
-    SourceSummary, SplitButton, ToolbarSeparator, Tone, use_snackbar,
+    Button, ButtonSize, ButtonVariant, Comments, ConfirmDialog, DownloadSeasonSheet, EmptyState, ErrorState,
+    FloatingToolbar, IconButton, IconButtonVariant, InfoChip, ListButton, LoadingIndicator, MediaCover, Pill, Segmented,
+    Sheet, SkeletonLines, SourcePicker, SourceSummary, SplitButton, ToolbarSeparator, Tone, use_snackbar,
 };
 use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
@@ -133,6 +133,8 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
 
     let mut tab = use_signal(|| Tab::Episodes);
     let mut picker_open = use_signal(|| false);
+    // Wave B mount point (worker h): the "Download season" sheet; the contract only opens / closes it.
+    let mut download_open = use_signal(|| false);
     let mut picker_ep = use_signal(|| 1_u32);
     let mut picker_list = use_signal(|| None::<Result<Vec<SourceVm>, UiError>>);
     let mut send_target = use_signal(|| None::<DeviceVm>);
@@ -230,9 +232,8 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                         navigator.push(Route::PlayerPage { id: play_id.clone(), episode: watch_ep });
                     },
                     on_menu: move |_| open_picker.call(watch_ep),
-                    on_add: move |_| snackbar.show(t("search.m1")),
                     on_send: move |_| ask_send.call(None),
-                    on_download: move |_| snackbar.show(t("search.m1")),
+                    on_download: move |_| download_open.set(true),
                 }
             }
         }
@@ -441,9 +442,10 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                         },
                     }
                     ToolbarSeparator {}
-                    IconButton { icon: "bookmark".to_string(), label: t("details.add_list"), onclick: move |_| snackbar.show(t("search.m1")) }
+                    // Wave A mount point (worker g): the list button loads its own entry.
+                    ListButton { media_id: id.clone(), episodes_total: v.episodes_total, compact: true }
                     IconButton { icon: "cast".to_string(), label: t("details.send_device"), onclick: move |_| ask_send.call(None) }
-                    IconButton { icon: "download".to_string(), label: t("details.download"), onclick: move |_| snackbar.show(t("search.m1")) }
+                    IconButton { icon: "download".to_string(), label: t("details.download"), onclick: move |_| download_open.set(true) }
                 }
             }
         }
@@ -478,6 +480,8 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                         "aria-labelledby": "tk-dtab-{tab().id()}",
                         {tab_body}
                     }
+                    // Wave B mount point (worker n): comments about the title (renders nothing until then).
+                    Comments { media_id: id.clone() }
                 }
                 aside { class: "tk-details__side",
                     {sources_panel}
@@ -493,6 +497,12 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
             {toolbar}
             {send_dialog}
             {picker}
+            DownloadSeasonSheet {
+                open: download_open(),
+                media_id: id.clone(),
+                episodes_total: vm.as_ref().and_then(|v| v.episodes_total),
+                on_close: move |_| download_open.set(false),
+            }
         }
     }
 }
@@ -504,7 +514,6 @@ fn DetailsHeader(
     menu_open: bool,
     #[props(default)] on_watch: EventHandler<()>,
     #[props(default)] on_menu: EventHandler<()>,
-    #[props(default)] on_add: EventHandler<()>,
     #[props(default)] on_send: EventHandler<()>,
     #[props(default)] on_download: EventHandler<()>,
 ) -> Element {
@@ -557,12 +566,8 @@ fn DetailsHeader(
                         on_menu: move |_| on_menu.call(()),
                     }
                     if !embedded {
-                        Button {
-                            label: t("details.add_list"),
-                            icon: "bookmark".to_string(),
-                            variant: ButtonVariant::Tonal,
-                            onclick: move |_| on_add.call(()),
-                        }
+                        // Wave A mount point (worker g): `components/list_button.rs` loads its own entry.
+                        ListButton { media_id: vm.media.id.clone(), episodes_total: vm.episodes_total }
                         Button {
                             label: t("details.send_device"),
                             icon: "cast".to_string(),

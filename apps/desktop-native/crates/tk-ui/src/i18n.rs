@@ -1,5 +1,9 @@
 //! i18n: `en` and `es` only (06 #4). Japanese falls back to English. No literal text in components:
 //! everything goes through [`t`] / [`tf`].
+//!
+//! Catalogs are split by namespace (docs/redesign/15-parity-wave-a-contract.md section 2): one JSON file per
+//! owner under `i18n/{en,es}/<namespace>.json`, merged here at compile time. A key lives in exactly one
+//! namespace (same file name in both languages); a worker adds keys only to the files of its namespace.
 
 use std::collections::HashMap;
 
@@ -7,8 +11,40 @@ use dioxus::prelude::{GlobalSignal, ReadableExt, Signal};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-const EN_JSON: &str = include_str!("../i18n/en.json");
-const ES_JSON: &str = include_str!("../i18n/es.json");
+/// Namespace files, in the order they are merged. Keep both lists in sync (same names, same order).
+pub const NAMESPACES: [&str; 9] =
+    ["common", "search", "details", "player", "settings_player", "subs", "account", "library", "torrent"];
+
+const EN_FILES: [&str; 9] = [
+    include_str!("../i18n/en/common.json"),
+    include_str!("../i18n/en/search.json"),
+    include_str!("../i18n/en/details.json"),
+    include_str!("../i18n/en/player.json"),
+    include_str!("../i18n/en/settings_player.json"),
+    include_str!("../i18n/en/subs.json"),
+    include_str!("../i18n/en/account.json"),
+    include_str!("../i18n/en/library.json"),
+    include_str!("../i18n/en/torrent.json"),
+];
+const ES_FILES: [&str; 9] = [
+    include_str!("../i18n/es/common.json"),
+    include_str!("../i18n/es/search.json"),
+    include_str!("../i18n/es/details.json"),
+    include_str!("../i18n/es/player.json"),
+    include_str!("../i18n/es/settings_player.json"),
+    include_str!("../i18n/es/subs.json"),
+    include_str!("../i18n/es/account.json"),
+    include_str!("../i18n/es/library.json"),
+    include_str!("../i18n/es/torrent.json"),
+];
+
+/// The namespace files of a language (`NAMESPACES` order).
+pub fn files(lang: Lang) -> &'static [&'static str; 9] {
+    match lang {
+        Lang::En => &EN_FILES,
+        Lang::Es => &ES_FILES,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Lang {
@@ -69,12 +105,24 @@ fn parse(json: &str) -> Catalog {
     serde_json::from_str(json).unwrap_or_default()
 }
 
+/// Merge every namespace file of a language. A key defined twice keeps the first file's value (the test
+/// `no_key_is_defined_in_two_namespaces` forbids that situation).
+fn merge(files: &[&str]) -> Catalog {
+    let mut all = Catalog::new();
+    for f in files {
+        for (k, v) in parse(f) {
+            all.entry(k).or_insert(v);
+        }
+    }
+    all
+}
+
 fn catalog(lang: Lang) -> &'static Catalog {
     static EN: OnceLock<Catalog> = OnceLock::new();
     static ES: OnceLock<Catalog> = OnceLock::new();
     match lang {
-        Lang::En => EN.get_or_init(|| parse(EN_JSON)),
-        Lang::Es => ES.get_or_init(|| parse(ES_JSON)),
+        Lang::En => EN.get_or_init(|| merge(&EN_FILES)),
+        Lang::Es => ES.get_or_init(|| merge(&ES_FILES)),
     }
 }
 
@@ -147,9 +195,37 @@ mod tests {
 
     #[test]
     fn catalogs_parse_and_are_not_empty() {
-        assert!(serde_json::from_str::<Catalog>(EN_JSON).is_ok(), "en.json is invalid");
-        assert!(serde_json::from_str::<Catalog>(ES_JSON).is_ok(), "es.json is invalid");
+        for (lang, list) in [(Lang::En, &EN_FILES), (Lang::Es, &ES_FILES)] {
+            for (ns, json) in NAMESPACES.iter().zip(list.iter()) {
+                assert!(serde_json::from_str::<Catalog>(json).is_ok(), "{}/{ns}.json is invalid", lang.code());
+            }
+        }
         assert!(keys(Lang::En).len() > 50);
+    }
+
+    /// A key belongs to exactly one namespace (its owner's file), in both languages.
+    #[test]
+    fn no_key_is_defined_in_two_namespaces() {
+        for (lang, list) in [(Lang::En, &EN_FILES), (Lang::Es, &ES_FILES)] {
+            let mut seen: std::collections::BTreeMap<String, &str> = std::collections::BTreeMap::new();
+            for (ns, json) in NAMESPACES.iter().zip(list.iter()) {
+                for k in parse(json).into_keys() {
+                    if let Some(prev) = seen.insert(k.clone(), ns) {
+                        panic!("{}: key {k} is in both {prev}.json and {ns}.json", lang.code());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Each namespace file has the same key set in `en` and `es` (a key never moves between namespaces).
+    #[test]
+    fn namespaces_match_between_languages() {
+        for (ns, (en, es)) in NAMESPACES.iter().zip(EN_FILES.iter().zip(ES_FILES.iter())) {
+            let en: BTreeSet<_> = parse(en).into_keys().collect();
+            let es: BTreeSet<_> = parse(es).into_keys().collect();
+            assert_eq!(en, es, "{ns}.json differs between en and es");
+        }
     }
 
     #[test]
