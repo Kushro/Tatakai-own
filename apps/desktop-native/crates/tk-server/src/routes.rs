@@ -851,7 +851,7 @@ async fn run_resolve(st: AppState, input: Value, base: String, session: String, 
     };
     send(false);
     let concurrency = st.cfg.concurrency.clamp(1, 8);
-    let tasks = jobs.iter().enumerate().map(|(i, job)| {
+    let tasks = jobs.into_iter().enumerate().map(|(i, job)| {
         let st = st.clone();
         let params = params.clone();
         let snap = snap.clone();

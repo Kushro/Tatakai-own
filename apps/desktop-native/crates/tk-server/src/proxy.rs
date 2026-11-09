@@ -267,7 +267,7 @@ impl MediaProxy {
         ticket_id: &str,
         range: Option<&str>,
         base: &str,
-        session_ok: &dyn Fn(&str) -> bool,
+        session_ok: &(dyn Fn(&str) -> bool + Sync),
     ) -> Result<Response, Failure> {
         let t = self.ticket(ticket_id).ok_or_else(|| Failure::new(StatusCode::NOT_FOUND, "media_not_found"))?;
         if t.expires_unix < crate::auth::now_unix() {
