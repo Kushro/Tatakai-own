@@ -204,7 +204,7 @@ test('parity checklist: wave B rows are ready for the workers', () => {
   expectOwner('sources.embed-sniffer.timeout-setting', 'k', 't');
   // KNOWN-ISSUES (wave A) items deferred to wave B
   expectOwner('sources.debrid.episode-context', 'k', null, (x) => x.platform === 'desktop');
-  expectOwner('link.send-to-device', 'k', null, (x) => x.platform === 'desktop');
+  expectOwner('link.send-to-device', 'k', 'r', (x) => /GET \/v1\/events/.test(x.accept)); // PC -> phone over the canonical /v1/events long-poll (orchestrator 2026-11-09)
   expectOwner('link.last-seen', 'k', 'r');
   // Android "M1" stubs of Dispositivo enlazado (inventory-next §3) close in wave B
   for (const id of ['link.remote-control', 'link.handoff', 'link.discovery']) expectOwner(id, 'k', 'r', (x) => /M1/.test(x.accept));

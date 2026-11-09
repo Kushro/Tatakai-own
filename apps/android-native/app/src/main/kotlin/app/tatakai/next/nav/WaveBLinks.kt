@@ -25,6 +25,7 @@ object WaveBLinks {
         val anilistId = intent.getIntExtra(NotificationExtras.DETAILS_ANILIST_ID, 0)
         if (anilistId > 0) return Route.Details(MediaKind.ANIME, anilistId)
         if (intent.getBooleanExtra(NotificationExtras.SOCIAL_NOTIFICATIONS, false)) return Route.Notifications
+        if (intent.getBooleanExtra(NotificationExtras.LINK_HANDOFF, false)) return Route.Linked
         if (intent.action == Intent.ACTION_VIEW) {
             val data = intent.data ?: return null
             if (data.scheme.equals("tatakai", ignoreCase = true) && data.host.equals(USER_HOST, ignoreCase = true)) {
