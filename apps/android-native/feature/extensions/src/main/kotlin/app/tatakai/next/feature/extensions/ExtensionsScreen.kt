@@ -105,9 +105,12 @@ fun ExtensionsScreen(
     // parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.4, worker t): "Proveedores" section (customSources) -> Route.Provider.
     onOpenProvider: (extensionId: String, sourceId: String) -> Unit = { _, _ -> },
     hub: ExtensionsHubViewModel = koinViewModel(),
+    // parity wave B closure (16 §3.4, worker t; server.api.extensions): extensions installed on the linked PC servers.
+    serverExtensions: ServerExtensionsViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val hubState by hub.state.collectAsStateWithLifecycle()
+    val serverState by serverExtensions.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbar = LocalAppSnackbar.current
     val invalidText = stringResource(R.string.extensions_install_invalid)
@@ -245,6 +248,7 @@ fun ExtensionsScreen(
                     onRemoveRepo = { removeRepo = it },
                     onRemoveAddon = { removeAddon = it },
                 )
+                serverExtensionSections(serverState, serverExtensions)
             }
         }
     }
