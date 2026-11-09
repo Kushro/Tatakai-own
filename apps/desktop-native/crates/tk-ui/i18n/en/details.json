@@ -132,5 +132,10 @@
   "details.view.compact": "Compact",
   "details.unaired": "Not yet aired",
   "details.unaired_on": "Airs {d}",
-  "details.unaired_title": "{title} (not yet aired)"
+  "details.unaired_title": "{title} (not yet aired)",
+  "details.title_lang": "Title language",
+  "details.title_lang.hint": "Which title cards, rows and details pages show when AniList has several",
+  "details.title_lang.english": "English",
+  "details.title_lang.romaji": "Romaji",
+  "details.title_lang.native": "Native"
 }

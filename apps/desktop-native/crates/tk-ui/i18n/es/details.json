@@ -132,5 +132,10 @@
   "details.view.compact": "Compacta",
   "details.unaired": "Aún no emitido",
   "details.unaired_on": "Se emite el {d}",
-  "details.unaired_title": "{title} (aún no emitido)"
+  "details.unaired_title": "{title} (aún no emitido)",
+  "details.title_lang": "Idioma del título",
+  "details.title_lang.hint": "Qué título muestran las tarjetas, filas y fichas cuando AniList tiene varios",
+  "details.title_lang.english": "Inglés",
+  "details.title_lang.romaji": "Romaji",
+  "details.title_lang.native": "Nativo"
 }
