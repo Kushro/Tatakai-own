@@ -155,7 +155,7 @@ test('parity checklist: plan §0.1 amendments (2026-11-09) are applied', () => {
   // §0.1.12: background playback with Media3 and libmpv
   expect('player.android.background', (x) => x.android === 'p' && PLANNED.has(x.status) && /libmpv/.test(x.accept) && /Media3/.test(x.accept), 'background playback covers Media3 and libmpv');
   // §0.1.13: wave B additions
-  expect('sources.embed-sniffer', (x) => x.wave === 'B' && x.area === 'k' && x.android === 'r' && PLANNED.has(x.status), 'embed sniffer is k/r, wave B');
+  expect('sources.embed-sniffer', (x) => x.wave === 'B' && x.area === 'k' && x.android === 't' && PLANNED.has(x.status), 'embed sniffer is k/t, wave B');
   for (const id of ['metadata.providers.mal', 'metadata.providers.shikimori', 'metadata.providers.tenrai', 'settings.metadata.extra-providers']) {
     expect(id, (x) => x.wave === 'B' && x.area === 'b' && PLANNED.has(x.status), 'extra metadata providers are b, wave B');
   }
@@ -169,7 +169,10 @@ test('parity checklist: plan §0.1 amendments (2026-11-09) are applied', () => {
 // Wave B contract (2026-11-09): the checklist is the only shared artifact between the 10 wave B workers, so its
 // wave B rows must be unambiguous: one Android owner per desktop area (plan §2), no excluded backend named as work,
 // every `todo` with an observable `accept`, and the ids the wave B contracts cite present with the right owners.
-const ANDROID_FOR_B_AREA = { b: 'r', h: 'r', j: 'r', k: 'r', l: 's', m: 's', n: 't' };
+// User decision 2026-11-09 (balance r / t): Android extensions (j), the embed sniffer and the phone side of the native
+// server (k `sources.*` / `server.*`) moved from r to t; k's Link ids stay with r.
+const ANDROID_FOR_B_AREA = { b: 'r', h: 'r', j: 't', k: 'r', l: 's', m: 's', n: 't' };
+const androidForB = (x) => (x.area === 'k' && /^(sources|server)\./.test(x.id) ? 't' : ANDROID_FOR_B_AREA[x.area]);
 // Assembled from parts so the E8 guard (guard.test.mjs) does not match this file.
 const EXCLUDED_BACKENDS = new RegExp(['supabase', 'cloudflared', '\\bwarp\\b', 'realtime', 'giphy', 'turnstile', 'sen' + 'try', 'data' + 'dog'].join('|'), 'i');
 
@@ -178,8 +181,8 @@ test('parity checklist: wave B rows are ready for the workers', () => {
   const waveB = list.filter((x) => x.wave === 'B');
   for (const x of waveB) {
     if (!PLANNED.has(x.status)) continue;
-    // plan §2: b, h, j, k -> r; l, m -> s; n -> t (or desktop-only)
-    if (x.android !== null) assert.equal(x.android, ANDROID_FOR_B_AREA[x.area], `${x.id}: wave B area ${x.area} pairs with Android ${ANDROID_FOR_B_AREA[x.area]} (plan §2), got ${x.android}`);
+    // plan §2 + user decision 2026-11-09: b, h, k Link -> r; j, k sources / server -> t; l, m -> s; n -> t (or desktop-only)
+    if (x.android !== null) assert.equal(x.android, androidForB(x), `${x.id}: wave B area ${x.area} pairs with Android ${androidForB(x)} (plan §2), got ${x.android}`);
     // §0.1.9 / §0.1.10 / §0.1.14: nothing excluded is described as the thing to build
     assert.ok(!EXCLUDED_BACKENDS.test(`${x.title} ${x.accept}`), `${x.id}: a planned wave B entry names an excluded backend or service (plan §0.1)`);
     assert.ok(!/comentarios por episodio|ver juntos|salas?\b/i.test(x.accept), `${x.id}: own comments / watch rooms are out (plan §0.1.10)`);
@@ -196,9 +199,9 @@ test('parity checklist: wave B rows are ready for the workers', () => {
     assert.ok(x.wave === 'B' && x.area === area && x.android === android && PLANNED.has(x.status) && extra(x), `${id}: expected wave B ${area}/${android} planned, got ${x.wave} ${x.area}/${x.android} ${x.status}`);
   };
   // §0.1.13 sniffer (k / r) and its two companions
-  expectOwner('sources.embed-sniffer.ranking', 'k', 'r');
-  expectOwner('sources.embed-sniffer.adblock', 'k', 'r');
-  expectOwner('sources.embed-sniffer.timeout-setting', 'k', 'r');
+  expectOwner('sources.embed-sniffer.ranking', 'k', 't');
+  expectOwner('sources.embed-sniffer.adblock', 'k', 't');
+  expectOwner('sources.embed-sniffer.timeout-setting', 'k', 't');
   // KNOWN-ISSUES (wave A) items deferred to wave B
   expectOwner('sources.debrid.episode-context', 'k', null, (x) => x.platform === 'desktop');
   expectOwner('link.send-to-device', 'k', null, (x) => x.platform === 'desktop');
@@ -206,7 +209,7 @@ test('parity checklist: wave B rows are ready for the workers', () => {
   // Android "M1" stubs of Dispositivo enlazado (inventory-next §3) close in wave B
   for (const id of ['link.remote-control', 'link.handoff', 'link.discovery']) expectOwner(id, 'k', 'r', (x) => /M1/.test(x.accept));
   // tk-server (doc 13) serves .kai only; interpreted ecosystems stay in server/ (D4)
-  for (const id of ['server.native-mode', 'server.api.sources', 'server.api.resolve-proxy', 'server.api.invoke', 'server.api.extensions', 'server.pairing']) expectOwner(id, 'k', 'r');
+  for (const id of ['server.native-mode', 'server.api.sources', 'server.api.resolve-proxy', 'server.api.invoke', 'server.api.extensions', 'server.pairing']) expectOwner(id, 'k', 't');
   assert.equal(byId.get('server.interpreted-extensions')?.status, 'out', 'server.interpreted-extensions must be out (D4)');
   // metadata providers (b / r) with per-provider status
   for (const id of ['metadata.providers.mal', 'metadata.providers.shikimori', 'metadata.providers.tenrai', 'settings.metadata.extra-providers', 'settings.metadata.provider-status']) expectOwner(id, 'b', 'r');
@@ -218,7 +221,7 @@ test('parity checklist: wave B rows are ready for the workers', () => {
   expectOwner('downloads.integrity-check', 'h', 'r');
   expectOwner('downloads.android.workmanager', 'h', 'r', (x) => x.platform === 'android');
   // extensions (j / r)
-  for (const id of ['ext.kill-switch', 'ext.custom-providers.continue', 'ext.stremio', 'ext.repositories', 'ext.custom-providers.home-rows']) expectOwner(id, 'j', 'r');
+  for (const id of ['ext.kill-switch', 'ext.custom-providers.continue', 'ext.stremio', 'ext.repositories', 'ext.custom-providers.home-rows']) expectOwner(id, 'j', 't');
   for (const id of ['ext.server-client.pair', 'ext.server-client.manage', 'ext.server-client.sources', 'ext.deep-link.server']) expectOwner(id, 'j', null, (x) => x.platform === 'desktop');
   // manga / novels (l, m / s); KittenTTS stays desktop-only, Android is an open question (out)
   expectOwner('manga.route', 'l', 's');

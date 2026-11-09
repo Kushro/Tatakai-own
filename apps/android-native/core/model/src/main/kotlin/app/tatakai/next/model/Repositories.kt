@@ -192,7 +192,7 @@ interface ExtensionRepository {
      */
     val externalSourcesAvailable: Flow<Boolean> get() = flowOf(false)
 
-    // --- parity wave B (16 §3.4, worker r: overrides in core/extensions-quickjs/ExtensionRepositoryImpl.kt). Defaults = "not available". ---
+    // --- parity wave B (16 §3.4, worker t: overrides in core/extensions-quickjs/ExtensionRepositoryImpl.kt). Defaults = "not available". ---
     /** Install from a URL of a `.kai` package or of a `manifest.json` next to one (checklist `ext.install-url`). */
     suspend fun installFromUrl(url: String): Result<InstalledExtension> = Result.failure(NotImplementedError("installFromUrl"))
 

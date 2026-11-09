@@ -14,7 +14,7 @@ workspace = true
 default = ["mpv", "live"]
 mpv = ["tk-player/mpv"]
 # `live` wires the real backend (src/live/*) over tk-core / tk-ext / tk-link; on by default.
-live = ["dep:tk-core", "dep:tk-ext", "dep:tk-link", "dep:tk-torrent", "dep:tk-server", "dep:reqwest", "dep:time"]
+live = ["dep:tk-core", "dep:tk-ext", "dep:tk-link", "dep:tk-torrent", "dep:tk-server", "dep:reqwest", "dep:time", "dep:ort", "dep:ndarray"]
 
 [[bin]]
 name = "tatakai-next"
@@ -43,6 +43,9 @@ tk-torrent = { workspace = true, optional = true }
 tk-server = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 time = { workspace = true, optional = true }
+# KittenTTS over ONNX Runtime, loaded at run time (wave B, worker m: tts.rs / tts_*.rs)
+ort = { workspace = true, optional = true }
+ndarray = { workspace = true, optional = true }
 
 # mpv-anime-build verification + extraction (anime_build.rs)
 sha2 = { workspace = true }

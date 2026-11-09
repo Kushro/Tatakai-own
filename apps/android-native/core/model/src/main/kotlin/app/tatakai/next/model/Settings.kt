@@ -66,7 +66,7 @@ data class AppSettings(
     val downloads: DownloadSettings = DownloadSettings(),
     /** Worker r: local notification when a followed series airs an episode (`AiringRepository`). */
     val airingReminders: Boolean = true,
-    /** Worker r: compare installed extensions with their repositories at app start (`ExtensionRepository.checkUpdates`). */
+    /** Worker t: compare installed extensions with their repositories at app start (`ExtensionRepository.checkUpdates`). */
     val extensionUpdateCheck: Boolean = true,
     /** Worker s: manga reader (mode, fit, direction, loading, behaviour, keymap). */
     val reader: ReaderSettings = ReaderSettings(),

@@ -57,6 +57,6 @@
     <string name="extensions_log_warn">aviso</string>
     <string name="extensions_log_err">error</string>
     <string name="extensions_log_line">[%1$s] %2$s: %3$s</string>
-    <!-- parity wave B (16 §3.4, worker r): provider pages. -->
+    <!-- parity wave B (16 §3.4, worker t): provider pages. -->
     <string name="extensions_provider_title">Proveedor</string>
 </resources>

@@ -75,7 +75,7 @@ object SecretKeys {
     /** parity wave B (16 §3.6, worker s): API key of a narration engine: `TtsEngine.id` (OpenAI, ElevenLabs, OpenAI-compatible). */
     fun ttsApiKey(engineId: String): String = "tts.$engineId.api_key"
 
-    /** parity wave B (16 §3.4, worker r): a SECRET preference of an extension (`ExtensionPrefType.SECRET`). */
+    /** parity wave B (16 §3.4, worker t): a SECRET preference of an extension (`ExtensionPrefType.SECRET`). */
     fun extensionPreference(extensionId: String, key: String): String = "ext.$extensionId.pref.$key"
 }
 

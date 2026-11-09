@@ -13,10 +13,10 @@ import kotlinx.coroutines.flow.map
 import okhttp3.OkHttpClient
 import java.io.File
 
-// Parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.4, worker r, checklist ext.stremio / ext.stremio.manage, plan §7
-// D4): native Stremio addons. Signatures FINAL (the model interfaces); bodies: worker r.
+// Parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.4, worker t, checklist ext.stremio / ext.stremio.manage, plan §7
+// D4): native Stremio addons. Signatures FINAL (the model interfaces); bodies: worker t.
 //
-// Plan for r: `install` fetches `<manifestUrl>` (also `stremio://host/manifest.json` -> https), validates `id`, `name`, `version`,
+// Plan for t: `install` fetches `<manifestUrl>` (also `stremio://host/manifest.json` -> https), validates `id`, `name`, `version`,
 // `resources` contains `stream` (or an object with name `stream`), stores the addon as JSON in [storeDir]/addons.json. Streams:
 // `GET <base>/stream/<type>/<id>.json` where `<id>` is `kitsu:<kitsuId>:<episode>` when the addon lists `idPrefixes` with `kitsu`, else
 // IMDb through the Cinemeta search (`https://v3-cinemeta.strem.io/catalog/series/top/search=<title>.json`) + `tt…:<season>:<episode>`;
@@ -35,7 +35,7 @@ class StremioAddonRepositoryImpl(
     override val addons: StateFlow<List<StremioAddon>> = _addons.asStateFlow()
 
     override suspend fun install(manifestUrl: String): Result<StremioAddon> =
-        Result.failure(NotImplementedError("wave B worker r: StremioAddonRepositoryImpl.install"))
+        Result.failure(NotImplementedError("wave B worker t: StremioAddonRepositoryImpl.install"))
 
     override suspend fun setEnabled(id: String, enabled: Boolean) {
         _addons.value = _addons.value.map { if (it.id == id) it.copy(enabled = enabled) else it }
@@ -46,7 +46,7 @@ class StremioAddonRepositoryImpl(
     }
 
     override suspend fun update(id: String): Result<StremioAddon> =
-        Result.failure(NotImplementedError("wave B worker r: StremioAddonRepositoryImpl.update"))
+        Result.failure(NotImplementedError("wave B worker t: StremioAddonRepositoryImpl.update"))
 
     override suspend fun resetMatches(id: String) {}
 
@@ -70,7 +70,7 @@ class StremioCandidateSource(
     override val available: Flow<Boolean> = repository.addons.map { list -> list.any { it.enabled && it.hasStreams } }
 
     override suspend fun candidates(media: Media, episode: Int): List<SourceCandidate> {
-        // wave B (r): ask every enabled addon in parallel within [budgetMs]; never throw.
+        // wave B (t): ask every enabled addon in parallel within [budgetMs]; never throw.
         return emptyList()
     }
 

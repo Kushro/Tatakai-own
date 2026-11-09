@@ -56,7 +56,7 @@ data class WebInfo(
     val latencyMs: Int? = null,
     val subtitles: List<SubtitleTrack> = emptyList(),
     /**
-     * parity wave B (16 §3.3, worker r): [url] is an embed page (extension `type == "embed"`), not a media URL. The candidate is listed
+     * parity wave B (16 §3.3, worker t): [url] is an embed page (extension `type == "embed"`), not a media URL. The candidate is listed
      * with `container = EMBED_CONTAINER_LABEL`, `toStream()` returns null and the player resolves it through `EmbedSniffer` first.
      */
     val embed: Boolean = false,

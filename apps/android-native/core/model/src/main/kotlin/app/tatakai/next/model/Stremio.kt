@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 
 // Parity wave B contract (docs/redesign/16-parity-wave-b-contract-android.md §3.4, plan §7 D4): native Stremio addons. Desktop
-// counterpart: tk-ext (worker j). Signatures FINAL; bodies: worker r (`StremioAddonRepositoryImpl` + `StremioCandidateSource :
+// counterpart: tk-ext (worker j). Signatures FINAL; bodies: worker t (`StremioAddonRepositoryImpl` + `StremioCandidateSource :
 // ExternalCandidateSource` in :core:extensions-quickjs, bound in `extensionsModule`). Addon streams enter `resolveCandidates` with
 // `extId = "stremio:<addonId>"` and `extName = addon.name` (no `|` in ids: it separates `sourceKey`).
 

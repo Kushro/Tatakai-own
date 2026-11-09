@@ -262,10 +262,12 @@ pub struct TtsSpeakVm {
 /// `Backend::kitten_status`: local KittenTTS availability (plan 14 section 0.1 #13).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct KittenStatusVm {
-    /// The daemon can run (Python 3 + the `kittentts` package found) and the model is present.
+    /// The engine can run: ONNX Runtime library loaded, `espeak-ng` found and the model present.
     pub available: bool,
-    /// Python executable found (display form).
-    pub python: Option<String>,
+    /// ONNX Runtime shared library loaded from `<data>/tts/kitten/runtime` (its version, display form).
+    pub runtime: Option<String>,
+    /// `espeak-ng` executable used for text -> phonemes (display form); `None` = not installed.
+    pub phonemizer: Option<String>,
     pub model_present: bool,
     /// `<data>/tts/kitten` (display form).
     pub model_dir: String,

@@ -49,7 +49,7 @@ val extensionsModule: Module = module {
             },
         )
     }
-    // parity wave B (16 §3.3 / §3.4, worker r): embed sniffer (hidden WebView), native Stremio addons (one more ExternalCandidateSource),
+    // parity wave B (16 §3.3 / §3.4, worker t): embed sniffer (hidden WebView), native Stremio addons (one more ExternalCandidateSource),
     // their reset wiper. `StremioCandidateSource` is bound BEFORE the repository so `getAll<ExternalCandidateSource>()` below sees it.
     single<EmbedSniffer> { WebViewEmbedSniffer(androidContext(), get()) }
     single { StremioAddonRepositoryImpl(get(named("extensions-http")), File(androidContext().filesDir, StremioAddonRepositoryImpl.DIR_NAME), get()) }

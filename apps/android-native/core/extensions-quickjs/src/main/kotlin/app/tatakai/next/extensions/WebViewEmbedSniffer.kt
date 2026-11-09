@@ -8,11 +8,11 @@ import app.tatakai.next.model.EmbedSniffException
 import app.tatakai.next.model.EmbedSniffer
 
 /**
- * Parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.3, worker r, checklist sources.embed-sniffer): [EmbedSniffer] over
+ * Parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.3, worker t, checklist sources.embed-sniffer): [EmbedSniffer] over
  * a hidden `android.webkit.WebView` (same construction as [WebViewBrowserRuntime]: main thread, never attached to a window, phone-sized
  * layout, popups / downloads / permissions denied).
  *
- * Plan for r: load [embedUrl] with the extension's headers (`loadUrl(url, headers)`), intercept every request in
+ * Plan for t: load [embedUrl] with the extension's headers (`loadUrl(url, headers)`), intercept every request in
  * `WebViewClient.shouldInterceptRequest`; the first request whose path ends in `.m3u8` / `.mp4` (or whose `Accept` / known CDN pattern
  * says HLS / MP4) completes a `CompletableDeferred<EmbedCapture>` with the request URL + `request.requestHeaders` (+ `Cookie` from
  * `CookieManager`); the page keeps loading until then (the embed's own player usually requests the manifest after a click: r injects a
@@ -27,7 +27,7 @@ class WebViewEmbedSniffer(
     private val appContext = context.applicationContext
 
     override suspend fun sniff(embedUrl: String, headers: Map<String, String>, extId: String, timeoutMs: Long): EmbedCapture {
-        // wave B (r): implement as described above. Until then every embed source fails fast and the flow moves to the next source.
+        // wave B (t): implement as described above. Until then every embed source fails fast and the flow moves to the next source.
         logs?.warn(extId, "embed", "embed sniffer not implemented yet")
         throw EmbedSniffException(EmbedSniffException.UNAVAILABLE)
     }
