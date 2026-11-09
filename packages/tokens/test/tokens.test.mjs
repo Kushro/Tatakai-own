@@ -13,7 +13,12 @@ const schema = JSON.parse(readFileSync(join(here, 'tokens.schema.json'), 'utf8')
 const tokens = loadTokens();
 const normalize = (s) => s.replace(/\r\n/g, '\n');
 
-const EXPECTED_PALETTES = ['tatakai-violet', 'midnight', 'sakura', 'matcha', 'ocean', 'neon-tokyo', 'blood-moon', 'royal-gold', 'aurora', 'mono'];
+// 10 curated palettes of 01-design-system + 10 ported from the classic themes (wave B, worker b;
+// checklist settings.appearance.more-palettes: at least 16).
+const EXPECTED_PALETTES = [
+  'tatakai-violet', 'midnight', 'sakura', 'matcha', 'ocean', 'neon-tokyo', 'blood-moon', 'royal-gold', 'aurora', 'mono',
+  'cherry-blossom', 'deep-ocean', 'cyberpunk', 'zen-garden', 'solar', 'caffeine', 'dark-matter', 'frostbite', 'synthwave', 'vampire',
+];
 
 test('tokens.json is valid against tokens.schema.json', () => {
   assert.deepEqual(validate(schema, tokens), []);
@@ -30,8 +35,9 @@ test('schema rejects broken tokens (validator sanity)', () => {
   assert.ok(errors.some((e) => e.includes('fonts')), errors.join('\n'));
 });
 
-test('has the 10 curated palettes of 01-design-system and a valid default', () => {
+test('has the 20 palettes (at least 16) and a valid default', () => {
   assert.deepEqual(Object.keys(tokens.palettes), EXPECTED_PALETTES);
+  assert.ok(EXPECTED_PALETTES.length >= 16);
   assert.ok(tokens.palettes[tokens.defaultPalette]);
   assert.equal(tokens.palettes.mono.style, 'Monochrome');
   assert.equal(tokens.palettes.mono.contrast, 1);
