@@ -1,2 +1,201 @@
 /* manga.css - wave B, worker l (Manga home / details / reader, Settings > Manga reader, components/reader). Registered in app.rs APP_CSS by the contract; tokens only (no color literals);
    animations through --md-sys-motion-* / --tk-mo-* and [data-reduce-motion="true"]. Prefix: .tk-manga. */
+
+/* ---------- home ---------- */
+.tk-manga__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-16); }
+.tk-manga__search { flex: 1 1 280px; max-width: 520px; }
+.tk-manga__genres { flex-wrap: wrap; }
+.tk-manga__hint { font-size: var(--md-sys-typescale-body-small-size); }
+.tk-manga__count { margin: 0 0 var(--tk-space-8); }
+.tk-manga-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--tk-space-16); }
+.tk-manga-grid .tk-card { width: auto; }
+.tk-manga__filters { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-manga__filter { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-12); }
+.tk-manga__filter-label { min-width: 72px; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-large-size); }
+.tk-manga__select {
+  background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-small);
+  padding: var(--tk-space-4) var(--tk-space-8); font: inherit;
+}
+.tk-manga-list { display: flex; flex-direction: column; gap: var(--tk-space-16); }
+
+/* 18+ cards: blurred posters until hovered or focused (Settings > Home & discover: blur) */
+.tk-manga-card[data-blurred="true"] .tk-card img,
+.tk-manga-card[data-blurred="true"] .tk-cover img { filter: blur(14px); transition: filter var(--md-sys-motion-effects-default-duration) var(--md-sys-motion-effects-default-easing); }
+.tk-manga-card[data-blurred="true"]:hover .tk-card img,
+.tk-manga-card[data-blurred="true"]:focus-within .tk-card img,
+.tk-manga-card[data-blurred="true"]:hover .tk-cover img,
+.tk-manga-card[data-blurred="true"]:focus-within .tk-cover img { filter: none; }
+.tk-manga__adult-gate { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-16); }
+.tk-manga__gate { padding: var(--tk-space-48) var(--tk-space-16); }
+.tk-manga__gate-actions { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); justify-content: center; }
+
+/* ---------- details ---------- */
+.tk-manga-details .tk-details[data-blurred="true"] .tk-manga__cover img { filter: blur(14px); }
+.tk-manga__authors { margin: var(--tk-space-4) 0 0; }
+.tk-manga__status { display: flex; flex-direction: column; gap: var(--tk-space-8); margin-top: var(--tk-space-12); }
+.tk-manga__progress { display: flex; align-items: center; gap: var(--tk-space-8); }
+.tk-manga__chapters { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-manga__providers { flex-wrap: wrap; }
+.tk-manga__provider[data-best="true"] .tk-chip { box-shadow: inset 0 0 0 1px var(--md-sys-color-primary); }
+.tk-manga__provider-errors { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--tk-space-4); }
+.tk-manga__provider-errors li { display: flex; align-items: center; gap: var(--tk-space-8); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-manga__tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); }
+.tk-manga__filter-field { flex: 1 1 220px; max-width: 320px; }
+.tk-manga__switch { display: inline-flex; align-items: center; gap: var(--tk-space-8); }
+.tk-manga__volume-title { margin: var(--tk-space-12) 0 var(--tk-space-4); color: var(--md-sys-color-on-surface-variant); }
+.tk-manga__chapter-list { margin: 0; padding: 0; list-style: none; }
+.tk-manga__chapter { display: flex; align-items: center; gap: var(--tk-space-4); border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+.tk-manga__chapter-open {
+  flex: 1; display: flex; align-items: center; gap: var(--tk-space-12); position: relative; text-align: start;
+  padding: var(--tk-space-12) var(--tk-space-8); background: none; border: 0; color: inherit; font: inherit; cursor: pointer;
+  border-radius: var(--md-sys-shape-corner-small);
+}
+.tk-manga__chapter-open:hover, .tk-manga__chapter-open:focus-visible { background: var(--md-sys-color-surface-container-high); }
+.tk-manga__chapter[data-read="true"] .tk-manga__chapter-open { color: var(--md-sys-color-on-surface-variant); }
+.tk-manga__chapter-num { min-width: 112px; font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-manga__chapter-body { flex: 1; display: flex; flex-direction: column; gap: var(--tk-space-2); min-width: 0; }
+.tk-manga__chapter-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-manga__chapter-meta { font-size: var(--md-sys-typescale-body-small-size); }
+.tk-manga__chapter-progress {
+  position: absolute; inset-inline-start: 0; bottom: 0; height: 2px; width: var(--tk-manga-read, 0%);
+  background: var(--md-sys-color-primary); border-radius: var(--md-sys-shape-corner-full);
+}
+.tk-manga__download { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-manga__download-tools { display: flex; flex-wrap: wrap; gap: var(--tk-space-4); }
+.tk-manga__download-list { margin: 0; padding: 0; list-style: none; max-height: 52vh; overflow: auto; }
+.tk-manga__download-row label { display: flex; align-items: center; gap: var(--tk-space-12); padding: var(--tk-space-8); cursor: pointer; }
+.tk-manga__facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--tk-space-12); margin: 0; }
+.tk-manga__fact dt { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-medium-size); }
+.tk-manga__fact dd { margin: 0; }
+.tk-manga__plain-list { margin: 0; padding-inline-start: var(--tk-space-20); }
+.tk-manga__ids { display: flex; flex-wrap: wrap; gap: var(--tk-space-16); font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-manga__characters { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--tk-space-16); }
+.tk-manga__character { display: flex; flex-direction: column; gap: var(--tk-space-4); background: none; border: 0; color: inherit; font: inherit; text-align: start; cursor: pointer; padding: 0; }
+.tk-manga__character-name { font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-manga__relations { margin: 0; padding: 0; list-style: none; }
+.tk-manga__relation { display: flex; align-items: center; gap: var(--tk-space-12); width: 100%; background: none; border: 0; color: inherit; font: inherit; text-align: start; cursor: pointer; padding: var(--tk-space-8); border-radius: var(--md-sys-shape-corner-small); }
+.tk-manga__relation:hover, .tk-manga__relation:focus-visible { background: var(--md-sys-color-surface-container-high); }
+
+/* ---------- reader (bare route) ---------- */
+.tk-reader {
+  --tk-reader-bg: var(--md-sys-color-scrim);
+  --tk-reader-fg: var(--md-sys-color-inverse-on-surface);
+  position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden; outline: none;
+  background: var(--tk-reader-bg); color: var(--tk-reader-fg);
+}
+.tk-reader[data-background="gray"] { --tk-reader-bg: color-mix(in srgb, var(--md-sys-color-scrim) 62%, var(--md-sys-color-surface-bright)); }
+.tk-reader[data-background="white"] { --tk-reader-bg: var(--md-sys-color-primary-fixed); --tk-reader-fg: var(--md-sys-color-on-primary-fixed); }
+.tk-reader__top, .tk-reader__bottom {
+  position: absolute; inset-inline: 0; z-index: 2; display: flex; align-items: center; gap: var(--tk-space-12);
+  padding: var(--tk-space-8) var(--tk-space-16);
+  background: color-mix(in srgb, var(--md-sys-color-surface-container) 88%, transparent); color: var(--md-sys-color-on-surface);
+  backdrop-filter: blur(8px);
+  transition: opacity var(--md-sys-motion-effects-fast-duration) var(--md-sys-motion-effects-fast-easing);
+}
+.tk-reader__top { top: 0; }
+.tk-reader__bottom { bottom: 0; padding-block: var(--tk-space-4); }
+.tk-reader__titles { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.tk-reader__title { font-weight: var(--md-sys-typescale-title-medium-weight); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-reader__sub { font-size: var(--md-sys-typescale-body-small-size); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-reader__counter { font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-large-size); }
+.tk-reader__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-2); }
+.tk-reader__stage { flex: 1; min-height: 0; position: relative; display: flex; }
+.tk-reader__center { flex: 1; display: grid; place-items: center; padding: var(--tk-space-24); }
+.tk-reader__center .tk-error, .tk-reader__center .tk-empty { color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container); border-radius: var(--md-sys-shape-corner-large); padding: var(--tk-space-24); }
+.tk-reader__sources { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); margin-top: var(--tk-space-12); }
+
+.tk-reader__page { position: relative; display: flex; justify-content: center; }
+.tk-reader__page img { display: block; user-select: none; filter: brightness(var(--tk-reader-brightness, 100%)); }
+.tk-reader__page--idle { min-height: 70vh; }
+.tk-reader__page[data-failed="true"] img { visibility: hidden; min-height: 40vh; }
+.tk-reader__page-error {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--tk-space-8);
+  color: var(--md-sys-color-on-surface); background: color-mix(in srgb, var(--md-sys-color-surface-container) 90%, transparent);
+}
+
+/* paged / double page */
+.tk-reader__paged { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; cursor: pointer; }
+.tk-reader__spread { display: flex; justify-content: center; align-items: center; gap: 0; max-width: var(--tk-reader-max, none); width: 100%; height: 100%; }
+.tk-reader[data-direction="rtl"] .tk-reader__spread { flex-direction: row-reverse; }
+.tk-reader__spread .tk-reader__page { height: 100%; align-items: center; }
+.tk-reader[data-fit="width"] .tk-reader__spread .tk-reader__page img { width: 100%; height: auto; }
+.tk-reader[data-fit="width"] .tk-reader__spread[data-spread="true"] .tk-reader__page { width: 50%; }
+.tk-reader[data-fit="height"] .tk-reader__spread .tk-reader__page img { height: 100vh; width: auto; max-width: none; }
+.tk-reader[data-fit="screen"] .tk-reader__spread .tk-reader__page img { max-height: 100vh; max-width: 100%; width: auto; height: auto; object-fit: contain; }
+.tk-reader[data-fit="screen"] .tk-reader__spread[data-spread="true"] .tk-reader__page img { max-width: 50vw; }
+.tk-reader[data-fit="original"] .tk-reader__page img { zoom: var(--tk-reader-zoom, 1); max-width: none; }
+.tk-reader[data-fit="width"] .tk-reader__paged { align-items: flex-start; }
+.tk-reader[data-panel-crop="true"] .tk-reader__paged .tk-reader__page img { height: 100vh; width: auto; max-width: 100%; object-fit: cover; }
+
+/* vertical / webtoon */
+.tk-reader__scroll { flex: 1; overflow-y: auto; overflow-x: auto; overscroll-behavior: contain; }
+.tk-reader__column { display: flex; flex-direction: column; align-items: center; gap: var(--tk-reader-gap, 0); padding-block: var(--tk-space-64); }
+.tk-reader[data-mode="webtoon"] .tk-reader__column { gap: 0; }
+.tk-reader__column .tk-reader__page { width: var(--tk-reader-width, 70%); max-width: var(--tk-reader-max, none); }
+.tk-reader[data-panel-crop="true"] .tk-reader__column .tk-reader__page { width: 100%; }
+.tk-reader__column .tk-reader__page img { width: 100%; height: auto; }
+.tk-reader[data-fit="height"] .tk-reader__column .tk-reader__page img { height: 100vh; width: auto; max-width: 100%; }
+.tk-reader[data-fit="screen"] .tk-reader__column .tk-reader__page img { max-height: 100vh; width: auto; max-width: 100%; }
+.tk-reader[data-fit="original"] .tk-reader__column .tk-reader__page { width: auto; }
+.tk-reader__end { padding: var(--tk-space-48) var(--tk-space-16); display: flex; justify-content: center; }
+
+.tk-reader__preload { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.tk-reader__preload img { width: 1px; height: 1px; }
+
+/* page rail */
+.tk-reader__rail { display: flex; gap: var(--tk-space-4); overflow-x: auto; width: 100%; padding-block: var(--tk-space-4); }
+.tk-reader__thumb {
+  position: relative; flex: 0 0 auto; width: 48px; height: 68px; padding: 0; border: 2px solid transparent;
+  border-radius: var(--md-sys-shape-corner-extra-small); overflow: hidden; background: var(--md-sys-color-surface-container-highest); cursor: pointer;
+}
+.tk-reader__thumb img { width: 100%; height: 100%; object-fit: cover; }
+.tk-reader__thumb[aria-current="page"] { border-color: var(--md-sys-color-primary); }
+.tk-reader__thumb-num {
+  position: absolute; inset-inline: 0; bottom: 0; font-size: var(--md-sys-typescale-label-small-size); text-align: center;
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent); color: var(--md-sys-color-inverse-on-surface);
+}
+
+/* progress bar */
+.tk-reader__progress { position: absolute; inset-inline: 0; bottom: 0; height: 3px; z-index: 3; background: color-mix(in srgb, var(--md-sys-color-outline) 40%, transparent); }
+.tk-reader__progress-fill { display: block; height: 100%; background: var(--md-sys-color-primary); transition: width var(--md-sys-motion-effects-fast-duration) var(--md-sys-motion-effects-fast-easing); }
+.tk-reader[data-chrome="visible"] .tk-reader__progress { bottom: auto; top: 0; }
+
+/* chapter navigator */
+.tk-reader__navigator { display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-reader__navlist { margin: 0; padding: 0; list-style: none; max-height: 60vh; overflow: auto; }
+.tk-reader__navitem {
+  display: flex; align-items: center; gap: var(--tk-space-12); width: 100%; padding: var(--tk-space-8) var(--tk-space-12);
+  background: none; border: 0; color: inherit; font: inherit; text-align: start; cursor: pointer; border-radius: var(--md-sys-shape-corner-small);
+}
+.tk-reader__navitem:hover, .tk-reader__navitem:focus-visible { background: var(--md-sys-color-surface-container-high); }
+.tk-reader__navitem[aria-current="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.tk-reader__navitem[data-read="true"] { color: var(--md-sys-color-on-surface-variant); }
+.tk-reader__navnum { min-width: 104px; font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-reader__navtitle { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- reader prefs form (reader sheet + Settings > Manga reader) ---------- */
+.tk-manga-form { display: flex; flex-direction: column; gap: var(--tk-space-8); width: 100%; }
+.tk-manga-form__group { margin: var(--tk-space-12) 0 0; color: var(--md-sys-color-primary); font-size: var(--md-sys-typescale-title-small-size); }
+.tk-manga-form__row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--tk-space-12); padding-block: var(--tk-space-4); }
+.tk-manga-form__text { display: flex; flex-direction: column; min-width: 180px; }
+.tk-manga-form__hint { font-size: var(--md-sys-typescale-body-small-size); }
+.tk-manga-form__ctl { display: flex; align-items: center; gap: var(--tk-space-12); }
+.tk-manga-form__range { width: 200px; accent-color: var(--md-sys-color-primary); }
+.tk-manga-form__value { min-width: 64px; font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-medium-size); text-align: end; }
+.tk-manga-keys { display: flex; flex-direction: column; gap: var(--tk-space-12); width: 100%; }
+.tk-manga-keys__table { width: 100%; border-collapse: collapse; }
+.tk-manga-keys__table td { padding: var(--tk-space-4) var(--tk-space-8); border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+.tk-manga-keys__key { width: 140px; }
+.tk-manga-keys__ops { text-align: end; white-space: nowrap; }
+.tk-manga-keys__capture {
+  width: 120px; padding: var(--tk-space-4) var(--tk-space-8); font: inherit;
+  background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);
+  border: 1px solid var(--md-sys-color-primary); border-radius: var(--md-sys-shape-corner-small);
+}
+
+/* reduced motion: no transitions (auto-scroll is disabled in code) */
+[data-reduce-motion="true"] .tk-reader__top,
+[data-reduce-motion="true"] .tk-reader__bottom,
+[data-reduce-motion="true"] .tk-reader__progress-fill,
+[data-reduce-motion="true"] .tk-manga-card .tk-card img { transition: none; }
