@@ -13,9 +13,21 @@ pub mod about;
 pub mod accounts;
 pub mod appearance;
 pub mod data;
+/// Wave B, worker h: Settings > Downloads.
+pub mod downloads;
+/// Wave B, worker b: Settings > Home & discover (blocks, calendar reminders, recommendations, mature content).
+pub mod home;
 pub mod link;
 pub mod metadata;
+/// Wave B, worker m: Settings > Novel reader (typography, flow, narration incl. KittenTTS).
+pub mod novel;
 pub mod player;
+/// Wave B, worker l: Settings > Manga reader.
+pub mod reader;
+/// Wave B, worker k: Settings > Server & network (extension server, proxy, FlareSolverr, embed sniffer).
+pub mod server;
+/// Wave B, worker n: Settings > Social (AniList notifications polling, details extras).
+pub mod social;
 pub mod subtitles;
 pub mod system;
 
@@ -32,23 +44,36 @@ use self::about::AboutSection;
 use self::accounts::AccountsSection;
 use self::appearance::AppearanceSection;
 use self::data::DataSection;
+use self::downloads::DownloadsSection;
+use self::home::HomeSection;
 use self::link::LinkSection;
 use self::metadata::MetadataSection;
+use self::novel::NovelSection;
 use self::player::PlayerSection;
+use self::reader::ReaderSection;
+use self::server::ServerSection;
+use self::social::SocialSection;
 use self::subtitles::SubtitlesSection;
 use self::system::SystemSection;
 
 /// `(section id, icon)`: anchors `set-<id>`, titles `settings.<id>`. Order = index order; `SettingsPanel { index }`
-/// below must match.
-const SECTIONS: [(&str, &str); 9] = [
+/// below must match. Wave B (docs/redesign/16 section 2) adds home (b), downloads (h), reader (l), novel (m),
+/// server (k) and social (n); the title keys live in each owner's namespace.
+const SECTIONS: [(&str, &str); 15] = [
     ("appearance", "palette"),
+    ("home", "home"),
     ("player", "play"),
     ("subtitles", "cc"),
+    ("reader", "grid"),
+    ("novel", "bookmark"),
+    ("downloads", "download"),
     ("metadata", "sync"),
     ("accounts", "user"),
+    ("social", "heart"),
     ("link", "link"),
+    ("server", "desktop"),
     ("data", "storage"),
-    ("system", "desktop"),
+    ("system", "tune"),
     ("about", "info"),
 ];
 
@@ -70,6 +95,11 @@ pub(super) fn provider_mono(p: &str) -> String {
         "anilist" => "AL".to_owned(),
         "kitsu" => "Ki".to_owned(),
         "anizip" => "az".to_owned(),
+        "mal" => "MAL".to_owned(),
+        "shikimori" => "Sh".to_owned(),
+        "tenrai" => "Te".to_owned(),
+        "mangadex" => "MD".to_owned(),
+        "mangaupdates" => "MU".to_owned(),
         other => other.chars().take(2).collect(),
     }
 }
@@ -202,14 +232,20 @@ pub fn SettingsPage() -> Element {
 
                     div { class: "tk-settings__body",
                         SettingsPanel { index: 0, panels, AppearanceSection { commit, commit_saved } }
-                        SettingsPanel { index: 1, panels, PlayerSection { commit_saved } }
-                        SettingsPanel { index: 2, panels, SubtitlesSection {} }
-                        SettingsPanel { index: 3, panels, MetadataSection { commit_saved } }
-                        SettingsPanel { index: 4, panels, AccountsSection {} }
-                        SettingsPanel { index: 5, panels, LinkSection {} }
-                        SettingsPanel { index: 6, panels, DataSection {} }
-                        SettingsPanel { index: 7, panels, SystemSection {} }
-                        SettingsPanel { index: 8, panels, AboutSection {} }
+                        SettingsPanel { index: 1, panels, HomeSection { commit_saved } }
+                        SettingsPanel { index: 2, panels, PlayerSection { commit_saved } }
+                        SettingsPanel { index: 3, panels, SubtitlesSection {} }
+                        SettingsPanel { index: 4, panels, ReaderSection { commit_saved } }
+                        SettingsPanel { index: 5, panels, NovelSection { commit_saved } }
+                        SettingsPanel { index: 6, panels, DownloadsSection { commit_saved } }
+                        SettingsPanel { index: 7, panels, MetadataSection { commit_saved } }
+                        SettingsPanel { index: 8, panels, AccountsSection {} }
+                        SettingsPanel { index: 9, panels, SocialSection { commit_saved } }
+                        SettingsPanel { index: 10, panels, LinkSection {} }
+                        SettingsPanel { index: 11, panels, ServerSection { commit_saved } }
+                        SettingsPanel { index: 12, panels, DataSection {} }
+                        SettingsPanel { index: 13, panels, SystemSection {} }
+                        SettingsPanel { index: 14, panels, AboutSection {} }
                     }
                 }
             }

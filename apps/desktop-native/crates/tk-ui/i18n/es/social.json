@@ -1,0 +1,8 @@
+{
+  "social.profile.title": "Perfil de AniList",
+  "social.notifications.title": "Notificaciones",
+  "social.activity.title": "Actividad",
+  "settings.social": "Social",
+  "settings.social.hint": "Sondeo de notificaciones de AniList y qué muestra la ficha desde AniList. El perfil y la privacidad se editan en anilist.co.",
+  "settings.social.placeholder": "Ajustes sociales"
+}

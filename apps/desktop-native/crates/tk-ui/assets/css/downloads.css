@@ -1,0 +1,2 @@
+/* downloads.css - wave B, worker h (Downloads page, Settings > Downloads, player download button, Download season sheet). Registered in app.rs APP_CSS by the contract; tokens only (no color literals);
+   animations through --md-sys-motion-* / --tk-mo-* and [data-reduce-motion="true"]. Prefix: .tk-downloads. */

@@ -24,6 +24,12 @@ const val SEADEX_BEST_BONUS: Float = 4f
 const val DEBRID_CACHED_BONUS: Float = 10f
 
 /**
+ * parity wave B (16 §3.3, worker r, checklist sources.embed-sniffer.ranking; additive): an embed page needs the hidden-WebView sniffer
+ * before it can play, so it ranks below any direct HLS / MP4 of the same quality. Added by the contract; r keeps it.
+ */
+const val EMBED_PENALTY: Float = 15f
+
+/**
  * `reliability*50 ± 20 (preferred kind) + 6*min(rank,3) − 25 if below minQuality + 10 (subLang in subs) + 6 (dubLang in dubs)
  * + torrent: min(seeders,500)/50 − 20 if seeders < 20 + SEADEX_BEST_BONUS if tags.seadexBest | web: −min(latency,1000)/100
  * − 1000 when the extension is disabled`. Desktop has NO batch bonus (score does not get the episode); neither does this port.
@@ -53,6 +59,7 @@ fun score(c: SourceCandidate, prefs: SourcePrefs, extEnabled: Boolean): Float {
             // not measured yet = no penalty
             val ms = c.web?.latencyMs
             if (ms != null) v -= minOf(ms, 1000).toFloat() / 100f
+            if (c.isEmbed) v -= EMBED_PENALTY
         }
     }
     if (!extEnabled) v -= 1000f

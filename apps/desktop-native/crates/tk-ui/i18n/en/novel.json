@@ -1,0 +1,8 @@
+{
+  "novel.title": "Novels",
+  "novel.details.title": "Novel details",
+  "novel.reader.title": "Reader",
+  "settings.novel": "Novel reader",
+  "settings.novel.hint": "Typography, reading flow and narration (system voice, OpenAI, ElevenLabs, local KittenTTS).",
+  "settings.novel.placeholder": "Novel reader settings"
+}

@@ -180,6 +180,7 @@ pub(super) fn legacy_sources(vm: &PlaybackVm) -> Vec<SourceVm> {
             picked: false,
             tags: ReleaseTagsVm::default(),
             debrid: None,
+            embed: false,
         })
         .collect()
 }

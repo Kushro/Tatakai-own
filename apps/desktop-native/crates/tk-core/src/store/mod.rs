@@ -8,6 +8,19 @@
 pub mod lists;
 pub mod torrents;
 pub mod translate;
+// wave B (docs/redesign/16 section 3.5): one file per owner, same rule (this file stays frozen).
+/// Downloads queue / history, local library, auto-download runs (worker h).
+pub mod downloads;
+/// Extension servers, Stremio add-ons, repositories, per-extension preferences, update cache, provider bookmarks (worker j).
+pub mod ext;
+/// Tracked shows, recommendation feedback, Home visits (worker b).
+pub mod home;
+/// Reading progress, chapter-list cache, offline chapters, manga / novel list mirror + queue (worker l; m reads).
+pub mod reading;
+/// Short-lived AniList social cache (worker n).
+pub mod social;
+/// Synthesized speech clips (worker m).
+pub mod tts;
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -144,6 +157,222 @@ CREATE TABLE IF NOT EXISTS torrent_sessions (
   completed        INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_torrent_sessions_started ON torrent_sessions (started_at DESC);
+-- ---- wave B (docs/redesign/16-parity-wave-b-contract.md section 3.5) ----
+-- worker b: shows the user follows in the airing calendar (details 'Follow'); reminders announced per episode
+CREATE TABLE IF NOT EXISTS tracked_shows (
+  media_id    TEXT PRIMARY KEY NOT NULL,
+  title       TEXT NOT NULL,
+  poster      TEXT,
+  anilist_id  INTEGER,
+  added_at    INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS airing_reminders (
+  media_id    TEXT NOT NULL,
+  episode     INTEGER NOT NULL,
+  announced_at INTEGER NOT NULL,
+  PRIMARY KEY (media_id, episode)
+);
+-- worker b: recommendation feedback (not_interested | skip | like), local only
+CREATE TABLE IF NOT EXISTS recs_feedback (
+  media_id    TEXT PRIMARY KEY NOT NULL,
+  feedback    TEXT NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+-- worker b: last Home visit per section ('home' | 'manga' | 'novel'), for 'new since your last visit' rows
+CREATE TABLE IF NOT EXISTS home_visits (
+  section     TEXT PRIMARY KEY NOT NULL,
+  visited_at  INTEGER NOT NULL
+);
+-- worker h: download queue + history (web HLS / MP4, manga / novel chapters; torrents stay in the engine)
+CREATE TABLE IF NOT EXISTS downloads (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  media_id      TEXT NOT NULL,
+  title         TEXT NOT NULL,
+  poster        TEXT,
+  episode       INTEGER,
+  chapter       TEXT,
+  kind          TEXT NOT NULL,
+  state         TEXT NOT NULL,
+  url           TEXT NOT NULL,
+  headers_json  TEXT NOT NULL DEFAULT '[]',
+  source_id     TEXT,
+  quality       TEXT,
+  audio_lang    TEXT,
+  sub_lang      TEXT,
+  path          TEXT,
+  bytes_done    INTEGER NOT NULL DEFAULT 0,
+  bytes_total   INTEGER,
+  segments_done INTEGER NOT NULL DEFAULT 0,
+  segments_total INTEGER,
+  error         TEXT,
+  added_at      INTEGER NOT NULL,
+  started_at    INTEGER,
+  completed_at  INTEGER,
+  watched_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads (state, added_at DESC);
+CREATE INDEX IF NOT EXISTS idx_downloads_media ON downloads (media_id, episode);
+-- worker h: local library (imported / scanned video files matched to a title + episode)
+CREATE TABLE IF NOT EXISTS local_library (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  path        TEXT NOT NULL UNIQUE,
+  file_name   TEXT NOT NULL,
+  size_bytes  INTEGER NOT NULL DEFAULT 0,
+  media_id    TEXT,
+  title       TEXT,
+  poster      TEXT,
+  episode     INTEGER,
+  added_at    INTEGER NOT NULL,
+  verified_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_local_library_media ON local_library (media_id, episode);
+-- worker h: auto-download passes (newest first)
+CREATE TABLE IF NOT EXISTS auto_download_runs (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ran_at      INTEGER NOT NULL,
+  checked     INTEGER NOT NULL DEFAULT 0,
+  enqueued    INTEGER NOT NULL DEFAULT 0,
+  skipped_json TEXT NOT NULL DEFAULT '[]'
+);
+-- worker j: paired extension servers (token in Secrets under extserver.<id>.token)
+CREATE TABLE IF NOT EXISTS ext_servers (
+  id          TEXT PRIMARY KEY NOT NULL,
+  name        TEXT NOT NULL,
+  url         TEXT NOT NULL,
+  role        TEXT NOT NULL DEFAULT 'viewer',
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  server_id   TEXT,
+  last_ok_at  INTEGER,
+  last_error  TEXT,
+  added_at    INTEGER NOT NULL
+);
+-- worker j: Stremio add-ons (manifest cached as JSON)
+CREATE TABLE IF NOT EXISTS stremio_addons (
+  id            TEXT PRIMARY KEY NOT NULL,
+  manifest_url  TEXT NOT NULL UNIQUE,
+  manifest_json TEXT NOT NULL,
+  enabled       INTEGER NOT NULL DEFAULT 1,
+  added_at      INTEGER NOT NULL
+);
+-- worker j: extension repositories (URL index of packages) + their fetched catalogue
+CREATE TABLE IF NOT EXISTS ext_repos (
+  id            TEXT PRIMARY KEY NOT NULL,
+  name          TEXT NOT NULL,
+  url           TEXT NOT NULL UNIQUE,
+  catalog_json  TEXT,
+  fetched_at    INTEGER,
+  last_error    TEXT,
+  added_at      INTEGER NOT NULL
+);
+-- worker j: per-extension preferences (exposed to the bundle as `preferences`); secrets masked by the UI only
+CREATE TABLE IF NOT EXISTS ext_prefs (
+  ext_id      TEXT NOT NULL,
+  key         TEXT NOT NULL,
+  value       TEXT NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  PRIMARY KEY (ext_id, key)
+);
+-- worker j: last update check per installed extension
+CREATE TABLE IF NOT EXISTS ext_updates (
+  ext_id      TEXT PRIMARY KEY NOT NULL,
+  current     TEXT NOT NULL,
+  latest      TEXT,
+  url         TEXT,
+  notes       TEXT,
+  checked_at  INTEGER NOT NULL
+);
+-- worker j: bookmarked custom-provider titles (ext:<ext_id>:<key>)
+CREATE TABLE IF NOT EXISTS provider_bookmarks (
+  media_id    TEXT PRIMARY KEY NOT NULL,
+  ext_id      TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  poster      TEXT,
+  completed   INTEGER NOT NULL DEFAULT 0,
+  added_at    INTEGER NOT NULL
+);
+-- worker l (m shares through the `kind` column: 'manga' | 'novel'): reading position per chapter
+CREATE TABLE IF NOT EXISTS read_progress (
+  kind            TEXT NOT NULL,
+  media_id        TEXT NOT NULL,
+  ext_id          TEXT NOT NULL,
+  chapter_id      TEXT NOT NULL,
+  chapter_number  REAL NOT NULL DEFAULT 0,
+  position        INTEGER NOT NULL DEFAULT 0,
+  total           INTEGER,
+  completed       INTEGER NOT NULL DEFAULT 0,
+  title           TEXT,
+  poster          TEXT,
+  updated_at      INTEGER NOT NULL,
+  PRIMARY KEY (kind, media_id, ext_id, chapter_id)
+);
+CREATE INDEX IF NOT EXISTS idx_read_progress_recent ON read_progress (kind, updated_at DESC);
+-- worker l: cached chapter lists per title + provider (JSON of `tk_core::manga::Chapter[]`), TTL by `fetched_at`
+CREATE TABLE IF NOT EXISTS chapter_lists (
+  kind        TEXT NOT NULL,
+  media_id    TEXT NOT NULL,
+  ext_id      TEXT NOT NULL,
+  chapters_json TEXT NOT NULL,
+  fetched_at  INTEGER NOT NULL,
+  PRIMARY KEY (kind, media_id, ext_id)
+);
+-- worker l (manga pages on disk) / m (novel text inline): offline chapters
+CREATE TABLE IF NOT EXISTS offline_chapters (
+  kind        TEXT NOT NULL,
+  media_id    TEXT NOT NULL,
+  ext_id      TEXT NOT NULL,
+  chapter_id  TEXT NOT NULL,
+  dir         TEXT,
+  text_json   TEXT,
+  pages       INTEGER,
+  bytes       INTEGER NOT NULL DEFAULT 0,
+  saved_at    INTEGER NOT NULL,
+  PRIMARY KEY (kind, media_id, ext_id, chapter_id)
+);
+-- worker l (m shares): local mirror of the AniList manga list (manga + novels) and its offline write queue
+CREATE TABLE IF NOT EXISTS read_list_entries (
+  kind         TEXT NOT NULL,
+  media_id     TEXT NOT NULL,
+  anilist_id   INTEGER,
+  title        TEXT NOT NULL,
+  poster       TEXT,
+  status       TEXT NOT NULL,
+  progress     INTEGER NOT NULL DEFAULT 0,
+  chapters     INTEGER,
+  score        INTEGER,
+  notes        TEXT,
+  remote_id    INTEGER,
+  updated_at   INTEGER NOT NULL,
+  dirty        INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (kind, media_id)
+);
+CREATE TABLE IF NOT EXISTS read_list_queue (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind        TEXT NOT NULL,
+  media_id    TEXT NOT NULL,
+  op          TEXT NOT NULL,
+  payload     TEXT NOT NULL,
+  created_at  INTEGER NOT NULL,
+  attempts    INTEGER NOT NULL DEFAULT 0,
+  last_error  TEXT
+);
+-- worker m: synthesized speech clips (key = sha256(provider | voice | rate | text))
+CREATE TABLE IF NOT EXISTS tts_cache (
+  key         TEXT PRIMARY KEY NOT NULL,
+  provider    TEXT NOT NULL,
+  voice       TEXT NOT NULL,
+  rate        INTEGER NOT NULL,
+  path        TEXT NOT NULL,
+  mime        TEXT NOT NULL,
+  duration_ms INTEGER,
+  bytes       INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL
+);
+-- worker n: short-lived AniList social answers (profile, unread count, reviews page) keyed by query
+CREATE TABLE IF NOT EXISTS social_cache (
+  key         TEXT PRIMARY KEY NOT NULL,
+  value       TEXT NOT NULL,
+  expires_at  INTEGER NOT NULL
+);
 ";
 
 pub struct LocalStore {
@@ -192,6 +421,14 @@ impl LocalStore {
     fn with<T>(&self, f: impl FnOnce(&Connection) -> rusqlite::Result<T>) -> Result<T, StoreError> {
         let g = self.conn.lock().map_err(|_| StoreError::Poisoned)?;
         Ok(f(&g)?)
+    }
+
+    /// Whether `name` is a table of this database (wave B: the per-owner store files test their tables with it).
+    pub fn table_exists(&self, name: &str) -> Result<bool, StoreError> {
+        self.with(|c| {
+            c.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1", [name], |r| r.get::<_, i64>(0))
+                .map(|n| n > 0)
+        })
     }
 
     // ---- history ---------------------------------------------------------------------------------

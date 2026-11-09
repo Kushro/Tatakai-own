@@ -11,24 +11,36 @@
 pub mod config;
 /// Debrid services as torrent sources (wave A, worker i).
 pub mod debrid;
+/// HLS / MP4 download engine + local library (wave B, worker h).
+pub mod download;
 pub mod error;
+/// Client of a paired extension server (`/api/server/v1`; wave B, worker j).
+pub mod extserver;
 /// AniList / MyAnimeList lists: OAuth, read / write, offline queue (wave A, worker g).
 pub mod lists;
+/// Manga chapters per provider, best-source pick (wave B, worker l).
+pub mod manga;
 pub mod metadata;
 pub mod model;
 pub mod net;
+/// Novel chapter text (wave B, worker m).
+pub mod novel;
+/// Local recommendation engine: taste profile, scoring, atlas projection (wave B, worker b).
+pub mod recs;
 pub mod release;
 /// OS keyring with a file fallback for OAuth tokens, translation and debrid keys (wave A, worker f).
 pub mod secrets;
 pub mod sources;
 pub mod store;
+/// Stremio add-ons as stream sources (wave B, worker j).
+pub mod stremio;
 /// trace.moe scene search (wave A, worker a).
 pub mod tracemoe;
 /// Subtitle translation providers (wave A, worker d).
 pub mod translate;
 
 pub use config::AppConfig;
-pub use error::{DebridError, ListError, ProviderError, SecretError, StoreError, TranslateError};
+pub use error::{DebridError, DownloadError, ExtServerError, ListError, ProviderError, ReadError, SecretError, StoreError, TranslateError};
 pub use secrets::Secrets;
 pub use metadata::{MetadataProvider, MetadataRouter};
 pub use model::*;

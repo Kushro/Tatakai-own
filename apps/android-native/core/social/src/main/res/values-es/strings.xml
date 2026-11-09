@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="social_channel">Notificaciones de AniList</string>
+    <string name="social_channel_desc">Nuevos seguidores, me gusta, respuestas y episodios emitidos de AniList</string>
+    <plurals name="social_notification_unread">
+        <item quantity="one">%1$d notificación nueva de AniList</item>
+        <item quantity="other">%1$d notificaciones nuevas de AniList</item>
+    </plurals>
+</resources>

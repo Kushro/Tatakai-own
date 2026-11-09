@@ -71,6 +71,21 @@ object SecretKeys {
 
     /** API key of a subtitle translation provider: `TranslationProvider.id`. Owner: worker p (reads / writes), store: worker q. */
     fun translationApiKey(providerId: String): String = "translate.$providerId.api_key"
+
+    /** parity wave B (16 §3.6, worker s): API key of a narration engine: `TtsEngine.id` (OpenAI, ElevenLabs, OpenAI-compatible). */
+    fun ttsApiKey(engineId: String): String = "tts.$engineId.api_key"
+
+    /** parity wave B (16 §3.4, worker r): a SECRET preference of an extension (`ExtensionPrefType.SECRET`). */
+    fun extensionPreference(extensionId: String, key: String): String = "ext.$extensionId.pref.$key"
+}
+
+/**
+ * parity wave B (16 §3.8): a module-private store that "Restablecer la app" must wipe (downloads index + files, followed shows, reader
+ * progress, chapter downloads, Stremio addons, social caches). Every new core module binds one (`single { … } bind AppDataWiper::class`);
+ * `AppResetImpl` runs `getAll<AppDataWiper>()` after the shared stores. Never throws for a missing file.
+ */
+fun interface AppDataWiper {
+    suspend fun wipe()
 }
 
 /**

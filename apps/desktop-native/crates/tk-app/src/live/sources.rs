@@ -86,6 +86,7 @@ pub fn tags_vm(t: &ReleaseTags) -> ReleaseTagsVm {
 fn source_vm(c: SourceCandidate, score: f32, ext_enabled: bool, picked: Option<&str>, recommended: bool) -> SourceVm {
     let id = source_key(&c);
     let picked = picked == Some(id.as_str());
+    let embed = c.web.as_ref().is_some_and(|w| w.embed);
     let (latency_ms, size_bytes, seeders, leechers, info_hash) = (
         c.web.as_ref().and_then(|w| w.latency_ms),
         c.torrent.as_ref().and_then(|t| t.size_bytes),
@@ -117,6 +118,7 @@ fn source_vm(c: SourceCandidate, score: f32, ext_enabled: bool, picked: Option<&
         picked,
         tags,
         debrid: None,
+        embed,
     }
 }
 
@@ -164,7 +166,7 @@ mod tests {
             dubs: vec!["ja".into()],
             reliability: 0.9,
             note: None,
-            web: Some(WebInfo { url: format!("https://{label}.test/a.m3u8"), headers: Default::default(), latency_ms: Some(120), subtitles: Vec::new() }),
+            web: Some(WebInfo { url: format!("https://{label}.test/a.m3u8"), headers: Default::default(), latency_ms: Some(120), subtitles: Vec::new(), embed: false }),
             torrent: None,
             tags: Default::default(),
         }

@@ -45,6 +45,15 @@ pub mod keys {
     pub fn translation(provider_id: &str) -> String {
         format!("translate.{provider_id}.key")
     }
+    /// Wave B (worker j): viewer / admin token of a paired extension server, `extserver.<server id>.token`.
+    pub fn ext_server(server_id: &str) -> String {
+        format!("extserver.{server_id}.token")
+    }
+    /// Wave B (worker m): API key of a narration provider (`TtsProviderVm::id()`: `openai`, `openai_compatible`,
+    /// `elevenlabs`), `tts.<provider id>.key`.
+    pub fn tts(provider_id: &str) -> String {
+        format!("tts.{provider_id}.key")
+    }
 }
 
 /// Serializes writes of the fallback file inside this process (several `Secrets` clones share one file).

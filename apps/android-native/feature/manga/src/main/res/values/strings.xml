@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- parity wave B (16 §3.5, worker s): manga screens (manga_*). Shared keys (read_status_*, chapter_*, nav_manga) are in core/ui. -->
+<resources>
+    <string name="manga_title">Manga</string>
+    <string name="manga_reader_title">Reader</string>
+</resources>

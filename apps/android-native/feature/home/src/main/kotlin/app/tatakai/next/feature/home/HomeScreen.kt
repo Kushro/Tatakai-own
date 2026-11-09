@@ -98,6 +98,20 @@ fun HomeScreen(
     onSearchQuery: (String) -> Unit = {},
     /** "Continuar viendo › Ver todo" -> Library (Continuar tab). */
     onOpenLibrary: () -> Unit = {},
+    // --- parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.1 / §3.4, worker r): appended, wired by :app ---
+    /** Header of the "Novedades de lo que sigues" / airing row -> Route.Calendar. */
+    onOpenCalendar: () -> Unit = {},
+    /** Header of the "Para ti" row -> Route.ForYou. */
+    onOpenForYou: () -> Unit = {},
+    /** Quick chips Manga / Novelas of the greeting (phones: the only way to the readers besides Search / You) -> Route.Manga() / Route.Novels(). */
+    onOpenManga: () -> Unit = {},
+    onOpenNovels: () -> Unit = {},
+    /** Bell of the top bar (badge = SocialRepository.unreadCount, read with koinInject by r) -> Route.Notifications. */
+    onOpenNotifications: () -> Unit = {},
+    /** Header of a custom-provider row (`ExtensionHomeRow.extensionId / sourceId`) -> Route.Provider(extensionId, sourceId). */
+    onOpenProvider: (extensionId: String, sourceId: String) -> Unit = { _, _ -> },
+    /** Item of a custom-provider row -> Route.ProviderItem(extensionId, sourceId, itemId) (replaces the title search of wave android). */
+    onOpenProviderItem: (extensionId: String, sourceId: String, itemId: String) -> Unit = { _, _, _ -> },
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     HomeContent(

@@ -8,10 +8,14 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import app.tatakai.next.model.AppSettings
+import app.tatakai.next.model.DownloadSettings
+import app.tatakai.next.model.NovelReaderSettings
+import app.tatakai.next.model.ReaderSettings
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SourcePrefs
 import app.tatakai.next.model.SubtitleStyle
 import app.tatakai.next.model.SubtitleTranslation
+import app.tatakai.next.model.TtsSettings
 import app.tatakai.next.model.torrent.TorrentSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -98,6 +102,16 @@ internal object SettingsCodec {
     // parity wave A, 2026-11-09 amendment (worker q): history over Link, first-run wizard
     private val HISTORY_SYNC_LINK = booleanPreferencesKey("history_sync_link")
     private val ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
+    // --- parity wave B (16 §3.9): one key per new AppSettings field; objects as JSON (contract, so r / s / t never edit this file) ---
+    private val DOWNLOADS = stringPreferencesKey("downloads_json")
+    private val AIRING_REMINDERS = booleanPreferencesKey("airing_reminders")
+    private val EXTENSION_UPDATE_CHECK = booleanPreferencesKey("extension_update_check")
+    private val READER = stringPreferencesKey("reader_json")
+    private val NOVEL_READER = stringPreferencesKey("novel_reader_json")
+    private val TTS = stringPreferencesKey("tts_json")
+    private val MANGA_TITLE_LANGUAGE = stringPreferencesKey("manga_title_language")
+    private val SOCIAL_NOTIFICATIONS = booleanPreferencesKey("social_notifications")
+    private val MATURE_CONTENT = stringPreferencesKey("mature_content")
     private val KEYMAP_SERIALIZER = MapSerializer(String.serializer(), String.serializer())
     const val COUNTDOWN_MIN_SECS = 3
     const val COUNTDOWN_MAX_SECS = 30
@@ -118,7 +132,7 @@ internal object SettingsCodec {
             language = enumOr(p[LANGUAGE], d.language),
             playerEngine = enumOr(p[PLAYER_ENGINE], d.playerEngine),
             playerPreset = p[PLAYER_PRESET]?.takeIf { it in PRESETS } ?: d.playerPreset,
-            sourcePrefs = decode(p[SOURCE_PREFS], SourcePrefs.serializer()) ?: d.sourcePrefs,
+            sourcePrefs = decode(p[SOURCE_PREFS], SourcePrefs.serializer())?.sanitized() ?: d.sourcePrefs,
             autoNext = p[AUTO_NEXT] ?: d.autoNext,
             skipIntro = p[SKIP_INTRO] ?: d.skipIntro,
             subtitleStyle = decode(p[SUBTITLE_STYLE], SubtitleStyle.serializer())?.sanitizedStyle() ?: d.subtitleStyle,
@@ -138,6 +152,16 @@ internal object SettingsCodec {
             titleLanguage = enumOr(p[TITLE_LANGUAGE], d.titleLanguage),
             historySyncOverLink = p[HISTORY_SYNC_LINK] ?: d.historySyncOverLink,
             onboardingDone = p[ONBOARDING_DONE] ?: d.onboardingDone,
+            // parity wave B
+            downloads = decode(p[DOWNLOADS], DownloadSettings.serializer())?.sanitized() ?: d.downloads,
+            airingReminders = p[AIRING_REMINDERS] ?: d.airingReminders,
+            extensionUpdateCheck = p[EXTENSION_UPDATE_CHECK] ?: d.extensionUpdateCheck,
+            reader = decode(p[READER], ReaderSettings.serializer())?.sanitized() ?: d.reader,
+            novelReader = decode(p[NOVEL_READER], NovelReaderSettings.serializer())?.sanitized() ?: d.novelReader,
+            tts = decode(p[TTS], TtsSettings.serializer())?.sanitized() ?: d.tts,
+            mangaTitleLanguage = enumOr(p[MANGA_TITLE_LANGUAGE], d.mangaTitleLanguage),
+            socialNotifications = p[SOCIAL_NOTIFICATIONS] ?: d.socialNotifications,
+            matureContent = enumOr(p[MATURE_CONTENT], d.matureContent),
         )
     }
 
@@ -153,7 +177,7 @@ internal object SettingsCodec {
         p[LANGUAGE] = s.language.name
         p[PLAYER_ENGINE] = s.playerEngine.name
         p[PLAYER_PRESET] = s.playerPreset.takeIf { it in PRESETS } ?: "off"
-        p[SOURCE_PREFS] = json.encodeToString(SourcePrefs.serializer(), s.sourcePrefs)
+        p[SOURCE_PREFS] = json.encodeToString(SourcePrefs.serializer(), s.sourcePrefs.sanitized())
         p[AUTO_NEXT] = s.autoNext
         p[SKIP_INTRO] = s.skipIntro
         p[SUBTITLE_STYLE] = json.encodeToString(SubtitleStyle.serializer(), s.subtitleStyle.sanitizedStyle())
@@ -176,6 +200,16 @@ internal object SettingsCodec {
         p[TITLE_LANGUAGE] = s.titleLanguage.name
         p[HISTORY_SYNC_LINK] = s.historySyncOverLink
         p[ONBOARDING_DONE] = s.onboardingDone
+        // parity wave B
+        p[DOWNLOADS] = json.encodeToString(DownloadSettings.serializer(), s.downloads.sanitized())
+        p[AIRING_REMINDERS] = s.airingReminders
+        p[EXTENSION_UPDATE_CHECK] = s.extensionUpdateCheck
+        p[READER] = json.encodeToString(ReaderSettings.serializer(), s.reader.sanitized())
+        p[NOVEL_READER] = json.encodeToString(NovelReaderSettings.serializer(), s.novelReader.sanitized())
+        p[TTS] = json.encodeToString(TtsSettings.serializer(), s.tts.sanitized())
+        p[MANGA_TITLE_LANGUAGE] = s.mangaTitleLanguage.name
+        p[SOCIAL_NOTIFICATIONS] = s.socialNotifications
+        p[MATURE_CONTENT] = s.matureContent.name
     }
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =

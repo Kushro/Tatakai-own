@@ -13,7 +13,7 @@ use tk_core::LocalStore;
 use tk_ext::ExtensionHost;
 use tk_link::media::capabilities::Sustain;
 use tk_link::{Device, LinkConfig, LinkError, LinkHandle, LinkHost, Vendor};
-use tk_ui::backend::{DeviceVm, LinkCapsVm, LinkStatusVm};
+use tk_ui::backend::{DeviceVm, LinkCapsVm, LinkStatusVm, RemoteCommandVm, SendToDeviceVm, UiResult};
 use tk_ui::model::{ErrorKind, Pairing, UiError};
 
 /// What the Link server may ask of the app. M0: no library folder; FFmpeg only if `fetch-deps.ps1` ran.
@@ -22,6 +22,8 @@ use tk_ui::model::{ErrorKind, Pairing, UiError};
 struct AppLinkHost {
     ext: Arc<ExtensionHost>,
     store: Arc<LocalStore>,
+    /// Wave B (worker k): commands from `POST /v1/control` for `LiveBackend::wait_remote_command`.
+    remote: tokio::sync::mpsc::UnboundedSender<RemoteCommandVm>,
 }
 
 impl LinkHost for AppLinkHost {
@@ -46,6 +48,40 @@ impl LinkHost for AppLinkHost {
     fn ffmpeg_path(&self) -> Option<PathBuf> {
         crate::paths::ffmpeg_path(None)
     }
+    fn control(&self, cmd: tk_link::control::ControlCommand) -> bool {
+        self.remote.send(remote_vm(cmd)).is_ok()
+    }
+}
+
+/// Wire command (`tk-link::control`) -> UI command. Pure; tested below.
+fn remote_vm(cmd: tk_link::control::ControlCommand) -> RemoteCommandVm {
+    use tk_link::control::ControlCommand as C;
+    match cmd {
+        C::Play => RemoteCommandVm::Play,
+        C::Pause => RemoteCommandVm::Pause,
+        C::Toggle => RemoteCommandVm::TogglePause,
+        C::Next => RemoteCommandVm::NextEpisode,
+        C::Prev => RemoteCommandVm::PrevEpisode,
+        C::Seek { seconds } => RemoteCommandVm::Seek(seconds),
+        C::Open { media_id, episode, position_secs } => RemoteCommandVm::Open { media_id, episode, position_secs },
+    }
+}
+
+/// `Backend::send_to_device` (wave B, worker **k**; checklist `link.send-to-device`). Contract stub: k creates a Link
+/// session for the device (`tk-link::sessions`, the same path the phone uses when it asks for a stream) and pushes a
+/// `handoff` event the phone consumes (`/v1/events`, k adds it to `tk-link/src/server.rs`), then the phone opens the
+/// player at `position_secs`. Until then `NotWired`, which Details shows inline (KNOWN-ISSUES, wave A).
+pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<()> {
+    let _ = (b, req);
+    Err(UiError::not_wired("send_to_device"))
+}
+
+/// `Backend::wait_remote_command` (wave B, worker **k**; `link.remote-control`, `link.handoff`): the next command a
+/// paired phone posted to `/v1/control`. Implemented: it awaits the channel `AppLinkHost::control` feeds. The route
+/// handler itself is k's (`tk-link/src/server.rs`); until k adds it, nothing arrives and the shell simply waits.
+pub async fn wait_remote_command(b: &LiveBackend) -> UiResult<RemoteCommandVm> {
+    let mut rx = b.remote.lock().await;
+    rx.recv().await.ok_or_else(|| UiError::new(ErrorKind::Other, "remote command channel closed"))
 }
 
 /// The running server (if any) and the port it uses or will try next.
@@ -61,6 +97,8 @@ pub struct LinkService {
     anime4k_dir: PathBuf,
     anime4k_lock: Option<PathBuf>,
     state: tokio::sync::Mutex<LinkState>,
+    /// Wave B (k): handed to every `AppLinkHost` so `/v1/control` reaches `LiveBackend::wait_remote_command`.
+    remote: tokio::sync::mpsc::UnboundedSender<RemoteCommandVm>,
 }
 
 /// The chosen port lives next to the Link identity (`<link>/port`); missing or invalid = the default.
@@ -147,9 +185,16 @@ async fn stop_handle(mut h: Arc<LinkHandle>) {
 }
 
 impl LinkService {
-    pub fn new(dir: PathBuf, ext: Arc<ExtensionHost>, store: Arc<LocalStore>, anime4k_dir: PathBuf, anime4k_lock: Option<PathBuf>) -> Self {
+    pub fn new(
+        dir: PathBuf,
+        ext: Arc<ExtensionHost>,
+        store: Arc<LocalStore>,
+        anime4k_dir: PathBuf,
+        anime4k_lock: Option<PathBuf>,
+        remote: tokio::sync::mpsc::UnboundedSender<RemoteCommandVm>,
+    ) -> Self {
         let port = load_port(&dir);
-        Self { dir, ext, store, anime4k_dir, anime4k_lock, state: tokio::sync::Mutex::new(LinkState { handle: None, port }) }
+        Self { dir, ext, store, anime4k_dir, anime4k_lock, state: tokio::sync::Mutex::new(LinkState { handle: None, port }), remote }
     }
 
     /// Start on `st.port`.
@@ -158,7 +203,7 @@ impl LinkService {
         cfg.port = st.port;
         cfg.anime4k_dir = Some(self.anime4k_dir.clone());
         cfg.anime4k_lock = self.anime4k_lock.clone();
-        let host = Arc::new(AppLinkHost { ext: self.ext.clone(), store: self.store.clone() });
+        let host = Arc::new(AppLinkHost { ext: self.ext.clone(), store: self.store.clone(), remote: self.remote.clone() });
         match tk_link::start(cfg, host).await {
             Ok(h) => {
                 let h = Arc::new(h);
@@ -292,6 +337,17 @@ impl LinkService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_commands_map_to_ui_commands() {
+        use tk_link::control::ControlCommand as C;
+        assert_eq!(remote_vm(C::Toggle), RemoteCommandVm::TogglePause);
+        assert_eq!(remote_vm(C::Seek { seconds: 90 }), RemoteCommandVm::Seek(90));
+        assert_eq!(
+            remote_vm(C::Open { media_id: "21".into(), episode: 3, position_secs: 120 }),
+            RemoteCommandVm::Open { media_id: "21".into(), episode: 3, position_secs: 120 }
+        );
+    }
 
     #[test]
     fn fingerprint_display_form() {

@@ -34,3 +34,12 @@ dependencies {
     // SingletonImageLoader (coil-compose is already in the catalog and used by core/ui, home, details, search).
     implementation(libs.coil.compose)
 }
+
+dependencies {
+    // parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.9): DownloadsSettingsSection (r), ReaderSettingsSection /
+    // NovelReaderSettingsSection (s), SourcesSettingsExtras (r, :feature:extensions). No cycle: none of them depends on :feature:settings.
+    implementation(projects.feature.downloads)
+    implementation(projects.feature.manga)
+    implementation(projects.feature.novel)
+    implementation(projects.feature.extensions)
+}

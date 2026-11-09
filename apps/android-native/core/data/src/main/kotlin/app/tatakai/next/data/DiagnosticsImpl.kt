@@ -12,6 +12,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import app.tatakai.next.database.TatakaiDatabase
 import app.tatakai.next.link.AesGcmKeyCipher
 import app.tatakai.next.link.KeyCipher
+import app.tatakai.next.model.AppDataWiper
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.AppReset
@@ -412,6 +413,8 @@ class AppResetImpl(
     private val link: LinkRepository? = null,
     private val logs: LogRepository? = null,
     private val history: HistorySyncer? = null,
+    /** parity wave B (16 §3.8): module-private stores of the new core modules (`getAll<AppDataWiper>()` in dataModule). */
+    private val wipers: List<AppDataWiper> = emptyList(),
 ) : AppReset {
     override suspend fun resetAll(): Result<Unit> = withContext(Dispatchers.IO) {
         var failure: Throwable? = null
@@ -434,6 +437,8 @@ class AppResetImpl(
         step { File(context.filesDir, "shaders").deleteRecursively() }
         // Subtitle fonts imported in the player settings (worker p, `SubtitleFonts`).
         step { File(context.filesDir, "fonts").deleteRecursively() }
+        // parity wave B: downloads, followed shows, reader progress, chapter downloads, Stremio addons, social caches (each module's wiper).
+        wipers.forEach { wiper -> step { wiper.wipe() } }
         step {
             val prefsDir = File(context.applicationInfo.dataDir, "shared_prefs")
             prefsDir.listFiles()?.filter { it.name.endsWith(".xml") }?.forEach { f ->

@@ -1,0 +1,6 @@
+{
+  "downloads.title": "Descargas",
+  "settings.downloads": "Descargas",
+  "settings.downloads.hint": "Carpeta de descargas, límites de la cola, descarga automática de episodios nuevos y biblioteca local.",
+  "settings.downloads.placeholder": "Ajustes de descargas"
+}

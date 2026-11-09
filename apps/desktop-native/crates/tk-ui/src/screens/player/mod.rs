@@ -29,6 +29,8 @@
 mod episodes;
 mod flow;
 pub mod presence;
+/// Wave B (worker k): remote commands from a paired phone -> player shortcuts.
+pub mod remote;
 pub mod subs;
 mod torrent;
 
@@ -1314,6 +1316,14 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         }
     } else {
         rsx! {
+            // Wave B mount point (worker h, `downloads.player-button`): queues the current episode with the current
+            // source. Renders nothing until h lands; `visible` follows the controls.
+            crate::components::PlayerDownloadButton {
+                media_id: id.clone(),
+                episode,
+                source_id: fs.current.and_then(|i| fs.sources.get(i)).map(|s| s.id.clone()),
+                visible,
+            }
             PlayerControls {
                 state: st.clone(),
                 title,

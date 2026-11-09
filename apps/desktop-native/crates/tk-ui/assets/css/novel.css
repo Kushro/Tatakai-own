@@ -1,0 +1,2 @@
+/* novel.css - wave B, worker m (Novels home / details / reader, TTS bar, Settings > Novel reader). Registered in app.rs APP_CSS by the contract; tokens only (no color literals);
+   animations through --md-sys-motion-* / --tk-mo-* and [data-reduce-motion="true"]. Prefix: .tk-novel. */

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- parity wave B (16 §3.6, worker s): novel screens (novel_*). Shared keys (read_status_*, chapter_*, nav_novels) are in core/ui. -->
+<resources>
+    <string name="novel_title">Novels</string>
+    <string name="novel_reader_title">Reader</string>
+</resources>

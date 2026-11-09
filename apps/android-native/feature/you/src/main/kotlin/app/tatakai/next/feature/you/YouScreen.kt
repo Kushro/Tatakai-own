@@ -21,6 +21,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Bookmarks
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.AutoStories
+import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Extension
@@ -87,6 +91,15 @@ fun YouScreen(
     // gone; the account card's button and the "Listas y cuentas" row both lead here. ---
     /** AniList / MAL accounts -> Route.SettingsSection(ACCOUNTS). */
     onOpenAccounts: () -> Unit = {},
+    // --- parity wave B (docs/redesign/16-parity-wave-b-contract-android.md §3.12): rows added by the contract, wired by :app ---
+    /** Row "Manga" -> Route.Manga() (worker s screens). */
+    onOpenManga: () -> Unit = {},
+    /** Row "Novelas" -> Route.Novels(). */
+    onOpenNovels: () -> Unit = {},
+    /** Row "Perfil de AniList" -> Route.Profile() (worker t). */
+    onOpenProfile: () -> Unit = {},
+    /** Row "Notificaciones" -> Route.Notifications (worker t). */
+    onOpenNotifications: () -> Unit = {},
 ) {
     val viewModel: YouViewModel = koinViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -115,6 +128,10 @@ fun YouScreen(
         onOpenLinked = onOpenLinked,
         onOpenSettings = onOpenSettings,
         onOpenAccounts = onOpenAccounts,
+        onOpenManga = onOpenManga,
+        onOpenNovels = onOpenNovels,
+        onOpenProfile = onOpenProfile,
+        onOpenNotifications = onOpenNotifications,
         modifier = modifier,
     )
 }
@@ -131,6 +148,10 @@ internal fun YouContent(
     onOpenSettings: () -> Unit,
     onOpenAccounts: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenManga: () -> Unit = {},
+    onOpenNovels: () -> Unit = {},
+    onOpenProfile: () -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
 ) {
     Scaffold(modifier = modifier, contentWindowInsets = screenInsets) { padding ->
         Box(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding()), contentAlignment = Alignment.TopCenter) {
@@ -167,6 +188,10 @@ internal fun YouContent(
                             onOpenLinked = onOpenLinked,
                             onOpenSettings = onOpenSettings,
                             onOpenAccounts = onOpenAccounts,
+                            onOpenManga = onOpenManga,
+                            onOpenNovels = onOpenNovels,
+                            onOpenProfile = onOpenProfile,
+                            onOpenNotifications = onOpenNotifications,
                         )
                     }
                 }
@@ -262,6 +287,10 @@ private fun YouList(
     onOpenLinked: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenAccounts: () -> Unit,
+    onOpenManga: () -> Unit = {},
+    onOpenNovels: () -> Unit = {},
+    onOpenProfile: () -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
         Column(Modifier.padding(vertical = 8.dp)) {
@@ -277,6 +306,32 @@ private fun YouList(
                     overview.accounts.joinToString(" · ") { "${if (it.provider == ListProvider.ANILIST) anilist else mal} · ${it.username}" }
                 },
                 onClick = onOpenAccounts,
+            )
+            // parity wave B (16 §3.12, contract): AniList profile and notifications (t), Manga and Novelas (s). The subtitles are
+            // static here; t / s may enrich them (unread count, "x leyendo") in their own commits without changing the callbacks.
+            YouRow(
+                icon = Icons.Outlined.AccountCircle,
+                title = stringResource(R.string.you_profile),
+                subtitle = stringResource(R.string.you_profile_summary),
+                onClick = onOpenProfile,
+            )
+            YouRow(
+                icon = Icons.Outlined.Notifications,
+                title = stringResource(R.string.you_notifications),
+                subtitle = stringResource(R.string.you_notifications_summary),
+                onClick = onOpenNotifications,
+            )
+            YouRow(
+                icon = Icons.Outlined.MenuBook,
+                title = stringResource(UiR.string.nav_manga),
+                subtitle = stringResource(R.string.you_manga_summary),
+                onClick = onOpenManga,
+            )
+            YouRow(
+                icon = Icons.Outlined.AutoStories,
+                title = stringResource(UiR.string.nav_novels),
+                subtitle = stringResource(R.string.you_novels_summary),
+                onClick = onOpenNovels,
             )
             YouRow(
                 icon = Icons.Outlined.History,

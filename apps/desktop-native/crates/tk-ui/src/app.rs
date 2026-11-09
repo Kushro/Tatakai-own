@@ -6,7 +6,7 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use tk_player::PlayerHost;
 
-use crate::backend::BackendRef;
+use crate::backend::{BackendRef, RemoteCommandVm};
 use crate::components::{NavRail, RailFootItem, Snackbar, SnackbarHost, TitleBar};
 use crate::i18n::{self, resolve, t};
 use crate::model::{NavAction, NavDest, NavState, Settings, TorrentSection, nav_expanded, reduce_nav};
@@ -16,10 +16,16 @@ use crate::screens::torrents::{
     library::TorrentLibraryPage, overview::TorrentOverviewPage, peers::TorrentPeersPage, settings::TorrentSettingsPage,
     trackers::TorrentTrackersPage,
 };
+use crate::screens::manga::{details::MangaDetailsPage, home::MangaHomePage, reader::MangaReaderPage};
+use crate::screens::novel::{details::NovelDetailsPage, home::NovelHomePage, reader::NovelReaderPage};
+use crate::screens::social::{
+    activity::ActivityPage, notifications::NotificationsPage, profile::ProfilePage, profile::UserPage,
+};
 use crate::screens::{
-    browse::BrowsePage, character::CharacterPage, details::DetailsPage, extensions::ExtensionsPage, gallery::GalleryPage,
-    home::HomePage, image_search::ImageSearchPage, library::LibraryPage, link::LinkPage, player::PlayerPage,
-    search::SearchPage, settings::SettingsPage, studio::StudioPage,
+    browse::BrowsePage, calendar::CalendarPage, character::CharacterPage, details::DetailsPage, downloads::DownloadsPage,
+    extensions::ExtensionsPage, gallery::GalleryPage, home::HomePage, image_search::ImageSearchPage, library::LibraryPage,
+    link::LinkPage, player::PlayerPage, provider::ProviderPage, recs::RecommendationsPage, search::SearchPage,
+    server::ServerPage, settings::SettingsPage, studio::StudioPage,
 };
 use crate::shortcuts::{BRIDGE_JS, JsMsg, Shortcut, shortcut_in};
 use crate::ui_thread::UiJobs;
@@ -48,6 +54,14 @@ const APP_CSS: &[&str] = &[
     include_str!("../assets/css/system.css"),
     include_str!("../assets/css/lists.css"),
     include_str!("../assets/css/debrid.css"),
+    // wave B (docs/redesign/16 section 2): one stylesheet per owner: b (calendar; keeps home.css), h, j, k, l, m, n
+    include_str!("../assets/css/calendar.css"),
+    include_str!("../assets/css/downloads.css"),
+    include_str!("../assets/css/provider.css"),
+    include_str!("../assets/css/server.css"),
+    include_str!("../assets/css/manga.css"),
+    include_str!("../assets/css/novel.css"),
+    include_str!("../assets/css/social.css"),
 ];
 
 /// What tk-app injects (`LaunchBuilder::with_context`).
@@ -133,6 +147,46 @@ pub enum Route {
     LinkPage {},
     #[route("/settings")]
     SettingsPage {},
+    // --- Wave B (docs/redesign/16-parity-wave-b-contract.md section 2). Placeholder screens until each owner lands. ---
+    /// Airing calendar with "My shows" and reminders (worker b; under Home, plan 14 D6).
+    #[route("/calendar")]
+    CalendarPage {},
+    /// "For you" recommendations with explanations + the Anime Atlas map (worker b; under Home).
+    #[route("/recommendations")]
+    RecommendationsPage {},
+    /// Downloads: queue, history, local library (worker h; rail entry `NavDest::Downloads`).
+    #[route("/downloads")]
+    DownloadsPage {},
+    /// Custom provider page of an extension (`custom/home` rows + search; worker j; under Extensions). Titles open
+    /// `DetailsPage` with an `ext:<ext_id>:<key>` id (`Backend::provider_item`).
+    #[route("/provider/:ext_id")]
+    ProviderPage { ext_id: String },
+    /// Native extension server (`tk-server`): status, pairing, devices, logs, proxy / FlareSolverr (worker k; under Link).
+    #[route("/server")]
+    ServerPage {},
+    /// AniList social (worker n; under Library): the viewer's profile, a public profile, notifications, activity.
+    #[route("/profile")]
+    ProfilePage {},
+    #[route("/user/:name")]
+    UserPage { name: String },
+    #[route("/notifications")]
+    NotificationsPage {},
+    #[route("/activity")]
+    ActivityPage {},
+    /// Manga (worker l; rail entry `NavDest::Manga`). The reader is bare (no rail), like the player.
+    #[route("/manga")]
+    MangaHomePage {},
+    #[route("/manga/:id")]
+    MangaDetailsPage { id: String },
+    #[route("/manga/:id/read/:ext_id/:chapter_id")]
+    MangaReaderPage { id: String, ext_id: String, chapter_id: String },
+    /// Novels (worker m; rail entry `NavDest::Novels`). The reader is bare (no rail).
+    #[route("/novels")]
+    NovelHomePage {},
+    #[route("/novels/:id")]
+    NovelDetailsPage { id: String },
+    #[route("/novels/:id/read/:ext_id/:chapter_id")]
+    NovelReaderPage { id: String, ext_id: String, chapter_id: String },
     /// First-run wizard (wave A, worker f; plan 14 section 0.1 #11). The shell redirects here while
     /// `Settings::system.setup_done` is false; Settings > System can open it again.
     #[route("/setup")]
@@ -170,13 +224,18 @@ pub enum Route {
 impl Route {
     pub fn nav_dest(&self) -> Option<NavDest> {
         match self {
-            Self::HomePage {} | Self::DetailsPage { .. } => Some(NavDest::Home),
+            Self::HomePage {} | Self::DetailsPage { .. } | Self::CalendarPage {} | Self::RecommendationsPage {} => Some(NavDest::Home),
             Self::SearchPage {} | Self::ImageSearchPage {} | Self::BrowsePage { .. } | Self::StudioPage { .. } | Self::CharacterPage { .. } => {
                 Some(NavDest::Search)
             }
-            Self::LibraryPage {} => Some(NavDest::Library),
-            Self::ExtensionsPage {} => Some(NavDest::Extensions),
-            Self::LinkPage {} => Some(NavDest::Link),
+            Self::LibraryPage {} | Self::ProfilePage {} | Self::UserPage { .. } | Self::NotificationsPage {} | Self::ActivityPage {} => {
+                Some(NavDest::Library)
+            }
+            Self::DownloadsPage {} => Some(NavDest::Downloads),
+            Self::MangaHomePage {} | Self::MangaDetailsPage { .. } | Self::MangaReaderPage { .. } => Some(NavDest::Manga),
+            Self::NovelHomePage {} | Self::NovelDetailsPage { .. } | Self::NovelReaderPage { .. } => Some(NavDest::Novels),
+            Self::ExtensionsPage {} | Self::ProviderPage { .. } => Some(NavDest::Extensions),
+            Self::LinkPage {} | Self::ServerPage {} => Some(NavDest::Link),
             Self::SettingsPage {} => Some(NavDest::Settings),
             Self::PlayerPage { .. } | Self::SetupPage {} | Self::GalleryPage {} => None,
             _ => self.torrent_section().map(|_| NavDest::Torrents),
@@ -217,9 +276,14 @@ impl Route {
         matches!(self, Self::PlayerPage { .. })
     }
 
-    /// Routes drawn without the navigation rail (player, first-run wizard).
+    /// Routes drawn without the navigation rail (player, first-run wizard, manga / novel readers).
     pub fn is_bare(&self) -> bool {
-        matches!(self, Self::PlayerPage { .. } | Self::SetupPage {})
+        matches!(self, Self::PlayerPage { .. } | Self::SetupPage {} | Self::MangaReaderPage { .. } | Self::NovelReaderPage { .. })
+    }
+
+    /// The manga / novel readers (wave B): the shell hides the rail and the readers draw their own chrome.
+    pub fn is_reader(&self) -> bool {
+        matches!(self, Self::MangaReaderPage { .. } | Self::NovelReaderPage { .. })
     }
 
     pub fn for_dest(dest: NavDest) -> Self {
@@ -227,6 +291,9 @@ impl Route {
             NavDest::Home => Self::HomePage {},
             NavDest::Search => Self::SearchPage {},
             NavDest::Library => Self::LibraryPage {},
+            NavDest::Downloads => Self::DownloadsPage {},
+            NavDest::Manga => Self::MangaHomePage {},
+            NavDest::Novels => Self::NovelHomePage {},
             NavDest::Torrents => Self::TorrentOverviewPage {},
             NavDest::Extensions => Self::ExtensionsPage {},
             NavDest::Link => Self::LinkPage {},
@@ -348,6 +415,39 @@ fn Shell() -> Element {
     // Wave A: Discord presence while browsing / viewing (worker e) and magnets handed over by a second launch (worker i).
     crate::screens::player::presence::use_route_presence(route.clone());
     crate::screens::torrents::library::use_pending_magnet_watch();
+    // Wave B (worker k, `link.remote-control` / `link.handoff`): commands a paired phone sends over Tatakai Link.
+    // `Open` navigates to the player; the transport commands become shortcuts the player already handles. The loop
+    // ends on `NotWired` (default `Backend`) and backs off on any other error.
+    {
+        let services = use_context::<Services>();
+        let mut shortcut_sig = ui.shortcut;
+        use_future(move || {
+            let backend = services.backend.clone();
+            async move {
+                let mut seq = 1_000_000_u64;
+                loop {
+                    match backend.wait_remote_command().await {
+                        // Hand-off (`link.handoff`): the phone pushed its history row first (`POST /v1/history`), so
+                        // the player resumes at `position_secs` through the normal `PlaybackVm::start_secs` path.
+                        Ok(RemoteCommandVm::Open { media_id, episode, position_secs: _ }) => {
+                            navigator.push(Route::PlayerPage { id: media_id, episode });
+                        }
+                        Ok(cmd) => {
+                            if let Some(action) = crate::screens::player::remote::shortcut_for(&cmd) {
+                                seq += 1;
+                                shortcut_sig.set(Some(ShortcutEvt { seq, action }));
+                            }
+                        }
+                        Err(e) if e.kind == crate::model::ErrorKind::NotWired => break,
+                        Err(e) => {
+                            tracing::debug!(detail = %e.detail, "remote command wait failed; retrying");
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     // Ctrl+B / Ctrl+K are global; everything else is handled by the screen that owns it.
     use_effect(move || {
@@ -402,6 +502,9 @@ fn Shell() -> Element {
                     NavRail {
                         current: route.nav_dest(),
                         expanded,
+                        // Wave B: rail badges from their owners (`use_rail_badges` collects them; each returns 0 until
+                        // wired): n AniList unread (Library), j extension updates (Extensions), h active downloads.
+                        badges: crate::components::rail_badges::use_rail_badges(),
                         on_navigate: move |d| {
                             navigator.push(Route::for_dest(d));
                         },

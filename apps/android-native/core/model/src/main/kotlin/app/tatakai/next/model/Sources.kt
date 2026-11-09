@@ -55,6 +55,11 @@ data class WebInfo(
     /** Last measured time to first byte; null = not measured (no latency penalty). */
     val latencyMs: Int? = null,
     val subtitles: List<SubtitleTrack> = emptyList(),
+    /**
+     * parity wave B (16 §3.3, worker r): [url] is an embed page (extension `type == "embed"`), not a media URL. The candidate is listed
+     * with `container = EMBED_CONTAINER_LABEL`, `toStream()` returns null and the player resolves it through `EmbedSniffer` first.
+     */
+    val embed: Boolean = false,
 )
 
 @Serializable
@@ -95,10 +100,14 @@ data class SourceCandidate(
      */
     val debrid: DebridStatus? = null,
 ) {
-    /** The playable stream of a web candidate; null for torrents. Port of `SourceCandidate::to_stream`. */
+    /** parity wave B (16 §3.3): a web candidate whose URL is an embed page (needs the sniffer before it can play). */
+    val isEmbed: Boolean get() = kind == SourceKind.WEB && web?.embed == true
+
+    /** The playable stream of a web candidate; null for torrents and for embed pages (see `EmbedSniffer`). Port of `SourceCandidate::to_stream`. */
     fun toStream(): StreamSource? {
         if (kind != SourceKind.WEB) return null
         val w = web ?: return null
+        if (w.embed) return null
         val c = container?.let(::parseContainer) ?: containerFromUrl(w.url) ?: return null
         return StreamSource(
             url = w.url,
@@ -147,7 +156,20 @@ data class SourcePrefs(
     val minQuality: Quality = Quality.P720,
     val subLang: String = "es",
     val dubLang: String = "ja",
-)
+    /** parity wave B (16 §3.3, checklist sources.embed-sniffer.ranking): list embed sources (sniffed in the hidden WebView). Off = hidden. */
+    val allowEmbed: Boolean = true,
+    /** parity wave B (16 §3.3, checklist sources.embed-sniffer.timeout-setting): seconds the sniffer waits for the first media request, 5..60. */
+    val embedTimeoutSecs: Int = EMBED_TIMEOUT_DEFAULT_SECS,
+) {
+    /** Clamps the ranges (SettingsCodec applies it on read and write). */
+    fun sanitized(): SourcePrefs = copy(embedTimeoutSecs = embedTimeoutSecs.coerceIn(EMBED_TIMEOUT_MIN_SECS, EMBED_TIMEOUT_MAX_SECS))
+
+    companion object {
+        const val EMBED_TIMEOUT_MIN_SECS: Int = 5
+        const val EMBED_TIMEOUT_MAX_SECS: Int = 60
+        const val EMBED_TIMEOUT_DEFAULT_SECS: Int = 20
+    }
+}
 
 /** One ranked row of the selector (what desktop calls `SourceVm`): the candidate plus ranking facts. */
 data class RankedSource(

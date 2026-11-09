@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- parity wave B (16 §3.2, worker r): notification texts of the web download service. The screens' texts live in :feature:downloads. -->
+<resources>
+    <string name="download_service_channel">Downloads</string>
+    <string name="download_service_channel_desc">Progress of episode downloads</string>
+    <string name="download_service_progress">Downloading %1$d episodes</string>
+    <string name="download_service_done">%1$s · episode %2$d downloaded</string>
+    <string name="download_service_failed">%1$s · episode %2$d failed</string>
+    <string name="download_service_waiting_wifi">Waiting for Wi-Fi</string>
+</resources>

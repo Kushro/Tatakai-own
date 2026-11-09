@@ -13,6 +13,9 @@
     <!-- parity wave A (15 §3.3, worker q): pestañas de listas; el resto de claves son de q (library_lists_*, library_favorites_*). -->
     <string name="library_tab_lists">Listas</string>
     <string name="library_tab_favorites">Favoritos</string>
+    <!-- parity wave B (16 §3.5 / §3.6, worker s) -->
+    <string name="library_tab_manga">Manga</string>
+    <string name="library_tab_novels">Novelas</string>
     <string name="library_tab_torrents">Torrents</string>
     <string name="library_torrents_badge">%1$d descargas activas</string>
     <string name="library_sync_now">Sincronizar ahora</string>

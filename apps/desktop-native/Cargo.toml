@@ -11,6 +11,7 @@ members = [
     "crates/tk-ui",
     "crates/tk-app",
     "crates/tk-torrent",
+    "crates/tk-server",
 ]
 
 [workspace.package]
@@ -28,6 +29,7 @@ tk-link = { path = "crates/tk-link" }
 tk-player = { path = "crates/tk-player", default-features = false }
 tk-ui = { path = "crates/tk-ui" }
 tk-torrent = { path = "crates/tk-torrent" }
+tk-server = { path = "crates/tk-server" }
 
 # --- UI ---
 dioxus = { version = "0.7.10", features = ["desktop", "router"] }
@@ -130,6 +132,19 @@ keyring = { version = "3", default-features = false, features = ["apple-native",
 # Version comparison for the GitHub releases update check.
 semver = "1"
 # OAuth / PKCE: no crate. SHA-256 (`sha2`) + base64url (`base64`) + a tokio TcpListener on 127.0.0.1 (all above).
+
+# --- wave B (docs/redesign/16-parity-wave-b-contract.md section 3.7) ---
+# tk-server (k): CORS layer for third-party clients of /api/server/v1 (axum 0.8 has no CORS of its own).
+tower-http = { version = "0.6", default-features = false, features = ["cors"] }
+# tk-server (k): argon2id for the viewer password (RustCrypto, pure Rust; no OpenSSL).
+argon2 = { version = "0.5", default-features = false, features = ["alloc", "password-hash", "rand"] }
+# tk-link (k): mDNS announcement `_tatakai-link._tcp` for `link.discovery` (pure Rust, no avahi / Bonjour daemon).
+mdns-sd = "0.21"
+# tk-core download (h): file-system watcher of the local-library folders (inotify / ReadDirectoryChangesW / FSEvents).
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
+# HLS playlists (h) reuse `m3u8-rs` above (already in tk-link); novel HTML -> text (m) reuses `scraper` above (tk-ext).
+# TTS: NO crate (system voice through an external process, cloud voices through reqwest, KittenTTS as a local Python
+# daemon); manga reader: NO image crate (the web view decodes pages). See the contract's section 3.7.
 
 # --- tests only ---
 tempfile = "3"

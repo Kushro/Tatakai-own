@@ -22,6 +22,17 @@ mod search;
 mod subs;
 mod system;
 mod torrent_manual;
+// wave B (docs/redesign/16 section 2): b home (incl. the former `home()` body), h downloads, j ext_server +
+// ext_catalog (live/ext.rs is j's too), k server + sniffer (+ link.rs, browser.rs), l manga, m novel, n social.
+mod downloads;
+mod ext_catalog;
+mod ext_server;
+mod home;
+mod manga;
+mod novel;
+mod server;
+mod sniffer;
+mod social;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -30,17 +41,25 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use time::OffsetDateTime;
 use tk_core::sources::{INITIAL_RELIABILITY, SourceCandidate, SourceKind, parse_source_key, source_key};
-use tk_core::{Compat, FeedKind, HistoryEntry, LocalStore, Media, MediaKind, MediaRef, MetadataRouter, ProviderError};
+use tk_core::{Compat, HistoryEntry, LocalStore, Media, MediaKind, MediaRef, MetadataRouter, ProviderError};
 use tk_ui::backend::{
-    AnimeBuildVm, Backend, CharacterVm, ConflictSideVm, ContinueVm, CueVm, DebridAccountVm, DebridServiceVm,
-    DetailsExtraVm, DetailsVm, EpisodeVm, ExportFormatVm, ExtLogVm, ExtensionDetailVm, ExtensionVm, HistoryItemVm, HomeVm,
-    ImageMatchVm, ImageQueryVm, LibraryVm, LinkCapsVm, LinkStatusVm, ListAccountVm, ListConflictVm, ListEntryUpdateVm,
-    ListEntryVm, ListImportVm, ListStatusVm, ListSyncVm, MediaVm, PlaybackVm, PresenceVm, SearchPageVm, SearchQueryVm,
-    SectionVm, SkipMarkVm, SourceVm, StorageUsageVm, SystemCapsVm, TorrentFileVm, TorrentLibraryItemVm, TorrentPeerVm,
-    TorrentPlaybackVm, TorrentPreviewVm, TorrentSessionVm, TorrentSettingsVm, TorrentStatsVm, TorrentTrackerVm,
-    TranslateRequestVm, TranslationTestVm, UiResult, UpdateCheckVm, WatchOrderEntryVm,
+    ActivityFeedVm, ActivityReplyVm, ActivityVm, AiringSlotVm, AnimeBuildVm, AtlasPointVm, AutoDownloadRunVm, Backend,
+    BecauseVm, ChapterProviderVm, ChapterRefVm, CharacterVm, ConflictSideVm, ContinueVm, CueVm, CustomProviderVm,
+    DebridAccountVm, DebridServiceVm, DetailsExtraVm, DetailsVm, DownloadRequestVm, DownloadStorageVm, DownloadVm,
+    EpisodeVm, ExportFormatVm, ExtCatalogItemVm, ExtLogVm, ExtPrefFieldVm, ExtRepoVm, ExtServerPairVm, ExtServerVm,
+    ExtSourceVm, ExtUpdateVm, ExtensionDetailVm, ExtensionVm, FlareSolverrVm, HistoryItemVm, HomeVm, ImageMatchVm,
+    ImageQueryVm, KittenStatusVm, LatestEpisodeVm, LibraryScanVm, LibraryVm, LinkCapsVm, LinkStatusVm, ListAccountVm,
+    ListConflictVm, ListEntryUpdateVm, ListEntryVm, ListImportVm, ListStatusVm, ListSyncVm, LocalItemVm, MangaDetailsVm,
+    MediaVm, NotificationPageVm, NovelContentVm, NovelDetailsVm, PageVm, PlaybackVm, PresenceVm, ProfileVm,
+    ProviderHealthVm, ProviderItemVm, ProxyStatusVm, ReadHomeVm, ReadProgressVm, RecommendationVm, RecsFeedbackVm,
+    RemoteCommandVm, ReviewVm, SearchPageVm, SearchQueryVm, SectionVm, SendToDeviceVm, ServerDeviceVm, ServerLogPageVm,
+    ServerPairingVm, ServerStatusVm, SkipMarkVm, SniffRequestVm, SniffResultVm, SourceVm, StorageUsageVm,
+    StremioAddonVm, SystemCapsVm, TasteProfileVm, TopRangeVm, TorrentActivityVm, TorrentFileVm, TorrentLibraryItemVm,
+    TorrentPeerVm, TorrentPlaybackVm, TorrentPreviewVm, TorrentSessionVm, TorrentSettingsVm, TorrentStatsVm,
+    TorrentTrackerVm, TranslateRequestVm, TranslationTestVm, TtsRequestVm, TtsSpeakVm, TtsVoiceVm, UiResult,
+    UpdateCheckVm, UserPageVm, WatchOrderEntryVm,
 };
-use tk_ui::model::{ErrorKind, ListServiceVm, Pairing, Settings, TranslationProviderVm, UiError};
+use tk_ui::model::{ErrorKind, ListServiceVm, Pairing, ReadKindVm, Settings, TranslationProviderVm, TtsProviderVm, UiError};
 use tk_ui::ui_thread::UiThread;
 
 use crate::backend_common::{IdKind, parse_media_id};
@@ -66,6 +85,17 @@ pub struct LiveBackend {
     /// OS keyring / fallback file (wave A, `tk_core::Secrets`, f): AniList / MAL tokens (g), translation keys (d),
     /// debrid keys (i).
     secrets: tk_core::Secrets,
+    // --- wave B services (docs/redesign/16 section 3.8): one per owner, constructed in `new`, bodies in their files.
+    /// HLS / MP4 download engine + local library (worker h, `live/downloads.rs`).
+    downloads: downloads::Downloads,
+    /// Native extension server (`tk-server`) + proxy / FlareSolverr (worker k, `live/server.rs`).
+    server: server::ExtServer,
+    /// Embed sniffer over the hidden web views (worker k, `live/sniffer.rs`).
+    sniffer: sniffer::Sniffer,
+    /// Narration engines (worker m, `crate::tts`).
+    tts: crate::tts::Tts,
+    /// Remote commands from paired phones (`tk-link` `/v1/control`), consumed by `wait_remote_command` (worker k).
+    remote: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<RemoteCommandVm>>,
 }
 
 /// How long a resolved source list is reused before the extensions are asked again.
@@ -82,8 +112,11 @@ impl LiveBackend {
         set_title_language(&settings.title_language);
         let store = Arc::new(LocalStore::open(&paths.db_file())?);
         let client = reqwest::Client::builder().user_agent("TatakaiNext/0.1").timeout(Duration::from_secs(20)).build()?;
-        let router = Arc::new(MetadataRouter::with_defaults(client, settings.provider_priority.clone()));
-        let ext = ext::Extensions::new(paths.extensions_dir(), Arc::new(browser::WebviewBrowsers::new(ui)))?;
+        let router = Arc::new(MetadataRouter::with_defaults(client.clone(), settings.provider_priority.clone()));
+        let browsers = Arc::new(browser::WebviewBrowsers::new(ui));
+        let ext = ext::Extensions::new(paths.extensions_dir(), browsers.clone())?;
+        // Wave B (k): remote commands from paired phones (`tk-link` `/v1/control`) flow through this channel.
+        let (remote_tx, remote_rx) = tokio::sync::mpsc::unbounded_channel();
         // Wave A (f): the Link server also serves / merges the watch history of paired phones (`history_sync`).
         let link = link::LinkService::new(
             paths.link_dir(),
@@ -91,11 +124,12 @@ impl LiveBackend {
             store.clone(),
             crate::paths::shaders_dir(paths, None),
             crate::paths::anime4k_lock(None),
+            remote_tx,
         );
         Ok(Self {
             data_root: paths.root.clone(),
             settings_file,
-            store,
+            store: store.clone(),
             router,
             titles: Mutex::new(HashMap::new()),
             ext,
@@ -103,6 +137,11 @@ impl LiveBackend {
             candidates: Mutex::new(HashMap::new()),
             torrent: torrent::TorrentService::new(paths.clone()),
             secrets: tk_core::Secrets::open(&paths.root),
+            downloads: downloads::Downloads::new(paths.clone(), store.clone(), client.clone()),
+            server: server::ExtServer::new(paths.clone(), client.clone()),
+            sniffer: sniffer::Sniffer::new(browsers),
+            tts: crate::tts::Tts::new(paths.clone(), client),
+            remote: tokio::sync::Mutex::new(remote_rx),
         })
     }
 
@@ -115,6 +154,12 @@ impl LiveBackend {
     /// through `Services::on_start` once the UI runtime is up; a stub until f lands.
     pub async fn on_start(&self) {
         system::on_start(self).await;
+        // Wave B start-up jobs, each a no-op until its owner lands: h resumes the download queue, verifies completed
+        // rows and schedules the auto-downloader; k starts `tk-server` when `Settings::server.enabled`; j checks
+        // extension updates (`Settings::ext.auto_check_updates`) and consumes a pending `tatakai://` server link.
+        downloads::on_start(self).await;
+        server::on_start(self).await;
+        ext_server::on_start(self).await;
     }
 
     fn remember_title(&self, id: &str, title: &str, poster: Option<&str>) {
@@ -181,7 +226,10 @@ impl LiveBackend {
             Some(v) => v,
             None => {
                 // `resolve_candidates` keeps server/subs/dubs/note and lists torrents (resolve_streams does not).
-                let v = sources::dedupe_by_key(self.ext.resolve_candidates(media, episode).await);
+                // Wave B (j): paired extension servers and Stremio add-ons contribute candidates too.
+                let mut v = self.ext.resolve_candidates(media, episode).await;
+                v.extend(ext_catalog::extra_candidates(self, media, episode).await);
+                let v = sources::dedupe_by_key(v);
                 if let Ok(mut c) = self.candidates.lock() {
                     c.retain(|_, (at, _)| at.elapsed() < SOURCES_TTL);
                     c.insert(key, (Instant::now(), v.clone()));
@@ -262,30 +310,9 @@ fn provider_err(e: ProviderError) -> UiError {
 
 #[async_trait]
 impl Backend for LiveBackend {
+    // Wave B: the Home body moved to `live/home.rs` (worker b) so b extends it without editing this file.
     async fn home(&self) -> UiResult<HomeVm> {
-        let feed = |f| self.router.feed(MediaKind::Anime, f, 1);
-        let (trending, airing, seasonal, popular, top) = tokio::join!(
-            feed(FeedKind::Trending),
-            feed(FeedKind::Airing),
-            feed(FeedKind::Seasonal),
-            feed(FeedKind::Popular),
-            feed(FeedKind::TopRated)
-        );
-        let section = |key: &str, r: Result<tk_core::FeedPage, ProviderError>| SectionVm {
-            title_key: key.to_owned(),
-            items: r.map(|p| p.items.iter().map(to_vm).collect()).map_err(provider_err),
-        };
-        let continue_watching = self.continue_vms(20);
-        Ok(HomeVm {
-            continue_watching,
-            sections: vec![
-                section("feed.trending", trending),
-                section("feed.airing", airing),
-                section("feed.seasonal", seasonal),
-                section("feed.popular", popular),
-                section("feed.top_rated", top),
-            ],
-        })
+        home::home(self).await
     }
 
     async fn search(&self, query: &str, page: u32) -> UiResult<Vec<MediaVm>> {
@@ -294,6 +321,10 @@ impl Backend for LiveBackend {
     }
 
     async fn details(&self, id: &str) -> UiResult<DetailsVm> {
+        // Wave B (j, `ext.custom-providers.info`): provider titles (`ext:<ext_id>:<key>`) come from the extension.
+        if ext_catalog::is_provider_id(id) {
+            return ext_catalog::details(self, id).await;
+        }
         let (r, media) = self.media(id).await?;
         let mut rows = self.progress(&r);
         rows.sort_by(|a, b| b.watched_at.cmp(&a.watched_at));
@@ -315,6 +346,9 @@ impl Backend for LiveBackend {
     }
 
     async fn episodes(&self, id: &str) -> UiResult<Vec<EpisodeVm>> {
+        if ext_catalog::is_provider_id(id) {
+            return ext_catalog::episodes(self, id).await;
+        }
         let r = media_ref(id).ok_or_else(|| UiError::new(ErrorKind::Other, format!("invalid id {id}")))?;
         let watched: HashMap<u32, f64> = self
             .progress(&r)
@@ -343,6 +377,13 @@ impl Backend for LiveBackend {
     }
 
     async fn playback(&self, id: &str, episode: u32) -> UiResult<PlaybackVm> {
+        // Wave B (h, `downloads.local-library.play-offline`): a completed download / local file plays without network.
+        if let Some(local) = downloads::local_playback(self, id, episode).await? {
+            return Ok(local);
+        }
+        if ext_catalog::is_provider_id(id) {
+            return ext_catalog::playback(self, id, episode).await;
+        }
         let (r, media) = self.media(id).await?;
         let streams = self.ext.resolve(&media, episode).await;
         if streams.is_empty() {
@@ -358,6 +399,10 @@ impl Backend for LiveBackend {
     }
 
     async fn record_progress(&self, id: &str, episode: u32, progress_secs: u32, duration_secs: Option<u32>) -> UiResult<()> {
+        // Wave B (j, `ext.custom-providers.watch` / `.continue`): provider titles keep their own history rows.
+        if ext_catalog::is_provider_id(id) {
+            return ext_catalog::record_progress(self, id, episode, progress_secs, duration_secs).await;
+        }
         let r = media_ref(id).ok_or_else(|| UiError::new(ErrorKind::Other, format!("invalid id {id}")))?;
         let (title, poster) = self.titles.lock().ok().and_then(|t| t.get(id).cloned()).unwrap_or_default();
         let Some(entry) = HistoryEntry::for_playback(
@@ -410,7 +455,11 @@ impl Backend for LiveBackend {
     async fn save_settings(&self, settings: &Settings) -> UiResult<()> {
         self.router.set_priority(settings.provider_priority.clone());
         set_title_language(&settings.title_language);
-        settings_store::save(&self.settings_file, settings).map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))
+        settings_store::save(&self.settings_file, settings).map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))?;
+        // Wave B: services that keep a copy of their prefs (no-ops until their owners land).
+        downloads::on_settings(self, settings).await;
+        server::on_settings(self, settings).await;
+        Ok(())
     }
 
     async fn link_status(&self) -> UiResult<LinkStatusVm> {
@@ -429,15 +478,24 @@ impl Backend for LiveBackend {
     // --- wave 1 (docs/redesign/08) ---
 
     async fn sources(&self, id: &str, episode: u32) -> UiResult<Vec<SourceVm>> {
+        if ext_catalog::is_provider_id(id) {
+            return ext_catalog::sources(self, id, episode).await;
+        }
         let (_, media) = self.media(id).await?;
-        let candidates = self.episode_candidates(id, episode, &media, false).await;
-        let prefs = sources::core_prefs(&settings_store::load(&self.settings_file).sources);
+        let settings = settings_store::load(&self.settings_file);
+        let mut candidates = self.episode_candidates(id, episode, &media, false).await;
+        // Wave B (k, `sources.embed-sniffer.timeout-setting`): with the sniffer off, embed pages are not offered.
+        if !settings.server.sniffer_enabled {
+            candidates.retain(|c| !c.web.as_ref().is_some_and(|w| w.embed));
+        }
+        let prefs = sources::core_prefs(&settings.sources);
         let enabled: HashMap<String, bool> =
             self.ext.installed().into_iter().map(|e| (e.id, e.enabled && e.compat != Compat::Unsupported)).collect();
         let picked = self.store.picked_source(id, episode).ok().flatten();
         let ranked = sources::ranked_vms(candidates, &prefs, |ext_id| enabled.get(ext_id).copied().unwrap_or(false), picked.as_deref());
-        // Wave A, worker i: `SourceVm::debrid` from the connected debrid services (best effort).
-        Ok(debrid::mark_cached(self, ranked).await)
+        // Wave A, worker i: `SourceVm::debrid` from the connected debrid services (best effort). Wave B
+        // (`sources.debrid.episode-context`, k): the episode context travels with the call instead of being guessed.
+        Ok(debrid::mark_cached(self, id, episode, ranked).await)
     }
 
     async fn playback_source(&self, id: &str, episode: u32, source_id: &str) -> UiResult<PlaybackVm> {
@@ -454,6 +512,10 @@ impl Backend for LiveBackend {
             None => find(self.episode_candidates(id, episode, &media, true).await),
         };
         let candidate = candidate.ok_or_else(|| UiError::new(ErrorKind::NoSource, source_id))?;
+        // Wave B (k, `sources.embed-sniffer`): an embed page is resolved to its media URL in the hidden web view first.
+        if candidate.web.as_ref().is_some_and(|w| w.embed) {
+            return sniffer::playback_embed(self, &r, &media, episode, &candidate).await;
+        }
         let stream = match candidate.kind {
             SourceKind::Torrent => return Err(UiError::new(ErrorKind::TorrentM2, source_id)),
             SourceKind::Web => candidate.to_stream().ok_or_else(|| UiError::new(ErrorKind::NoSource, source_id))?,
@@ -777,5 +839,406 @@ impl Backend for LiveBackend {
     }
     async fn debrid_play(&self, source: &str, id: &str, episode: u32) -> UiResult<PlaybackVm> {
         debrid::debrid_play(self, source, id, episode).await
+    }
+
+    // --- wave B (docs/redesign/16-parity-wave-b-contract.md section 3): one delegation per method, bodies in
+    // live/<area>.rs. Nobody edits these delegations. ---
+
+    // b: live/home.rs
+    async fn latest_episodes(&self, page: u32) -> UiResult<Vec<LatestEpisodeVm>> {
+        home::latest_episodes(self, page).await
+    }
+    async fn top10(&self, range: TopRangeVm) -> UiResult<Vec<MediaVm>> {
+        home::top10(self, range).await
+    }
+    async fn because_you_watched(&self) -> UiResult<Vec<BecauseVm>> {
+        home::because_you_watched(self).await
+    }
+    async fn genres(&self) -> UiResult<Vec<String>> {
+        home::genres(self).await
+    }
+    async fn genre_feed(&self, genre: &str, page: u32) -> UiResult<SearchPageVm> {
+        home::genre_feed(self, genre, page).await
+    }
+    async fn followed_updates(&self) -> UiResult<Vec<LatestEpisodeVm>> {
+        home::followed_updates(self).await
+    }
+    async fn airing_schedule(&self, week_start_unix: i64) -> UiResult<Vec<AiringSlotVm>> {
+        home::airing_schedule(self, week_start_unix).await
+    }
+    async fn tracked_shows(&self) -> UiResult<Vec<MediaVm>> {
+        home::tracked_shows(self).await
+    }
+    async fn is_tracked(&self, media_id: &str) -> UiResult<bool> {
+        home::is_tracked(self, media_id).await
+    }
+    async fn set_tracked(&self, media_id: &str, tracked: bool) -> UiResult<()> {
+        home::set_tracked(self, media_id, tracked).await
+    }
+    async fn reminders_due(&self) -> UiResult<Vec<AiringSlotVm>> {
+        home::reminders_due(self).await
+    }
+    async fn recommendations(&self, page: u32) -> UiResult<Vec<RecommendationVm>> {
+        home::recommendations(self, page).await
+    }
+    async fn recs_feedback(&self, media_id: &str, feedback: RecsFeedbackVm) -> UiResult<()> {
+        home::recs_feedback(self, media_id, feedback).await
+    }
+    async fn taste_profile(&self) -> UiResult<TasteProfileVm> {
+        home::taste_profile(self).await
+    }
+    async fn atlas_points(&self) -> UiResult<Vec<AtlasPointVm>> {
+        home::atlas_points(self).await
+    }
+    async fn torrent_activity(&self) -> UiResult<TorrentActivityVm> {
+        home::torrent_activity(self).await
+    }
+    async fn provider_health(&self) -> UiResult<Vec<ProviderHealthVm>> {
+        home::provider_health(self).await
+    }
+
+    // h: live/downloads.rs
+    async fn downloads(&self) -> UiResult<Vec<DownloadVm>> {
+        downloads::downloads(self).await
+    }
+    async fn download_enqueue(&self, media_id: &str, episode: u32, req: &DownloadRequestVm) -> UiResult<i64> {
+        downloads::enqueue(self, media_id, episode, req).await
+    }
+    async fn download_enqueue_many(&self, media_id: &str, episodes: &[u32], req: &DownloadRequestVm) -> UiResult<Vec<i64>> {
+        downloads::enqueue_many(self, media_id, episodes, req).await
+    }
+    async fn download_pause(&self, id: i64) -> UiResult<()> {
+        downloads::pause(self, id).await
+    }
+    async fn download_resume(&self, id: i64) -> UiResult<()> {
+        downloads::resume(self, id).await
+    }
+    async fn download_cancel(&self, id: i64, delete_file: bool) -> UiResult<()> {
+        downloads::cancel(self, id, delete_file).await
+    }
+    async fn download_remove(&self, id: i64, delete_file: bool) -> UiResult<()> {
+        downloads::remove(self, id, delete_file).await
+    }
+    async fn download_clear_history(&self) -> UiResult<u32> {
+        downloads::clear_history(self).await
+    }
+    async fn download_open_folder(&self, id: i64) -> UiResult<()> {
+        downloads::open_folder(self, id).await
+    }
+    async fn download_storage(&self) -> UiResult<DownloadStorageVm> {
+        downloads::storage(self).await
+    }
+    async fn local_playback(&self, media_id: &str, episode: u32) -> UiResult<Option<PlaybackVm>> {
+        downloads::local_playback(self, media_id, episode).await
+    }
+    async fn local_library(&self) -> UiResult<Vec<LocalItemVm>> {
+        downloads::local_library(self).await
+    }
+    async fn library_scan(&self, dir: Option<&str>) -> UiResult<LibraryScanVm> {
+        downloads::library_scan(self, dir).await
+    }
+    async fn library_import(&self, paths: &[String]) -> UiResult<LibraryScanVm> {
+        downloads::library_import(self, paths).await
+    }
+    async fn local_match(&self, item_id: i64, media_id: &str, episode: u32) -> UiResult<()> {
+        downloads::local_match(self, item_id, media_id, episode).await
+    }
+    async fn local_remove(&self, item_id: i64, delete_file: bool) -> UiResult<()> {
+        downloads::local_remove(self, item_id, delete_file).await
+    }
+    async fn auto_download_check_now(&self) -> UiResult<AutoDownloadRunVm> {
+        downloads::auto_check_now(self).await
+    }
+    async fn auto_download_last_run(&self) -> UiResult<Option<AutoDownloadRunVm>> {
+        downloads::auto_last_run(self).await
+    }
+    async fn download_verify(&self, id: i64) -> UiResult<DownloadVm> {
+        downloads::verify(self, id).await
+    }
+
+    // j: live/ext_server.rs (servers, deep link) + live/ext_catalog.rs (Stremio, updates, prefs, repos, providers)
+    async fn ext_servers(&self) -> UiResult<Vec<ExtServerVm>> {
+        ext_server::servers(self).await
+    }
+    async fn ext_server_pair(&self, req: &ExtServerPairVm) -> UiResult<ExtServerVm> {
+        ext_server::pair(self, req).await
+    }
+    async fn ext_server_set_enabled(&self, id: &str, enabled: bool) -> UiResult<()> {
+        let r = ext_server::set_enabled(self, id, enabled).await;
+        self.invalidate_sources();
+        r
+    }
+    async fn ext_server_remove(&self, id: &str) -> UiResult<()> {
+        let r = ext_server::remove(self, id).await;
+        self.invalidate_sources();
+        r
+    }
+    async fn ext_server_test(&self, id: &str) -> UiResult<ExtServerVm> {
+        ext_server::test(self, id).await
+    }
+    async fn ext_server_sources(&self, id: &str) -> UiResult<Vec<ExtSourceVm>> {
+        ext_server::sources(self, id).await
+    }
+    async fn take_pending_server_link(&self) -> UiResult<Option<String>> {
+        ext_server::take_pending_link(self).await
+    }
+    async fn stremio_addons(&self) -> UiResult<Vec<StremioAddonVm>> {
+        ext_catalog::stremio_addons(self).await
+    }
+    async fn stremio_add(&self, manifest_url: &str) -> UiResult<StremioAddonVm> {
+        let r = ext_catalog::stremio_add(self, manifest_url).await;
+        self.invalidate_sources();
+        r
+    }
+    async fn stremio_remove(&self, id: &str) -> UiResult<()> {
+        let r = ext_catalog::stremio_remove(self, id).await;
+        self.invalidate_sources();
+        r
+    }
+    async fn stremio_set_enabled(&self, id: &str, enabled: bool) -> UiResult<()> {
+        let r = ext_catalog::stremio_set_enabled(self, id, enabled).await;
+        self.invalidate_sources();
+        r
+    }
+    async fn ext_updates_check(&self) -> UiResult<Vec<ExtUpdateVm>> {
+        ext_catalog::updates_check(self).await
+    }
+    async fn ext_update(&self, id: &str) -> UiResult<ExtensionVm> {
+        let r = ext_catalog::update(self, id).await;
+        self.invalidate_sources();
+        r
+    }
+    async fn ext_update_all(&self) -> UiResult<u32> {
+        let r = ext_catalog::update_all(self).await;
+        self.invalidate_sources();
+        r
+    }
+    async fn set_all_extensions_enabled(&self, enabled: bool) -> UiResult<u32> {
+        let r = ext_catalog::set_all_enabled(self, enabled).await;
+        self.invalidate_sources();
+        r
+    }
+    async fn install_extension_url(&self, url: &str) -> UiResult<ExtensionVm> {
+        let r = ext_catalog::install_url(self, url).await;
+        self.invalidate_sources();
+        r
+    }
+    async fn ext_preferences(&self, id: &str) -> UiResult<Vec<ExtPrefFieldVm>> {
+        ext_catalog::preferences(self, id).await
+    }
+    async fn set_ext_preference(&self, id: &str, key: &str, value: &str) -> UiResult<()> {
+        ext_catalog::set_preference(self, id, key, value).await
+    }
+    async fn ext_repos(&self) -> UiResult<Vec<ExtRepoVm>> {
+        ext_catalog::repos(self).await
+    }
+    async fn ext_repo_add(&self, url: &str) -> UiResult<ExtRepoVm> {
+        ext_catalog::repo_add(self, url).await
+    }
+    async fn ext_repo_remove(&self, id: &str) -> UiResult<()> {
+        ext_catalog::repo_remove(self, id).await
+    }
+    async fn ext_repo_catalog(&self, id: &str, refresh: bool) -> UiResult<Vec<ExtCatalogItemVm>> {
+        ext_catalog::repo_catalog(self, id, refresh).await
+    }
+    async fn custom_providers(&self) -> UiResult<Vec<CustomProviderVm>> {
+        ext_catalog::custom_providers(self).await
+    }
+    async fn provider_home(&self, ext_id: &str) -> UiResult<Vec<SectionVm>> {
+        ext_catalog::provider_home(self, ext_id).await
+    }
+    async fn provider_feed(&self, ext_id: &str, row: &str, page: u32) -> UiResult<SearchPageVm> {
+        ext_catalog::provider_feed(self, ext_id, row, page).await
+    }
+    async fn provider_item(&self, ext_id: &str, item_key: &str) -> UiResult<ProviderItemVm> {
+        ext_catalog::provider_item(self, ext_id, item_key).await
+    }
+    async fn provider_bookmarks(&self) -> UiResult<Vec<MediaVm>> {
+        ext_catalog::provider_bookmarks(self).await
+    }
+    async fn set_provider_bookmark(&self, ext_id: &str, item_key: &str, bookmarked: bool) -> UiResult<()> {
+        ext_catalog::set_provider_bookmark(self, ext_id, item_key, bookmarked).await
+    }
+
+    // k: live/server.rs (tk-server, proxy, FlareSolverr), live/sniffer.rs (embed sniffer), live/link.rs (Link extras)
+    async fn server_status(&self) -> UiResult<ServerStatusVm> {
+        server::status(self).await
+    }
+    async fn server_start(&self) -> UiResult<ServerStatusVm> {
+        server::start(self).await
+    }
+    async fn server_stop(&self) -> UiResult<()> {
+        server::stop(self).await
+    }
+    async fn server_open_pairing(&self) -> UiResult<ServerPairingVm> {
+        server::open_pairing(self).await
+    }
+    async fn server_devices(&self) -> UiResult<Vec<ServerDeviceVm>> {
+        server::devices(self).await
+    }
+    async fn server_revoke(&self, device_id: &str) -> UiResult<()> {
+        server::revoke(self, device_id).await
+    }
+    async fn server_set_viewer_password(&self, password: Option<&str>) -> UiResult<()> {
+        server::set_viewer_password(self, password).await
+    }
+    async fn server_logs(&self, after: u64) -> UiResult<ServerLogPageVm> {
+        server::logs(self, after).await
+    }
+    async fn server_proxy_status(&self) -> UiResult<ProxyStatusVm> {
+        server::proxy_status(self).await
+    }
+    async fn server_clear_cache(&self) -> UiResult<()> {
+        server::clear_cache(self).await
+    }
+    async fn flaresolverr_test(&self, url: Option<&str>) -> UiResult<FlareSolverrVm> {
+        server::flaresolverr_test(self, url).await
+    }
+    async fn sniff_embed(&self, req: &SniffRequestVm) -> UiResult<SniffResultVm> {
+        sniffer::sniff(self, req).await
+    }
+    async fn send_to_device(&self, req: &SendToDeviceVm) -> UiResult<()> {
+        link::send_to_device(self, req).await
+    }
+    async fn wait_remote_command(&self) -> UiResult<RemoteCommandVm> {
+        link::wait_remote_command(self).await
+    }
+
+    // l: live/manga.rs (the `read_*` calls serve novels too)
+    async fn manga_home(&self) -> UiResult<ReadHomeVm> {
+        manga::home(self).await
+    }
+    async fn manga_search(&self, q: &SearchQueryVm) -> UiResult<SearchPageVm> {
+        manga::search(self, q).await
+    }
+    async fn manga_details(&self, id: &str) -> UiResult<MangaDetailsVm> {
+        manga::details(self, id).await
+    }
+    async fn manga_chapters(&self, id: &str, refresh: bool) -> UiResult<Vec<ChapterProviderVm>> {
+        manga::chapters(self, id, refresh).await
+    }
+    async fn manga_pages(&self, chapter: &ChapterRefVm) -> UiResult<Vec<PageVm>> {
+        manga::pages(self, chapter).await
+    }
+    async fn read_progress(&self, kind: ReadKindVm, media_id: &str) -> UiResult<Vec<ReadProgressVm>> {
+        manga::read_progress(self, kind, media_id).await
+    }
+    async fn set_read_progress(&self, kind: ReadKindVm, media_id: &str, progress: &ReadProgressVm) -> UiResult<()> {
+        manga::set_read_progress(self, kind, media_id, progress).await
+    }
+    async fn read_list_entry(&self, kind: ReadKindVm, media_id: &str) -> UiResult<Option<ListEntryVm>> {
+        manga::read_list_entry(self, kind, media_id).await
+    }
+    async fn set_read_list_entry(&self, kind: ReadKindVm, media_id: &str, update: &ListEntryUpdateVm) -> UiResult<ListEntryVm> {
+        manga::set_read_list_entry(self, kind, media_id, update).await
+    }
+    async fn remove_read_list_entry(&self, kind: ReadKindVm, media_id: &str) -> UiResult<()> {
+        manga::remove_read_list_entry(self, kind, media_id).await
+    }
+    async fn read_list_entries(&self, kind: ReadKindVm, status: Option<ListStatusVm>) -> UiResult<Vec<ListEntryVm>> {
+        manga::read_list_entries(self, kind, status).await
+    }
+    async fn manga_download_chapters(&self, id: &str, chapters: &[ChapterRefVm]) -> UiResult<u32> {
+        manga::download_chapters(self, id, chapters).await
+    }
+    async fn read_remove_offline(&self, kind: ReadKindVm, chapter: &ChapterRefVm) -> UiResult<()> {
+        manga::remove_offline(self, kind, chapter).await
+    }
+    async fn read_clear_cache(&self, kind: ReadKindVm, media_id: &str) -> UiResult<()> {
+        manga::clear_cache(self, kind, media_id).await
+    }
+
+    // m: live/novel.rs (+ crate::tts)
+    async fn novel_home(&self) -> UiResult<ReadHomeVm> {
+        novel::home(self).await
+    }
+    async fn novel_search(&self, q: &SearchQueryVm) -> UiResult<SearchPageVm> {
+        novel::search(self, q).await
+    }
+    async fn novel_details(&self, id: &str) -> UiResult<NovelDetailsVm> {
+        novel::details(self, id).await
+    }
+    async fn novel_chapters(&self, id: &str, translator: Option<&str>, refresh: bool) -> UiResult<Vec<ChapterProviderVm>> {
+        novel::chapters(self, id, translator, refresh).await
+    }
+    async fn novel_content(&self, chapter: &ChapterRefVm) -> UiResult<NovelContentVm> {
+        novel::content(self, chapter).await
+    }
+    async fn novel_check_sources(&self, id: &str) -> UiResult<Vec<(String, u32)>> {
+        novel::check_sources(self, id).await
+    }
+    async fn novel_download_chapters(&self, id: &str, chapters: &[ChapterRefVm]) -> UiResult<u32> {
+        novel::download_chapters(self, id, chapters).await
+    }
+    async fn tts_voices(&self, provider: TtsProviderVm) -> UiResult<Vec<TtsVoiceVm>> {
+        novel::tts_voices(self, provider).await
+    }
+    async fn tts_speak(&self, req: &TtsRequestVm) -> UiResult<TtsSpeakVm> {
+        novel::tts_speak(self, req).await
+    }
+    async fn tts_stop(&self) -> UiResult<()> {
+        novel::tts_stop(self).await
+    }
+    async fn set_tts_key(&self, provider: TtsProviderVm, key: Option<&str>) -> UiResult<()> {
+        novel::set_tts_key(self, provider, key).await
+    }
+    async fn tts_key_present(&self, provider: TtsProviderVm) -> UiResult<bool> {
+        novel::tts_key_present(self, provider).await
+    }
+    async fn kitten_status(&self) -> UiResult<KittenStatusVm> {
+        novel::kitten_status(self).await
+    }
+    async fn kitten_install(&self) -> UiResult<KittenStatusVm> {
+        novel::kitten_install(self).await
+    }
+    async fn kitten_remove(&self) -> UiResult<()> {
+        novel::kitten_remove(self).await
+    }
+
+    // n: live/social.rs
+    async fn anilist_profile(&self, name: Option<&str>) -> UiResult<ProfileVm> {
+        social::profile(self, name).await
+    }
+    async fn anilist_follow(&self, user_id: u64, follow: bool) -> UiResult<()> {
+        social::follow(self, user_id, follow).await
+    }
+    async fn anilist_followers(&self, user_id: u64, page: u32) -> UiResult<UserPageVm> {
+        social::followers(self, user_id, page).await
+    }
+    async fn anilist_following(&self, user_id: u64, page: u32) -> UiResult<UserPageVm> {
+        social::following(self, user_id, page).await
+    }
+    async fn anilist_activity(&self, feed: &ActivityFeedVm, page: u32) -> UiResult<Vec<ActivityVm>> {
+        social::activity(self, feed, page).await
+    }
+    async fn anilist_activity_replies(&self, activity_id: u64) -> UiResult<Vec<ActivityReplyVm>> {
+        social::activity_replies(self, activity_id).await
+    }
+    async fn anilist_like_activity(&self, activity_id: u64, like: bool) -> UiResult<()> {
+        social::like_activity(self, activity_id, like).await
+    }
+    async fn anilist_reply(&self, activity_id: u64, text: &str) -> UiResult<ActivityReplyVm> {
+        social::reply(self, activity_id, text).await
+    }
+    async fn anilist_post_status(&self, text: &str) -> UiResult<ActivityVm> {
+        social::post_status(self, text).await
+    }
+    async fn anilist_delete_activity(&self, activity_id: u64) -> UiResult<()> {
+        social::delete_activity(self, activity_id).await
+    }
+    async fn anilist_notifications(&self, page: u32, unread_only: bool) -> UiResult<NotificationPageVm> {
+        social::notifications(self, page, unread_only).await
+    }
+    async fn anilist_unread_count(&self) -> UiResult<u32> {
+        social::unread_count(self).await
+    }
+    async fn anilist_mark_notifications_read(&self) -> UiResult<()> {
+        social::mark_notifications_read(self).await
+    }
+    async fn anilist_reviews(&self, media_id: &str, page: u32) -> UiResult<Vec<ReviewVm>> {
+        social::reviews(self, media_id, page).await
+    }
+    async fn anilist_review(&self, review_id: u64) -> UiResult<ReviewVm> {
+        social::review(self, review_id).await
     }
 }

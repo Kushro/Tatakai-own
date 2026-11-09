@@ -110,6 +110,8 @@
     <string name="settings_torrents_hint">Límites de velocidad, red, almacenamiento y descargas en segundo plano del cliente de torrents.</string>
     <string name="settings_torrents_open">Ajustes de torrents</string>
     <string name="settings_torrents_open_sub">Velocidad · Red · Almacenamiento · Segundo plano</string>
+    <!-- parity wave B (16 §3.9): section title of the manga / novel readers (worker s rows). -->
+    <string name="settings_reader">Lector</string>
     <string name="settings_data">Datos y almacenamiento</string>
     <string name="settings_data_hint">Todo se queda en este dispositivo (Android/data/app.tatakai.own.next).</string>
     <string name="settings_data_images">Imágenes en disco</string>

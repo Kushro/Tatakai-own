@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use dioxus::prelude::*;
 
 use crate::app::{Route, Services, Ui};
-use crate::backend::{AiringVm, DetailsExtraVm, DetailsVm, DeviceVm, EpisodeVm, LinkStatusVm, SourceVm, TrailerVm};
+use crate::backend::{AiringVm, DetailsExtraVm, DetailsVm, DeviceVm, EpisodeVm, LinkStatusVm, SendToDeviceVm, SourceVm, TrailerVm};
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
     Button, ButtonSize, ButtonVariant, ConfirmDialog, DownloadSeasonSheet, EmptyState, ErrorState,
@@ -683,6 +683,9 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
     let send_dialog = match (send_target(), vm.as_ref()) {
         (Some(d), Some(v)) => {
             let ep = tf("details.episode", &[("n", &watch_ep.to_string())]);
+            // Wave B (worker k, `link.send-to-device`): `Backend::send_to_device` over Tatakai Link.
+            let send_backend = backend.clone();
+            let send_req = SendToDeviceVm { device_id: d.id.clone(), media_id: id.clone(), episode: watch_ep, position_secs: v.resume_secs };
             rsx! {
                 ConfirmDialog {
                     title: t("details.send_device"),
@@ -693,8 +696,13 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                     on_cancel: move |_| send_target.set(None),
                     on_confirm: move |_| {
                         send_target.set(None);
-                        // The contract has no "send to device" call yet (integration note).
-                        send_error.set(Some(UiError::not_wired("send_to_device")));
+                        let backend = send_backend.clone();
+                        let req = send_req.clone();
+                        spawn(async move {
+                            if let Err(e) = backend.send_to_device(&req).await {
+                                send_error.set(Some(e));
+                            }
+                        });
                     },
                 }
             }

@@ -11,6 +11,8 @@ mod anime_build;
 mod autostart;
 mod backend_common;
 mod config;
+/// Wave B (worker j): `tatakai://extensionserver/connect` pairing links from the OS.
+mod deeplink;
 #[allow(dead_code)] // used by worker e's live/presence.rs
 mod discord;
 mod firewall;
@@ -26,6 +28,9 @@ mod paths;
 mod reset;
 mod settings_store;
 mod single_instance;
+/// Wave B (worker m): narration engines (system voice, OpenAI-compatible, ElevenLabs, local KittenTTS).
+#[cfg(feature = "live")]
+mod tts;
 #[allow(dead_code)] // used by worker f's live/system.rs
 mod update_check;
 
@@ -112,6 +117,10 @@ fn main() -> anyhow::Result<()> {
     // Wave A, worker i: a `magnet:` link on the command line (OS scheme handler) waits for the torrent client.
     if let Some(link) = magnet::from_args(std::env::args_os().map(|a| a.to_string_lossy().into_owned())) {
         magnet::remember(&link);
+    }
+    // Wave B, worker j: a `tatakai://extensionserver/connect` pairing link waits for the Extensions page.
+    if let Some(link) = deeplink::from_args(std::env::args_os().map(|a| a.to_string_lossy().into_owned())) {
+        deeplink::remember(&link);
     }
     let cfg = config::AppConfig::load_or_create(&paths.root, config::AppConfig::from_build_env())?;
     let (ui, ui_jobs) = ui_thread::channel();

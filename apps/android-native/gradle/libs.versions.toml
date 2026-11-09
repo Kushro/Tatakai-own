@@ -104,6 +104,9 @@ media3-exoplayer-dash = { module = "androidx.media3:media3-exoplayer-dash", vers
 media3-ui-compose = { module = "androidx.media3:media3-ui-compose", version.ref = "media3" }
 media3-session = { module = "androidx.media3:media3-session", version.ref = "media3" }
 media3-datasource-okhttp = { module = "androidx.media3:media3-datasource-okhttp", version.ref = "media3" }
+# parity wave B (16-parity-wave-b-contract-android.md §3.8): Media3 DownloadManager (:core:download, worker r). Same version ref; both already in the Gradle cache (1.11.1).
+media3-database = { module = "androidx.media3:media3-database", version.ref = "media3" }
+media3-datasource = { module = "androidx.media3:media3-datasource", version.ref = "media3" }
 
 # --- Extension host (QuickJS, JNI precompiled, no NDK) ---
 quickjs-kt = { module = "io.github.dokar3:quickjs-kt", version.ref = "quickjsKt" }

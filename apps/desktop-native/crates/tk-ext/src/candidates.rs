@@ -153,7 +153,11 @@ fn map_one(ext_id: &str, ext_name: &str, s: &Value) -> Option<SourceCandidate> {
     if url.is_empty() {
         return None;
     }
-    let container = web_container(s, url)?;
+    // Wave B (worker k, plan 14 section 0.1 #13): an embed page is listed as a web candidate flagged `embed`; the app
+    // sniffs its media URL in a hidden web view before playing (`tk-app/src/live/sniffer.rs`).
+    let kind_text = s["type"].as_str().or_else(|| s["sourceType"].as_str()).unwrap_or("");
+    let embed = kind_text.eq_ignore_ascii_case("embed") && url.starts_with("https://");
+    let container = if embed { None } else { Some(web_container(s, url)?) };
     let label = text(&s["server"]).unwrap_or(provider);
     Some(SourceCandidate {
         ext_id: ext_id.to_owned(),
@@ -161,7 +165,7 @@ fn map_one(ext_id: &str, ext_name: &str, s: &Value) -> Option<SourceCandidate> {
         kind: SourceKind::Web,
         label,
         quality,
-        container: Some(container_label(container).to_owned()),
+        container: container.map(|c| container_label(c).to_owned()).or_else(|| embed.then(|| "Embed".to_owned())),
         subs,
         dubs,
         reliability: INITIAL_RELIABILITY,
@@ -171,6 +175,7 @@ fn map_one(ext_id: &str, ext_name: &str, s: &Value) -> Option<SourceCandidate> {
             headers: headers_of(s),
             latency_ms: s["latencyMs"].as_u64().map(|v| u32::try_from(v).unwrap_or(u32::MAX)),
             subtitles,
+            embed,
         }),
         torrent: None,
         tags: ReleaseTags::default(),

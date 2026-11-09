@@ -8,4 +8,14 @@ package app.tatakai.next.feature.library
  * Planeado / Completado / En pausa / Abandonado / Repitiendo); FAVORITES = `ListsRepository.favorites()`. The Torrents tab body is
  * TorrentsLibraryTab of worker f; badge = active downloads. Order = display order (`ordinal` is the saved tab index).
  */
-enum class LibraryTab { CONTINUE, HISTORY, LISTS, FAVORITES, TORRENTS }
+enum class LibraryTab {
+    CONTINUE,
+    HISTORY,
+    LISTS,
+    FAVORITES,
+
+    /** parity wave B (16 §3.5 / §3.6, worker s): manga / novel readlists (`MangaLibraryTab` / `NovelLibraryTab`). */
+    MANGA,
+    NOVELS,
+    TORRENTS,
+}

@@ -1,0 +1,2 @@
+/* provider.css - wave B, worker j (provider pages, extension servers / Stremio / repositories / updates / preferences UI in Extensions). Registered in app.rs APP_CSS by the contract; tokens only (no color literals);
+   animations through --md-sys-motion-* / --tk-mo-* and [data-reduce-motion="true"]. Prefix: .tk-provider. */

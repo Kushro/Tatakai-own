@@ -28,19 +28,27 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AutoStories
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.AutoStories
+import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -99,20 +107,36 @@ import app.tatakai.next.designsystem.theme.TatakaiTheme
 import app.tatakai.next.designsystem.theme.rememberReduceMotion
 import app.tatakai.next.feature.details.CharacterScreen
 import app.tatakai.next.feature.details.DetailsScreen
+import app.tatakai.next.feature.downloads.DownloadsScreen
 import app.tatakai.next.feature.extensions.ExtensionsScreen
+import app.tatakai.next.feature.extensions.ProviderItemScreen
+import app.tatakai.next.feature.extensions.ProviderScreen
+import app.tatakai.next.feature.home.CalendarScreen
+import app.tatakai.next.feature.home.ForYouScreen
 import app.tatakai.next.feature.home.HomeScreen
 import app.tatakai.next.feature.library.LibraryScreen
 import app.tatakai.next.feature.library.LibraryTab
 import app.tatakai.next.feature.link.ExtensionServersScreen
 import app.tatakai.next.feature.link.LinkedDeviceScreen
+import app.tatakai.next.feature.manga.MangaDetailsScreen
+import app.tatakai.next.feature.manga.MangaHomeScreen
+import app.tatakai.next.feature.manga.MangaReaderScreen
+import app.tatakai.next.feature.novel.NovelDetailsScreen
+import app.tatakai.next.feature.novel.NovelHomeScreen
+import app.tatakai.next.feature.novel.NovelReaderScreen
 import app.tatakai.next.feature.player.PlayerScreen
 import app.tatakai.next.feature.search.ImageSearchScreen
 import app.tatakai.next.feature.search.SearchScreen
 import app.tatakai.next.feature.settings.OnboardingScreen
 import app.tatakai.next.feature.settings.SettingsScreen
+import app.tatakai.next.feature.social.ActivityThreadScreen
+import app.tatakai.next.feature.social.NotificationsScreen
+import app.tatakai.next.feature.social.ProfileScreen
 import app.tatakai.next.feature.torrents.TorrentsScreen
 import app.tatakai.next.feature.you.YouScreen
 import app.tatakai.next.model.AppSettings
+import app.tatakai.next.model.DownloadsTab
+import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.model.SettingsRepository
@@ -142,6 +166,8 @@ fun TatakaiApp(
     // parity wave A (15 §3.6): OAuth redirect arrived (open Settings › Listas y cuentas) / an image was shared to the app (image search).
     accountLinks: MutableStateFlow<Boolean>? = null,
     imageLinks: MutableStateFlow<String?>? = null,
+    // parity wave B (16 §3.12): a ready Route from a notification tap / deep link of the wave (WaveBLinks), pushed once and cleared.
+    routeLinks: MutableStateFlow<Route?>? = null,
 ) {
     val settingsRepo = koinInject<SettingsRepository>()
     val settings by settingsRepo.settings.collectAsStateWithLifecycle()
@@ -172,7 +198,7 @@ fun TatakaiApp(
             if (!settings.onboardingDone) {
                 OnboardingScreen(onDone = {})
             } else {
-                AppShell(snackbar, torrentLinks, serverLinks, accountLinks, imageLinks)
+                AppShell(snackbar, torrentLinks, serverLinks, accountLinks, imageLinks, routeLinks)
             }
         }
     }
@@ -220,9 +246,22 @@ private fun AppShell(
     serverLinks: MutableStateFlow<Boolean>? = null,
     accountLinks: MutableStateFlow<Boolean>? = null,
     imageLinks: MutableStateFlow<String?>? = null,
+    routeLinks: MutableStateFlow<Route?>? = null,
 ) {
     val backStack = rememberNavBackStack(Route.Home)
     val current = backStack.lastOrNull() as? Route
+
+    // parity wave B (16 §3.12): downloads / airing / AniList notification taps and tatakai://user/<name> arrive as a Route.
+    if (routeLinks != null) {
+        LaunchedEffect(routeLinks) {
+            routeLinks.collect { route ->
+                if (route != null) {
+                    if (backStack.lastOrNull() != route) backStack.add(route)
+                    routeLinks.value = null
+                }
+            }
+        }
+    }
 
     // parity wave A (15 §3.3): tatakai://oauth/<provider> came back from the Custom Tab. The redirect itself waits in PendingOAuthRedirect
     // (worker q's ListsRepository finishes the exchange); the shell only shows the Accounts section so the user sees the result.
@@ -282,7 +321,8 @@ private fun AppShell(
     val destinations = topLevelRoutes(wide)
     val selectedTop = backStack.asReversed()
         .firstNotNullOfOrNull { key -> (key as? Route)?.topLevel(wide)?.takeIf { it in destinations } }
-    val onPlayer = current is Route.Player
+    // parity wave B (16 §3.12): the manga / novel readers hide the nav like the player.
+    val onPlayer = current is Route.Player || current is Route.MangaReader || current is Route.NovelReader
     val suiteType = when {
         onPlayer -> NavigationSuiteType.None
         wide -> NavigationSuiteType.WideNavigationRailCollapsed
@@ -411,6 +451,23 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
     fun openTorrent(torrentId: String) = push(Route.Torrents(TorrentSection.OVERVIEW, torrentId))
     fun openSettings(section: SettingsSection) = push(Route.SettingsSection(section))
     fun openGenre(genre: String) = push(Route.SearchFor(genre = genre))
+    // parity wave B (16 §3.12): manga details share Route.Details with kind MANGA (screen of s); novels have their own route.
+    fun openMangaDetails(anilistId: Int) {
+        if (backStack.lastOrNull() is Route.Details) backStack.removeLastOrNull()
+        backStack.add(Route.Details(MediaKind.MANGA, anilistId))
+    }
+    fun openNovelDetails(anilistId: Int) {
+        if (backStack.lastOrNull() is Route.NovelDetails) backStack.removeLastOrNull()
+        backStack.add(Route.NovelDetails(anilistId))
+    }
+    /** A `Media` of any kind (social feeds, manga rows): anime -> Details(ANIME), manga -> Details(MANGA). */
+    fun openMedia(media: Media) {
+        val id = media.ref.anilistId ?: return
+        if (media.kind == MediaKind.MANGA) openMangaDetails(id) else openDetails(id)
+    }
+    fun openDownloads(tab: DownloadsTab = DownloadsTab.ACTIVE) = push(Route.Downloads(tab))
+    fun openUser(userName: String) = push(Route.Profile(userName))
+    fun openActivity(activityId: Int) = push(Route.ActivityThread(activityId))
 
     // Reduce motion: instant screen changes (no slide / fade), predictive back included.
     val reduceMotion = LocalReduceMotion.current
@@ -438,7 +495,22 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onOpenGenre = ::openGenre,
                     onSearchQuery = { query -> push(Route.SearchFor(query = query)) },
                     onOpenLibrary = { backStack.navigateTop(Route.Library) },
+                    // parity wave B (16 §3.12)
+                    onOpenCalendar = { push(Route.Calendar) },
+                    onOpenForYou = { push(Route.ForYou) },
+                    onOpenManga = { push(Route.Manga()) },
+                    onOpenNovels = { push(Route.Novels()) },
+                    onOpenNotifications = { push(Route.Notifications) },
+                    onOpenProvider = { ext, source -> push(Route.Provider(ext, source)) },
+                    onOpenProviderItem = { ext, source, item -> push(Route.ProviderItem(ext, source, item)) },
                 )
+            }
+            // parity wave B (16 §3.1, worker r): calendar and "Para ti" sub-screens of Home.
+            entry<Route.Calendar>(metadata = ListDetailSceneStrategy.listPane()) {
+                CalendarScreen(onBack = ::back, onMediaClick = ::openMedia)
+            }
+            entry<Route.ForYou>(metadata = ListDetailSceneStrategy.listPane()) {
+                ForYouScreen(onBack = ::back, onMediaClick = ::openMedia)
             }
             entry<Route.Search>(metadata = ListDetailSceneStrategy.listPane()) {
                 SearchScreen(
@@ -471,6 +543,8 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onExplore = { backStack.navigateTop(Route.Home) },
                     onOpenTorrent = ::openTorrent,
                     onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
+                    onOpenMangaDetails = ::openMangaDetails,
+                    onOpenNovelDetails = ::openNovelDetails,
                 )
             }
             entry<Route.LibraryTab>(metadata = ListDetailSceneStrategy.listPane()) { key ->
@@ -481,23 +555,41 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     initialTab = key.tab,
                     onOpenTorrent = ::openTorrent,
                     onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
+                    onOpenMangaDetails = ::openMangaDetails,
+                    onOpenNovelDetails = ::openNovelDetails,
                 )
             }
             entry<Route.Details>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
-                DetailsScreen(
-                    kind = key.kind,
-                    anilistId = key.anilistId,
-                    onBack = ::back,
-                    onPlay = ::play,
-                    onOpenExtensions = { push(Route.Extensions) },
-                    onOpenTorrent = ::openTorrent,
-                    onOpenSettings = ::openSettings,
-                    onOpenLinked = { push(Route.Linked) },
-                    onOpenDownloads = { push(Route.Torrents(TorrentSection.DOWNLOADS)) },
-                    onOpenGenre = ::openGenre,
-                    onOpenCharacter = { id -> push(Route.Character(id)) },
-                    onOpenStudio = { studio -> push(Route.SearchFor(studio = studio)) },
-                )
+                if (key.kind == MediaKind.MANGA) {
+                    // parity wave B (16 §3.5, worker s): manga details (own screen, same route so every Media click works).
+                    MangaDetailsScreen(
+                        anilistId = key.anilistId,
+                        onBack = ::back,
+                        onOpenReader = { args -> push(Route.MangaReader(args)) },
+                        onOpenAnime = ::openDetails,
+                        onOpenManga = ::openMedia,
+                        onOpenExtensions = { push(Route.Extensions) },
+                        onOpenDownloads = { openDownloads(DownloadsTab.MANGA) },
+                        onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
+                        onOpenGenre = ::openGenre,
+                    )
+                } else {
+                    DetailsScreen(
+                        kind = key.kind,
+                        anilistId = key.anilistId,
+                        onBack = ::back,
+                        onPlay = ::play,
+                        onOpenExtensions = { push(Route.Extensions) },
+                        onOpenTorrent = ::openTorrent,
+                        onOpenSettings = ::openSettings,
+                        onOpenLinked = { push(Route.Linked) },
+                        // parity wave B (16 §3.2): the Downloads page (web + torrents) replaces the torrent client's Downloads section.
+                        onOpenDownloads = { openDownloads(DownloadsTab.ANIME) },
+                        onOpenGenre = ::openGenre,
+                        onOpenCharacter = { id -> push(Route.Character(id)) },
+                        onOpenStudio = { studio -> push(Route.SearchFor(studio = studio)) },
+                    )
+                }
             }
             // parity wave A (15 §3.1, worker o): character page, detail pane like Details.
             entry<Route.Character>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
@@ -521,11 +613,16 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
             entry<Route.You> {
                 YouScreen(
                     onOpenHistory = { push(Route.LibraryTab(LibraryTab.HISTORY)) },
-                    onOpenDownloads = { push(Route.Torrents(TorrentSection.DOWNLOADS)) },
+                    // parity wave B (16 §3.2): the Downloads page (web + torrents + chapters + local library).
+                    onOpenDownloads = { openDownloads() },
                     onOpenExtensions = { push(Route.Extensions) },
                     onOpenLinked = { push(Route.Linked) },
                     onOpenSettings = { push(Route.Settings) },
                     onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
+                    onOpenManga = { push(Route.Manga()) },
+                    onOpenNovels = { push(Route.Novels()) },
+                    onOpenProfile = { push(Route.Profile()) },
+                    onOpenNotifications = { push(Route.Notifications) },
                 )
             }
             entry<Route.Settings> {
@@ -546,7 +643,110 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onBack = ::back,
                 )
             }
-            entry<Route.Extensions> { ExtensionsScreen(onBack = ::back) }
+            entry<Route.Extensions> {
+                ExtensionsScreen(onBack = ::back, onOpenProvider = { ext, source -> push(Route.Provider(ext, source)) })
+            }
+            // parity wave B (16 §3.4, worker r): custom provider pages.
+            entry<Route.Provider>(metadata = ListDetailSceneStrategy.listPane()) { key ->
+                ProviderScreen(
+                    extensionId = key.extensionId,
+                    sourceId = key.sourceId,
+                    onBack = ::back,
+                    onOpenItem = { item -> push(Route.ProviderItem(key.extensionId, key.sourceId, item)) },
+                )
+            }
+            entry<Route.ProviderItem>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
+                ProviderItemScreen(
+                    extensionId = key.extensionId,
+                    sourceId = key.sourceId,
+                    itemId = key.itemId,
+                    onBack = ::back,
+                    onPlay = ::play,
+                    onOpenReader = { args -> push(Route.MangaReader(args)) },
+                    onOpenDetails = ::openDetails,
+                )
+            }
+            // parity wave B (16 §3.2, worker r): Downloads page (rail destination on wide windows: no back arrow).
+            entry<Route.Downloads> { key ->
+                DownloadsScreen(
+                    initialTab = key.tab,
+                    onBack = if (wide) null else ::back,
+                    onPlay = ::play,
+                    onOpenDetails = ::openDetails,
+                    onOpenTorrent = ::openTorrent,
+                    onOpenMangaReader = { args -> push(Route.MangaReader(args)) },
+                    onOpenNovelReader = { args -> push(Route.NovelReader(args)) },
+                )
+            }
+            // parity wave B (16 §3.5 / §3.6, worker s): manga and novels.
+            entry<Route.Manga>(metadata = ListDetailSceneStrategy.listPane()) { key ->
+                MangaHomeScreen(
+                    onMediaClick = ::openMedia,
+                    onBack = if (wide) null else ::back,
+                    onOpenReader = { args -> push(Route.MangaReader(args)) },
+                    onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
+                    initialQuery = key.query,
+                )
+            }
+            entry<Route.MangaReader> { key ->
+                MangaReaderScreen(
+                    args = key.args,
+                    onBack = ::back,
+                    onReplace = { args -> replaceTop(Route.MangaReader(args)) },
+                    onOpenSettings = ::openSettings,
+                )
+            }
+            entry<Route.Novels>(metadata = ListDetailSceneStrategy.listPane()) { key ->
+                NovelHomeScreen(
+                    onMediaClick = { media -> media.ref.anilistId?.let { openNovelDetails(it) } },
+                    onBack = if (wide) null else ::back,
+                    onOpenReader = { args -> push(Route.NovelReader(args)) },
+                    onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
+                    initialQuery = key.query,
+                )
+            }
+            entry<Route.NovelDetails>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
+                NovelDetailsScreen(
+                    anilistId = key.anilistId,
+                    onBack = ::back,
+                    onOpenReader = { args -> push(Route.NovelReader(args)) },
+                    onOpenExtensions = { push(Route.Extensions) },
+                    onOpenDownloads = { openDownloads(DownloadsTab.NOVELS) },
+                    onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
+                    onOpenGenre = ::openGenre,
+                )
+            }
+            entry<Route.NovelReader> { key ->
+                NovelReaderScreen(
+                    args = key.args,
+                    onBack = ::back,
+                    onReplace = { args -> replaceTop(Route.NovelReader(args)) },
+                    onOpenSettings = ::openSettings,
+                )
+            }
+            // parity wave B (16 §3.7, worker t): AniList social.
+            entry<Route.Profile>(metadata = ListDetailSceneStrategy.listPane()) { key ->
+                ProfileScreen(
+                    userName = key.userName,
+                    onBack = if (wide && key.userName == null) null else ::back,
+                    onOpenUser = ::openUser,
+                    onOpenActivity = ::openActivity,
+                    onOpenMedia = ::openMedia,
+                    onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
+                )
+            }
+            entry<Route.ActivityThread>(metadata = ListDetailSceneStrategy.detailPane()) { key ->
+                ActivityThreadScreen(activityId = key.activityId, onBack = ::back, onOpenUser = ::openUser, onOpenMedia = ::openMedia)
+            }
+            entry<Route.Notifications> {
+                NotificationsScreen(
+                    onBack = ::back,
+                    onOpenMedia = ::openMedia,
+                    onOpenActivity = ::openActivity,
+                    onOpenUser = ::openUser,
+                    onOpenAccounts = { openSettings(SettingsSection.ACCOUNTS) },
+                )
+            }
             entry<Route.Link> {
                 LinkedDeviceScreen(onBack = ::back, onPlay = ::play, onOpenExtensionServers = { push(Route.ExtensionServers) })
             }
@@ -586,6 +786,11 @@ private fun Route.icon(selected: Boolean): ImageVector = when (this) {
     Route.Extensions -> if (selected) Icons.Filled.Extension else Icons.Outlined.Extension
     Route.Linked, Route.Link -> if (selected) Icons.Filled.Computer else Icons.Outlined.Computer
     Route.Settings -> if (selected) Icons.Filled.Settings else Icons.Outlined.Settings
+    // parity wave B (16 §3.12)
+    is Route.Manga -> if (selected) Icons.Filled.MenuBook else Icons.Outlined.MenuBook
+    is Route.Novels -> if (selected) Icons.Filled.AutoStories else Icons.Outlined.AutoStories
+    is Route.Downloads -> if (selected) Icons.Filled.CloudDownload else Icons.Outlined.CloudDownload
+    is Route.Profile -> if (selected) Icons.Filled.AccountCircle else Icons.Outlined.AccountCircle
     else -> if (selected) Icons.Filled.Person else Icons.Outlined.Person
 }
 
@@ -597,6 +802,11 @@ private fun Route.labelRes(): Int = when (this) {
     Route.Extensions -> R.string.nav_extensions
     Route.Linked, Route.Link -> R.string.nav_linked
     Route.Settings -> R.string.nav_settings
+    // parity wave B (16 §3.12): shared labels of core/ui
+    is Route.Manga -> UiR.string.nav_manga
+    is Route.Novels -> UiR.string.nav_novels
+    is Route.Downloads -> UiR.string.nav_downloads
+    is Route.Profile -> UiR.string.nav_profile
     else -> R.string.nav_you
 }
 

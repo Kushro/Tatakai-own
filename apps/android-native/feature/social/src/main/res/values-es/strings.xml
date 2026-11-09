@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="social_profile_title">Perfil</string>
+    <string name="social_activity_title">Actividad</string>
+    <string name="social_notifications_title">Notificaciones</string>
+</resources>

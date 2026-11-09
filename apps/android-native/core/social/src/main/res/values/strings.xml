@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- parity wave B (16 §3.7, worker t): notification texts. Screen texts live in :feature:social. -->
+<resources>
+    <string name="social_channel">AniList notifications</string>
+    <string name="social_channel_desc">New followers, likes, replies and aired episodes from AniList</string>
+    <plurals name="social_notification_unread">
+        <item quantity="one">%1$d new AniList notification</item>
+        <item quantity="other">%1$d new AniList notifications</item>
+    </plurals>
+</resources>

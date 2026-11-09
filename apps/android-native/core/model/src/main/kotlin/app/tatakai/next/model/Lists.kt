@@ -145,4 +145,9 @@ interface ListsRepository {
 
     /** Merges an [exportJson] document (newest `updatedAtMs` wins); returns the number of entries imported or updated. */
     suspend fun importJson(json: String): Result<Int>
+
+    // --- parity wave B (16 §3.7): the AniList token is the only credential of the social layer (t) and of the manga / novel readlist
+    // sync (s). Implemented by the contract in ListsRepositoryImpl (reads the TokenSet of q, refreshing MAL when expired). ---
+    /** A valid access token of a linked provider; null when not linked or expired without refresh. Never logged, never shown. */
+    suspend fun accessToken(provider: ListProvider): String? = null
 }

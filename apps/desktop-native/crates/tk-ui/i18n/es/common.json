@@ -285,5 +285,17 @@
   "src.download.failed": "No se pudo iniciar la descarga. Puede que las descargas en segundo plano estén apagadas.",
   "src.download.open": "Descargas",
   "src.prefer.hint": "Ordena primero las fuentes web o torrent. Los torrents se reproducen mientras se descargan.",
-  "common.placeholder": "Esta parte de la app está en construcción."
+  "common.placeholder": "Esta parte de la app está en construcción.",
+  "nav.downloads": "Descargas",
+  "nav.manga": "Manga",
+  "nav.novels": "Novelas",
+  "provider.mal.sub": "MyAnimeList: puntuación, ranking y sinopsis de respaldo",
+  "provider.shikimori": "Shikimori",
+  "provider.shikimori.sub": "Títulos alternativos, puntuación y capturas (por id de MAL)",
+  "provider.tenrai": "Tenrai",
+  "provider.tenrai.sub": "Metadatos de último recurso para títulos que faltan en el resto",
+  "provider.mangadex": "MangaDex",
+  "provider.mangadex.sub": "Capítulos y metadatos de manga",
+  "provider.mangaupdates": "MangaUpdates",
+  "provider.mangaupdates.sub": "Editorial, serialización y estado de publicación"
 }
