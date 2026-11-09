@@ -125,4 +125,17 @@
     <string name="search_settings_history_clear">Borrar búsquedas recientes</string>
     <string name="search_settings_history_confirm">¿Quitar todas las búsquedas recientes guardadas en este dispositivo?</string>
     <string name="search_settings_history_cleared">Búsquedas recientes borradas</string>
+    <!-- parity wave B (16 §3.1, worker r): mature content + metadata providers rows of DiscoverSettingsExtras. -->
+    <string name="search_settings_mature">Contenido maduro</string>
+    <string name="search_settings_mature_hint">Cómo se ven los títulos para adultos en Inicio, Buscar y la ficha cuando el contenido 18+ está permitido.</string>
+    <string name="search_settings_mature_show">Mostrar</string>
+    <string name="search_settings_mature_blur">Difuminar</string>
+    <string name="search_settings_mature_warn">Avisar</string>
+    <string name="search_settings_meta_providers">Proveedores</string>
+    <string name="search_settings_meta_providers_hint">Activa o desactiva fuentes; la lista de arriba fija su orden. MAL necesita un client id incluido en la app.</string>
+    <string name="search_settings_meta_off">Desactivado</string>
+    <string name="search_settings_meta_paused">En pausa %1$d min tras errores</string>
+    <string name="search_settings_meta_error">Error: %1$s</string>
+    <string name="search_settings_meta_ok">Funciona</string>
+    <string name="search_settings_meta_idle">Sin usar todavía en esta sesión</string>
 </resources>
