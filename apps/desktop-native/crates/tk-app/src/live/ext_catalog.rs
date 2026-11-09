@@ -28,7 +28,7 @@ use tk_core::{Compat, HistoryEntry, Media, MediaKind, MediaRef, stremio};
 use tk_ext::manifest::{PrefField, PrefKind};
 use tk_ui::backend::{
     ChapterProviderVm, ChapterRefVm, ChapterVm, CustomProviderVm, DetailsVm, EpisodeVm, ExtCatalogItemVm, ExtPrefFieldVm,
-    ExtPrefKindVm, ExtRepoVm, ExtUpdateVm, ExtensionVm, MediaVm, PageVm, PlaybackVm, ProviderItemVm, SearchPageVm, SectionVm,
+    ExtPrefKindVm, ExtRepoVm, ExtUpdateVm, ExtensionVm, MangaDetailsVm, MediaVm, PageVm, PlaybackVm, ProviderItemVm, SearchPageVm, SectionVm,
     SourceVm, StremioAddonVm, UiResult,
 };
 use tk_ui::model::{ErrorKind, UiError};
@@ -717,6 +717,33 @@ pub async fn provider_chapters(b: &LiveBackend, id: &str) -> UiResult<Vec<Chapte
         })
         .collect();
     Ok(vec![ChapterProviderVm { ext_id: r.ext_id, ext_name, lang: None, chapters: list, error: None }])
+}
+
+/// Manga details of a provider title of kind `read` (`ext.custom-providers.read`; worker l's `manga_details` for
+/// `ext:` ids). Reading progress stays with l's `read_progress`, so `resume` is `None` here.
+pub async fn provider_manga_details(b: &LiveBackend, id: &str) -> UiResult<MangaDetailsVm> {
+    let r = parse_provider_id(id).ok_or_else(|| bad_id(id))?;
+    let info = provider_info(b, &r).await?;
+    let d = details_vm(b, &r, &info);
+    let authors: Vec<String> = meta_value(&info.meta, &["author", "authors", "autor", "artist"])
+        .map(|a| a.split([',', '/']).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned).collect())
+        .unwrap_or_default();
+    Ok(MangaDetailsVm {
+        media: d.media,
+        banner: d.banner,
+        synopsis: d.synopsis,
+        genres: d.genres,
+        status: d.status,
+        format: meta_value(&info.meta, &["type", "format", "tipo"]),
+        chapters_total: d.episodes_total,
+        volumes_total: None,
+        authors,
+        anime_id: None,
+        external: Vec::new(),
+        ratings: Vec::new(),
+        adult: false,
+        resume: None,
+    })
 }
 
 /// `CustomReadResult` -> pages (`pageNumber` order, `http(s)` images only).
