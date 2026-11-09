@@ -1,4 +1,6 @@
 //! Settings > Appearance: palette, mode, contrast, language, title language (wave A, worker c), reduce motion.
+//! Wave B (worker **b**, `settings.appearance.more-palettes`): the 20 palettes of `packages/tokens/tokens.json`
+//! (`model::home::ALL_PALETTES`, which `model::PALETTES` mirrors), one swatch each with `data-palette`.
 //!
 //! Split out of `screens/settings.rs` by the wave-A contract (docs/redesign/15-parity-wave-a-contract.md
 //! section 2). Owner: nobody in wave A (integrator). The page shell (`mod.rs`: index, scroll spy, `SettingsPanel`, `SettingRow`) is frozen.
@@ -8,17 +10,24 @@ use dioxus::prelude::*;
 use super::{SettingRow, seg};
 use crate::app::Ui;
 use crate::components::{Segmented, Switch};
-use crate::i18n::{LangChoice, t};
-use crate::model::{Contrast, PALETTES, SettingsAction, TITLE_LANGUAGES, ThemeMode};
+use crate::i18n::{LangChoice, t, tf};
+use crate::model::home::ALL_PALETTES;
+use crate::model::{Contrast, SettingsAction, TITLE_LANGUAGES, ThemeMode};
 
 #[component]
-pub fn AppearanceSection(commit: Callback<SettingsAction>, commit_saved: Callback<SettingsAction>) -> Element {
+pub fn AppearanceSection(
+    commit: Callback<SettingsAction>,
+    commit_saved: Callback<SettingsAction>,
+) -> Element {
     let ui = use_context::<Ui>();
     let s = (ui.settings)();
     rsx! {
-        SettingRow { label: t("settings.palette"), hint: t("settings.palette_hint"), stack: true,
-            div { class: "tk-swatches", role: "radiogroup", "aria-label": t("settings.palette"),
-                for p in PALETTES {
+        SettingRow {
+            label: t("settings.palette"),
+            hint: format!("{} · {}", t("settings.palette_hint"), tf("settings.appearance.palettes_count", &[("n", &ALL_PALETTES.len().to_string())])),
+            stack: true,
+            div { class: "tk-swatches", role: "radiogroup", "aria-label": t("settings.palette"), "data-palettes": "{ALL_PALETTES.len()}",
+                for p in ALL_PALETTES {
                     {
                         let label = t(&format!("palette.{}", p.id));
                         let selected = s.palette == p.id;
@@ -32,6 +41,7 @@ pub fn AppearanceSection(commit: Callback<SettingsAction>, commit_saved: Callbac
                                 "aria-label": "{label}",
                                 title: "{label}",
                                 "data-selected": "{selected}",
+                                "data-palette": "{p.id}",
                                 onclick: move |_| commit.call(SettingsAction::SetPalette(p.id.to_owned())),
                                 span { class: "tk-swatch__dot", style: "background-color:{p.seed}" }
                                 span { class: "tk-swatch__name", "{label}" }

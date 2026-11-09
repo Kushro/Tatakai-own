@@ -63,3 +63,107 @@
   .tk-hero__body, .tk-hero__slide:not([data-front="true"]) .tk-hero__body { max-width: 100%; padding: var(--tk-space-20); }
   .tk-hero__slide:not([data-front="true"]) .tk-hero__title { font-size: clamp(22px, 5vw, 28px); white-space: normal; }
 }
+
+/* ---- wave B, worker b: Home blocks, Top 10, genre cloud, reminders, torrent banner, recommendations ---- */
+.tk-home__torrents {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--tk-space-12);
+  padding: var(--tk-space-12) var(--tk-space-16); border-radius: var(--md-sys-shape-corner-large);
+  background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+}
+.tk-home__torrents-text { font-weight: 600; }
+.tk-home__torrents-speed { flex: 1; font-size: var(--md-sys-typescale-body-small-size); opacity: .85; }
+
+.tk-home__ep { display: contents; }
+.tk-home__genres { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); }
+.tk-home__more { height: 48px; }
+
+.tk-top10 { display: flex; gap: var(--tk-space-16); overflow-x: auto; list-style: none; margin: 0; padding: 0 0 var(--tk-space-8); scrollbar-width: thin; }
+.tk-top10__item { position: relative; display: flex; align-items: flex-end; flex: none; }
+.tk-top10__rank {
+  font: 700 96px/0.8 var(--tk-font-display); letter-spacing: -.06em; margin-right: calc(-1 * var(--tk-space-12));
+  color: transparent; -webkit-text-stroke: 2px var(--md-sys-color-outline); z-index: 0; user-select: none;
+}
+.tk-top10__item .tk-card { position: relative; z-index: 1; }
+
+.tk-home__reminders {
+  position: fixed; right: var(--tk-space-24); bottom: var(--tk-space-24); z-index: 40;
+  display: flex; flex-direction: column; gap: var(--tk-space-8); max-width: min(420px, calc(100vw - 2 * var(--tk-space-24)));
+}
+.tk-home__reminder {
+  display: flex; align-items: center; gap: var(--tk-space-8); padding: var(--tk-space-8) var(--tk-space-8) var(--tk-space-8) var(--tk-space-16);
+  border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--md-sys-color-scrim) 30%, transparent);
+  animation: tk-reminder-in var(--md-sys-motion-spatial-default-duration) var(--md-sys-motion-spatial-default-easing);
+}
+.tk-home__reminder-text { flex: 1; font-size: var(--md-sys-typescale-body-medium-size); }
+.tk-home__reminder .tk-btn--text { color: var(--md-sys-color-inverse-primary); }
+.tk-home__reminder .tk-iconbtn { color: var(--md-sys-color-inverse-on-surface); }
+@keyframes tk-reminder-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+[data-reduce-motion="true"] .tk-home__reminder { animation: none; }
+
+.tk-settings__subhead { margin: var(--tk-space-16) 0 var(--tk-space-4); font: 600 14px/20px var(--tk-font-text); color: var(--md-sys-color-on-surface-variant); }
+.tk-settings__links { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); margin-top: var(--tk-space-12); }
+.tk-priority__status {
+  display: inline-block; margin-top: 2px; font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant);
+}
+.tk-priority__status[data-provider-status="ok"] { color: var(--md-sys-color-primary); }
+.tk-priority__status[data-provider-status="error"], .tk-priority__status[data-provider-status="discontinued"] { color: var(--md-sys-color-error); }
+.tk-priority__status[data-provider-status="cooling"] { color: var(--md-sys-color-tertiary); }
+.tk-priority__row[data-enabled="false"] .tk-priority__name { opacity: .6; }
+.tk-track { display: inline-flex; }
+
+/* recommendations page (screens/recs.rs) */
+.tk-recs__tabs { margin-bottom: var(--tk-space-16); }
+.tk-recs__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--tk-space-16); }
+.tk-rec {
+  display: flex; flex-direction: column; gap: var(--tk-space-8); padding: var(--tk-space-8);
+  border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-low);
+}
+.tk-rec[data-compact="true"] { padding: 0; background: none; }
+.tk-rec .tk-card { width: 100%; }
+.tk-rec__reasons { display: flex; flex-wrap: wrap; gap: var(--tk-space-4); list-style: none; margin: 0; padding: 0; }
+.tk-rec__reason {
+  padding: 2px var(--tk-space-8); border-radius: var(--md-sys-shape-corner-full); font-size: var(--md-sys-typescale-body-small-size);
+  background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+}
+.tk-rec__actions { display: flex; flex-wrap: wrap; gap: var(--tk-space-4); }
+.tk-rec[data-feedback="like"] { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
+.tk-recs__more { display: flex; justify-content: center; padding: var(--tk-space-24) 0; }
+
+.tk-atlas { margin: 0; display: flex; flex-direction: column; gap: var(--tk-space-12); }
+.tk-atlas__map { width: 100%; height: auto; border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-low); }
+.tk-atlas__dot {
+  cursor: pointer; stroke: var(--md-sys-color-surface); stroke-width: 2; fill: var(--md-sys-color-outline);
+  transition: r var(--tk-mo-fx-fast), opacity var(--tk-mo-fx-fast);
+}
+.tk-atlas__dot:hover, .tk-atlas__dot:focus-visible { r: 13; outline: none; stroke: var(--md-sys-color-on-surface); }
+[data-reduce-motion="true"] .tk-atlas__dot { transition: none; }
+.tk-atlas__dot--c0 { fill: var(--md-sys-color-primary); background: var(--md-sys-color-primary); }
+.tk-atlas__dot--c1 { fill: var(--md-sys-color-tertiary); background: var(--md-sys-color-tertiary); }
+.tk-atlas__dot--c2 { fill: var(--md-sys-color-secondary); background: var(--md-sys-color-secondary); }
+.tk-atlas__dot--c3 { fill: var(--md-sys-color-error); background: var(--md-sys-color-error); }
+.tk-atlas__dot--c4 { fill: var(--md-sys-color-primary-fixed-dim); background: var(--md-sys-color-primary-fixed-dim); }
+.tk-atlas__dot--c5 { fill: var(--md-sys-color-tertiary-fixed-dim); background: var(--md-sys-color-tertiary-fixed-dim); }
+.tk-atlas__dot--c6 { fill: var(--md-sys-color-secondary-fixed-dim); background: var(--md-sys-color-secondary-fixed-dim); }
+.tk-atlas__dot--c7 { fill: var(--md-sys-color-inverse-primary); background: var(--md-sys-color-inverse-primary); }
+.tk-atlas__dot--c8 { fill: var(--md-sys-color-outline); background: var(--md-sys-color-outline); }
+.tk-atlas__legend ul { display: flex; flex-wrap: wrap; gap: var(--tk-space-12); list-style: none; margin: 0; padding: 0; }
+.tk-atlas__key { display: inline-flex; align-items: center; gap: var(--tk-space-4); font-size: var(--md-sys-typescale-body-small-size); }
+.tk-atlas__swatch { width: 12px; height: 12px; border-radius: var(--md-sys-shape-corner-full); }
+
+.tk-taste__groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--tk-space-24); margin-top: var(--tk-space-16); }
+.tk-taste__group ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-taste__title { margin: 0 0 var(--tk-space-8); font: 600 16px/24px var(--tk-font-display); }
+.tk-taste__bar { display: grid; grid-template-columns: minmax(0, 1fr) 2fr auto; align-items: center; gap: var(--tk-space-8); }
+.tk-taste__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-taste__track { height: 6px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-surface-container-highest); overflow: hidden; }
+.tk-taste__fill { display: block; height: 100%; background: var(--md-sys-color-primary); border-radius: inherit; }
+.tk-taste__pct { font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-taste__accuracy { font-weight: 600; }
+
+/* settings.privacy.mature-content "Blur in results": 18+ cards wrapped in [data-blurred="true"] (Search, Home rows with
+   Show, Manga) keep the poster blurred until hovered or focused. */
+.tk-blur-wrap { display: contents; }
+[data-blurred="true"] .tk-cover img { filter: blur(16px) saturate(.6); transform: scale(1.08); transition: filter var(--tk-mo-fx); }
+[data-blurred="true"] .tk-card:hover .tk-cover img, [data-blurred="true"] .tk-card:focus-visible .tk-cover img { filter: none; transform: none; }
+[data-reduce-motion="true"] [data-blurred="true"] .tk-cover img { transition: none; }
