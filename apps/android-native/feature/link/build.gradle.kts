@@ -6,4 +6,6 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     // docs/redesign/13 §3.10: connect screen of the PC extension servers
     implementation(projects.core.extensionServer)
+    // parity wave B (16 §3.11, worker r): LinkDiscoveryAccess (mDNS pairing with the TOFU fingerprint)
+    implementation(projects.core.link)
 }

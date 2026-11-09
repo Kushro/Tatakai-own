@@ -10,11 +10,22 @@ import app.tatakai.next.model.LinkRepository
 import app.tatakai.next.model.LinkSource
 import app.tatakai.next.model.LinkedDevice
 import app.tatakai.next.model.LinkState
+import app.tatakai.next.model.LinkHandoff
 import app.tatakai.next.model.PairedPc
+import app.tatakai.next.model.RemoteAction
+import app.tatakai.next.model.RemotePlayerState
 import app.tatakai.next.model.RemoteSession
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,7 +52,20 @@ interface RemotePlaybackAccess {
 }
 
 /**
- * [LinkRepository] over [LinkClient]/[PairingClient]. M0: pairing only by payload (QR / pasted), no mDNS ([discover] is empty).
+ * Phone-side extras of the Link discovery for :feature:link (wave B, link.discovery): the TOFU fingerprint announced by a PC and the
+ * pairing with the code the PC shows. Implemented by [LinkRepositoryImpl] (Koin binding in linkModule).
+ */
+interface LinkDiscoveryAccess {
+    /** Display fingerprint (`7A3F 91C2 …`) announced in the TXT `fp` of [pc]; null when the PC is no longer listed. */
+    fun fingerprintOf(pc: DiscoveredPc): String?
+
+    /** Pairs with a discovered PC: the user typed the one-time [code] shown on it, after confirming [fingerprintOf]. */
+    suspend fun pairDiscovered(pc: DiscoveredPc, code: String, deviceName: String): Result<PairedPc>
+}
+
+/**
+ * [LinkRepository] over [LinkClient]/[PairingClient]. Pairing by payload (QR / pasted) or, wave B, by a PC found over mDNS
+ * ([discover], [LinkDiscoveryAccess]); remote control and hand-off over `POST /v1/control`; PC -> phone events by long-poll.
  * The identity (sealed key + certificates) is loaded lazily, so constructing the repository never touches the Keystore.
  */
 class LinkRepositoryImpl(
@@ -57,7 +81,13 @@ class LinkRepositoryImpl(
     private val clock: () -> Long = { System.currentTimeMillis() / 1000 },
     /** android wave: epoch ms for pairedAtMs / lastSeenMs. */
     private val nowMs: () -> Long = System::currentTimeMillis,
-) : LinkRepository, RemotePlaybackAccess {
+    // --- parity wave B (16 §3.11, worker r) ---
+    /** mDNS announcements of PCs (`NsdPcDiscovery` on device); null = no discovery (tests). */
+    private val pcDiscovery: PcDiscovery? = null,
+    /** App in the foreground: the `GET /v1/events` long-poll only runs while true; null = never polls (tests drive [pollEventsOnce]). */
+    foreground: Flow<Boolean>? = null,
+    private val handoffNotifier: LinkHandoffNotifier? = null,
+) : LinkRepository, RemotePlaybackAccess, LinkDiscoveryAccess {
     private val _state = MutableStateFlow<LinkState>(
         vault.pairing()?.let { LinkState.Paired(it.toPc(), reachable = true) } ?: LinkState.Unpaired,
     )
@@ -75,7 +105,85 @@ class LinkRepositoryImpl(
     @Volatile private var connection: Connection? = null
     private val sessions = ConcurrentHashMap<String, RemoteSession>()
 
-    override fun discover(): Flow<List<DiscoveredPc>> = emptyFlow()
+    // ------------------------------------------------------------------ parity wave B: discovery, remote control, hand-off, events
+
+    private val scope = CoroutineScope(SupervisorJob() + io)
+    private val found = ConcurrentHashMap<String, FoundPc>()
+    private val _pendingHandoff = MutableStateFlow<LinkHandoff?>(null)
+    override val pendingHandoff: StateFlow<LinkHandoff?> = _pendingHandoff.asStateFlow()
+
+    init {
+        if (foreground != null) {
+            scope.launch {
+                combine(foreground, state) { fg, s -> fg && s is LinkState.Paired }
+                    .distinctUntilChanged()
+                    .collectLatest { active -> if (active) eventsLoop() }
+            }
+        }
+    }
+
+    /** PCs announcing `_tatakai-link._tcp` (link.discovery); already-paired PC excluded by the screen. */
+    override fun discover(): Flow<List<DiscoveredPc>> = pcDiscovery?.pcs()?.map { list ->
+        list.forEach { found[key(it.pc)] = it }
+        list.map { it.pc }
+    } ?: emptyFlow()
+
+    override fun fingerprintOf(pc: DiscoveredPc): String? = found[key(pc)]?.fingerprint?.let(DiscoveryWire::displayFingerprint)
+
+    override suspend fun pairDiscovered(pc: DiscoveredPc, code: String, deviceName: String): Result<PairedPc> {
+        val f = found[key(pc)] ?: return Result.failure(AppException(AppError.Unknown("link:discovery:gone")))
+        val payload = DiscoveryWire.payload(f, code, clock()) ?: return Result.failure(AppException(AppError.Unknown("link:payload:InvalidCode")))
+        return pair(payload, deviceName)
+    }
+
+    private fun key(pc: DiscoveredPc) = pc.instanceId ?: "${pc.host}:${pc.port}"
+
+    override suspend fun remoteState(): Result<RemotePlayerState?> = call { c ->
+        c.playerState().map { dto -> dto?.let(LinkWireMapping::playerState) }
+    }
+
+    override suspend fun remote(action: RemoteAction): Result<Unit> = call { c -> c.playerAction(action.id) }
+
+    override suspend fun handoff(animeId: String, episode: Int, positionSec: Int): Result<Unit> =
+        call { c -> c.handoff(animeId, episode, positionSec) }
+
+    override fun dismissHandoff() {
+        _pendingHandoff.value = null
+    }
+
+    /** Long-poll while active; errors back off (5 s, doubling up to 60 s). Cancelled when the app leaves the foreground. */
+    private suspend fun eventsLoop() {
+        var backoff = EVENTS_BACKOFF_MS
+        while (true) {
+            if (pollEventsOnce()) {
+                backoff = EVENTS_BACKOFF_MS
+            } else {
+                delay(backoff)
+                backoff = (backoff * 2).coerceAtMost(EVENTS_BACKOFF_MAX_MS)
+            }
+        }
+    }
+
+    /** One `GET /v1/events?wait=25`; true when the PC answered (with or without events). */
+    internal suspend fun pollEventsOnce(): Boolean {
+        val r = call { c -> c.events(ControlWire.MAX_WAIT_SECS) }
+        val events = r.getOrNull() ?: return false
+        val conn = connectionOrNull() ?: return true
+        events.mapNotNull(LinkWireMapping::handoff).lastOrNull()?.let { h ->
+            // The PC already started the session (send_to_device): register it so the player can open it by id.
+            sessions[h.sessionId] = RemoteSession(
+                sessionId = h.sessionId,
+                generation = 1,
+                playbackUrl = conn.client.playbackUrl("/v1/sessions/${h.sessionId}/master.m3u8"),
+                durationSecs = null,
+                heartbeatIntervalSecs = DEFAULT_HEARTBEAT_SECS,
+                idleTimeoutSecs = DEFAULT_IDLE_SECS,
+            )
+            _pendingHandoff.value = h
+            runCatching { handoffNotifier?.notify(h) }
+        }
+        return true
+    }
 
     override suspend fun pair(payload: String, deviceName: String): Result<PairedPc> = withContext(io) {
         val parsed = when (val r = PairingPayload.parse(payload, clock())) {
@@ -160,6 +268,7 @@ class LinkRepositoryImpl(
 
     override suspend fun forget() {
         withContext(io) {
+            _pendingHandoff.value = null
             val c = connectionOrNull()?.client
             if (c != null) {
                 sessions.keys.toList().forEach { c.deleteSession(it) }
@@ -264,6 +373,10 @@ class LinkRepositoryImpl(
 
     internal companion object {
         const val LAST_SEEN_PERSIST_MS = 60_000L
+        const val EVENTS_BACKOFF_MS = 5_000L
+        const val EVENTS_BACKOFF_MAX_MS = 60_000L
+        const val DEFAULT_HEARTBEAT_SECS = 4
+        const val DEFAULT_IDLE_SECS = 120
 
         /** `7a3f91c2...` -> `7A3F 91C2 ...`; null for an empty pin. */
         fun displayFingerprint(hex: String): String? {
