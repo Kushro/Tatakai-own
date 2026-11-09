@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- parity wave A (docs/redesign/15 §2, worker p): notification channel of PlaybackService. -->
+<resources>
+    <string name="player_service_channel">Playback</string>
+</resources>

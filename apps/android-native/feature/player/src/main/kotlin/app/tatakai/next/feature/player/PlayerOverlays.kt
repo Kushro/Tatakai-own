@@ -104,7 +104,13 @@ internal fun BufferingOverlay(state: PlayerUiState, modifier: Modifier = Modifie
 @Composable
 internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modifier = Modifier) {
     LaunchedEffect(notice) {
-        delay(if (notice is PlayerNotice.AssSimplified) 5_000 else FLASH_MS)
+        delay(
+            when (notice) {
+                PlayerNotice.AssSimplified, is PlayerNotice.StoredSourceIgnored, PlayerNotice.PretranslateUnavailable -> 5_000
+                is PlayerNotice.ScreenshotSaved -> 4_000
+                else -> FLASH_MS
+            },
+        )
         onDone()
     }
     val text = when (notice) {
@@ -112,6 +118,19 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
         is PlayerNotice.NoFileNext -> stringResource(R.string.player_torrent_no_file_next, notice.episode)
         PlayerNotice.IntroSkipped -> stringResource(R.string.player_intro_skipped)
         PlayerNotice.AssSimplified -> stringResource(R.string.player_ass_simplified)
+        is PlayerNotice.ScreenshotSaved -> stringResource(R.string.player_screenshot_saved, notice.path)
+        PlayerNotice.ScreenshotFailed -> stringResource(R.string.player_screenshot_failed)
+        is PlayerNotice.SubtitleLoaded -> stringResource(R.string.player_sub_loaded, notice.name)
+        PlayerNotice.SubtitleFailed -> stringResource(R.string.player_sub_load_failed)
+        PlayerNotice.SleepFired -> stringResource(R.string.player_sleep_fired)
+        is PlayerNotice.StoredSourceIgnored -> stringResource(R.string.player_stored_ignored)
+        is PlayerNotice.TranslationFailed -> stringResource(R.string.player_translation_failed, notice.message)
+        is PlayerNotice.PretranslateDone -> if (notice.failed > 0) {
+            stringResource(R.string.player_pretranslate_done_failed, notice.failed)
+        } else {
+            stringResource(R.string.player_pretranslate_done)
+        }
+        PlayerNotice.PretranslateUnavailable -> stringResource(R.string.player_pretranslate_unavailable)
     }
     val scheme = MaterialTheme.colorScheme
     Surface(modifier.widthIn(max = 560.dp).padding(horizontal = 16.dp), shape = RoundedCornerShape(50), color = scheme.inverseSurface, contentColor = scheme.inverseOnSurface) {
@@ -136,15 +155,21 @@ internal fun SkipButton(kind: SkipKind, onClick: () -> Unit, modifier: Modifier 
     }
 }
 
-/** Next-episode card with the 10 s countdown ring (prototype `player.js` `ended()`). */
+/**
+ * Next-episode card with the countdown ring (prototype `player.js` `ended()`): `autoNextCountdownSecs` long; without auto-next
+ * ([NextEpisodeUi.secondsLeft] null) only the button, nothing counts.
+ */
 @Composable
 internal fun NextEpisodeCard(next: NextEpisodeUi, onPlayNow: () -> Unit, onCancel: () -> Unit, modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
     Surface(modifier, shape = RoundedCornerShape(20.dp), color = scheme.surfaceContainerHigh, contentColor = scheme.onSurface) {
         Row(Modifier.padding(12.dp), Arrangement.spacedBy(12.dp), Alignment.CenterVertically) {
-            Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(progress = { next.secondsLeft / 10f }, modifier = Modifier.size(44.dp))
-                Text("${next.secondsLeft}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            val left = next.secondsLeft
+            if (left != null) {
+                Box(contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(progress = { left / next.totalSecs.coerceAtLeast(1).toFloat() }, modifier = Modifier.size(44.dp))
+                    Text("$left", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                }
             }
             Column(Modifier.widthIn(max = 220.dp)) {
                 Text(stringResource(R.string.player_next), style = MaterialTheme.typography.titleSmall)

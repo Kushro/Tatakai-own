@@ -72,4 +72,13 @@ Code adapted from the author's own repositories (AGPL-3.0-or-later), per decisio
 
 | Target file(s) | Origin | License | Notes |
 |---|---|---|---|
-| `core/player-mpv/.../MpvPlayerAdapter.kt`, `core/player/.../PlaybackService.kt` (observe-the-core pattern, per-core observer re-registration, "no notification update after shutdown" gate, `onTaskRemoved` handling) | Enigmata `app/src/main/java/app/enigmata/ui/player/MediaPlaybackService.kt` (author's own) | AGPL-3.0-or-later | Re-expressed over Media3 `SimpleBasePlayer` + `MediaSessionService` (no `MediaSessionCompat`); worker p completes this row with the commit it copied from |
+| `core/player-mpv/.../MpvPlayerAdapter.kt`, `core/player/.../PlaybackService.kt` (observe-the-core pattern, per-core observer re-registration, "no notification update after shutdown" gate, `onTaskRemoved` handling) | Enigmata `app/src/main/java/app/enigmata/ui/player/MediaPlaybackService.kt` (author's own) | AGPL-3.0-or-later | Re-expressed over Media3 `SimpleBasePlayer` + `MediaSessionService` (no `MediaSessionCompat`); patterns adapted (no file copied verbatim) from Enigmata commit `ab5d96e0cc31b3dbe26a2eb695c5b009e58f191a` |
+
+### Bundled mpv shaders (parity wave A, worker p)
+
+Shipped unmodified in `core/player-mpv/src/main/assets/shaders/` (each file keeps its own licence header) and copied to `filesDir/shaders/<preset>/` at runtime.
+
+| File(s) | Origin | License | Notes |
+|---|---|---|---|
+| `Anime4K_Clamp_Highlights.glsl`, `Anime4K_Restore_CNN_{M,S,Soft_M}.glsl`, `Anime4K_Upscale_CNN_x2_{M,S}.glsl`, `Anime4K_Upscale_Denoise_CNN_x2_M.glsl`, `Anime4K_AutoDownscalePre_x2.glsl` | Anime4K v4 GLSL by bloc97 (github.com/bloc97/Anime4K) | MIT | Presets A / A+A / B / C (chains as desktop `tk-player/src/preset.rs`) |
+| `FSR.glsl` | AMD FidelityFX FSR 1.0.2, mpv port by agyild | MIT (Copyright (c) 2021 Advanced Micro Devices, Inc.) | Preset "fsr" |
