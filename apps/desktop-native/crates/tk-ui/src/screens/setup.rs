@@ -6,13 +6,16 @@
 //!
 //! Steps (each exposes `data-setup-step="<id>"` on the page):
 //! 1. `appearance`: language, theme mode, palette, reduce motion (the Appearance `SettingsAction`s).
-//! 2. `downloads`: torrent download folder and "after watching" (`Backend::torrent_settings` /
+//! 2. `player`: player engine (`Settings::player_mode`; Embedded enhanced disabled while this installation lacks
+//!    mpv-anime-build, `Backend::anime_build_status`) and source preferences: preferred kind, minimum quality,
+//!    subtitle and audio language (`Settings::sources`, the same `SettingsAction`s as Settings > Player).
+//! 3. `downloads`: torrent download folder and "after watching" (`Backend::torrent_settings` /
 //!    `save_torrent_settings`; saved when leaving the step).
-//! 3. `extensions`: what `.kai` extensions are, installed count, "Install from file" (`Backend::install_extension`).
-//! 4. `accounts`: AniList / MAL connect buttons (`Backend::list_accounts` / `list_connect`). Optional.
-//! 5. `system`: start with the system, tray icon (when `system_caps` offers them), Discord presence
+//! 4. `extensions`: what `.kai` extensions are, installed count, "Install from file" (`Backend::install_extension`).
+//! 5. `accounts`: AniList / MAL connect buttons (`Backend::list_accounts` / `list_connect`). Optional.
+//! 6. `system`: start with the system, tray icon (when `system_caps` offers them), Discord presence
 //!    (`Settings::flow.discord_presence`), check for updates, open magnet links with Tatakai (when offered).
-//! 6. `done`: summary + "Start watching".
+//! 7. `done`: summary + "Start watching".
 //!
 //! No step blocks: every control has a default, "Next" is always enabled, a failing backend call is shown inline
 //! and the wizard goes on. No terms / privacy screens (nothing is collected: apps/README.md rule 3). Leaving the
@@ -21,17 +24,20 @@
 use dioxus::prelude::*;
 
 use crate::app::{Route, Services, Ui};
-use crate::backend::{AfterWatchVm, TorrentSettingsVm};
+use crate::backend::{AfterWatchVm, SourceKindVm, TorrentSettingsVm};
 use crate::components::{
     Button, ButtonSize, ButtonVariant, ErrorState, LoadingIndicator, Pill, Segmented, SkeletonLines, Switch, TextField, Tone,
     use_snackbar,
 };
 use crate::i18n::{LangChoice, t, tf, tn};
 use crate::icons::Icon;
-use crate::model::{ListServiceVm, PALETTES, SettingsAction, ThemeMode, UiError, is_kai_path, reduce_settings};
+use crate::model::{
+    DUB_LANGS, ListServiceVm, PALETTES, PlayerModeVm, QualityVm, SUB_LANGS, SettingsAction, ThemeMode, UiError, is_kai_path,
+    reduce_settings,
+};
 
 /// Step ids in order (`data-setup-step`, `setup.step.<id>` titles).
-pub const STEPS: [&str; 6] = ["appearance", "downloads", "extensions", "accounts", "system", "done"];
+pub const STEPS: [&str; 7] = ["appearance", "player", "downloads", "extensions", "accounts", "system", "done"];
 const FILE_INPUT_ID: &str = "tk-setup-kai";
 
 /// Index of the step after `i` (stays on the last one).
@@ -51,6 +57,29 @@ pub fn dot_state(n: usize, current: usize) -> &'static str {
         std::cmp::Ordering::Equal => "current",
         std::cmp::Ordering::Greater => "todo",
     }
+}
+
+/// Engine options to disable: Embedded enhanced when the installation is known to lack mpv-anime-build
+/// (`available == Some(false)`), unless it is already the saved choice (it stays selectable so Settings > Player
+/// can explain why it cannot run). Unknown availability (still loading, or the call failed) disables nothing.
+pub fn engine_disabled_keys(available: Option<bool>, mode: PlayerModeVm) -> Vec<String> {
+    if available == Some(false) && mode != PlayerModeVm::EmbeddedEnhanced {
+        vec![PlayerModeVm::EmbeddedEnhanced.id().to_owned()]
+    } else {
+        Vec::new()
+    }
+}
+
+/// `(id, label)` options of the preferred-source-kind Segmented: `any` first (no preference), then every kind.
+pub fn prefer_options() -> Vec<(String, String)> {
+    let mut out = vec![("any".to_owned(), t("src.prefer.any"))];
+    out.extend(SourceKindVm::ALL.iter().map(|k| (k.id().to_owned(), t(&format!("src.{}", k.id())))));
+    out
+}
+
+/// Language options shown as upper-case codes (`ES`, `JA`), like Settings > Player.
+pub fn lang_options(langs: &[&str]) -> Vec<(String, String)> {
+    langs.iter().map(|l| ((*l).to_owned(), l.to_uppercase())).collect()
 }
 
 /// `(id, label)` options of a Segmented from `ids` and an i18n prefix.
@@ -106,6 +135,9 @@ pub fn SetupPage() -> Element {
     let body = match id {
         "appearance" => rsx! {
             AppearanceStep {}
+        },
+        "player" => rsx! {
+            PlayerStep {}
         },
         "downloads" => rsx! {
             DownloadsStep { draft }
@@ -257,7 +289,114 @@ fn AppearanceStep() -> Element {
     }
 }
 
-/// Step 2: download folder and what happens after watching. Edits go to `draft` (saved when leaving the step).
+/// Step 2: player engine and source preferences. Every change is saved at once (like the Appearance step).
+#[component]
+fn PlayerStep() -> Element {
+    let services = use_context::<Services>();
+    let ui = use_context::<Ui>();
+    let backend = services.backend.clone();
+    let commit = use_callback({
+        let backend = backend.clone();
+        move |action: SettingsAction| {
+            let next = reduce_settings(&ui.settings.peek(), action);
+            ui.commit_settings(&backend, next);
+        }
+    });
+    let build = use_resource({
+        let backend = backend.clone();
+        move || {
+            let backend = backend.clone();
+            async move { backend.anime_build_status().await }
+        }
+    });
+
+    let s = (ui.settings)();
+    let mode = s.player_mode;
+    let available = match &*build.read() {
+        Some(Ok(b)) => Some(b.available),
+        _ => None,
+    };
+    let disabled_keys = engine_disabled_keys(available, mode);
+    let modes: Vec<&'static str> = PlayerModeVm::ALL.iter().map(|m| m.id()).collect();
+    let mode_hint = if mode == PlayerModeVm::EmbeddedEnhanced && available == Some(false) {
+        t("settings.player.anime.missing_hint")
+    } else {
+        t(&format!("settings.player.mode.{}_hint", mode.id()))
+    };
+    let prefer_id = s.sources.prefer.map(|k| k.id()).unwrap_or("any").to_owned();
+    let qualities: Vec<(String, String)> = QualityVm::OFFERED.iter().map(|q| (q.id().to_owned(), q.id().to_owned())).collect();
+
+    rsx! {
+        p { class: "tk-setup__hint", {t("setup.player.hint")} }
+        div { class: "tk-setup__field", "data-player-mode": "{mode.id()}",
+            span { class: "tk-setup__label", {t("settings.player.engine")} }
+            Segmented {
+                options: options(&modes, "settings.player.mode"),
+                selected: mode.id().to_owned(),
+                label: t("settings.player.engine"),
+                disabled_keys,
+                on_select: move |id: String| {
+                    if let Some(m) = PlayerModeVm::ALL.into_iter().find(|m| m.id() == id) {
+                        commit.call(SettingsAction::SetPlayerMode(m));
+                    }
+                },
+            }
+            span { class: "tk-setup__hint", "{mode_hint}" }
+        }
+        div { class: "tk-setup__field", "data-source-prefer": "{prefer_id}",
+            span { class: "tk-setup__label", {t("src.prefer")} }
+            Segmented {
+                options: prefer_options(),
+                selected: prefer_id.clone(),
+                label: t("src.prefer"),
+                small: true,
+                on_select: move |id: String| {
+                    // "any" (or anything unknown) clears the preference.
+                    let kind = SourceKindVm::ALL.into_iter().find(|k| k.id() == id);
+                    commit.call(SettingsAction::SetSourcePrefer(kind));
+                },
+            }
+            span { class: "tk-setup__hint", {t("src.prefer.hint")} }
+        }
+        div { class: "tk-setup__field", "data-min-quality": "{s.sources.min_quality.id()}",
+            span { class: "tk-setup__label", {t("src.quality")} }
+            Segmented {
+                options: qualities,
+                selected: s.sources.min_quality.id().to_owned(),
+                label: t("src.quality"),
+                small: true,
+                on_select: move |id: String| {
+                    if let Some(q) = QualityVm::ALL.into_iter().find(|q| q.id() == id) {
+                        commit.call(SettingsAction::SetMinQuality(q));
+                    }
+                },
+            }
+        }
+        div { class: "tk-setup__field", "data-sub-lang": "{s.sources.sub_lang}",
+            span { class: "tk-setup__label", {t("src.sub_lang")} }
+            Segmented {
+                options: lang_options(&SUB_LANGS),
+                selected: s.sources.sub_lang.clone(),
+                label: t("src.sub_lang"),
+                small: true,
+                on_select: move |id: String| commit.call(SettingsAction::SetSubLang(id)),
+            }
+        }
+        div { class: "tk-setup__field", "data-dub-lang": "{s.sources.dub_lang}",
+            span { class: "tk-setup__label", {t("src.dub_lang")} }
+            Segmented {
+                options: lang_options(&DUB_LANGS),
+                selected: s.sources.dub_lang.clone(),
+                label: t("src.dub_lang"),
+                small: true,
+                on_select: move |id: String| commit.call(SettingsAction::SetDubLang(id)),
+            }
+        }
+        p { class: "tk-setup__hint", {t("setup.player.later")} }
+    }
+}
+
+/// Step 3: download folder and what happens after watching. Edits go to `draft` (saved when leaving the step).
 #[component]
 fn DownloadsStep(draft: Signal<Option<TorrentSettingsVm>>) -> Element {
     let services = use_context::<Services>();
@@ -329,7 +468,7 @@ fn DownloadsStep(draft: Signal<Option<TorrentSettingsVm>>) -> Element {
     }
 }
 
-/// Step 3: extensions.
+/// Step 4: extensions.
 #[component]
 fn ExtensionsStep() -> Element {
     let services = use_context::<Services>();
@@ -429,7 +568,7 @@ fn ExtensionsStep() -> Element {
     }
 }
 
-/// Step 4: AniList / MAL (optional).
+/// Step 5: AniList / MAL (optional).
 #[component]
 fn AccountsStep() -> Element {
     let services = use_context::<Services>();
@@ -513,7 +652,7 @@ fn AccountsStep() -> Element {
     }
 }
 
-/// Step 5: OS integration.
+/// Step 6: OS integration.
 #[component]
 fn SystemStep() -> Element {
     let services = use_context::<Services>();
@@ -646,7 +785,7 @@ fn SystemStep() -> Element {
     }
 }
 
-/// Step 6: ready.
+/// Step 7: ready.
 #[component]
 fn DoneStep() -> Element {
     rsx! {
@@ -664,7 +803,7 @@ mod tests {
 
     #[test]
     fn steps_follow_the_acceptance_order_and_stay_in_bounds() {
-        assert_eq!(STEPS, ["appearance", "downloads", "extensions", "accounts", "system", "done"]);
+        assert_eq!(STEPS, ["appearance", "player", "downloads", "extensions", "accounts", "system", "done"]);
         let mut i = 0;
         for expected in &STEPS[1..] {
             i = next_step(i);
@@ -674,5 +813,33 @@ mod tests {
         assert_eq!(prev_step(0), 0);
         assert_eq!(prev_step(3), 2);
         assert_eq!([dot_state(0, 1), dot_state(1, 1), dot_state(2, 1)], ["done", "current", "todo"]);
+    }
+
+    #[test]
+    fn player_step_comes_right_after_appearance() {
+        // checklist account.setup-wizard: language, then engine and source preferences, then accounts / system.
+        let at = |id: &str| STEPS.iter().position(|s| *s == id).unwrap();
+        assert_eq!(at("player"), at("appearance") + 1);
+        assert!(at("player") < at("accounts") && at("accounts") < at("system"));
+    }
+
+    #[test]
+    fn enhanced_engine_is_disabled_only_when_known_missing_and_not_chosen() {
+        let enhanced = vec![PlayerModeVm::EmbeddedEnhanced.id().to_owned()];
+        assert_eq!(engine_disabled_keys(Some(false), PlayerModeVm::Embedded), enhanced);
+        assert_eq!(engine_disabled_keys(Some(false), PlayerModeVm::External), enhanced);
+        assert!(engine_disabled_keys(Some(false), PlayerModeVm::EmbeddedEnhanced).is_empty());
+        assert!(engine_disabled_keys(Some(true), PlayerModeVm::Embedded).is_empty());
+        assert!(engine_disabled_keys(None, PlayerModeVm::Embedded).is_empty(), "loading or failed: nothing disabled");
+    }
+
+    #[test]
+    fn source_option_lists_cover_every_choice() {
+        let prefer: Vec<String> = prefer_options().into_iter().map(|(id, _)| id).collect();
+        assert_eq!(prefer[0], "any");
+        assert_eq!(prefer.len(), SourceKindVm::ALL.len() + 1);
+        assert!(SourceKindVm::ALL.iter().all(|k| prefer.iter().any(|p| p == k.id())));
+        assert_eq!(lang_options(&DUB_LANGS)[0], ("ja".to_owned(), "JA".to_owned()));
+        assert_eq!(lang_options(&SUB_LANGS).len(), SUB_LANGS.len());
     }
 }
