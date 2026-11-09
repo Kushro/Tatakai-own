@@ -7,7 +7,12 @@ import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
 
-enum class Capability { FEED, SEARCH, MEDIA, EPISODES }
+enum class Capability {
+    FEED, SEARCH, MEDIA, EPISODES,
+
+    /** Parity wave A: the provider implements [DiscoverProvider] (advanced search, details extras, characters, trending windows). */
+    DISCOVER,
+}
 
 /**
  * A metadata source. Providers throw [ProviderException] for transport / HTTP failures (the router trips the

@@ -17,11 +17,15 @@ val metadataModule: Module = module {
     single { AniListProvider(get<OkHttpClient>()) }
     single { AniZipProvider(get<OkHttpClient>()) }
     single { KitsuProvider(get<OkHttpClient>()) }
+    // parity wave A (15 §3.1, worker o): trace.moe image search.
+    single { TraceMoeClient(get<OkHttpClient>()) }
     single {
         val priority = get<ProviderPriority>()
         MetadataRouter(
             providers = listOf<MetadataProvider>(get<AniListProvider>(), get<AniZipProvider>(), get<KitsuProvider>()),
             priority = { priority.current() },
+            imageSearch = get<TraceMoeClient>(),
         )
     }
+    single { TrendingFeed(get()) }
 }
