@@ -188,9 +188,123 @@ pub struct ProviderItemVm {
     pub bookmarked: bool,
 }
 
+/// Intervals offered for [`ExtPrefs::check_interval_hours`] (hours).
+pub const CHECK_INTERVALS: [u8; 5] = [6, 12, 24, 72, 168];
+
+/// The kill switch is "on" when there are extensions and none is enabled (`ext.kill-switch`, `data-kill-switch`).
+pub fn kill_switch_on(enabled: &[bool]) -> bool {
+    !enabled.is_empty() && enabled.iter().all(|e| !e)
+}
+
+/// Stable refusal codes of an extension server (`/api/server/v1` error catalogue) that have a translated text
+/// (`extserver.error.<code>`).
+pub const SERVER_ERROR_CODES: [&str; 9] = [
+    "authentication_required",
+    "pairing_required",
+    "pairing_expired",
+    "device_not_authorized",
+    "forbidden",
+    "pairing_limit",
+    "setup_required",
+    "invalid_code",
+    "rate_limited",
+];
+
+/// `extserver.error.<code>` for a refusal detail (`pairing_expired`, `authentication_required: ...`), if known.
+pub fn server_error_key(detail: &str) -> Option<String> {
+    let code = detail.split([':', ' ']).next().unwrap_or("").trim();
+    SERVER_ERROR_CODES.contains(&code).then(|| format!("extserver.error.{code}"))
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => {
+                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok());
+                match hex {
+                    Some(b) => {
+                        out.push(b);
+                        i += 3;
+                    }
+                    None => {
+                        out.push(b'%');
+                        i += 1;
+                    }
+                }
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The `server=` origin of a `tatakai://extensionserver/connect?...` link (decoded), for the confirmation text.
+pub fn link_server(link: &str) -> Option<String> {
+    let query = link.split_once('?')?.1;
+    query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix("server="))
+        .map(percent_decode)
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+}
+
+/// `ext:` id parts of a provider card: `(ext_id, source_id, item_key)` where `item_key` = `<source_id>:<item_id>`
+/// (what `Backend::provider_item` / `set_provider_bookmark` take).
+pub fn provider_id_parts(id: &str) -> Option<(String, String, String)> {
+    let rest = id.strip_prefix("ext:")?;
+    let (ext, key) = rest.split_once(':')?;
+    let (source, item) = key.split_once(':')?;
+    (!ext.is_empty() && !source.is_empty() && !item.is_empty()).then(|| (ext.to_owned(), source.to_owned(), key.to_owned()))
+}
+
+/// Row title of a provider page section (`title_key` = `ext:<extension name>:<row>`).
+pub fn provider_row_title(title_key: &str, ext_name: &str) -> String {
+    let prefix = format!("ext:{ext_name}:");
+    title_key.strip_prefix(&prefix).or_else(|| title_key.strip_prefix("ext:")).unwrap_or(title_key).to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kill_switch_and_server_errors() {
+        assert!(kill_switch_on(&[false, false]));
+        assert!(!kill_switch_on(&[false, true]));
+        assert!(!kill_switch_on(&[]));
+        assert_eq!(server_error_key("pairing_expired").as_deref(), Some("extserver.error.pairing_expired"));
+        assert_eq!(server_error_key("authentication_required: no token").as_deref(), Some("extserver.error.authentication_required"));
+        assert_eq!(server_error_key("http 502"), None);
+    }
+
+    #[test]
+    fn deep_link_server_is_decoded() {
+        let l = "tatakai://extensionserver/connect?server=http%3A%2F%2F192.168.1.10%3A8099&code=123456";
+        assert_eq!(link_server(l).as_deref(), Some("http://192.168.1.10:8099"));
+        assert_eq!(link_server("tatakai://extensionserver/connect?code=1"), None);
+        assert_eq!(percent_decode("a%2"), "a%2");
+        assert_eq!(percent_decode("%zz"), "%zz");
+    }
+
+    #[test]
+    fn provider_ids_and_row_titles() {
+        assert_eq!(provider_id_parts("ext:toko:src:a:b"), Some(("toko".into(), "src".into(), "src:a:b".into())));
+        assert_eq!(provider_id_parts("21"), None);
+        assert_eq!(provider_id_parts("ext:toko:src"), None);
+        assert_eq!(provider_row_title("ext:Toko:Latest", "Toko"), "Latest");
+        assert_eq!(provider_row_title("ext:Other", "Toko"), "Other");
+    }
 
     #[test]
     fn defaults_are_sanitized() {

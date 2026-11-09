@@ -8,6 +8,10 @@
 //! * Linux / macOS: an exclusive lock on `<data>/instance.lock` (`File::try_lock`, released by the OS when the
 //!   process ends). Only a launch that carries a magnet defers to the running instance; a plain second launch keeps
 //!   starting as it always did on these platforms.
+//!
+//! Wave B (worker j, checklist `ext.deep-link.server`): a `tatakai://extensionserver/connect?...` argument is
+//! forwarded the same way through `<data>/deeplink.pending` ([`DEEPLINK_FILE`]); the running instance hands it to
+//! `deeplink::remember` and the Extensions page shows the pairing confirmation.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -16,6 +20,8 @@ use std::time::Duration;
 const PENDING_POLL: Duration = Duration::from_secs(2);
 /// File a second instance writes the forwarded link to.
 pub const PENDING_FILE: &str = "magnet.pending";
+/// File a second instance writes a forwarded `tatakai://` pairing link to (wave B, j).
+pub const DEEPLINK_FILE: &str = "deeplink.pending";
 #[cfg(not(windows))]
 const LOCK_FILE: &str = "instance.lock";
 
@@ -50,13 +56,54 @@ fn magnet_arg() -> Option<String> {
     crate::magnet::from_args(std::env::args_os().map(|a| a.to_string_lossy().into_owned()))
 }
 
-/// Hand `link` to the running instance (atomic write of `<dir>/magnet.pending`).
-pub fn forward(dir: &Path, link: &str) -> std::io::Result<()> {
+/// The `tatakai://extensionserver/connect?...` argument of this process, if any.
+fn connect_arg() -> Option<String> {
+    crate::deeplink::from_args(std::env::args_os().map(|a| a.to_string_lossy().into_owned()))
+}
+
+fn write_atomic(dir: &Path, file: &str, link: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
-    let path = dir.join(PENDING_FILE);
-    let tmp = dir.join(format!("{PENDING_FILE}.{}.tmp", std::process::id()));
+    let path = dir.join(file);
+    let tmp = dir.join(format!("{file}.{}.tmp", std::process::id()));
     std::fs::write(&tmp, link.trim())?;
     std::fs::rename(&tmp, &path)
+}
+
+/// Hand `link` to the running instance (atomic write of `<dir>/magnet.pending`).
+pub fn forward(dir: &Path, link: &str) -> std::io::Result<()> {
+    write_atomic(dir, PENDING_FILE, link)
+}
+
+/// Hand a pairing link to the running instance (atomic write of `<dir>/deeplink.pending`).
+pub fn forward_link(dir: &Path, link: &str) -> std::io::Result<()> {
+    write_atomic(dir, DEEPLINK_FILE, link)
+}
+
+/// Take a forwarded pairing link out of `<dir>/deeplink.pending` (the file is removed). Anything else is dropped.
+pub fn take_forwarded_link(dir: &Path) -> Option<String> {
+    let path = dir.join(DEEPLINK_FILE);
+    let text = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    let link = text.trim();
+    crate::deeplink::is_connect_link(link).then(|| link.to_owned())
+}
+
+/// A second launch: forward whatever link it carries. `true` when something was handed over.
+fn forward_args(dir: &Path) -> bool {
+    let mut handed = false;
+    if let Some(link) = magnet_arg() {
+        match forward(dir, &link) {
+            Ok(()) => handed = true,
+            Err(e) => tracing::warn!(error = %e, "forwarding the magnet link to the running instance failed"),
+        }
+    }
+    if let Some(link) = connect_arg() {
+        match forward_link(dir, &link) {
+            Ok(()) => handed = true,
+            Err(e) => tracing::warn!(error = %e, "forwarding the pairing link to the running instance failed"),
+        }
+    }
+    handed
 }
 
 /// Take a forwarded link out of `<dir>/magnet.pending` (the file is removed). Non-magnets are dropped.
@@ -76,6 +123,10 @@ fn watch_forwarded(dir: PathBuf) {
             if let Some(link) = take_forwarded(&dir) {
                 tracing::info!("magnet link forwarded by another launch");
                 crate::magnet::remember(&link);
+            }
+            if let Some(link) = take_forwarded_link(&dir) {
+                tracing::info!("pairing link forwarded by another launch");
+                crate::deeplink::remember(&link);
             }
             std::thread::sleep(PENDING_POLL);
         }
@@ -105,10 +156,8 @@ pub fn acquire(app_id: &str, window_title: &str) -> Option<InstanceGuard> {
     if already {
         // SAFETY: handle is valid and ours.
         unsafe { windows_sys::Win32::Foundation::CloseHandle(handle) };
-        if let (Some(link), Some(dir)) = (magnet_arg(), data_dir())
-            && let Err(e) = forward(&dir, &link)
-        {
-            tracing::warn!(error = %e, "forwarding the magnet link to the running instance failed");
+        if let Some(dir) = data_dir() {
+            forward_args(&dir);
         }
         focus_existing(window_title);
         return None;
@@ -141,20 +190,19 @@ pub fn acquire(_app_id: &str, _window_title: &str) -> Option<InstanceGuard> {
             watch_forwarded(dir);
             Some(InstanceGuard { _lock: Some(file) })
         }
-        LockResult::Busy => match magnet_arg() {
-            Some(link) => match forward(&dir, &link) {
-                Ok(()) => {
-                    tracing::info!("handed the magnet link to the running instance");
-                    None
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "forwarding the magnet link failed; starting a second instance");
-                    Some(InstanceGuard { _lock: None })
-                }
-            },
-            // Unchanged behaviour on these platforms: a plain second launch still starts.
-            None => Some(InstanceGuard { _lock: None }),
-        },
+        LockResult::Busy => {
+            if magnet_arg().is_none() && connect_arg().is_none() {
+                // Unchanged behaviour on these platforms: a plain second launch still starts.
+                return Some(InstanceGuard { _lock: None });
+            }
+            if forward_args(&dir) {
+                tracing::info!("handed the link to the running instance");
+                None
+            } else {
+                tracing::warn!("forwarding the link failed; starting a second instance");
+                Some(InstanceGuard { _lock: None })
+            }
+        }
         LockResult::Unavailable => Some(InstanceGuard { _lock: None }),
     }
 }
@@ -209,6 +257,21 @@ mod tests {
         forward(dir.path(), "https://example.com").unwrap();
         assert_eq!(take_forwarded(dir.path()), None, "only magnets are honoured");
         assert!(!dir.path().join(PENDING_FILE).exists());
+    }
+
+    #[test]
+    fn forwarded_pairing_links_are_taken_once() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(take_forwarded_link(dir.path()), None);
+        let link = "tatakai://extensionserver/connect?server=http%3A%2F%2F10.0.0.2%3A8099&code=123456";
+        forward_link(dir.path(), &format!("{link}\n")).unwrap();
+        assert_eq!(take_forwarded_link(dir.path()).as_deref(), Some(link));
+        assert_eq!(take_forwarded_link(dir.path()), None, "consumed");
+        forward_link(dir.path(), "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567").unwrap();
+        assert_eq!(take_forwarded_link(dir.path()), None, "only pairing links are honoured");
+        // The two channels do not mix.
+        forward(dir.path(), link).unwrap();
+        assert_eq!(take_forwarded_link(dir.path()), None);
     }
 
     #[cfg(not(windows))]

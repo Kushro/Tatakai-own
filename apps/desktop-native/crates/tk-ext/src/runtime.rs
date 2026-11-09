@@ -81,6 +81,9 @@ pub(crate) struct WorkerConfig {
     pub call_timeout: Duration,
     /// Present only when the bundle may use a browser (permitted `browserDomains` and an injected runtime).
     pub browser: Option<BrowserCfg>,
+    /// User preferences as a JSON object of strings (wave B, `ext.preferences`), exposed to the bundle as
+    /// `globalThis.preferences` (and `instance.setPreferences(...)` / `instance.preferences`) before it loads.
+    pub preferences: String,
 }
 
 pub(crate) struct BrowserCfg {
@@ -244,6 +247,8 @@ fn build(
         install_browser_natives(&ctx, cfg, handle, ev_tx, deadline, owned).map_err(|e| describe(&ctx, e))?;
         ctx.eval::<(), _>(PRELUDE).map_err(|e| describe(&ctx, e))?;
         ctx.eval::<(), _>(HOST_JS).map_err(|e| describe(&ctx, e))?;
+        let set_prefs: Function = ctx.globals().get("__tk_set_prefs").map_err(|e| describe(&ctx, e))?;
+        set_prefs.call::<_, ()>((cfg.preferences.clone(),)).map_err(|e| describe(&ctx, e))?;
         let load: Function = ctx.globals().get("__tk_load").map_err(|e| describe(&ctx, e))?;
         load.call::<_, ()>((cfg.manifest_json.clone(), cfg.bundle.as_str().to_owned())).map_err(|e| describe(&ctx, e))?;
         Ok(())
