@@ -521,6 +521,244 @@ pub struct MangaDetailsVm {
     pub source_ids: Vec<(String, String)>,
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// Conventions shared by tk-app's `live/manga.rs` and the manga screens (both owned by l)
+// ---------------------------------------------------------------------------------------------
+
+/// Prefix of `MediaVm::subtitle` of an 18+ manga card (tk-app's manga mappers set it); the UI blurs or gates such
+/// cards according to `Settings::home.mature_content` (`manga.adult-gate`).
+pub const ADULT_BADGE: &str = "18+";
+/// `SearchQueryVm::tags` entry that makes `Backend::manga_search` return 18+ titles only (the 18+ zone of the manga
+/// home). Never sent to AniList as a tag.
+pub const ADULT_ONLY_TAG: &str = "@adult-only";
+/// Origins of a manga search (AniList `countryOfOrigin`, lowercase). A manga search carries the origin in
+/// `SearchQueryVm::season` (anime seasons do not apply to manga). `jp` = manga, `kr` = manhwa, `cn` / `tw` = manhua.
+pub const MANGA_ORIGINS: [&str; 4] = ["jp", "kr", "cn", "tw"];
+/// Publication statuses of a manga search (`SearchQueryVm::status`); i18n `manga.pub.<id>`.
+pub const MANGA_STATUSES: [&str; 5] = ["releasing", "finished", "hiatus", "cancelled", "upcoming"];
+/// Formats of a manga search (`SearchQueryVm::format`, AniList ids); i18n `manga.format.<lowercase id>`.
+pub const MANGA_FORMATS: [&str; 2] = ["MANGA", "ONE_SHOT"];
+/// Chapter languages offered in Settings > Manga reader (ISO 639-1).
+pub const MANGA_LANGS: [&str; 11] = ["es", "en", "pt", "fr", "it", "de", "ru", "id", "ja", "ko", "zh"];
+/// Built-in MangaDex chapter provider (`ChapterRefVm::ext_id`), next to the installed extensions.
+pub const MANGADEX_PROVIDER: &str = "@mangadex";
+/// `PageVm::url` prefix of a page stored on disk (offline chapter, `manga.download.offline-read`).
+pub const OFFLINE_URL_PREFIX: &str = "file://";
+
+/// Whether a card is an 18+ title (see [`ADULT_BADGE`]).
+pub fn is_adult_card(m: &MediaVm) -> bool {
+    m.subtitle.starts_with(ADULT_BADGE)
+}
+
+/// Whether every page of a chapter comes from disk.
+pub fn pages_are_offline(pages: &[PageVm]) -> bool {
+    !pages.is_empty() && pages.iter().all(|p| p.url.starts_with(OFFLINE_URL_PREFIX))
+}
+
+/// `12`, `12.5`; `?` when unknown.
+pub fn chapter_label(n: f32) -> String {
+    if n <= 0.0 {
+        return "?".to_owned();
+    }
+    if (n - n.round()).abs() < 0.005 { format!("{}", n.round() as i64) } else { format!("{:.1}", n).trim_end_matches('0').to_owned() }
+}
+
+/// Same chapter number (fractional chapters compare to the hundredth).
+pub fn same_chapter(a: f32, b: f32) -> bool {
+    (a - b).abs() < 0.005
+}
+
+/// One row of the merged chapter list: the chosen source of a chapter number and how many sources exist.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MergedChapterVm {
+    pub number: f32,
+    /// The chapter of the chosen source.
+    pub chapter: ChapterVm,
+    /// `ChapterProviderVm::ext_id` of the chosen source.
+    pub provider: String,
+    /// Sources that have this chapter.
+    pub sources: usize,
+}
+
+/// Score of a chapter of the provider at `rank` (of `count`; tk-app orders providers by reliability, best first):
+/// preferred source, then preferred language, English as the universal fallback, then the provider's rank.
+fn chapter_score(provider: &ChapterProviderVm, rank: usize, count: usize, ch: &ChapterVm, lang: &str, source: Option<&str>) -> f32 {
+    let mut s = 1.0 - rank as f32 / count.max(1) as f32;
+    if source.is_some_and(|src| src == provider.ext_id || src == ch.reference.ext_id) {
+        s += 100.0;
+    }
+    match ch.lang.as_deref() {
+        Some(l) if l == lang => s += 10.0,
+        Some("en") => s += 3.0,
+        None => s += 1.0,
+        _ => {}
+    }
+    if ch.group.is_some() {
+        s += 0.1;
+    }
+    s
+}
+
+/// One row per chapter number across `providers` (ascending), each with its best source for `lang` / `source`
+/// (`manga.chapters.auto-best`). Chapters numbered 0 (unknown) are appended per provider as they come.
+pub fn merge_chapters(providers: &[ChapterProviderVm], lang: &str, source: Option<&str>) -> Vec<MergedChapterVm> {
+    let count = providers.len();
+    let mut best: Vec<(f32, MergedChapterVm)> = Vec::new();
+    let mut unknown = Vec::new();
+    for (rank, p) in providers.iter().enumerate() {
+        for ch in &p.chapters {
+            if ch.number <= 0.0 {
+                unknown.push(MergedChapterVm { number: 0.0, chapter: ch.clone(), provider: p.ext_id.clone(), sources: 1 });
+                continue;
+            }
+            let sc = chapter_score(p, rank, count, ch, lang, source);
+            match best.iter_mut().find(|(_, m)| same_chapter(m.number, ch.number)) {
+                Some((s, m)) => {
+                    m.sources += 1;
+                    if sc > *s {
+                        *s = sc;
+                        m.chapter = ch.clone();
+                        m.provider = p.ext_id.clone();
+                    }
+                }
+                None => best.push((sc, MergedChapterVm { number: ch.number, chapter: ch.clone(), provider: p.ext_id.clone(), sources: 1 })),
+            }
+        }
+    }
+    best.sort_by(|a, b| a.1.number.total_cmp(&b.1.number));
+    best.into_iter().map(|(_, m)| m).chain(unknown).collect()
+}
+
+/// Best source of chapter `number` skipping the providers in `exclude` (the reader's "try another source" after a
+/// failure, `manga.reader.provider-switch`): `(provider key, chapter)`.
+pub fn best_source(providers: &[ChapterProviderVm], number: f32, lang: &str, source: Option<&str>, exclude: &[String]) -> Option<(String, ChapterVm)> {
+    let count = providers.len();
+    providers
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| !exclude.contains(&p.ext_id))
+        .flat_map(|(rank, p)| {
+            p.chapters
+                .iter()
+                .filter(move |c| c.number > 0.0 && same_chapter(c.number, number))
+                .map(move |c| (chapter_score(p, rank, count, c, lang, source), p.ext_id.clone(), c.clone()))
+        })
+        .max_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, k, c)| (k, c))
+}
+
+/// Every source of chapter `number`: `(provider key, provider name, chapter)` in provider order.
+pub fn sources_of(providers: &[ChapterProviderVm], number: f32) -> Vec<(String, String, ChapterVm)> {
+    providers
+        .iter()
+        .flat_map(|p| {
+            p.chapters
+                .iter()
+                .filter(move |c| c.number > 0.0 && same_chapter(c.number, number))
+                .map(move |c| (p.ext_id.clone(), p.ext_name.clone(), c.clone()))
+        })
+        .collect()
+}
+
+/// Index of the best provider of a title: preferred source, then most chapters in `lang`, then most chapters, then
+/// the backend's order (`data-best`).
+pub fn best_provider(providers: &[ChapterProviderVm], lang: &str, source: Option<&str>) -> Option<usize> {
+    providers
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.error.is_none() && !p.chapters.is_empty())
+        .max_by_key(|(i, p)| {
+            let preferred = source.is_some_and(|s| s == p.ext_id || p.chapters.first().is_some_and(|c| c.reference.ext_id == s));
+            let in_lang = p.chapters.iter().filter(|c| c.lang.as_deref() == Some(lang)).count();
+            (preferred, in_lang, p.chapters.len(), std::cmp::Reverse(*i))
+        })
+        .map(|(i, _)| i)
+}
+
+/// The chapter after / before `number` in a merged, ascending list (numbered chapters only).
+pub fn neighbour_chapter(merged: &[MergedChapterVm], number: f32, forward: bool) -> Option<&MergedChapterVm> {
+    if forward {
+        merged.iter().filter(|c| c.number > 0.0).find(|c| c.number > number + 0.004)
+    } else {
+        merged.iter().filter(|c| c.number > 0.0).rev().find(|c| c.number < number - 0.004)
+    }
+}
+
+/// Chapters grouped by volume in order of appearance (`None` = no volume), for the "group by volume" tool.
+pub fn group_by_volume<T: Clone>(rows: &[T], volume: impl Fn(&T) -> Option<u32>) -> Vec<(Option<u32>, Vec<T>)> {
+    let mut out: Vec<(Option<u32>, Vec<T>)> = Vec::new();
+    for r in rows {
+        let v = volume(r);
+        match out.iter_mut().find(|(k, _)| *k == v) {
+            Some((_, list)) => list.push(r.clone()),
+            None => out.push((v, vec![r.clone()])),
+        }
+    }
+    out
+}
+
+/// Chapter filter of the details tools: matches the number (`12`, `12.5`), the title or the group, case-insensitive.
+pub fn chapter_matches(ch: &ChapterVm, needle: &str) -> bool {
+    let n = needle.trim().to_lowercase();
+    if n.is_empty() {
+        return true;
+    }
+    chapter_label(ch.number) == n
+        || ch.title.as_deref().is_some_and(|t| t.to_lowercase().contains(&n))
+        || ch.group.as_deref().is_some_and(|g| g.to_lowercase().contains(&n))
+}
+
+/// Pages to render around `current` in lazy mode (`prefetch` ahead, 1 behind); every page in eager mode.
+pub fn render_window(total: usize, current: usize, prefetch: u8, eager: bool) -> std::ops::Range<usize> {
+    if eager || total == 0 {
+        return 0..total;
+    }
+    let start = current.saturating_sub(1);
+    let end = (current + 1 + usize::from(prefetch)).min(total);
+    start.min(end)..end
+}
+
+/// Whether reading position `index` of `total` passed the 70 % mark that prefetches the next chapter
+/// (`manga.reader.prefetch`).
+pub fn should_prefetch_next(index: usize, total: usize) -> bool {
+    total > 0 && (index + 1) * 10 >= total * 7
+}
+
+/// Pages shown together in the double-page mode: `(first, Some(second))` spreads; the first page (cover) and wide
+/// pages (width > height) stand alone.
+pub fn spreads(pages: &[PageVm]) -> Vec<(usize, Option<usize>)> {
+    let wide = |p: &PageVm| matches!((p.width, p.height), (Some(w), Some(h)) if w > h);
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < pages.len() {
+        if i == 0 || wide(&pages[i]) || i + 1 >= pages.len() || wide(&pages[i + 1]) {
+            out.push((i, None));
+            i += 1;
+        } else {
+            out.push((i, Some(i + 1)));
+            i += 2;
+        }
+    }
+    out
+}
+
+/// Index of the spread that shows page `page`.
+pub fn spread_of(spreads: &[(usize, Option<usize>)], page: usize) -> usize {
+    spreads.iter().position(|(a, b)| *a == page || *b == Some(page)).unwrap_or(0)
+}
+
+/// Read fraction of a chapter from its progress (`position` is 0-based).
+pub fn read_fraction(p: &ReadProgressVm) -> f64 {
+    if p.completed {
+        return 1.0;
+    }
+    match p.total {
+        Some(t) if t > 0 => (f64::from(p.position + 1) / f64::from(t)).clamp(0.0, 1.0),
+        _ => 0.0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -589,5 +827,94 @@ mod tests {
         assert_eq!(p.reader.prefetch_pages, PREFETCH_MAX_PAGES);
         assert_eq!(p.reader.zoom_percent, ZOOM_MIN_PERCENT);
         assert_eq!(p.preferred_lang, "es");
+    }
+
+    fn ch(ext: &str, id: &str, n: f32, lang: Option<&str>) -> ChapterVm {
+        ChapterVm {
+            reference: ChapterRefVm { ext_id: ext.into(), chapter_id: id.into() },
+            number: n,
+            volume: if n < 3.0 { Some(1) } else { None },
+            title: Some(format!("Chapter {n}")),
+            lang: lang.map(str::to_owned),
+            group: None,
+            published_unix: None,
+            pages: None,
+            read: 0.0,
+            downloaded: false,
+        }
+    }
+
+    fn providers() -> Vec<ChapterProviderVm> {
+        vec![
+            ChapterProviderVm {
+                ext_id: "toko/comick".into(),
+                ext_name: "Toko".into(),
+                lang: Some("en".into()),
+                chapters: vec![ch("toko", "c1", 1.0, Some("en")), ch("toko", "c2", 2.0, Some("en")), ch("toko", "c3", 3.0, Some("en"))],
+                error: None,
+            },
+            ChapterProviderVm {
+                ext_id: "@mangadex".into(),
+                ext_name: "MangaDex".into(),
+                lang: Some("es".into()),
+                chapters: vec![ch("@mangadex", "m1", 1.0, Some("es")), ch("@mangadex", "m15", 1.5, Some("es"))],
+                error: None,
+            },
+        ]
+    }
+
+    #[test]
+    fn merge_picks_language_then_source() {
+        let p = providers();
+        let m = merge_chapters(&p, "es", None);
+        assert_eq!(m.iter().map(|c| c.number).collect::<Vec<_>>(), vec![1.0, 1.5, 2.0, 3.0]);
+        assert_eq!(m[0].chapter.reference.chapter_id, "m1");
+        assert_eq!(m[0].sources, 2);
+        let forced = merge_chapters(&p, "es", Some("toko/comick"));
+        assert_eq!(forced[0].provider, "toko/comick");
+        assert_eq!(best_source(&p, 1.0, "es", None, &["@mangadex".to_owned()]).map(|(k, _)| k).as_deref(), Some("toko/comick"));
+        assert_eq!(best_source(&p, 9.0, "es", None, &[]), None);
+        assert_eq!(sources_of(&p, 1.0).len(), 2);
+        assert_eq!(best_provider(&p, "es", None), Some(1));
+        assert_eq!(best_provider(&p, "en", None), Some(0));
+        assert_eq!(neighbour_chapter(&m, 1.5, true).map(|c| c.number), Some(2.0));
+        assert_eq!(neighbour_chapter(&m, 1.0, false).map(|c| c.number), None);
+    }
+
+    #[test]
+    fn labels_groups_and_filters() {
+        assert_eq!(chapter_label(12.0), "12");
+        assert_eq!(chapter_label(12.5), "12.5");
+        assert_eq!(chapter_label(0.0), "?");
+        let p = providers();
+        let groups = group_by_volume(&p[0].chapters, |c| c.volume);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].0, Some(1));
+        assert_eq!(groups[0].1.len(), 2);
+        assert!(chapter_matches(&p[0].chapters[1], "2"));
+        assert!(chapter_matches(&p[0].chapters[1], "chapter 2"));
+        assert!(!chapter_matches(&p[0].chapters[1], "zzz"));
+    }
+
+    #[test]
+    fn reader_windows_spreads_and_prefetch() {
+        assert_eq!(render_window(20, 5, 3, false), 4..9);
+        assert_eq!(render_window(20, 0, 3, false), 0..4);
+        assert_eq!(render_window(20, 19, 3, false), 18..20);
+        assert_eq!(render_window(20, 5, 3, true), 0..20);
+        assert!(!should_prefetch_next(5, 10));
+        assert!(should_prefetch_next(6, 10));
+        let page = |w, h| PageVm { index: 0, url: String::new(), headers: Vec::new(), width: Some(w), height: Some(h) };
+        let pages = vec![page(800, 1200), page(800, 1200), page(800, 1200), page(1600, 1200), page(800, 1200)];
+        let s = spreads(&pages);
+        assert_eq!(s, vec![(0, None), (1, Some(2)), (3, None), (4, None)]);
+        assert_eq!(spread_of(&s, 2), 1);
+        let off = PageVm { url: format!("{OFFLINE_URL_PREFIX}/tmp/1.jpg"), ..page(1, 1) };
+        assert!(pages_are_offline(&[off.clone()]));
+        assert!(!pages_are_offline(&[off, page(1, 1)]));
+        let prog = ReadProgressVm { chapter: ChapterRefVm { ext_id: "e".into(), chapter_id: "c".into() }, chapter_number: 1.0, position: 4, total: Some(10), completed: false, updated_unix: 0 };
+        assert!((read_fraction(&prog) - 0.5).abs() < 1e-9);
+        let card = MediaVm { id: "1".into(), title: "x".into(), cover: None, color: None, subtitle: format!("{ADULT_BADGE} - 2020"), score: None };
+        assert!(is_adult_card(&card));
     }
 }
