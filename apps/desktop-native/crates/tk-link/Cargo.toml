@@ -50,5 +50,9 @@ x509-parser = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true }
 
+# PR_SET_PDEATHSIG for the media processes (media/job.rs)
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = { workspace = true }

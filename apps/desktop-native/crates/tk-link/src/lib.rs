@@ -5,7 +5,11 @@
 //! * pairing: 5-minute single-use window, <= 5 attempts, Crockford code, `tatakai-link:v1?...` payload
 //! * transport: rustls (ring) + optional client certs, axum routes, per-request device authz, hot revocation
 //! * `url` source: SSRF-safe loopback fetcher + HLS rewriting; FFmpeg only ever reads the loopback
-//! * sessions: on-demand fMP4 HLS, 512 MiB RAM window, heartbeat/idle, FFmpeg in a Windows Job Object
+//! * sessions: on-demand fMP4 HLS, 512 MiB RAM window, heartbeat/idle, FFmpeg in a Windows Job Object (Linux:
+//!   `PR_SET_PDEATHSIG`)
+//! * media (ported from Enigmata-Temple's PC pipeline): Windows D3D11 + AMF/NVENC/QSV, Linux VAAPI decode/encode with
+//!   libx264/libopenh264 fallback, Anime4K via libplacebo, experimental LSFG frame generation through the
+//!   `temple-lsfg` helper (FFmpeg -> temple-lsfg -> FFmpeg), see [`media`]
 //!
 //! Wave B (worker k) adds `POST /v1/control`, `GET /v1/player`, the `GET /v1/events` long-poll (send to device /
 //! handoff) and the mDNS announcer (`discovery`, `_tatakai-link._tcp`, TXT v / name / id / fp = CA fingerprint).
@@ -46,11 +50,12 @@ pub use devices::Device;
 pub use library::LibraryItem;
 pub use media::capabilities::{Capabilities, CommandRunner, GpuInfo, Vendor};
 pub use media::engine::Engine;
+pub use media::lsfg::{LsfgCapability, LsfgStatus};
 pub use pairing::{PairingPayload, WindowStatus};
 pub use sessions::SessionTuning;
 
 use crate::identity::Identity;
-use crate::media::capabilities::{BenchStore, Environment, SystemRunner, detect, guess_gpu};
+use crate::media::capabilities::{BenchStore, Environment, SystemRunner, detect, guess_gpu_with};
 use crate::media::engine::{EngineJob, EngineProcess, FfmpegEngine};
 use crate::pairing::{DEFAULT_MAX_ATTEMPTS, DEFAULT_TTL, PairingWindow};
 use crate::server::AppState;
@@ -119,6 +124,19 @@ pub enum LinkError {
     NoAddress,
 }
 
+/// Whether and how Link looks for LSFG (`temple-lsfg` + `Lossless.dll`).
+#[derive(Debug, Clone, Default)]
+pub enum LsfgSetup {
+    /// No LSFG profiles (tests, hosts that do not opt in). Reported as `lsfg.reason = "disabled"`.
+    #[default]
+    Off,
+    /// Find the helper (`TEMPLE_LSFG`, next to the executable or one folder above) and the DLL (`dll` when given,
+    /// else Steam incl. `libraryfolders.vdf`), then run `temple-lsfg --probe` once at start.
+    Detect { dll: Option<PathBuf> },
+    /// A precomputed status (tests).
+    Status(LsfgStatus),
+}
+
 pub struct LinkConfig {
     /// `%APPDATA%\Tatakai-Next\link` (resolved by the app; tests pass a tempdir).
     pub data_dir: PathBuf,
@@ -134,8 +152,11 @@ pub struct LinkConfig {
     /// "Allow HTTP" setting for `url` sources (https only by default).
     pub allow_http_sources: bool,
     pub client_fg_allowed: bool,
-    /// Real GPU info from the app (DXGI). `None` = guessed from the detected encoders.
+    /// Real GPU info from the app (DXGI). `None` = guessed from the detected encoders (Linux: the VAAPI render
+    /// node's PCI vendor; the name from the LSFG probe when it ran).
     pub gpu: Option<GpuInfo>,
+    /// LSFG frame generation (experimental). Default: off.
+    pub lsfg: LsfgSetup,
     pub tuning: SessionTuning,
     /// Test hooks (production leaves these `None`).
     pub engine: Option<Arc<dyn Engine>>,
@@ -155,6 +176,7 @@ impl LinkConfig {
             allow_http_sources: false,
             client_fg_allowed: false,
             gpu: None,
+            lsfg: LsfgSetup::Off,
             tuning: SessionTuning::default(),
             engine: None,
             runner: None,
@@ -246,11 +268,28 @@ pub async fn start(cfg: LinkConfig, host: Arc<dyn LinkHost>) -> Result<LinkHandl
                 None => true,
             }
     });
-    let mut gpu = cfg.gpu.clone().unwrap_or_else(|| guess_gpu(&detected));
+    let render_node = media::vaapi::discover_system();
+    let lsfg = match (&cfg.lsfg, &ffmpeg) {
+        (LsfgSetup::Off, _) => LsfgStatus::unavailable(media::lsfg::REASON_DISABLED),
+        (LsfgSetup::Status(s), _) => s.clone(),
+        (LsfgSetup::Detect { .. }, None) => LsfgStatus::unavailable(media::lsfg::REASON_ENGINE),
+        (LsfgSetup::Detect { dll }, Some(_)) => {
+            let dll = dll.as_ref().map(|p| p.to_string_lossy().into_owned());
+            tokio::task::spawn_blocking(move || media::lsfg::detect_system(dll.as_deref()))
+                .await
+                .unwrap_or_else(|_| LsfgStatus::unavailable(media::lsfg::REASON_PROBE))
+        }
+    };
+    let mut gpu = cfg.gpu.clone().unwrap_or_else(|| guess_gpu_with(&detected, render_node.as_ref()));
     if cfg.gpu.is_none() {
         gpu.vulkan = detected.libplacebo;
+        if gpu.name.is_empty()
+            && let Some(device) = lsfg.device()
+        {
+            gpu.name = device.to_owned();
+        }
     }
-    let env = Arc::new(Environment { detected, gpu, shaders_ok });
+    let env = Arc::new(Environment { render_node, lsfg, ..Environment::new(detected, gpu, shaders_ok) });
 
     let engine: Arc<dyn Engine> = match (&cfg.engine, &ffmpeg) {
         (Some(e), _) => e.clone(),

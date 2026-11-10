@@ -5,6 +5,9 @@
 //! outside the window restart the engine at the requested segment (seek). The sink applies back-pressure (it delays
 //! the answer to the PUT) when the engine is too far ahead of the playhead reported by the heartbeat, so FFmpeg blocks
 //! instead of decoding the whole file. 120 s without heartbeat closes the session.
+//!
+//! LSFG profiles probe the source frame rate once per session ([`Engine::source_rate`], fallback 23.976) and run each
+//! generation as the three-process chain of [`args::build_lsfg`]; killing a run kills the whole chain.
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
@@ -21,7 +24,8 @@ use crate::api::{ApiError, ApiResult, ErrorCode};
 use crate::fetcher::{FetchError, Fetcher, SourceSpec};
 use crate::media::args::{self, PipelineParams};
 use crate::media::capabilities::{Environment, MAX_RAM_BYTES};
-use crate::media::engine::{Engine, EngineExit, EngineJob};
+use crate::media::engine::{Engine, EngineExit, EngineJob, LsfgStages};
+use crate::media::probe::{FALLBACK_RATE, FrameRate};
 use crate::media::profiles::{self, Encoder, ProfileSpec, SEGMENT_SECS};
 use tk_core::net::{Policy, sanitize_headers};
 
@@ -115,6 +119,8 @@ pub struct Session {
     pub duration: Option<f64>,
     audio_track: u32,
     shader: Option<String>,
+    /// LSFG profiles: the probed source rate (or the fallback), fixed for the session.
+    lsfg_rate: Option<FrameRate>,
     workdir: PathBuf,
     state: Mutex<State>,
     notify: Notify,
@@ -269,6 +275,14 @@ impl Manager {
         // source -> loopback input
         let (input_url, fetch_token, duration) = self.open_source(&req.source).await?;
 
+        let lsfg_rate = match profile.fg.lsfg() {
+            Some(_) => Some(self.engine.source_rate(&input_url).await.unwrap_or_else(|| {
+                tracing::info!("source frame rate unknown; LSFG assumes 24000/1001");
+                FALLBACK_RATE
+            })),
+            None => None,
+        };
+
         // one active session per device
         self.close_device_session(device_id);
 
@@ -294,6 +308,7 @@ impl Manager {
             duration,
             audio_track: req.audio_track,
             shader,
+            lsfg_rate,
             workdir,
             state: Mutex::new(State {
                 phase: Phase::Preparing,
@@ -472,9 +487,11 @@ impl Manager {
             }
         }
         let sink_base = format!("http://{sink_addr}/sink/{}/{run_gen}", s.sink_token);
+        let backend = self.env.backend();
         let params = PipelineParams {
             profile: s.profile,
             encoder: s.encoder,
+            backend: &backend,
             input_url: &s.input_url,
             sink_base: &sink_base,
             start_segment,
@@ -482,11 +499,21 @@ impl Manager {
             shader_file: s.shader.as_deref(),
             adapter: 0,
         };
-        let args = match args::build(&params) {
-            Ok(a) => a,
-            Err(_) => return self.fail(s, run_gen, FailReason::EngineUnavailable),
+        let built = match (s.lsfg_rate, self.env.lsfg.paths()) {
+            (Some(rate), Some(paths)) => args::build_lsfg(&params, rate, &paths.dll).map(|a| {
+                (a.encode, Some(LsfgStages { decode: a.decode, helper: paths.helper.clone(), helper_args: a.helper }))
+            }),
+            (Some(_), None) => return self.fail(s, run_gen, FailReason::EngineUnavailable),
+            (None, _) => args::build(&params).map(|a| (a, None)),
         };
-        let job = EngineJob { args, workdir: s.workdir.clone(), start_segment, sink_base };
+        let (args, lsfg) = match built {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::warn!(error = %e, "the media graph could not be built");
+                return self.fail(s, run_gen, FailReason::EngineUnavailable);
+            }
+        };
+        let job = EngineJob { args, workdir: s.workdir.clone(), start_segment, sink_base, lsfg };
         let mut proc = match self.engine.spawn(job).await {
             Ok(p) => p,
             Err(e) => {

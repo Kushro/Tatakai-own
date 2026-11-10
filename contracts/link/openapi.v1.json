@@ -71,7 +71,7 @@
       "p-anime4k-2160",
       "p-anime4k-1080-fg2x"
     ],
-    "pipeline": "decode (FFmpeg, d3d11va -> software fallback) -> upscale (Anime4K 4.0 via libplacebo/Vulkan) -> frame generation (none by default; frc_amf on AMD only for p-anime4k-1080-fg2x) -> encode (h264_amf | h264_nvenc | h264_qsv | libopenh264) -> fMP4 HLS",
+    "pipeline": "decode (FFmpeg; Windows d3d11va, Linux VAAPI -> software fallback) -> upscale (Anime4K 4.0 via libplacebo/Vulkan) -> frame generation (none by default; frc_amf on AMD/Windows only for p-anime4k-1080-fg2x; experimental LSFG via temple-lsfg between two FFmpeg for p-lsfg-* / p-anime4k-lsfg-*) -> encode (Windows: h264_amf | h264_nvenc | h264_qsv | libopenh264; Linux: h264_vaapi | h264_nvenc | libx264 | libopenh264) -> fMP4 HLS",
     "measuredSustain": "true | false | \"unknown\": 10 s benchmark on first use, stored. `p-none` is always available."
   },
   "tags": [
@@ -1794,10 +1794,12 @@
                 "h264_amf",
                 "h264_nvenc",
                 "h264_qsv",
-                "libopenh264"
+                "libopenh264",
+                "h264_vaapi",
+                "libx264"
               ]
             },
-            "description": "Detected with `ffmpeg -encoders`"
+            "description": "Detected with `ffmpeg -encoders`, filtered and ordered per platform (Windows: h264_amf, h264_nvenc, h264_qsv, libopenh264; Linux: h264_vaapi when a non-NVIDIA render node exists, h264_nvenc, libx264, libopenh264)"
           },
           "default_profile": {
             "type": "string"
@@ -1832,6 +1834,49 @@
                 "const": 20
               }
             }
+          },
+          "lsfg": {
+            "type": "object",
+            "description": "Additive: LSFG frame generation on the PC (experimental) through the temple-lsfg helper and the user's Lossless.dll, probed once at server start. Older clients ignore it.",
+            "required": [
+              "available",
+              "experimental",
+              "multipliers",
+              "auto_target_fps"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "available": {
+                "type": "boolean"
+              },
+              "experimental": {
+                "const": true
+              },
+              "multipliers": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 5
+                }
+              },
+              "auto_target_fps": {
+                "type": "integer"
+              },
+              "reason": {
+                "enum": [
+                  "disabled",
+                  "engine_unavailable",
+                  "helper_missing",
+                  "dll_missing",
+                  "probe_failed",
+                  "dll_unreadable",
+                  "missing_spirv",
+                  "no_vulkan",
+                  "device_unsupported"
+                ]
+              }
+            }
           }
         }
       },
@@ -1852,7 +1897,17 @@
               "p-anime4k-1080",
               "p-anime4k-1440",
               "p-anime4k-2160",
-              "p-anime4k-1080-fg2x"
+              "p-anime4k-1080-fg2x",
+              "p-lsfg-1080-x2",
+              "p-lsfg-1080-x3",
+              "p-lsfg-1080-x4",
+              "p-lsfg-1080-x5",
+              "p-lsfg-1080-auto120",
+              "p-anime4k-lsfg-1080-x2",
+              "p-anime4k-lsfg-1080-x3",
+              "p-anime4k-lsfg-1080-x4",
+              "p-anime4k-lsfg-1080-x5",
+              "p-anime4k-lsfg-1080-auto120"
             ]
           },
           "label": {
@@ -1867,7 +1922,8 @@
           "fg": {
             "enum": [
               "none",
-              "frc_amf"
+              "frc_amf",
+              "lsfg"
             ],
             "default": "none"
           },
@@ -1899,6 +1955,16 @@
           },
           "encoder": {
             "type": "string"
+          },
+          "fg_multiplier": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 5,
+            "description": "Additive: LSFG profiles with a fixed multiplier (output fps = source fps x multiplier)."
+          },
+          "fg_target_fps": {
+            "type": "integer",
+            "description": "Additive: LSFG auto profiles; the multiplier (2..5) is chosen per source to approach this rate."
           }
         }
       },
