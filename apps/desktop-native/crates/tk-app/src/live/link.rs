@@ -485,6 +485,17 @@ impl LinkService {
         LinkStatusVm { running: false, port, devices, error: Some(error) }
     }
 
+    /// App start-up: with at least one paired phone the server starts right away, so the phone reaches this PC without
+    /// the user opening the Link screen first. With none it stays lazy (no listening port until pairing).
+    pub async fn start_if_paired(&self) {
+        let paired = tk_link::devices::DeviceRegistry::open(self.dir.join("devices.json"))
+            .map(|r| r.list().into_iter().any(|d| d.is_active(now_unix())))
+            .unwrap_or(false);
+        if paired && let Err(e) = self.ensure().await {
+            tracing::warn!(detail = %e.detail, "Tatakai Link could not start");
+        }
+    }
+
     /// Starts the server if it is not running (each call retries a failed start).
     pub async fn status(&self) -> Result<LinkStatusVm, UiError> {
         let mut st = self.state.lock().await;

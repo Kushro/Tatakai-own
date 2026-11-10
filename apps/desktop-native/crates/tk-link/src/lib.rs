@@ -289,7 +289,11 @@ pub async fn start(cfg: LinkConfig, host: Arc<dyn LinkHost>) -> Result<LinkHandl
             gpu.name = device.to_owned();
         }
     }
-    let env = Arc::new(Environment { render_node, lsfg, ..Environment::new(detected, gpu, shaders_ok) });
+    let anime4k_large_ok = shaders_ok
+        && cfg.anime4k_dir.as_deref().is_some_and(|d| {
+            media::anime4k::chain_present(d, media::anime4k::Anime4kMode::A, media::anime4k::Anime4kVariant::L)
+        });
+    let env = Arc::new(Environment { render_node, lsfg, anime4k_large_ok, ..Environment::new(detected, gpu, shaders_ok) });
 
     let engine: Arc<dyn Engine> = match (&cfg.engine, &ffmpeg) {
         (Some(e), _) => e.clone(),

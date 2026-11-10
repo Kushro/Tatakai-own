@@ -29,6 +29,10 @@
     <string name="linked_yes">Allowed</string>
     <string name="linked_no">Not allowed</string>
     <string name="linked_profile">Enhance profile</string>
+    <string name="linked_profile_none">No enhancement</string>
+    <string name="linked_profile_anime4k">Anime4K to %1$dp</string>
+    <string name="linked_profile_fg">Frame generation ×%1$d</string>
+    <string name="linked_profile_fg_auto">Frame generation, auto (%1$d fps)</string>
     <string name="linked_profiles_none">This PC has no profile it can sustain in real time.</string>
     <string name="linked_sustain_ok">Sustained in real time</string>
     <string name="linked_sustain_no">May stutter</string>

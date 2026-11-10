@@ -18,7 +18,7 @@ use super::profiles::{CATALOG, DEFAULT_PROFILE, Encoder, Fg, LsfgMode, Platform,
 use super::vaapi::RenderNode;
 
 pub const MAX_RAM_BYTES: u64 = 512 * 1024 * 1024;
-pub const SEGMENT_WAIT_SECS: u64 = 20;
+pub const SEGMENT_WAIT_SECS: u64 = 15;
 
 /// Runs an external program and returns its stdout. Injected so detection is testable without FFmpeg.
 #[async_trait]
@@ -201,12 +201,14 @@ pub struct Environment {
     /// Linux VAAPI render node (`None` on Windows or without `/dev/dri`).
     pub render_node: Option<RenderNode>,
     pub lsfg: LsfgStatus,
+    /// The `L` (or `VL`) Anime4K networks of the 1440p / 2160p profiles are present (`shaders_ok` covers only `M`).
+    pub anime4k_large_ok: bool,
 }
 
 impl Environment {
     /// Environment of this platform without a render node and with LSFG disabled.
     pub fn new(detected: Detected, gpu: GpuInfo, shaders_ok: bool) -> Self {
-        Self { detected, gpu, shaders_ok, platform: Platform::current(), render_node: None, lsfg: LsfgStatus::default() }
+        Self { detected, gpu, shaders_ok, platform: Platform::current(), render_node: None, lsfg: LsfgStatus::default(), anime4k_large_ok: shaders_ok }
     }
 
     fn vaapi_node(&self) -> Option<&RenderNode> {
@@ -242,6 +244,9 @@ impl Environment {
     }
 
     pub fn profile_available(&self, p: &ProfileSpec) -> bool {
+        if matches!(p.upscale, Upscale::Anime4k { variant: crate::media::anime4k::Anime4kVariant::L, .. }) && !self.anime4k_large_ok {
+            return false;
+        }
         match (p.upscale, p.fg) {
             (Upscale::None, Fg::None) => true, // p-none is always offered (a session fails with engine_unavailable if no encoder exists)
             (Upscale::None, Fg::FrcAmf) => false,
@@ -374,7 +379,7 @@ mod tests {
         assert_eq!(json["contract"], "v1");
         assert_eq!(json["default_profile"], "p-none");
         assert_eq!(json["client_fg"], "suppressed");
-        assert_eq!(json["limits"], serde_json::json!({ "max_ram_bytes": 536870912u64, "segment_wait_secs": 20 }));
+        assert_eq!(json["limits"], serde_json::json!({ "max_ram_bytes": 536870912u64, "segment_wait_secs": 15 }));
         assert_eq!(json["gpu"]["vendor"], "amd");
         assert_eq!(json["encoders"], serde_json::json!(["h264_amf", "h264_nvenc", "libopenh264"]));
         let by = |id: &str| json["profiles"].as_array().unwrap().iter().find(|p| p["id"] == id).unwrap().clone();

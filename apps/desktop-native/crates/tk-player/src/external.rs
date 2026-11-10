@@ -270,6 +270,23 @@ fn user_env(cmd: &mut Command) {
     }
 }
 
+/// mpv options for the app's enhancements in an external mpv: the shader preset (absolute paths, `:`-separated on
+/// Unix / `;` on Windows like mpv's path lists), Enigmata's deband values and the image adjustments (-100..=100).
+/// `shaders` is the resolved list ([`crate::glsl_shaders_value`]); empty = none.
+pub fn enhancement_args(shaders: &str, deband: bool, image: Option<(i8, i8, i8, i8)>) -> Vec<String> {
+    let mut v = Vec::new();
+    if !shaders.is_empty() {
+        v.push(format!("--glsl-shaders={shaders}"));
+    }
+    if deband {
+        v.extend(["--deband=yes", "--deband-iterations=2", "--deband-threshold=40", "--deband-range=20", "--deband-grain=6"].map(String::from));
+    }
+    if let Some((b, c, s, g)) = image {
+        v.extend([format!("--brightness={b}"), format!("--contrast={c}"), format!("--saturation={s}"), format!("--gamma={g}")]);
+    }
+    v
+}
+
 /// mpv expands `${property}` in `--title`; a literal `$` is written `$$`.
 fn escape_title(title: &str) -> String {
     title.replace('$', "$$")
@@ -292,16 +309,35 @@ pub struct FrameGen {
     pub performance: bool,
     /// Where the dedicated config file is written (`<dir>/lsfg-vk.toml`).
     pub config_dir: PathBuf,
+    /// The app's own enhancements (`--glsl-shaders=…`, deband, image) when frame generation pulled an integrated-player
+    /// user into this mpv; empty when the user chose the external mpv (their config rules).
+    pub enhancements: Vec<String>,
 }
 
 impl FrameGen {
     pub fn new(multiplier: u8, dll: Option<PathBuf>, config_dir: PathBuf) -> Self {
-        Self { multiplier: multiplier.clamp(2, 4), dll, flow_scale: 0.85, performance: false, config_dir }
+        Self { multiplier: multiplier.clamp(2, 4), dll, flow_scale: 0.85, performance: false, config_dir, enhancements: Vec::new() }
+    }
+
+    /// Adds mpv options carrying the app's enhancements ([`enhancement_args`]).
+    pub fn with_enhancements(mut self, args: Vec<String>) -> Self {
+        self.enhancements = args;
+        self
     }
 
     /// mpv options: Vulkan presentation so the layer sees a swapchain; no display-resample (lsfg paces frames).
     pub fn mpv_args(&self) -> Vec<String> {
-        vec!["--vo=gpu-next".into(), "--gpu-api=vulkan".into(), "--video-sync=audio".into(), "--interpolation=no".into()]
+        let mut v: Vec<String> =
+            vec!["--vo=gpu-next".into(), "--gpu-api=vulkan".into(), "--video-sync=audio".into(), "--interpolation=no".into()];
+        if !self.enhancements.is_empty() {
+            // The app's preset must win: a user's mpv config can re-set `glsl-shaders` at runtime (auto-profiles,
+            // scripts), so this mpv runs without it (mpv pre-parses `--no-config` wherever it appears). Hardware
+            // decoding keeps the GPU free for the shaders and lsfg-vk.
+            v.insert(0, "--no-config".into());
+            v.push("--hwdec=auto-safe".into());
+        }
+        v.extend(self.enhancements.iter().cloned());
+        v
     }
 
     /// The DLL to use. lsfg-vk 2.x reads `lsfg-vk.dll` (the shader pack it ships for Lossless Scaling); the
@@ -384,6 +420,8 @@ fn mpv_args(endpoint: &str, src: &MediaSource, start_secs: f64, title: &str) -> 
     ];
     if !title.is_empty() {
         args.push(format!("--title={}", escape_title(title)).into());
+        // the OSC shows the media title; for HLS it would be the playlist file name ("master.m3u8")
+        args.push(format!("--force-media-title={}", escape_title(title)).into());
     }
     if start_secs.is_finite() && start_secs > 0.0 {
         args.push(format!("--start={start_secs:.3}").into());
@@ -717,5 +755,19 @@ mod tests {
     #[test]
     fn endpoints_are_unique() {
         assert_ne!(new_endpoint(), new_endpoint());
+    }
+
+    #[test]
+    fn frame_gen_carries_the_app_enhancements_before_the_url() {
+        let extra = enhancement_args("/s/a.glsl:/s/b.glsl", true, Some((5, 0, -10, 0)));
+        assert_eq!(extra[0], "--glsl-shaders=/s/a.glsl:/s/b.glsl");
+        assert!(extra.contains(&"--deband-threshold=40".to_owned()) && extra.contains(&"--saturation=-10".to_owned()));
+        assert!(enhancement_args("", false, None).is_empty());
+        let fg = FrameGen::new(2, None, PathBuf::from("/tmp/x")).with_enhancements(extra.clone());
+        let args = fg.mpv_args();
+        assert_eq!(&args[..3], ["--no-config", "--vo=gpu-next", "--gpu-api=vulkan"]);
+        assert!(args.ends_with(&extra));
+        // the user's own external mpv keeps their config
+        assert!(!FrameGen::new(2, None, PathBuf::from("/tmp/x")).mpv_args().contains(&"--no-config".to_owned()));
     }
 }

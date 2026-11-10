@@ -1831,7 +1831,7 @@
               },
               "segment_wait_secs": {
                 "type": "integer",
-                "const": 20
+                "const": 15
               }
             }
           },

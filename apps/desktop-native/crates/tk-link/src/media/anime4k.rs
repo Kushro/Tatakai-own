@@ -77,9 +77,26 @@ pub fn required_files() -> Vec<String> {
     v
 }
 
-/// True when every pass file exists in `dir`.
+/// The file of pass `name` in `dir`. Anime4K ships `L` and `VL` networks and some builds (mpv-anime-build, which the
+/// desktop installs) carry only `VL`: an `_L` pass falls back to its `_VL` file.
+fn pass_file(dir: &Path, name: &str) -> Option<std::path::PathBuf> {
+    let p = dir.join(format!("{name}.glsl"));
+    if p.is_file() {
+        return Some(p);
+    }
+    let vl = dir.join(format!("{}_VL.glsl", name.strip_suffix("_L")?));
+    vl.is_file().then_some(vl)
+}
+
+/// True when every pass of `mode`/`variant` is in `dir`.
+pub fn chain_present(dir: &Path, mode: Anime4kMode, variant: Anime4kVariant) -> bool {
+    passes(mode, variant).iter().all(|p| pass_file(dir, p).is_some())
+}
+
+/// True when the 1080p chain (mode A, `M` networks) is in `dir`: the minimum for any Anime4K profile. Profiles on
+/// other networks check their own chain ([`chain_present`]).
 pub fn shaders_present(dir: &Path) -> bool {
-    required_files().iter().all(|n| dir.join(format!("{n}.glsl")).is_file())
+    chain_present(dir, Anime4kMode::A, Anime4kVariant::M)
 }
 
 /// Verify the directory against `anime4k.lock.json` (`files[].path`, `size`, `sha256`).
@@ -104,7 +121,8 @@ pub fn verify_against_lock(dir: &Path, lock_json: &str) -> Result<(), String> {
 pub fn hook_source(dir: &Path, mode: Anime4kMode, variant: Anime4kVariant) -> io::Result<String> {
     let mut hook = String::new();
     for p in passes(mode, variant) {
-        hook.push_str(&fs::read_to_string(dir.join(format!("{p}.glsl")))?.replace("\r\n", "\n"));
+        let file = pass_file(dir, &p).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("{p}.glsl")))?;
+        hook.push_str(&fs::read_to_string(file)?.replace("\r\n", "\n"));
         if !hook.ends_with('\n') {
             hook.push('\n');
         }

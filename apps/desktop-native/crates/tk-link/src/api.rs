@@ -134,7 +134,12 @@ impl From<ErrorCode> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let body = json!({ "error": { "code": self.0.as_str(), "message": self.0.message() } });
-        (self.0.status(), Json(body)).into_response()
+        let mut r = (self.0.status(), Json(body)).into_response();
+        if matches!(self.0, ErrorCode::SegmentWaitTimeout) {
+            // the engine is still producing it: ask the player to come back soon instead of giving up
+            r.headers_mut().insert(axum::http::header::RETRY_AFTER, axum::http::HeaderValue::from_static("1"));
+        }
+        r
     }
 }
 

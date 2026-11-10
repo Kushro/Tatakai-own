@@ -284,7 +284,27 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 if use_fg {
                     // The dedicated lsfg-vk config is a throwaway file: the runtime dir (or temp) is enough.
                     let lsfg_dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("tatakai-next");
-                    frame_gen.set(Some(tk_player::FrameGen::new(fg_mult, settings.video.lsfg_dll.clone().map(PathBuf::from), lsfg_dir)));
+                    let mut fg = tk_player::FrameGen::new(fg_mult, settings.video.lsfg_dll.clone().map(PathBuf::from), lsfg_dir);
+                    // Frame generation pulled an integrated-player user into mpv: carry their preset, deband and image
+                    // there. A user who chose the external mpv keeps their own mpv config untouched.
+                    if settings.player_mode != PlayerModeVm::External {
+                        let v = &settings.video;
+                        let quality = if v.anime4k_hq { Anime4kQuality::High } else { Anime4kQuality::Fast };
+                        let preset = settings.preset();
+                        let dir = host.shaders_dir().to_path_buf();
+                        if preset != ShaderPreset::Off && !preset.missing_files(&dir, quality).is_empty() {
+                            let _ = backend.fetch_shaders().await;
+                        }
+                        let shaders = if preset.missing_files(&dir, quality).is_empty() {
+                            tk_player::glsl_shaders_value(&dir, preset, quality, tk_player::list_separator())
+                        } else {
+                            tracing::warn!(?preset, "shader files missing: frame generation runs without the preset");
+                            String::new()
+                        };
+                        let image = v.adjusted().then_some((v.brightness, v.contrast, v.saturation, v.gamma));
+                        fg = fg.with_enhancements(tk_player::enhancement_args(&shaders, v.deband, image));
+                    }
+                    frame_gen.set(Some(fg));
                 }
                 let engine = if use_fg { PlayerModeVm::External } else { settings.player_mode };
                 match engine {

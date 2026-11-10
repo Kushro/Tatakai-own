@@ -89,8 +89,6 @@ import app.tatakai.next.designsystem.components.LinkStatusAvatar
 import app.tatakai.next.designsystem.components.LocalAppSnackbar
 import app.tatakai.next.designsystem.components.Pill
 import app.tatakai.next.designsystem.components.PillTone
-import app.tatakai.next.designsystem.components.Segmented
-import app.tatakai.next.designsystem.components.SegmentedOption
 import app.tatakai.next.designsystem.components.SkeletonBox
 import app.tatakai.next.designsystem.components.rememberAfterDelay
 import app.tatakai.next.designsystem.theme.TatakaiFonts
@@ -112,7 +110,7 @@ import app.tatakai.next.ui.R as UiR
 
 /**
  * "Dispositivo enlazado" (prototype android.js `S.linked`): unpaired -> EmptyState + scan QR (CameraX + zxing, QrScanner.kt) / paste
- * code; paired -> status card (connected / unreachable with error + retry), PC capabilities, enhance profile Segmented
+ * code; paired -> status card (connected / unreachable with error + retry), PC capabilities, enhance profile list
  * (LinkRepository.setPreferredProfile), remote control of the PC player (wave B: GET /v1/player every 2 s, POST /v1/control),
  * "Continuar en la PC", PCs found over mDNS, the "Reproducir aquí" card of a PC -> phone hand-off, forget dialog. Replaces LinkScreen
  * for Route.Link and Route.Linked.
@@ -477,12 +475,8 @@ private fun CapabilitiesBody(caps: LinkCapabilities, selected: String?, onSelect
     val current = selected?.takeIf { id -> usable.any { it.id == id } }
         ?: caps.defaultProfile.takeIf { id -> usable.any { it.id == id } }
         ?: usable.first().id
-    Segmented(
-        options = usable.map { SegmentedOption(value = it.id, label = it.label, description = sustainText(it)) },
-        selected = current,
-        onSelect = { onSelect(it) },
-        small = true,
-    )
+    // A vertical list: with LSFG and Anime4K + LSFG a PC offers ~15 profiles, too many for a segmented row.
+    ProfileList(profiles = usable, selected = current, onSelect = { onSelect(it) })
     usable.firstOrNull { it.id == current }?.let { profile ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Pill(sustainText(profile), tone = if (profile.measuredSustain == "true") PillTone.OK else PillTone.NEUTRAL)
