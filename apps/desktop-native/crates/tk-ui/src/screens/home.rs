@@ -22,7 +22,7 @@ use crate::backend::{AiringSlotVm, HomeVm, LatestEpisodeVm, MediaVm, SectionVm, 
 use crate::components::airing::{hhmm, use_local_clock};
 use crate::components::{
     AiringCalendar, Button, ButtonSize, ButtonVariant, Chip, ChipKind, ContinueCard, EmptyState, ErrorState,
-    HeroCarousel, IconButton, IconButtonSize, InfoChip, MediaCard, Segmented, SkeletonRow, use_snackbar,
+    HeroCarousel, IconButton, IconButtonSize, MediaCard, Segmented, SkeletonRow, use_snackbar,
 };
 use crate::i18n::{t, tf, tn};
 use crate::model::{ErrorKind, UiError};
@@ -125,10 +125,9 @@ pub fn HomePage() -> Element {
     }
 }
 
-/// Greeting by local time of day + the active metadata sources.
+/// Greeting by local time of day.
 #[component]
 fn HomeHead() -> Element {
-    let ui = use_context::<Ui>();
     let mut hour = use_signal(|| None::<u32>);
     use_future(move || async move {
         let mut eval = document::eval(HOUR_JS);
@@ -142,36 +141,13 @@ fn HomeHead() -> Element {
         Some(_) => t("home.greeting.evening"),
         None => t("nav.home"),
     };
-    // The first (preferred) source gets a check mark.
-    let providers: Vec<(usize, String, String)> = ui
-        .settings
-        .read()
-        .provider_priority
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            (
-                i,
-                t(&format!("provider.{p}")),
-                if i == 0 {
-                    "check".to_string()
-                } else {
-                    String::new()
-                },
-            )
-        })
-        .collect();
     rsx! {
         div { class: "tk-page__head tk-home__greet",
             div {
                 h1 { class: "tk-page__title", "{title}" }
                 p { class: "tk-page__intro", {t("search.hint")} }
             }
-            div { class: "tk-home__sources", "aria-label": t("home.sources"),
-                for (i , name , icon) in providers {
-                    InfoChip { key: "{i}", text: name, icon }
-                }
-            }
+            // UX review #12: the metadata-provider chips moved out of Home (they live in Settings › Metadata).
         }
     }
 }

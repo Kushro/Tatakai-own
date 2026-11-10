@@ -269,5 +269,7 @@
   "settings.reader.keys.reset_all": "Restore every default",
   "settings.reader.keys.press": "Press a key…",
   "settings.reader.keys.press_for": "Press the new key for {action}",
-  "settings.reader.keys.reserved": "Digits switch sections and Escape leaves the reader: they cannot be assigned."
+  "settings.reader.keys.reserved": "Digits switch sections and Escape leaves the reader: they cannot be assigned.",
+  "manga.read": "Read",
+  "manga.list.add": "Add to list"
 }

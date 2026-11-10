@@ -278,9 +278,12 @@ pub fn HeroCarousel(
     #[props(default)] kicker: String,
     #[props(default = true)] autoplay: bool,
     #[props(default = true)] dots: bool,
+    /// Primary button text (default `details.watch`; manga and novels pass "Leer", UX review #14).
+    #[props(default)] cta: String,
     /// Called with `MediaVm::id`.
     #[props(default)] on_open: EventHandler<String>,
 ) -> Element {
+    let cta = if cta.is_empty() { t("details.watch") } else { cta };
     let mut active = use_signal(|| 0_usize);
     let mut paused = use_signal(|| false);
     let mut os_reduced = use_signal(|| false);
@@ -342,6 +345,7 @@ pub fn HeroCarousel(
                         media: m.clone(),
                         rank: k + 1,
                         kicker: kicker.clone(),
+                        cta: cta.clone(),
                         front,
                         on_front: move |_| active.set(k),
                         on_open,
@@ -372,6 +376,7 @@ fn HeroSlide(
     media: MediaVm,
     rank: usize,
     kicker: String,
+    cta: String,
     front: bool,
     on_front: EventHandler<()>,
     on_open: EventHandler<String>,
@@ -407,7 +412,7 @@ fn HeroSlide(
                 }
                 div { class: "tk-hero__actions",
                     Button {
-                        label: t("details.watch"),
+                        label: cta.clone(),
                         icon: "play".to_string(),
                         onclick: move |e: MouseEvent| {
                             e.stop_propagation();

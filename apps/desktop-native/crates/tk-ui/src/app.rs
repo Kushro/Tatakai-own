@@ -241,7 +241,8 @@ impl Route {
             Self::LinkPage {} | Self::ServerPage {} => Some(NavDest::Link),
             Self::SettingsPage {} => Some(NavDest::Settings),
             Self::PlayerPage { .. } | Self::SetupPage {} | Self::GalleryPage {} => None,
-            _ => self.torrent_section().map(|_| NavDest::Torrents),
+            // The torrent client lives under Downloads (no rail entry of its own since the UX review).
+            _ => self.torrent_section().map(|_| NavDest::Downloads),
         }
     }
 

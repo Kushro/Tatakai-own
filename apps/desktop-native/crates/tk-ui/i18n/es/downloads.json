@@ -176,5 +176,7 @@
   "settings.downloads.library_add": "Añadir una carpeta",
   "settings.downloads.library_add_btn": "Añadir",
   "settings.downloads.delete_days": "{n} días",
-  "settings.downloads.delete_days.one": "{n} día"
+  "settings.downloads.delete_days.one": "{n} día",
+  "downloads.torrent_client": "Cliente de torrents",
+  "downloads.empty.action": "Buscar algo para descargar"
 }

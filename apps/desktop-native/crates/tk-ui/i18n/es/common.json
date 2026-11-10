@@ -147,7 +147,7 @@
   "status.releasing": "En emisión",
   "status.finished": "Finalizado",
   "status.upcoming": "Próximamente",
-  "settings.palette_hint": "10 paletas curadas. El esquema completo se deriva de la semilla con Material Color Utilities.",
+  "settings.palette_hint": "Paletas curadas. El esquema completo se deriva de la semilla con Material Color Utilities.",
   "settings.reduce_motion": "Reducir movimiento",
   "settings.reduce_motion_hint": "Resortes sin rebote y sin animaciones ambientales.",
   "settings.metadata.cache": "Caché de metadatos",
@@ -297,5 +297,8 @@
   "provider.mangadex": "MangaDex",
   "provider.mangadex.sub": "Capítulos y metadatos de manga",
   "provider.mangaupdates": "MangaUpdates",
-  "provider.mangaupdates.sub": "Editorial, serialización y estado de publicación"
+  "provider.mangaupdates.sub": "Editorial, serialización y estado de publicación",
+  "settings.search": "Buscar en Ajustes",
+  "settings.search_hint": "Subtítulos, paleta, puerto…",
+  "src.resolving": "Buscando este episodio en tus extensiones… puede tardar hasta un minuto."
 }

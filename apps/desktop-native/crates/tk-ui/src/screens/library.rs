@@ -258,7 +258,6 @@ pub fn LibraryPage() -> Element {
         LibTab::expanded().into_iter().map(|x| (x.id().to_owned(), x.label(), current == x, Some(x))).collect()
     };
     let navigator = use_navigator();
-    let clock = crate::components::airing::use_local_clock();
 
     let content = match current {
         LibTab::Continue | LibTab::History => {
@@ -389,10 +388,6 @@ pub fn LibraryPage() -> Element {
                 }
             }
             div { class: "tk-lib__panel", role: "tabpanel", "data-tab": "{current.id()}", {content} }
-            // Wave B (b, optional §2.2 request): this week's airing calendar, compact.
-            if let Some(c) = clock() {
-                crate::components::AiringCalendar { week_start_unix: c.today(), compact: true }
-            }
             if conflicts_open() {
                 ConflictSheet {
                     on_close: move |_| conflicts_open.set(false),
@@ -431,7 +426,16 @@ fn LocalTab(vm: LibraryVm, history: bool) -> Element {
     if history {
         if vm.history.is_empty() {
             return rsx! {
-                EmptyState { icon: "history".to_string(), title: t("lib.empty.title"), body: t("lib.empty.body") }
+                EmptyState {
+                    icon: "history".to_string(),
+                    title: t("lib.empty.title"),
+                    body: t("lib.empty.body"),
+                    // UX review #6: an empty state always offers the next step.
+                    action_label: t("lib.empty.action"),
+                    on_action: move |_| {
+                        navigator.push(Route::SearchPage {});
+                    },
+                }
             };
         }
         return rsx! {
@@ -444,7 +448,15 @@ fn LocalTab(vm: LibraryVm, history: bool) -> Element {
     }
     if vm.continue_watching.is_empty() {
         return rsx! {
-            EmptyState { icon: "library".to_string(), title: t("lib.empty.title"), body: t("lib.empty.body") }
+            EmptyState {
+                icon: "library".to_string(),
+                title: t("lib.empty.title"),
+                body: t("lib.empty.body"),
+                action_label: t("lib.empty.action"),
+                on_action: move |_| {
+                    navigator.push(Route::SearchPage {});
+                },
+            }
         };
     }
     rsx! {

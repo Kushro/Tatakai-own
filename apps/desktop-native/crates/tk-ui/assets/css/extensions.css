@@ -86,3 +86,5 @@
   .tk-ext-toolbar { flex-direction: column; align-items: stretch; }
   .tk-extupd__row { flex-direction: column; align-items: stretch; }
 }
+/* UX review #7: the installer opens on demand; this row offers it (and repositories) under the installed list. */
+.tk-ext-install-cta { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); }

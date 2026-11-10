@@ -139,5 +139,15 @@
   "details.title_lang.hint": "Qué título muestran las tarjetas, filas y fichas cuando AniList tiene varios",
   "details.title_lang.english": "Inglés",
   "details.title_lang.romaji": "Romaji",
-  "details.title_lang.native": "Nativo"
+  "details.title_lang.native": "Nativo",
+  "details.status.releasing": "En emisión",
+  "details.status.finished": "Finalizado",
+  "details.status.not_yet_released": "Próximamente",
+  "details.status.cancelled": "Cancelado",
+  "details.status.hiatus": "En pausa",
+  "details.more_actions": "Más acciones",
+  "details.meta.format": "Formato",
+  "details.meta.season": "Temporada",
+  "details.meta.length": "Duración",
+  "details.meta.minutes": "{n} min"
 }

@@ -38,6 +38,15 @@
 .tk-calendar-page__show { position: relative; flex: none; }
 .tk-calendar-page__unfollow { position: absolute; top: var(--tk-space-4); right: var(--tk-space-4); background: var(--md-sys-color-surface-container-high); }
 
+/* UX review #10: below ~1500 px seven columns leave one or two words per title; switch to an agenda (one row per
+   day, its shows flowing in wide slots). */
+@media (max-width: 1500px) {
+  .tk-calendar:not([data-compact="true"]) { grid-template-columns: 1fr; overflow-x: visible; }
+  .tk-calendar:not([data-compact="true"]) .tk-calendar__day { flex-direction: row; flex-wrap: wrap; align-items: stretch; }
+  .tk-calendar:not([data-compact="true"]) .tk-calendar__day-head { flex: 0 0 100%; justify-content: flex-start; gap: var(--tk-space-8); }
+  .tk-calendar:not([data-compact="true"]) .tk-calendar__slot { flex: 1 1 260px; max-width: 420px; }
+  .tk-calendar:not([data-compact="true"]) .tk-calendar__none { flex: 0 0 100%; }
+}
 @media (max-width: 760px) {
   .tk-calendar { grid-template-columns: 1fr; }
   .tk-calendar[data-compact="true"] { grid-template-columns: 1fr; }

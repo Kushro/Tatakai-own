@@ -7,6 +7,13 @@
 /* header */
 .tk-dhead { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--tk-space-32); align-items: start; }
 .tk-dhead[data-embedded="true"] { grid-template-columns: 112px minmax(0, 1fr); gap: var(--tk-space-16); }
+/* UX review #2: blurred banner behind the header (absolutely positioned: takes no grid cell). */
+/* No stacking context here (no isolation / z-index): the header's menus must still stack over the page. The backdrop is
+   the first child and the rest are positioned after it, so they paint on top in tree order. */
+.tk-dhead { position: relative; }
+.tk-dhead > :not(.tk-dhead__backdrop) { position: relative; }
+.tk-dhead__backdrop { position: absolute; inset: -48px -56px -32px -56px; background-size: cover; background-position: center 25%; filter: blur(32px) saturate(1.15); opacity: 0.42; -webkit-mask-image: linear-gradient(to bottom, black 35%, transparent); mask-image: linear-gradient(to bottom, black 35%, transparent); pointer-events: none; }
+@media (prefers-reduced-transparency: reduce) { .tk-dhead__backdrop { opacity: 0.2; } }
 .tk-dhead__cover { min-width: 0; }
 .tk-dhead__text { display: flex; flex-direction: column; gap: var(--tk-space-16); min-width: 0; }
 .tk-dhead__title { font-family: var(--tk-font-display); font-size: var(--md-sys-typescale-headline-large-size); line-height: var(--md-sys-typescale-headline-large-line-height); font-weight: var(--md-sys-typescale-headline-large-weight-emphasized); text-wrap: balance; overflow-wrap: anywhere; }

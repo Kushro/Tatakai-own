@@ -258,6 +258,7 @@ fn DiscoverContent(vm: ReadHomeVm, on_retry: EventHandler<()>, on_genre: EventHa
                     key: "{hero_key}",
                     items: hero.clone(),
                     kicker: t("manga.feed.trending"),
+                    cta: t("manga.read"),
                     autoplay: !reduce,
                     on_open: move |id: String| {
                         navigator.push(Route::MangaDetailsPage { id });

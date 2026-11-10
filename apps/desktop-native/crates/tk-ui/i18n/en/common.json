@@ -147,7 +147,7 @@
   "status.releasing": "Airing",
   "status.finished": "Finished",
   "status.upcoming": "Upcoming",
-  "settings.palette_hint": "10 curated palettes. The full scheme is derived from the seed with Material Color Utilities.",
+  "settings.palette_hint": "Curated palettes. The full scheme is derived from the seed with Material Color Utilities.",
   "settings.reduce_motion": "Reduce motion",
   "settings.reduce_motion_hint": "Springs without bounce and no ambient animation.",
   "settings.metadata.cache": "Metadata cache",
@@ -297,5 +297,8 @@
   "provider.mangadex": "MangaDex",
   "provider.mangadex.sub": "Manga chapters and metadata",
   "provider.mangaupdates": "MangaUpdates",
-  "provider.mangaupdates.sub": "Publisher, serialization and publication status"
+  "provider.mangaupdates.sub": "Publisher, serialization and publication status",
+  "settings.search": "Search settings",
+  "settings.search_hint": "Subtitles, palette, port…",
+  "src.resolving": "Asking your extensions for this episode… this can take up to a minute."
 }

@@ -197,5 +197,6 @@
   "novel.kitten.stage.config": "Downloading the model settings…",
   "novel.kitten.stage.model": "Downloading the model…",
   "novel.kitten.stage.voices": "Downloading the voices…",
-  "novel.search.type": "Novel"
+  "novel.search.type": "Novel",
+  "novel.read": "Read"
 }

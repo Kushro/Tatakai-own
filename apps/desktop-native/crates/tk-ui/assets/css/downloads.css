@@ -23,18 +23,9 @@
 .tk-downloads__dir-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--tk-font-mono); }
 
 .tk-downloads__toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--tk-space-12); }
-.tk-downloads__tabs { display: flex; flex-wrap: wrap; gap: var(--tk-space-4); }
-.tk-downloads__tab {
-  display: inline-flex; align-items: center; gap: var(--tk-space-8); min-height: 40px; padding: 0 var(--tk-space-16);
-  border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-full);
-  background: transparent; color: var(--md-sys-color-on-surface-variant); cursor: pointer;
-  font-size: var(--md-sys-typescale-label-large-size); font-weight: var(--md-sys-typescale-label-large-weight);
-  transition: background-color var(--md-sys-motion-effects-fast-duration) var(--md-sys-motion-effects-fast-easing),
-    color var(--md-sys-motion-effects-fast-duration) var(--md-sys-motion-effects-fast-easing);
-}
-.tk-downloads__tab:hover { background: var(--md-sys-color-surface-container-high); }
-.tk-downloads__tab:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
-.tk-downloads__tab[aria-selected="true"] { border-color: transparent; background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+/* UX review #5: same underlined tabs as the details page (.tk-dtabs / .tk-dtab in details.css). */
+.tk-downloads__tabs { flex: 1; min-width: 0; }
+.tk-downloads__tab { gap: var(--tk-space-8); }
 .tk-downloads__tab-count {
   min-width: 20px; padding: 0 var(--tk-space-4); border-radius: var(--md-sys-shape-corner-full); text-align: center;
   background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); font-size: var(--md-sys-typescale-label-small-size);
