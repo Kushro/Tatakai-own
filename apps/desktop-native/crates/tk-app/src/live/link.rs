@@ -102,7 +102,8 @@ impl LinkHost for AppLinkHost {
         None
     }
     fn ffmpeg_path(&self) -> Option<PathBuf> {
-        crate::paths::ffmpeg_path(None)
+        // the bundled build first (`<exe>/ffmpeg/bin`); on Linux the distribution's FFmpeg (VAAPI, libplacebo)
+        crate::paths::ffmpeg_path(None).or_else(|| if cfg!(windows) { None } else { find_in_path("ffmpeg") })
     }
     fn control(&self, cmd: tk_link::control::ControlCommand) -> bool {
         let st = current_player(&self.player);
@@ -265,6 +266,8 @@ pub struct LinkService {
     store: Arc<LocalStore>,
     anime4k_dir: PathBuf,
     anime4k_lock: Option<PathBuf>,
+    /// `Lossless.dll` for the LSFG profiles ([`link_lsfg_dll`]); `None` = Steam lookup by tk-link.
+    lsfg_dll: Option<PathBuf>,
     state: tokio::sync::Mutex<LinkState>,
     /// Wave B (k): handed to every `AppLinkHost` so `/v1/control` reaches `LiveBackend::wait_remote_command`.
     remote: tokio::sync::mpsc::UnboundedSender<RemoteCommandVm>,
@@ -273,6 +276,23 @@ pub struct LinkService {
     /// Wave B (k, `link.discovery`): announce over mDNS while the server runs (`Settings::server.link_announce`).
     announce: AtomicBool,
     announcer: Mutex<Option<Announcer>>,
+}
+
+/// `name` in one of the absolute `PATH` entries.
+fn find_in_path(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?).filter(|d| d.is_absolute()).map(|d| d.join(name)).find(|p| p.is_file())
+}
+
+/// The `Lossless.dll` for Link's LSFG helper from the player's "Lossless.dll" setting. temple-lsfg reads the game's
+/// `Lossless.dll` (not the `lsfg-vk.dll` pack lsfg-vk 2.x wants): a setting that names another file is used only when
+/// a `Lossless.dll` sits next to it; otherwise Link searches Steam itself.
+pub fn link_lsfg_dll(setting: Option<&str>) -> Option<PathBuf> {
+    let p = PathBuf::from(setting.map(str::trim).filter(|s| !s.is_empty())?);
+    if p.file_name().is_some_and(|n| n.eq_ignore_ascii_case("Lossless.dll")) {
+        return Some(p);
+    }
+    let sibling = p.with_file_name("Lossless.dll");
+    sibling.is_file().then_some(sibling)
 }
 
 /// The chosen port lives next to the Link identity (`<link>/port`); missing or invalid = the default.
@@ -365,6 +385,7 @@ impl LinkService {
         store: Arc<LocalStore>,
         anime4k_dir: PathBuf,
         anime4k_lock: Option<PathBuf>,
+        lsfg_dll: Option<PathBuf>,
         remote: tokio::sync::mpsc::UnboundedSender<RemoteCommandVm>,
     ) -> Self {
         let port = load_port(&dir);
@@ -374,6 +395,7 @@ impl LinkService {
             store,
             anime4k_dir,
             anime4k_lock,
+            lsfg_dll,
             state: tokio::sync::Mutex::new(LinkState { handle: None, port }),
             remote,
             player: SharedPlayer::default(),
@@ -409,6 +431,8 @@ impl LinkService {
         cfg.port = st.port;
         cfg.anime4k_dir = Some(self.anime4k_dir.clone());
         cfg.anime4k_lock = self.anime4k_lock.clone();
+        // LSFG (experimental): temple-lsfg via TEMPLE_LSFG or next to the executable; probed once per server start
+        cfg.lsfg = tk_link::LsfgSetup::Detect { dll: self.lsfg_dll.clone() };
         let host = Arc::new(AppLinkHost {
             ext: self.ext.clone(),
             store: self.store.clone(),
@@ -552,6 +576,18 @@ impl LinkService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lsfg_dll_setting_must_be_the_games_lossless_dll() {
+        assert_eq!(link_lsfg_dll(None), None);
+        assert_eq!(link_lsfg_dll(Some("  ")), None);
+        assert_eq!(link_lsfg_dll(Some("/s/Lossless Scaling/Lossless.dll")), Some(PathBuf::from("/s/Lossless Scaling/Lossless.dll")));
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("lsfg-vk.dll");
+        assert_eq!(link_lsfg_dll(Some(pack.to_str().unwrap())), None, "no Lossless.dll next to the lsfg-vk pack");
+        std::fs::write(dir.path().join("Lossless.dll"), b"x").unwrap();
+        assert_eq!(link_lsfg_dll(Some(pack.to_str().unwrap())), Some(dir.path().join("Lossless.dll")));
+    }
 
     #[test]
     fn control_commands_map_to_ui_commands() {

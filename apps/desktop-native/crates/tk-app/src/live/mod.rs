@@ -124,6 +124,7 @@ impl LiveBackend {
             store.clone(),
             crate::paths::shaders_dir(paths, None),
             crate::paths::anime4k_lock(None),
+            link::link_lsfg_dll(settings.video.lsfg_dll.as_deref()),
             remote_tx,
         );
         Ok(Self {
