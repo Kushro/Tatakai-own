@@ -1,4 +1,9 @@
-//! Windows Job Object: the FFmpeg process tree dies with the app (`KILL_ON_JOB_CLOSE`). No-op elsewhere.
+//! The media processes die with the app. Windows: a Job Object (`KILL_ON_JOB_CLOSE`). Linux: each child is spawned
+//! with `PR_SET_PDEATHSIG = SIGKILL` ([`die_with_parent`]), so FFmpeg / `temple-lsfg` do not outlive a crashed or
+//! killed app (normal teardown kills them explicitly: `kill_on_drop` and the chain's kill token).
+//!
+//! `PR_SET_PDEATHSIG` fires when the *thread* that spawned the child exits; children are spawned from the tokio
+//! runtime's worker threads, which live as long as the Link runtime.
 
 use std::io;
 
@@ -78,6 +83,34 @@ pub use imp::JobObject;
 
 pub fn new_job() -> io::Result<JobObject> {
     JobObject::new()
+}
+
+/// Linux: the child receives `SIGKILL` when its parent goes away. No-op elsewhere.
+#[cfg(target_os = "linux")]
+pub fn die_with_parent(cmd: &mut tokio::process::Command) {
+    // SAFETY: the closure runs in the forked child before exec and only calls the async-signal-safe `prctl`.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn die_with_parent(_cmd: &mut tokio::process::Command) {}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tests {
+    #[tokio::test]
+    async fn children_spawned_with_the_death_signal_still_run() {
+        let mut cmd = tokio::process::Command::new("/bin/sh");
+        cmd.args(["-c", "exit 0"]);
+        super::die_with_parent(&mut cmd);
+        assert!(cmd.status().await.unwrap().success());
+    }
 }
 
 #[cfg(all(test, windows))]

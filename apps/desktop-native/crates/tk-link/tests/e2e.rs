@@ -468,3 +468,36 @@ async fn identity_survives_restarts_so_paired_phones_keep_working() {
     assert_eq!(r.status(), 200, "the old client certificate is still accepted");
     link.shutdown().await;
 }
+
+#[tokio::test]
+async fn lsfg_profiles_appear_with_the_probe_and_run_the_three_process_chain() {
+    use tk_link::media::lsfg::{LsfgPaths, ProbeInfo};
+    let engine = FakeEngine::new(3, 100, Duration::from_millis(1));
+    let status = tk_link::LsfgStatus::available(
+        LsfgPaths { helper: std::env::temp_dir().join("temple-lsfg"), dll: std::env::temp_dir().join("Lossless.dll") },
+        ProbeInfo { device: "Fake GPU".into(), fp16: true },
+    );
+    let mut h = harness_with(engine.clone(), quick_tuning(), lenient_default(), |cfg| cfg.lsfg = tk_link::LsfgSetup::Status(status)).await;
+    let p = h.pair("Pixel").await;
+    let caps = json(p.client.get(h.url("/v1/capabilities")).send().await.unwrap()).await;
+    assert_eq!(caps["lsfg"]["available"], true);
+    assert_eq!(caps["gpu"]["name"], "Fake GPU");
+    let ids: Vec<_> = caps["profiles"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap().to_owned()).collect();
+    assert!(ids.contains(&"p-lsfg-1080-x2".to_owned()) && ids.contains(&"p-lsfg-1080-auto120".to_owned()));
+    assert!(!ids.iter().any(|i| i.starts_with("p-anime4k")), "no shaders in the test environment");
+
+    let port = upstream_hls(3).await;
+    let c = json(create(&h, &p, port, json!({ "profile": "p-lsfg-1080-auto120" })).await).await;
+    assert!(c["session_id"].is_string(), "{c}");
+    let e = engine.clone();
+    wait_until("the LSFG run", move || {
+        let e = e.clone();
+        async move { !e.args.lock().unwrap().is_empty() }
+    })
+    .await;
+    // the engine gets the encoder stage: raw RGBA from the helper at 23.976 (fake engine: rate unknown) x5
+    let a = engine.args.lock().unwrap()[0].clone();
+    assert!(a.windows(2).any(|w| w[0] == "-i" && w[1] == "pipe:0"), "{a:?}");
+    assert!(a.windows(2).any(|w| w[0] == "-framerate" && w[1] == "120000/1001"), "{a:?}");
+    assert!(a.contains(&"1:a:0?".to_owned()));
+}

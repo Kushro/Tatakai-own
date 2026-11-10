@@ -1,5 +1,9 @@
-//! `GET /v1/capabilities`: encoders detected with `ffmpeg -encoders`, GPU vendor, profile catalogue with
-//! `measured_sustain` (stored bench results) and the fixed limits.
+//! `GET /v1/capabilities`: encoders detected with `ffmpeg -encoders` (filtered and ordered per platform), GPU vendor,
+//! profile catalogue with `measured_sustain` (stored bench results), LSFG availability and the fixed limits.
+//!
+//! Platform-aware detection: Windows keeps D3D11 + AMF / NVENC / QSV / libopenh264; Linux uses the VAAPI render node
+//! ([`super::vaapi`], `-hwaccel vaapi` when `ffmpeg -hwaccels` lists it, `h264_vaapi` when listed and the node is
+//! not NVIDIA), then NVENC, libx264, libopenh264.
 
 use std::collections::HashMap;
 use std::io;
@@ -8,7 +12,10 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use serde::{Serialize, Serializer};
 
-use super::profiles::{CATALOG, DEFAULT_PROFILE, Encoder, Fg, ProfileSpec, Upscale};
+use super::args::Backend;
+use super::lsfg::{LsfgCapability, LsfgStatus};
+use super::profiles::{CATALOG, DEFAULT_PROFILE, Encoder, Fg, LsfgMode, Platform, ProfileSpec, Upscale};
+use super::vaapi::RenderNode;
 
 pub const MAX_RAM_BYTES: u64 = 512 * 1024 * 1024;
 pub const SEGMENT_WAIT_SECS: u64 = 20;
@@ -37,15 +44,28 @@ impl CommandRunner for SystemRunner {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Detected {
+    /// Encoders of this platform's preference list that FFmpeg has, in that order.
     pub encoders: Vec<Encoder>,
     pub libplacebo: bool,
     pub frc_amf: bool,
+    /// `ffmpeg -hwaccels` lists `vaapi`.
+    pub hwaccel_vaapi: bool,
 }
 
-/// Parse `ffmpeg -encoders`: lines like ` V....D h264_amf   AMD AMF H.264 Encoder (codec h264)`.
+/// Parse `ffmpeg -encoders` for this platform: lines like ` V....D h264_amf   AMD AMF H.264 Encoder (codec h264)`.
 pub fn parse_encoders(out: &str) -> Vec<Encoder> {
+    parse_encoders_for(Platform::current(), out)
+}
+
+/// Linux builds of FFmpeg usually list `h264_amf` / `h264_qsv` too; only the platform's own list is kept.
+pub fn parse_encoders_for(platform: Platform, out: &str) -> Vec<Encoder> {
     let names: Vec<&str> = out.lines().filter_map(|l| l.split_whitespace().nth(1)).collect();
-    Encoder::PREFERENCE.into_iter().filter(|e| names.contains(&e.as_str())).collect()
+    Encoder::preference(platform).into_iter().filter(|e| names.contains(&e.as_str())).collect()
+}
+
+/// Parse `ffmpeg -hwaccels` (`Hardware acceleration methods:` then one name per line).
+pub fn parse_has_hwaccel(out: &str, name: &str) -> bool {
+    out.lines().skip_while(|l| !l.contains("acceleration methods")).skip(1).any(|l| l.trim() == name)
 }
 
 /// Parse `ffmpeg -filters`: lines like ` ... libplacebo   V->V  Apply various GPU filters from libplacebo`.
@@ -54,9 +74,19 @@ pub fn parse_has_filter(out: &str, name: &str) -> bool {
 }
 
 pub async fn detect(ffmpeg: &Path, runner: &dyn CommandRunner) -> Detected {
+    detect_for(Platform::current(), ffmpeg, runner).await
+}
+
+pub async fn detect_for(platform: Platform, ffmpeg: &Path, runner: &dyn CommandRunner) -> Detected {
     let enc = runner.run(ffmpeg, &["-hide_banner", "-encoders"]).await.unwrap_or_default();
     let fil = runner.run(ffmpeg, &["-hide_banner", "-filters"]).await.unwrap_or_default();
-    Detected { encoders: parse_encoders(&enc), libplacebo: parse_has_filter(&fil, "libplacebo"), frc_amf: parse_has_filter(&fil, "frc_amf") }
+    let hw = if platform == Platform::Linux { runner.run(ffmpeg, &["-hide_banner", "-hwaccels"]).await.unwrap_or_default() } else { String::new() };
+    Detected {
+        encoders: parse_encoders_for(platform, &enc),
+        libplacebo: parse_has_filter(&fil, "libplacebo"),
+        frc_amf: parse_has_filter(&fil, "frc_amf"),
+        hwaccel_vaapi: parse_has_hwaccel(&hw, "vaapi"),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -88,6 +118,15 @@ pub fn guess_gpu(d: &Detected) -> GpuInfo {
         Vendor::Unknown
     };
     GpuInfo { vendor, name: String::new(), vulkan: d.libplacebo }
+}
+
+/// [`guess_gpu`], except that on Linux with `h264_vaapi` the render node's PCI vendor is the GPU's.
+pub fn guess_gpu_with(d: &Detected, node: Option<&RenderNode>) -> GpuInfo {
+    let mut g = guess_gpu(d);
+    if let Some(n) = node.filter(|n| n.usable() && n.vendor != Vendor::Unknown && d.encoders.contains(&Encoder::H264Vaapi)) {
+        g.vendor = n.vendor;
+    }
+    g
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +161,12 @@ pub struct ProfileInfo {
     pub output: Output,
     pub measured_sustain: Sustain,
     pub encoder: &'static str,
+    /// LSFG profiles with a fixed multiplier (additive).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fg_multiplier: Option<u8>,
+    /// LSFG profiles whose multiplier is chosen per source to approach this rate (additive).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fg_target_fps: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -142,6 +187,8 @@ pub struct Capabilities {
     pub profiles: Vec<ProfileInfo>,
     pub client_fg: &'static str,
     pub limits: Limits,
+    /// LSFG availability (additive): `available`, `experimental`, `multipliers`, `auto_target_fps`, `reason`.
+    pub lsfg: LsfgCapability,
 }
 
 /// Everything that decides which profiles can run.
@@ -150,18 +197,58 @@ pub struct Environment {
     pub detected: Detected,
     pub gpu: GpuInfo,
     pub shaders_ok: bool,
+    pub platform: Platform,
+    /// Linux VAAPI render node (`None` on Windows or without `/dev/dri`).
+    pub render_node: Option<RenderNode>,
+    pub lsfg: LsfgStatus,
 }
 
 impl Environment {
-    /// Chosen encoder: first hardware encoder present, then libopenh264.
+    /// Environment of this platform without a render node and with LSFG disabled.
+    pub fn new(detected: Detected, gpu: GpuInfo, shaders_ok: bool) -> Self {
+        Self { detected, gpu, shaders_ok, platform: Platform::current(), render_node: None, lsfg: LsfgStatus::default() }
+    }
+
+    fn vaapi_node(&self) -> Option<&RenderNode> {
+        self.render_node.as_ref().filter(|n| self.platform == Platform::Linux && n.usable())
+    }
+
+    /// Encoders that can run here, in preference order: `h264_vaapi` needs a usable render node.
+    pub fn usable_encoders(&self) -> Vec<Encoder> {
+        self.detected.encoders.iter().copied().filter(|e| *e != Encoder::H264Vaapi || self.vaapi_node().is_some()).collect()
+    }
+
+    /// Chosen encoder: first usable one of the platform's preference list.
     pub fn encoder(&self) -> Option<Encoder> {
-        Encoder::PREFERENCE.into_iter().find(|e| self.detected.encoders.contains(e))
+        self.usable_encoders().first().copied()
+    }
+
+    /// Hardware path of the graphs: D3D11 on Windows; VAAPI on Linux when the node is usable and FFmpeg can decode or
+    /// encode with it; software otherwise.
+    pub fn backend(&self) -> Backend {
+        match self.platform {
+            Platform::Windows => Backend::D3d11,
+            Platform::Linux => match self.vaapi_node() {
+                Some(n) if self.detected.hwaccel_vaapi || self.detected.encoders.contains(&Encoder::H264Vaapi) => {
+                    Backend::Vaapi { device: n.device.clone(), decode: self.detected.hwaccel_vaapi }
+                }
+                _ => Backend::Software,
+            },
+        }
+    }
+
+    fn anime4k_ok(&self) -> bool {
+        self.detected.libplacebo && self.gpu.vulkan && self.shaders_ok
     }
 
     pub fn profile_available(&self, p: &ProfileSpec) -> bool {
         match (p.upscale, p.fg) {
-            (Upscale::None, _) => true, // p-none is always offered (a session fails with engine_unavailable if no encoder exists)
-            (Upscale::Anime4k { .. }, Fg::None) => self.detected.libplacebo && self.gpu.vulkan && self.shaders_ok && self.encoder().is_some(),
+            (Upscale::None, Fg::None) => true, // p-none is always offered (a session fails with engine_unavailable if no encoder exists)
+            (Upscale::None, Fg::FrcAmf) => false,
+            (upscale, Fg::Lsfg(_)) => {
+                self.lsfg.is_available() && self.encoder().is_some() && (matches!(upscale, Upscale::None) || self.anime4k_ok())
+            }
+            (Upscale::Anime4k { .. }, Fg::None) => self.anime4k_ok() && self.encoder().is_some(),
             (Upscale::Anime4k { .. }, Fg::FrcAmf) => {
                 self.detected.libplacebo
                     && self.gpu.vulkan
@@ -219,6 +306,14 @@ pub fn build(env: &Environment, bench: &BenchStore, instance_id: &str, server_na
             output: Output { width: p.width, height: p.height },
             measured_sustain: if p.id == DEFAULT_PROFILE { Sustain::Yes } else { bench.get(p.id) },
             encoder: env.encoder_for(p).map_or("", Encoder::as_str),
+            fg_multiplier: match p.fg {
+                Fg::Lsfg(LsfgMode::Fixed(m)) => Some(m),
+                _ => None,
+            },
+            fg_target_fps: match p.fg {
+                Fg::Lsfg(LsfgMode::Auto { target_fps }) => Some(target_fps),
+                _ => None,
+            },
         })
         .collect();
     Capabilities {
@@ -227,11 +322,12 @@ pub fn build(env: &Environment, bench: &BenchStore, instance_id: &str, server_na
         instance_id: instance_id.to_owned(),
         server_name: server_name.to_owned(),
         gpu: env.gpu.clone(),
-        encoders: env.detected.encoders.iter().map(|e| e.as_str()).collect(),
+        encoders: env.usable_encoders().into_iter().map(Encoder::as_str).collect(),
         default_profile: DEFAULT_PROFILE,
         profiles,
         client_fg: if client_fg_allowed { "allowed" } else { "suppressed" },
         limits: Limits { max_ram_bytes: MAX_RAM_BYTES, segment_wait_secs: SEGMENT_WAIT_SECS },
+        lsfg: env.lsfg.capability(),
     }
 }
 
@@ -253,18 +349,21 @@ mod tests {
 
     #[tokio::test]
     async fn detects_encoders_and_filters_in_preference_order() {
-        let d = detect(Path::new("ffmpeg"), &Canned).await;
+        let d = detect_for(Platform::Windows, Path::new("ffmpeg"), &Canned).await;
         assert_eq!(d.encoders, [Encoder::H264Amf, Encoder::H264Nvenc, Encoder::LibOpenH264]);
         assert!(d.libplacebo && d.frc_amf);
         assert_eq!(parse_encoders("no encoders here"), []);
         assert!(!parse_has_filter(FILTERS, "minterpolate"));
         assert_eq!(guess_gpu(&d).vendor, Vendor::Amd);
+        // Linux keeps its own list: no AMF / QSV, libx264 before libopenh264
+        let l = detect_for(Platform::Linux, Path::new("ffmpeg"), &Canned).await;
+        assert_eq!(l.encoders, [Encoder::H264Nvenc, Encoder::LibX264, Encoder::LibOpenH264]);
     }
 
     #[tokio::test]
     async fn profile_availability_and_json_shape() {
-        let d = detect(Path::new("ffmpeg"), &Canned).await;
-        let env = Environment { gpu: guess_gpu(&d), detected: d.clone(), shaders_ok: true };
+        let d = detect_for(Platform::Windows, Path::new("ffmpeg"), &Canned).await;
+        let env = Environment { platform: Platform::Windows, ..Environment::new(d.clone(), guess_gpu(&d), true) };
         let mut bench = BenchStore::default();
         bench.record("p-anime4k-2160", false);
         bench.record("p-anime4k-1080", true);
@@ -290,8 +389,8 @@ mod tests {
         // no shaders: only p-none; no AMD: no frame generation
         let env2 = Environment { shaders_ok: false, ..env.clone() };
         assert_eq!(build(&env2, &bench, "x", "PC", false).profiles.len(), 1);
-        let nv = Detected { encoders: vec![Encoder::H264Nvenc], libplacebo: true, frc_amf: false };
-        let env3 = Environment { gpu: guess_gpu(&nv), detected: nv, shaders_ok: true };
+        let nv = Detected { encoders: vec![Encoder::H264Nvenc], libplacebo: true, ..Detected::default() };
+        let env3 = Environment { platform: Platform::Windows, ..Environment::new(nv.clone(), guess_gpu(&nv), true) };
         let ids: Vec<_> = build(&env3, &bench, "x", "PC", false).profiles.iter().map(|p| p.id).collect();
         assert_eq!(ids, ["p-none", "p-anime4k-1080", "p-anime4k-1440", "p-anime4k-2160"]);
     }
@@ -304,5 +403,87 @@ mod tests {
         assert_eq!(b.get("p-anime4k-1080"), Sustain::Unknown);
         b.record("p-anime4k-1080", true);
         assert_eq!(BenchStore::open(path).get("p-anime4k-1080"), Sustain::Yes);
+    }
+
+    const LINUX_ENCODERS: &str = " V....D libx264              libx264\n V....D h264_amf             AMD AMF\n V....D h264_nvenc           NVENC\n V....D h264_vaapi           H.264/AVC (VAAPI)\n V....D libopenh264          OpenH264\n";
+    const HWACCELS: &str = "Hardware acceleration methods:\nvdpau\ncuda\nvaapi\nqsv\ndrm\nvulkan\namf\n\n";
+
+    fn amd_node() -> RenderNode {
+        RenderNode { device: "/dev/dri/renderD128".into(), vendor: Vendor::Amd }
+    }
+
+    fn linux_env(node: Option<RenderNode>, hwaccels: &str) -> Environment {
+        let d = Detected {
+            encoders: parse_encoders_for(Platform::Linux, LINUX_ENCODERS),
+            libplacebo: true,
+            frc_amf: true,
+            hwaccel_vaapi: parse_has_hwaccel(hwaccels, "vaapi"),
+        };
+        let gpu = guess_gpu_with(&d, node.as_ref());
+        Environment { platform: Platform::Linux, render_node: node, ..Environment::new(d, gpu, true) }
+    }
+
+    #[test]
+    fn linux_picks_vaapi_on_an_amd_render_node() {
+        assert!(parse_has_hwaccel(HWACCELS, "vaapi") && !parse_has_hwaccel(HWACCELS, "d3d11va"));
+        assert!(!parse_has_hwaccel("vaapi\n", "vaapi"), "only lines after the header count");
+        let env = linux_env(Some(amd_node()), HWACCELS);
+        assert_eq!(env.usable_encoders(), [Encoder::H264Vaapi, Encoder::H264Nvenc, Encoder::LibX264, Encoder::LibOpenH264]);
+        assert_eq!(env.encoder(), Some(Encoder::H264Vaapi));
+        assert_eq!(env.backend(), Backend::Vaapi { device: "/dev/dri/renderD128".into(), decode: true });
+        assert_eq!(env.gpu.vendor, Vendor::Amd, "the node vendor wins over the NVENC guess");
+        let caps = build(&env, &BenchStore::default(), "x", "PC", false);
+        assert_eq!(caps.encoders[0], "h264_vaapi");
+        assert!(!caps.encoders.contains(&"h264_amf"));
+        // frc_amf is never offered on Linux, even if FFmpeg lists the filter
+        assert!(!caps.profiles.iter().any(|p| p.id == "p-anime4k-1080-fg2x"));
+        assert!(caps.profiles.iter().any(|p| p.id == "p-anime4k-1080"));
+
+        // no render node: no VAAPI at all, software decode, libx264 is not chosen before NVENC
+        let none = linux_env(None, HWACCELS);
+        assert_eq!(none.encoder(), Some(Encoder::H264Nvenc));
+        assert_eq!(none.backend(), Backend::Software);
+        // an NVIDIA node is not used for VAAPI
+        let nv = linux_env(Some(RenderNode { device: "/dev/dri/renderD128".into(), vendor: Vendor::Nvidia }), HWACCELS);
+        assert_eq!(nv.encoder(), Some(Encoder::H264Nvenc));
+        assert_eq!(nv.backend(), Backend::Software);
+        // FFmpeg without the vaapi hwaccel still encodes with h264_vaapi
+        let enc_only = linux_env(Some(amd_node()), "");
+        assert_eq!(enc_only.backend(), Backend::Vaapi { device: "/dev/dri/renderD128".into(), decode: false });
+    }
+
+    #[test]
+    fn lsfg_profiles_follow_the_probe_and_carry_their_multiplier() {
+        use crate::media::lsfg::{LsfgPaths, ProbeInfo};
+        let mut env = linux_env(Some(amd_node()), HWACCELS);
+        let caps = build(&env, &BenchStore::default(), "x", "PC", false);
+        assert!(!caps.profiles.iter().any(|p| p.fg == Fg::Lsfg(LsfgMode::Fixed(2))));
+        let json = serde_json::to_value(&caps).unwrap();
+        assert_eq!(json["lsfg"]["available"], false);
+        assert_eq!(json["lsfg"]["reason"], "disabled");
+
+        env.lsfg = LsfgStatus::available(
+            LsfgPaths { helper: "/opt/t/temple-lsfg".into(), dll: "/s/Lossless.dll".into() },
+            ProbeInfo { device: "AMD Radeon RX 9070 XT (RADV GFX1201)".into(), fp16: true },
+        );
+        let caps = build(&env, &BenchStore::default(), "x", "PC", false);
+        let ids: Vec<_> = caps.profiles.iter().map(|p| p.id).collect();
+        for id in ["p-lsfg-1080-x2", "p-lsfg-1080-x5", "p-lsfg-1080-auto120", "p-anime4k-lsfg-1080-x3", "p-anime4k-lsfg-1080-auto120"] {
+            assert!(ids.contains(&id), "{id}");
+        }
+        let json = serde_json::to_value(&caps).unwrap();
+        assert_eq!(json["lsfg"], serde_json::json!({ "available": true, "experimental": true, "multipliers": [2, 3, 4, 5], "auto_target_fps": 120 }));
+        let by = |id: &str| json["profiles"].as_array().unwrap().iter().find(|p| p["id"] == id).unwrap().clone();
+        assert_eq!(by("p-lsfg-1080-x3")["fg"], "lsfg");
+        assert_eq!(by("p-lsfg-1080-x3")["fg_multiplier"], 3);
+        assert!(by("p-lsfg-1080-x3").get("fg_target_fps").is_none());
+        assert_eq!(by("p-anime4k-lsfg-1080-auto120")["fg_target_fps"], 120);
+        assert_eq!(by("p-anime4k-lsfg-1080-auto120")["upscale"], "anime4k");
+        assert_eq!(by("p-lsfg-1080-x2")["encoder"], "h264_vaapi");
+        assert!(by("p-none").get("fg_multiplier").is_none(), "M0 profiles keep their shape");
+        // Anime4K + LSFG needs the shaders; plain LSFG does not
+        env.shaders_ok = false;
+        let ids: Vec<_> = build(&env, &BenchStore::default(), "x", "PC", false).profiles.iter().map(|p| p.id).collect();
+        assert!(ids.contains(&"p-lsfg-1080-x4") && !ids.contains(&"p-anime4k-lsfg-1080-x4"));
     }
 }
