@@ -1,0 +1,144 @@
+name: Next — CI
+
+# Tatakai Next (main): tests on every push to main and every pull request, only for the parts that changed.
+# Releases are built by next-release.yml from `v*` tags; Tatakai Classic lives on the `legacy` branch with its own CI.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: next-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  runner:
+    uses: ./.github/workflows/runner.yml
+
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      desktop: ${{ steps.filter.outputs.desktop }}
+      android: ${{ steps.filter.outputs.android }}
+      contracts: ${{ steps.filter.outputs.contracts }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            desktop:
+              - 'apps/desktop-native/**'
+              - 'resources/icon-*.png'
+              - '.github/workflows/next-*.yml'
+            android:
+              - 'apps/android-native/**'
+              - '.github/workflows/next-*.yml'
+            contracts:
+              - 'contracts/**'
+              - 'packages/**'
+              - '.github/workflows/next-*.yml'
+
+  contracts:
+    needs: [runner, changes]
+    if: needs.changes.outputs.contracts == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ needs.runner.outputs.linux }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Tokens and contracts
+        run: node --test packages/tokens/test contracts/test
+
+  desktop:
+    name: Desktop (Linux tests + release build check)
+    needs: [runner, changes]
+    if: needs.changes.outputs.desktop == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ needs.runner.outputs.linux }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/desktop-native
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System dependencies
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config xvfb desktop-file-utils appstream \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev \
+            libmpv-dev libxdo-dev libayatana-appindicator3-dev glib-networking
+
+      - name: Rust (rust-toolchain.toml)
+        run: rustup toolchain install || rustup show
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: apps/desktop-native
+          shared-key: next-linux
+
+      - name: Packaging files
+        run: |
+          for f in packaging/linux/*.sh packaging/linux/AppRun packaging/linux/PKGBUILD; do bash -n "$f"; done
+          desktop-file-validate packaging/linux/app.tatakai.own.next.desktop
+          appstreamcli validate --no-net packaging/linux/app.tatakai.own.next.metainfo.xml
+
+      - name: Tests (workspace, no libmpv, no live backend)
+        run: xvfb-run -a cargo test --locked --workspace --no-default-features
+
+      # The live backend + libmpv only compile with default features: check them without a full release build.
+      - name: Check the app with default features
+        run: cargo check --locked -p tk-app
+
+  android:
+    name: Android (unit tests + debug build)
+    needs: [runner, changes]
+    if: needs.changes.outputs.android == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ needs.runner.outputs.linux }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/android-native
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
+        with:
+          packages: platform-tools
+
+      - name: Platform + build tools
+        run: |
+          sdkmanager "build-tools;36.0.0"
+          sdkmanager "platforms;android-37.0" || sdkmanager "platforms;android-37"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-next-${{ runner.os }}-${{ hashFiles('apps/android-native/**/*.gradle.kts', 'apps/android-native/gradle/**') }}
+          restore-keys: gradle-next-${{ runner.os }}-
+
+      - name: Unit tests and debug APK
+        run: bash gradlew testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
