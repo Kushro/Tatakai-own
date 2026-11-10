@@ -170,7 +170,9 @@ impl MetadataProvider for AniList {
         if r.anilist_id.is_none() && r.mal_id.is_none() {
             return Ok(None);
         }
-        let body = self.post(MEDIA_QUERY, json!({ "id": r.anilist_id, "idMal": r.mal_id, "type": k.as_str() })).await?;
+        let mut vars = details::id_vars(r);
+        vars["type"] = json!(k.as_str());
+        let body = self.post(MEDIA_QUERY, vars).await?;
         let m = &body["data"]["Media"];
         Ok(if m.is_object() { Some(map_anilist_media(m)) } else { None })
     }

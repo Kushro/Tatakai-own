@@ -950,7 +950,14 @@ impl AniList {
             MediaKey::AniList(id) => (Some(id), None),
             MediaKey::Mal(id) => (None, Some(id)),
         };
-        let vars = json!({ "id": id, "idMal": id_mal, "page": page.max(1), "perPage": REVIEWS_PER_PAGE });
+        // only the known id: AniList 404s on a null `id` / `idMal` variable
+        let mut vars = json!({ "page": page.max(1), "perPage": REVIEWS_PER_PAGE });
+        if let Some(id) = id {
+            vars["id"] = json!(id);
+        }
+        if let Some(mal) = id_mal {
+            vars["idMal"] = json!(mal);
+        }
         match self.post_auth(token, &reviews_query(), vars).await {
             Ok(body) => Ok(map_review_page(&body["data"]["Media"], page)),
             Err(ListError::Http(404)) => Ok(ReviewPage {
