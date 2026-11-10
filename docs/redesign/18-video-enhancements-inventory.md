@@ -36,3 +36,17 @@ Fuentes: `Enigmata` (Android, 3.6.0 del 2026-10-28) y `Enigmata-Temple-linux` (s
 9. Generación de cuadros embebida (L): spike en la RX 9070 XT primero.
 
 A verificar antes de planificar: el embed de Linux fuerza `vo=libmpv` (renderer `gpu` sobre GL, no gpu-next), lo que afecta a hdr-toys PQ/HLG y quizá a los shaders compute; en una PC híbrida, confirmar que GL y Vulkan usen la GPU discreta.
+
+## Enigmata Temple como proxy de procesamiento (revisión 2026-11-10)
+
+Temple (`Enigmata-Temple-linux` v0.7.0; contrato `docs/contract/v1.md`) es un servidor HTTPS/mTLS con emparejamiento por QR (`POST /v1/pairing`), `GET /v1/capabilities` (perfiles, LSFG), `POST /v1/sessions` y salida HLS VOD fMP4 (H.264 + AAC, SDR, segmentos de 2 s, seek nativo, una pista de audio por sesión, subtítulos WebVTT). Sus fuentes son solo `phone` (el cliente le sirve rangos de **un archivo único con Range**), `library` (carpetas de la PC) y `default`: **no acepta URL ni HLS**, y la mayoría de las fuentes de extensiones son HLS. Perfiles en Linux: VAAPI, libplacebo, Anime4K, `minterpolate` y LSFG ×2..×5 / auto120 (`temple-lsfg`, núcleo propio, no la capa lsfg-vk).
+
+Tatakai Link (`tk-link`) copia el mismo modelo y ya tiene lo que a Temple le falta (fuente `url` con headers y reescritura de HLS), pero hoy fija `-hwaccel d3d11va` y no tiene VAAPI ni LSFG.
+
+Opciones, de mejor a peor:
+1. **Llevar a tk-link el pipeline de Temple** (VAAPI, LSFG con `temple-lsfg`, tuning): un solo servidor, HLS y headers se quedan en Next, el teléfono lo recibe por Link. Mucho trabajo; corrige de paso el d3d11va fijo.
+2. **Android de Next como cliente de Temple** (como Enigmata): sirve hoy para MP4 directos y torrents; HLS no entra.
+3. **Escritorio "Procesar con Temple"**: en la misma PC aporta poco (el escritorio ya hace Anime4K y lsfg-vk en tiempo real, Temple recodifica a H.264).
+4. **Link delega en Temple**: descartado salvo que Temple sume la fuente `url`.
+
+Lo que destrabaría 2-4: una fuente `{"kind":"url", url, headers}` en Temple (portando `tk-link/src/fetcher.rs`), aceptando que Temple vea las URLs y headers de las extensiones.
