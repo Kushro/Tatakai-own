@@ -29,6 +29,10 @@
     <string name="linked_yes">Permitida</string>
     <string name="linked_no">No permitida</string>
     <string name="linked_profile">Perfil de mejora</string>
+    <string name="linked_profile_none">Sin mejora</string>
+    <string name="linked_profile_anime4k">Anime4K a %1$dp</string>
+    <string name="linked_profile_fg">Generación de cuadros ×%1$d</string>
+    <string name="linked_profile_fg_auto">Generación de cuadros automática (%1$d fps)</string>
     <string name="linked_profiles_none">Esta PC no tiene un perfil que pueda sostener en tiempo real.</string>
     <string name="linked_sustain_ok">Sostenido en tiempo real</string>
     <string name="linked_sustain_no">Puede entrecortarse</string>

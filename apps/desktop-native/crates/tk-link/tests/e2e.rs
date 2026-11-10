@@ -70,7 +70,7 @@ async fn mtls_is_required_everywhere_except_pairing_and_every_response_carries_t
     assert_eq!(caps["default_profile"], "p-none");
     assert_eq!(caps["gpu"]["vendor"], "nvidia");
     assert_eq!(caps["encoders"], json!(["h264_nvenc", "libopenh264"]));
-    assert_eq!(caps["limits"], json!({ "max_ram_bytes": 536870912u64, "segment_wait_secs": 20 }));
+    assert_eq!(caps["limits"], json!({ "max_ram_bytes": 536870912u64, "segment_wait_secs": 15 }));
     assert_eq!(caps["profiles"][0]["id"], "p-none");
     // no Anime4K shaders installed in the test environment -> the Anime4K profiles are withheld
     assert_eq!(caps["profiles"].as_array().unwrap().len(), 1);

@@ -123,7 +123,9 @@ impl LiveBackend {
             ext.host(),
             store.clone(),
             crate::paths::shaders_dir(paths, None),
-            crate::paths::anime4k_lock(None),
+            // the lock pins the installer's `<exe>/shaders`; `<data>/shaders` is filled by `shaders::fetch` from the
+            // SHA-256-checked mpv-anime-build zip, whose copies of two passes differ byte-wise from the lock
+            crate::paths::anime4k_lock(None).filter(|_| !crate::paths::shaders_dir(paths, None).starts_with(&paths.root)),
             link::link_lsfg_dll(settings.video.lsfg_dll.as_deref()),
             remote_tx,
         );
@@ -154,6 +156,7 @@ impl LiveBackend {
     /// Wave A: start-up jobs (`live/system.rs::on_start`, worker f: update notice). tk-app's `main.rs` spawns it
     /// through `Services::on_start` once the UI runtime is up; a stub until f lands.
     pub async fn on_start(&self) {
+        self.link.start_if_paired().await;
         system::on_start(self).await;
         // Wave B start-up jobs, each a no-op until its owner lands: h resumes the download queue, verifies completed
         // rows and schedules the auto-downloader; k starts `tk-server` when `Settings::server.enabled`; j checks

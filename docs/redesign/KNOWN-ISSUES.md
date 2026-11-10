@@ -224,8 +224,14 @@ Probado de punta a punta con el moto g51: perfil "LSFG frame generation 2x" sobr
 - El fetcher reescribía los segmentos sin extensión y FFmpeg ≥ 7 los rechaza (`allowed_segment_extensions`): ahora la URL reescrita termina en la extensión original o `.ts` / `.mp4`.
 - El sink perdía los segmentos: FFmpeg hace half-close después del cuerpo del PUT y hyper lo tomaba como aborto (`half_close(true)`). El motor falso de los tests ahora sube igual que FFmpeg.
 
-Pendiente:
-- El teléfono corta por timeout de lectura (OkHttp) antes de los 20 s que el servidor espera un segmento (`segment_wait`); el primer intento falla mientras LSFG arranca y hay que tocar Reintentar. Alinear: reintento en el cliente o espera más corta con 503 + `Retry-After`.
-- Con `fps=…:start_time=0` y fuentes HLS que empiezan en t≈10 s, los primeros ~10 s son el primer cuadro congelado.
-- El servidor Link solo arranca al abrir la pantalla Enlace; con la app recién abierta el teléfono ve "PC fuera de alcance".
-- Los perfiles Anime4K + LSFG no aparecen en las capacidades; los nombres de perfil llegan en inglés al teléfono.
+Arreglado el mismo día (segunda pasada):
+- El servidor Link arranca con la app si ya hay un teléfono emparejado (antes, solo al abrir la pantalla Enlace).
+- Espera por segmento de 15 s (por debajo del timeout de lectura de 20 s del teléfono) y `Retry-After: 1` en el 503.
+- Perfiles Anime4K en Link: exigían los pesos `L` (la app instala `VL` desde mpv-anime-build) y el lock de Link rechazaba dos pasadas del zip. Ahora `L` usa `VL` si falta y el lock solo se aplica a los shaders del instalador.
+- Nombres de perfil en español en el teléfono (a partir del id) y lista vertical en vez del segmentado de 15 opciones.
+- Probado en el teléfono: "Anime4K a 1080p + Generación de cuadros ×2" reproduce al primer intento (libplacebo A/M + LSFG, 120 fps).
+- Lo del "primer cuadro congelado ~10 s" no era real: FFmpeg ya corre el inicio a 0.
+
+Generación de cuadros + Anime4K en la PC: el mpv externo que fuerza la generación de cuadros cargaba la config del usuario (`~/.config/mpv`), cuyos scripts y perfiles automáticos reemplazan `glsl-shaders` al empezar. Si el modo elegido es el reproductor integrado, ahora ese mpv recibe el preset de la app (shaders, deband, imagen) con `--no-config` y `--hwdec=auto-safe`; en modo mpv externo se respeta la config del usuario. Probado en DP-2: Anime4K A HQ, Vulkan, 0 cuadros perdidos, capa lsfg-vk ×2 cargada. El OSC mostraba "master.m3u8": ahora `--force-media-title`.
+
+Pendiente: medir los fps reales que entrega lsfg-vk en la PC (mpv no los ve; hace falta MangoHud o el overlay de lsfg).

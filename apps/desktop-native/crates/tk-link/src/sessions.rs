@@ -49,7 +49,9 @@ pub struct SessionTuning {
 impl Default for SessionTuning {
     fn default() -> Self {
         Self {
-            segment_wait: Duration::from_secs(20),
+            // below the phones' 20 s read timeout (`LinkCrypto`): they get a clean 503 + Retry-After and retry, never a
+            // socket timeout mid-wait
+            segment_wait: Duration::from_secs(crate::media::capabilities::SEGMENT_WAIT_SECS),
             idle_timeout: Duration::from_secs(IDLE_TIMEOUT_SECS),
             max_ram_bytes: MAX_RAM_BYTES as usize,
             max_lead_segments: 15,
