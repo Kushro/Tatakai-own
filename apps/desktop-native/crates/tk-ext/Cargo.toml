@@ -31,5 +31,9 @@ tracing = { workspace = true }
 url = { workspace = true }
 zip = { workspace = true }
 
+# Per-thread C numeric locale for the QuickJS workers (see runtime.rs `c_numeric_locale`).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = { workspace = true }
