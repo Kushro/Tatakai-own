@@ -304,15 +304,26 @@ impl FrameGen {
         vec!["--vo=gpu-next".into(), "--gpu-api=vulkan".into(), "--video-sync=audio".into(), "--interpolation=no".into()]
     }
 
-    /// The DLL to use: ours, else the one the user's lsfg-vk config names.
+    /// The DLL to use. lsfg-vk 2.x reads `lsfg-vk.dll` (the shader pack it ships for Lossless Scaling); the
+    /// game's `Lossless.dll` fails with "Unable to find base shader 'mipmaps'". Order: an `lsfg-vk.dll` next to the
+    /// configured DLL, the configured DLL, the user's lsfg-vk config, then Steam's Lossless Scaling folder.
     fn dll_path(&self) -> Option<PathBuf> {
-        self.dll.clone().or_else(|| {
-            let home = std::env::var_os("XDG_CONFIG_HOME")
-                .map(PathBuf::from)
-                .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-            let text = std::fs::read_to_string(home.join("lsfg-vk").join("conf.toml")).ok()?;
-            user_dll(&text)
-        })
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let user_conf = || {
+            let cfg = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).or_else(|| home.clone().map(|h| h.join(".config")))?;
+            user_dll(&std::fs::read_to_string(cfg.join("lsfg-vk").join("conf.toml")).ok()?)
+        };
+        let steam = home.clone().map(|h| h.join(".local/share/Steam/steamapps/common/Lossless Scaling/lsfg-vk.dll"));
+        let configured: Vec<PathBuf> = [self.dll.clone(), user_conf()].into_iter().flatten().collect();
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        for c in &configured {
+            if let Some(dir) = c.parent() {
+                candidates.push(dir.join("lsfg-vk.dll"));
+            }
+        }
+        candidates.extend(steam);
+        candidates.extend(configured);
+        candidates.into_iter().find(|p| p.is_file())
     }
 
     /// The dedicated lsfg-vk config (format version 2): one profile active in `mpv`.
@@ -602,12 +613,22 @@ mod frame_gen_tests {
 
     #[test]
     fn frame_gen_writes_a_dedicated_profile_for_mpv() {
-        let fg = FrameGen::new(9, Some(PathBuf::from("/home/u/Lossless.dll")), PathBuf::from("/tmp/x"));
+        let dir = std::env::temp_dir().join(format!("tk-lsfg-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let game = dir.join("Lossless.dll");
+        std::fs::write(&game, b"x").unwrap();
+        let fg = FrameGen::new(9, Some(game.clone()), PathBuf::from("/tmp/x"));
         assert_eq!(fg.multiplier, 4, "clamped to 2..=4");
         assert!(fg.mpv_args().contains(&"--gpu-api=vulkan".to_owned()));
         let t = fg.config_toml();
         assert!(t.starts_with("version = 2"));
-        assert!(t.contains("dll = \"/home/u/Lossless.dll\""), "{t}");
+        // Without a sibling pack the result depends on the machine (Steam's lsfg-vk.dll wins over a Lossless.dll).
+        assert!(t.contains("dll = "), "{t}");
+        // lsfg-vk 2.x wants its own shader pack: an lsfg-vk.dll next to the configured DLL wins.
+        let pack = dir.join("lsfg-vk.dll");
+        std::fs::write(&pack, b"x").unwrap();
+        assert!(fg.config_toml().contains(&format!("dll = \"{}\"", pack.display())));
+        let _ = std::fs::remove_dir_all(&dir);
         assert!(t.contains("active_in = [ \"mpv\" ]") && t.contains("multiplier = 4"), "{t}");
         assert_eq!(fg.env(Path::new("/tmp/x/lsfg-vk.toml")), vec![("LSFGVK_CONFIG", "/tmp/x/lsfg-vk.toml".to_owned())]);
     }
