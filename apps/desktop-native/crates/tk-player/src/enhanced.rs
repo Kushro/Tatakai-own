@@ -109,3 +109,35 @@ pub(crate) fn post_init(mpv: &Mpv, mode: &EngineMode) -> Result<(), PlayerError>
     }
     Ok(())
 }
+
+/// mpv command (name + args) that switches mpv-anime-build to the mode closest to `preset` (its input.conf
+/// bindings); `None` when the build has no equivalent (FSR, NVScaler, CAS).
+pub fn build_mode_command(preset: crate::ShaderPreset) -> Option<&'static [&'static str]> {
+    use crate::ShaderPreset as P;
+    Some(match preset {
+        P::Off => &["change-list", "glsl-shaders", "clr", ""],
+        P::Anime4kA => &["script-message", "anime4k-mode", "A"],
+        P::Anime4kB => &["script-message", "anime4k-mode", "B"],
+        P::Anime4kC => &["script-message", "anime4k-mode", "C"],
+        P::Anime4kAA => &["script-message", "anime4k-mode", "AA"],
+        P::Anime4kBB => &["script-message", "anime4k-mode", "BB"],
+        P::Anime4kCA => &["script-message", "anime4k-mode", "CA"],
+        P::ArtCnn => &["script-message", "anime4k-mode", "Ani4Kv2"],
+        P::Fidelity => &["script-message", "toggle-anime-fidelity"],
+        P::Fsr | P::NvScaler | P::Cas => return None,
+    })
+}
+
+#[cfg(test)]
+mod build_mode_tests {
+    use super::build_mode_command;
+    use crate::ShaderPreset;
+
+    #[test]
+    fn anime4k_modes_map_to_the_build_bindings() {
+        assert_eq!(build_mode_command(ShaderPreset::Anime4kCA), Some(&["script-message", "anime4k-mode", "CA"][..]));
+        assert_eq!(build_mode_command(ShaderPreset::Off).map(|a| a[0]), Some("change-list"));
+        assert_eq!(build_mode_command(ShaderPreset::Cas), None);
+    }
+}
+

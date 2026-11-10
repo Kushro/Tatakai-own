@@ -77,3 +77,8 @@
 .tk-settings__mpv { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--tk-space-12); margin-bottom: var(--tk-space-8); }
 .tk-settings__mpv .tk-field { width: min(100%, 440px); }
 .tk-settings__mpv .tk-btn { margin-top: var(--tk-space-24); }
+/* docs/redesign/18: image adjustment sliders (Settings › Player). */
+.tk-video-adjusts { display: flex; flex-direction: column; gap: var(--tk-space-8); align-items: stretch; width: 100%; }
+.tk-video-adjust { display: grid; grid-template-columns: 120px minmax(0, 1fr) 48px; align-items: center; gap: var(--tk-space-12); }
+.tk-video-adjust input { width: 100%; accent-color: var(--md-sys-color-primary); }
+.tk-video-adjust__value { text-align: end; font-variant-numeric: tabular-nums; color: var(--md-sys-color-on-surface-variant); }

@@ -27,6 +27,8 @@ pub mod server;
 pub mod social;
 pub mod subs;
 pub mod system;
+/// Video enhancements beyond the shader preset (Anime4K HQ, deband, image adjustments, frame generation).
+pub mod video;
 
 pub use downloads::{AutoProfileVm, DownloadPrefs};
 pub use ext::ExtPrefs;
@@ -39,6 +41,7 @@ pub use server::ServerPrefs;
 pub use social::SocialPrefs;
 pub use subs::{SubtitlePrefs, SubtitleStyleVm, TranslationPrefs, TranslationProviderVm};
 pub use system::SystemPrefs;
+pub use video::{FrameGenVm, VideoPrefs};
 
 // ---------------------------------------------------------------------------------------------
 // Appearance / settings
@@ -137,6 +140,8 @@ pub struct Settings {
     pub flow: PlayerFlowPrefs,
     /// Start with the system, tray, update check (worker f, `model/system.rs`).
     pub system: SystemPrefs,
+    /// Video enhancements (`model/video.rs`).
+    pub video: VideoPrefs,
     /// AniList / MAL list behaviour (worker g, `model/lists.rs`).
     pub lists: ListPrefsVm,
     /// Title language of cards, rows and Details (worker c, Settings > Appearance): one of [`TITLE_LANGUAGES`].
@@ -179,6 +184,7 @@ impl Default for Settings {
             subs: SubtitlePrefs::default(),
             flow: PlayerFlowPrefs::default(),
             system: SystemPrefs::default(),
+            video: VideoPrefs::default(),
             lists: ListPrefsVm::default(),
             title_language: TITLE_LANGUAGES[0].to_owned(),
             home: HomePrefs::default(),
@@ -428,6 +434,7 @@ impl Settings {
         self.subs = self.subs.sanitized();
         self.flow = self.flow.sanitized();
         self.system = self.system.sanitized();
+        self.video = self.video.sanitized();
         self.lists = self.lists.sanitized();
         if !TITLE_LANGUAGES.contains(&self.title_language.as_str()) {
             self.title_language = TITLE_LANGUAGES[0].to_owned();
@@ -490,6 +497,7 @@ pub enum SettingsAction {
     SetFlow(PlayerFlowPrefs),
     /// Worker f.
     SetSystem(SystemPrefs),
+    SetVideo(VideoPrefs),
     /// Worker g.
     SetLists(ListPrefsVm),
     /// Worker c. Ignored unless it is one of [`TITLE_LANGUAGES`].
@@ -552,6 +560,7 @@ pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
         SettingsAction::SetSubs(p) => n.subs = p.sanitized(),
         SettingsAction::SetFlow(p) => n.flow = p.sanitized(),
         SettingsAction::SetSystem(p) => n.system = p.sanitized(),
+        SettingsAction::SetVideo(p) => n.video = p.sanitized(),
         SettingsAction::SetLists(p) => n.lists = p.sanitized(),
         SettingsAction::SetTitleLanguage(l) => {
             if TITLE_LANGUAGES.contains(&l.as_str()) {

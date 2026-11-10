@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use tokio::sync::broadcast;
 
-use crate::preset::ShaderPreset;
+use crate::preset::{Anime4kQuality, ShaderPreset};
 use crate::embed::EmbedTarget;
 use crate::engine::EngineConfig;
 use crate::types::{KeyAction, MediaSource, PlayerError, PlayerEvent, Rect};
@@ -62,6 +62,22 @@ impl Player {
 
     pub fn shader_preset(&self) -> ShaderPreset {
         self.preset.lock().map(|p| *p).unwrap_or_default()
+    }
+
+    pub fn shader_quality(&self) -> Anime4kQuality {
+        Anime4kQuality::Fast
+    }
+
+    pub fn set_shader_quality(&self, _quality: Anime4kQuality) -> Result<(), PlayerError> {
+        Ok(())
+    }
+
+    pub fn set_deband(&self, _on: bool) -> Result<(), PlayerError> {
+        Ok(())
+    }
+
+    pub fn set_image_adjust(&self, _brightness: i8, _contrast: i8, _saturation: i8, _gamma: i8) -> Result<(), PlayerError> {
+        Ok(())
     }
 
     pub fn is_embedded(&self) -> bool {

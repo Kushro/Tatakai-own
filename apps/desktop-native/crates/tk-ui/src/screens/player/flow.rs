@@ -234,6 +234,8 @@ pub(super) struct Flow {
     pub(super) flash: Signal<Option<(String, u64)>>,
     /// External mode: the mpv executable (`None` in the embedded modes).
     pub(super) ext_mpv: Signal<Option<PathBuf>>,
+    /// External mode with lsfg-vk frame generation (`Settings::video.frame_gen`, Linux).
+    pub(super) frame_gen: Signal<Option<tk_player::FrameGen>>,
     pub(super) external: Rc<ExternalSlot>,
     /// External mode: the file played to the end / mpv exited by itself.
     pub(super) ext_ended: Signal<bool>,
@@ -500,7 +502,8 @@ impl Flow {
             tf("player.external.window_title", &[("title", &vm.title), ("n", &n)])
         };
         self.external.set(None);
-        let spawned = tokio::task::spawn_blocking(move || ExternalPlayer::spawn(&mpv, &src, start, &title)).await;
+        let fg = self.frame_gen.peek().clone();
+        let spawned = tokio::task::spawn_blocking(move || ExternalPlayer::spawn_with(&mpv, &src, start, &title, fg.as_ref())).await;
         let p = match spawned {
             Ok(Ok(p)) => Arc::new(p),
             Ok(Err(e)) => return Err(UiError::new(ErrorKind::Other, e.to_string())),

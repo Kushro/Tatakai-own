@@ -14,7 +14,7 @@ use tokio::sync::broadcast;
 use crate::embed::EmbedTarget;
 use crate::engine::EngineConfig;
 use crate::headers::{HeaderPlan, mpv_list, mpv_quote};
-use crate::preset::{ShaderPreset, glsl_shaders_value, list_separator};
+use crate::preset::{Anime4kQuality, ShaderPreset, glsl_shaders_value, list_separator};
 use crate::types::{
     KeyAction, MediaSource, PlayerError, PlayerEvent, Rect, SubtitleSource, TrackInfo, TrackKind,
 };
@@ -52,6 +52,8 @@ pub struct Player {
     surface: crate::surface::VideoSurface,
     tx: broadcast::Sender<PlayerEvent>,
     preset: Mutex<ShaderPreset>,
+    /// Anime4K chain size (`set_shader_quality`).
+    quality: Mutex<Anime4kQuality>,
     shaders_dir: Mutex<Option<PathBuf>>,
     pending_subs: Arc<Mutex<Vec<SubtitleSource>>>,
     /// False in the mpv-anime-build engine: its own shader profiles own `glsl-shaders` (enhanced_conf.rs).
@@ -125,6 +127,7 @@ impl Player {
             surface,
             tx,
             preset: Mutex::new(ShaderPreset::Off),
+            quality: Mutex::new(Anime4kQuality::Fast),
             shaders_dir: Mutex::new(None),
             pending_subs,
             presets_apply: crate::enhanced_conf::shader_presets_apply(&cfg.mode),
@@ -192,18 +195,36 @@ impl Player {
     /// Switch the upscaling preset live. The shader files must exist; on error the current preset stays.
     pub fn set_shader_preset(&self, preset: ShaderPreset) -> Result<(), PlayerError> {
         if !self.presets_apply {
-            // Enhanced engine: the build switches shaders itself; ours would stack on top of its profiles.
+            // Enhanced engine: the build switches shaders itself (ours would stack on top of its profiles), so the
+            // menu drives the build's own modes (its input.conf: CTRL+1..8 `script-message anime4k-mode …`).
+            match crate::enhanced::build_mode_command(preset) {
+                // Off: clear the list directly (an empty argument does not survive the command string).
+                Some(_) if preset == ShaderPreset::Off => {
+                    self.mpv.set_property("glsl-shaders", "").map_err(mpv_err)?;
+                }
+                Some(args) => {
+                    let mut it = args.iter();
+                    let name = it.next().copied().unwrap_or("script-message");
+                    let rest: Vec<&str> = it.copied().collect();
+                    self.mpv.command(name, &rest).map_err(mpv_err)?;
+                }
+                None => return Err(PlayerError::Mpv(format!("mpv-anime-build has no {} mode", preset.id()))),
+            }
+            if let Ok(mut p) = self.preset.lock() {
+                *p = preset;
+            }
             return Ok(());
         }
         let value = if preset == ShaderPreset::Off {
             String::new()
         } else {
             let dir = self.shaders_dir.lock().map_err(mpv_err)?.clone().ok_or(PlayerError::NoShadersDir)?;
-            let missing = preset.missing_files(&dir);
+            let quality = self.shader_quality();
+            let missing = preset.missing_files(&dir, quality);
             if !missing.is_empty() {
                 return Err(PlayerError::ShadersMissing(missing.join(", ")));
             }
-            glsl_shaders_value(&dir, preset, list_separator())
+            glsl_shaders_value(&dir, preset, quality, list_separator())
         };
         self.mpv.set_property("glsl-shaders", value.as_str()).map_err(mpv_err)?;
         if let Ok(mut p) = self.preset.lock() {
@@ -214,6 +235,29 @@ impl Player {
 
     pub fn shader_preset(&self) -> ShaderPreset {
         self.preset.lock().map(|p| *p).unwrap_or_default()
+    }
+
+    pub fn shader_quality(&self) -> Anime4kQuality {
+        self.quality.lock().map(|q| *q).unwrap_or_default()
+    }
+
+    /// Change the Anime4K chain size; an active Anime4K preset is re-applied with it (on error the old chain stays
+    /// and the quality is restored).
+    pub fn set_shader_quality(&self, quality: Anime4kQuality) -> Result<(), PlayerError> {
+        let old = self.shader_quality();
+        if let Ok(mut q) = self.quality.lock() {
+            *q = quality;
+        }
+        let preset = self.shader_preset();
+        if preset.is_anime4k() && old != quality {
+            if let Err(e) = self.set_shader_preset(preset) {
+                if let Ok(mut q) = self.quality.lock() {
+                    *q = old;
+                }
+                return Err(e);
+            }
+        }
+        Ok(())
     }
 
     /// Put the picture at `rect` (CSS px relative to the viewport, `dpr` = devicePixelRatio) or hide it.
@@ -318,7 +362,28 @@ impl Player {
     /// Motion interpolation ("Smoothing"): `interpolation` + `video-sync=display-resample` (what it needs to work).
     pub fn set_interpolation(&self, on: bool) -> Result<(), PlayerError> {
         self.mpv.set_property("video-sync", if on { "display-resample" } else { "audio" }).map_err(mpv_err)?;
+        // Enigmata's "Suavizado": oversample keeps anime's hard edges (no blur between frames). Best effort: an
+        // older libmpv without the option still interpolates with its default filter.
+        let _ = self.mpv.set_property("tscale", "oversample");
         self.mpv.set_property("interpolation", on).map_err(mpv_err)
+    }
+
+    /// mpv `deband` with Enigmata's values (iterations 2, threshold 40, range 20, grain 6).
+    pub fn set_deband(&self, on: bool) -> Result<(), PlayerError> {
+        if on {
+            for (k, v) in [("deband-iterations", 2_i64), ("deband-threshold", 40), ("deband-range", 20), ("deband-grain", 6)] {
+                let _ = self.mpv.set_property(k, v);
+            }
+        }
+        self.mpv.set_property("deband", on).map_err(mpv_err)
+    }
+
+    /// Image adjustments, each -100..=100 (0 = neutral): mpv `brightness`, `contrast`, `saturation`, `gamma`.
+    pub fn set_image_adjust(&self, brightness: i8, contrast: i8, saturation: i8, gamma: i8) -> Result<(), PlayerError> {
+        for (k, v) in [("brightness", brightness), ("contrast", contrast), ("saturation", saturation), ("gamma", gamma)] {
+            self.mpv.set_property(k, i64::from(v.clamp(-100, 100))).map_err(mpv_err)?;
+        }
+        Ok(())
     }
 
     /// Repeat the current file (`loop-file`).
