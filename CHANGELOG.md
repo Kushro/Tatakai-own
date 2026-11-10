@@ -2,6 +2,12 @@
 
 Cambios de Tatakai Next (rama `main`). Tatakai Classic tiene su propio changelog en la rama `legacy`.
 
+## [0.1.2] - 2026-11-10
+
+- Escritorio: con un idioma de coma decimal (español, alemán, francés…) las extensiones leían `0.4` como `0`, `parseFloat("1.5")` como 1 y los decimales de JSON como 0 (el motor JS usaba el formato numérico del sistema). Toko descartaba todos los torrents de nyaa por eso. Ahora cada extensión usa el formato numérico internacional.
+- Fuentes: los torrents muestran grupo, resolución y tamaño aunque la extensión mande un título corto (SubsPlease); se piden los torrents antes que los streams, y la ficha resuelve solo el episodio que sigue (antes resolvía el 1 primero y bloqueaba la extensión ~40 s).
+- Episodios sin miniatura muestran la imagen de la serie con el número.
+
 ## [0.1.1] - 2026-11-10
 
 - Android: vincular AniList fallaba con `unsupported_grant_type`. La app mandaba `redirect_uri` en el grant implícito, que AniList rechaza (siempre usa la URL registrada del cliente). Ahora usa la misma URL que el escritorio.
