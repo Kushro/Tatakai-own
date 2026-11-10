@@ -2,6 +2,10 @@
 
 Cambios de Tatakai Next (rama `main`). Tatakai Classic tiene su propio changelog en la rama `legacy`.
 
+## [0.1.1] - 2026-11-10
+
+- Android: vincular AniList fallaba con `unsupported_grant_type`. La app mandaba `redirect_uri` en el grant implícito, que AniList rechaza (siempre usa la URL registrada del cliente). Ahora usa la misma URL que el escritorio.
+
 ## [0.1.0] - 2026-11-10
 
 Primera versión pública de Tatakai Next (vista previa).

@@ -7507,7 +7507,7 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tk-app"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7543,7 +7543,7 @@ dependencies = [
 
 [[package]]
 name = "tk-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "aes",
  "anyhow",
@@ -7574,7 +7574,7 @@ dependencies = [
 
 [[package]]
 name = "tk-ext"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7599,7 +7599,7 @@ dependencies = [
 
 [[package]]
 name = "tk-link"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7641,7 +7641,7 @@ dependencies = [
 
 [[package]]
 name = "tk-player"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "gtk",
  "libloading 0.8.9",
@@ -7657,7 +7657,7 @@ dependencies = [
 
 [[package]]
 name = "tk-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -7685,7 +7685,7 @@ dependencies = [
 
 [[package]]
 name = "tk-torrent"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -7709,7 +7709,7 @@ dependencies = [
 
 [[package]]
 name = "tk-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
