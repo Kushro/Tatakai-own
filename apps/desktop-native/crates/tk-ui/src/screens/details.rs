@@ -19,7 +19,7 @@ use crate::backend::{
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
     Button, ButtonSize, ButtonVariant, ConfirmDialog, DownloadSeasonSheet, EmptyState, ErrorState,
-    FloatingToolbar, IconButton, IconButtonVariant, InfoChip, ListButton, LoadingIndicator, MediaCover, Menu, MenuItem, Pill,
+    FloatingToolbar, IconButton, IconButtonSize, IconButtonVariant, InfoChip, ListButton, LoadingIndicator, MediaCover, Menu, MenuItem, Pill,
     Reviews,
     Segmented, Sheet, SkeletonLines, SourcePicker, SourceSummary, SplitButton, TextField, ToolbarSeparator, Tone,
     use_snackbar,
@@ -558,6 +558,24 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
         };
     }
 
+    // Manual watched / not watched (AniList-first progress): reload the episodes and the resume button after it.
+    let is_provider = id.starts_with("ext:");
+    let on_toggle = EventHandler::new({
+        let (backend, id) = (backend.clone(), id.clone());
+        move |(n, watched): (u32, bool)| {
+            let (backend, id) = (backend.clone(), id.clone());
+            spawn(async move {
+                match backend.set_episode_watched(&id, n, watched).await {
+                    Ok(()) => {
+                        episodes.restart();
+                        details.restart();
+                    }
+                    Err(e) => snackbar.show(tf("details.mark_failed", &[("detail", &e.detail)])),
+                }
+            });
+        }
+    });
+
     let episodes_panel = match &*episodes.read() {
         None => rsx! {
             div { class: "tk-skel tk-skel--list", "aria-hidden": "true" }
@@ -580,6 +598,7 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                 next_airing,
                 now: now_ts,
                 images,
+                on_toggle: (!is_provider).then_some(on_toggle),
             }
         },
     };
@@ -1100,6 +1119,8 @@ fn EpisodeList(
     #[props(default)] next_airing: Option<AiringVm>,
     #[props(default)] now: i64,
     #[props(default = true)] images: bool,
+    /// Manual watched / not-watched toggle of an episode (`(number, watched)`); `None` hides the buttons.
+    #[props(default)] on_toggle: Option<EventHandler<(u32, bool)>>,
 ) -> Element {
     let navigator = use_navigator();
     let mut query = use_signal(String::new);
@@ -1189,20 +1210,34 @@ fn EpisodeList(
                         pills.push((t("details.unaired"), Tone::Primary));
                     }
                     pills.extend(episode_pills(&e, resume).into_iter().map(|(k, tone)| (t(k), tone)));
+                    let seen = e.watched >= WATCHED_AT;
                     rsx! {
-                        DetailsEpisodeRow {
-                            key: "{n}",
-                            episode: e.clone(),
-                            current: n == resume,
-                            pills,
-                            unaired,
-                            compact,
-                            images,
-                            onclick: move |_| {
-                                if !unaired {
-                                    navigator.push(Route::PlayerPage { id: id.clone(), episode: n });
+                        div { key: "{n}", class: "tk-dep-wrap", "data-watched": "{seen}",
+                            DetailsEpisodeRow {
+                                episode: e.clone(),
+                                current: n == resume,
+                                pills,
+                                unaired,
+                                compact,
+                                images,
+                                onclick: move |_| {
+                                    if !unaired {
+                                        navigator.push(Route::PlayerPage { id: id.clone(), episode: n });
+                                    }
+                                },
+                            }
+                            if let Some(toggle) = on_toggle.filter(|_| !unaired) {
+                                IconButton {
+                                    icon: "check".to_string(),
+                                    label: if seen { tf("details.mark_unwatched", &[("n", &n.to_string())]) } else { tf("details.mark_watched", &[("n", &n.to_string())]) },
+                                    variant: if seen { IconButtonVariant::Filled } else { IconButtonVariant::Standard },
+                                    size: IconButtonSize::Sm,
+                                    toggle: true,
+                                    toggled: seen,
+                                    class: "tk-dep__mark".to_string(),
+                                    onclick: move |_| toggle.call((n, !seen)),
                                 }
-                            },
+                            }
                         }
                     }
                 }

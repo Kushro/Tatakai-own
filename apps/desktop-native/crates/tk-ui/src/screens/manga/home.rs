@@ -300,7 +300,11 @@ fn DiscoverContent(vm: ReadHomeVm, on_retry: EventHandler<()>, on_genre: EventHa
 fn ContinueReadCard(item: ContinueReadVm) -> Element {
     let navigator = use_navigator();
     let p = &item.progress;
-    let sub = if p.completed {
+    // From the AniList list only (no reader position here): no chapter reference, so it opens the title.
+    let list_only = p.chapter.ext_id.is_empty();
+    let sub = if list_only {
+        tf("manga.home.next_chapter", &[("n", &chapter_label(p.chapter_number))])
+    } else if p.completed {
         tf("manga.home.read_chapter", &[("n", &chapter_label(p.chapter_number))])
     } else {
         tf("manga.home.at_page", &[("n", &chapter_label(p.chapter_number)), ("page", &(p.position + 1).to_string())])
@@ -313,7 +317,11 @@ fn ContinueReadCard(item: ContinueReadVm) -> Element {
                 progress: read_fraction(p),
                 sub,
                 onclick: move |_| {
-                    navigator.push(reader_route(&id, &chapter));
+                    if list_only {
+                        navigator.push(Route::MangaDetailsPage { id: id.clone() });
+                    } else {
+                        navigator.push(reader_route(&id, &chapter));
+                    }
                 },
             }
         }

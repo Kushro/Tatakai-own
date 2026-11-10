@@ -16,6 +16,9 @@
     <string name="details_episode_title">%1$d. %2$s</string>
     <string name="details_filler">Filler</string>
     <string name="details_watched">Watched</string>
+    <string name="details_mark_watched">Mark episode %1$d as watched</string>
+    <string name="details_mark_unwatched">Mark episode %1$d as not watched</string>
+    <string name="details_mark_failed">Could not update the list: %1$s</string>
     <string name="details_resume_at">Resume at %1$s</string>
     <string name="details_aired">Aired %1$s</string>
     <plurals name="details_episodes_count">

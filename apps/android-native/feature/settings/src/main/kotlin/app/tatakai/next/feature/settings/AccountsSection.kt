@@ -224,6 +224,12 @@ internal fun AccountsSection(state: SettingsUiState, vm: SettingsViewModel) {
         onChange = { on -> vm.updateSettings { it.copy(autoListAdd = on) } },
         hint = stringResource(R.string.settings_accounts_auto_add_hint),
     )
+    SwitchRow(
+        label = stringResource(R.string.settings_accounts_write_back),
+        checked = state.settings.listsWriteBack,
+        onChange = { on -> vm.updateSettings { it.copy(listsWriteBack = on) } },
+        hint = stringResource(R.string.settings_accounts_write_back_hint),
+    )
 
     SettingRow(stringResource(R.string.settings_accounts_transfer), stringResource(R.string.settings_accounts_transfer_hint), stack = true) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

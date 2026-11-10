@@ -149,3 +149,10 @@ button.tk-drelated__row:hover { background: var(--md-sys-color-surface-container
   .tk-dhead { grid-template-columns: minmax(0, 1fr); }
   .tk-dhead__cover { max-width: 180px; }
 }
+
+/* Manual watched / not-watched toggle beside each episode row (AniList-first progress). */
+.tk-dep-wrap { position: relative; }
+.tk-dep-wrap > .tk-dep { padding-inline-end: 56px; }
+.tk-dep-wrap > .tk-dep__mark { position: absolute; inset-inline-end: var(--tk-space-8); top: 50%; transform: translateY(-50%); }
+.tk-dep-wrap[data-watched="false"] > .tk-dep__mark { opacity: 0.55; }
+.tk-dep-wrap[data-watched="false"]:hover > .tk-dep__mark, .tk-dep-wrap > .tk-dep__mark:focus-visible { opacity: 1; }

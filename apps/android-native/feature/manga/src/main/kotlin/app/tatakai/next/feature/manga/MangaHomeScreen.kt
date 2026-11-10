@@ -75,6 +75,7 @@ import app.tatakai.next.designsystem.components.rememberAfterDelay
 import app.tatakai.next.manga.ChapterText
 import app.tatakai.next.manga.MangaRepositoryImpl
 import app.tatakai.next.model.AppSettings
+import app.tatakai.next.model.ContinueReadingItem
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MangaReaderArgs
 import app.tatakai.next.model.MatureContentMode
@@ -106,6 +107,7 @@ fun MangaHomeScreen(
     val vm: MangaHomeViewModel = koinViewModel()
     LaunchedEffect(initialQuery) { vm.applyInitial(initialQuery) }
     val home by vm.home.collectAsStateWithLifecycle()
+    val continueReading by vm.continueReading.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val prefs by vm.prefs.collectAsStateWithLifecycle()
     val filters by vm.filters.collectAsStateWithLifecycle()
@@ -151,6 +153,7 @@ fun MangaHomeScreen(
             } else {
                 HomeContent(
                     home = home,
+                    continueReading = continueReading,
                     settings = settings,
                     adultAccepted = prefs.adultGateAccepted,
                     onRefresh = vm::refresh,
@@ -346,6 +349,7 @@ private fun HomeContent(
     onRetryAdult: () -> Unit,
     onDismissUpdate: (String) -> Unit,
     onOpenAccounts: () -> Unit,
+    continueReading: List<ContinueReadingItem> = emptyList(),
 ) {
     val lang = settings.mangaTitleLanguage
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -362,11 +366,23 @@ private fun HomeContent(
             }
         }
         // Continue reading
-        if (home.lastRead.isNotEmpty()) {
+        if (continueReading.isNotEmpty()) {
             item(key = "continue") {
                 SectionHeader(stringResource(R.string.manga_continue_reading))
                 LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(home.lastRead, key = { it.mediaId }) { p ->
+                    items(continueReading, key = { it.mediaId }) { c ->
+                        val p = home.lastRead.firstOrNull { it.mediaId == c.mediaId }?.takeIf { c.resume }
+                        // list-only (or list ahead of the saved page): "Capítulo N" opens the details, which pick the source
+                        if (p == null) {
+                            ContinueCard(
+                                title = c.title,
+                                cover = c.poster,
+                                line = stringResource(R.string.manga_chapter_n, ChapterText.formatNumber(c.chapter) ?: "?"),
+                                progress = null,
+                                onClick = { onMediaClick(c.toMedia()) },
+                            )
+                            return@items
+                        }
                         ContinueCard(
                             title = p.title,
                             cover = p.poster,

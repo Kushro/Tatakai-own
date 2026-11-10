@@ -59,7 +59,7 @@ jobs:
         with:
           node-version: '22'
       - name: Tokens and contracts
-        run: node --test packages/tokens/test contracts/test
+        run: node --test packages/tokens/test/*.test.mjs contracts/test/*.test.mjs
 
   desktop:
     name: Desktop (Linux tests + release build check)

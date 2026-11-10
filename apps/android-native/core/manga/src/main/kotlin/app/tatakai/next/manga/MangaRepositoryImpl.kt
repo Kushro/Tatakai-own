@@ -29,6 +29,7 @@ import app.tatakai.next.model.MediaSearchQuery
 import app.tatakai.next.model.MediaSort
 import app.tatakai.next.model.MetadataRepository
 import app.tatakai.next.model.ReadEntry
+import app.tatakai.next.model.ReadListPuller
 import app.tatakai.next.model.ReadingProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -137,7 +138,7 @@ class MangaRepositoryImpl(
     private val storeDir: File,
     private val settings: () -> AppSettings = { AppSettings() },
     private val clock: () -> Long = System::currentTimeMillis,
-) : MangaRepository, ChapterDownloadSource, AppDataWiper, MangaCatalog {
+) : MangaRepository, ChapterDownloadSource, AppDataWiper, MangaCatalog, ReadListPuller {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val anilist = AniListMangaApi(client)
     private val mangaUpdatesClient = MangaUpdatesClient(client)
@@ -150,7 +151,9 @@ class MangaRepositoryImpl(
     private val seriesStore = JsonFileStore(File(storeDir, "mangaupdates.json"), MapSerializer(String.serializer(), CachedSeries.serializer())) { emptyMap() }
     private val downloadsStore = JsonFileStore(File(storeDir, "downloads.json"), ListSerializer(DownloadedChapter.serializer())) { emptyList() }
     private val updatesStore = JsonFileStore(File(storeDir, "updates.json"), UpdatesDoc.serializer()) { UpdatesDoc() }
-    private val readlistStore = ReadlistStore(File(storeDir, "readlist.json"), anilist, lists, novels = false, clock = clock)
+    private val readlistStore = ReadlistStore(
+        File(storeDir, "readlist.json"), anilist, lists, novels = false, clock = clock, writeBack = { settings().listsWriteBack },
+    )
 
     private val progressState = MutableStateFlow<Map<String, ReadingProgress>>(emptyMap())
     private val downloadsState = MutableStateFlow<List<DownloadedChapter>>(emptyList())
@@ -480,6 +483,9 @@ class MangaRepositoryImpl(
     override suspend fun setReadProgress(ref: MediaRef, chapters: Int): Result<Unit> = readlistStore.setProgress(ref, chapters)
 
     override suspend fun pullReadlist(): Result<Int> = readlistStore.pull()
+
+    /** "Sincronizar ahora" of the lists (ListsRepository.syncNow) refreshes the manga read list too. */
+    override suspend fun pullReadList(): Result<Int> = readlistStore.pull()
 
     override suspend fun updatePrefs(transform: (MangaPrefs) -> MangaPrefs) {
         _prefs.value = prefsStore.update(transform)

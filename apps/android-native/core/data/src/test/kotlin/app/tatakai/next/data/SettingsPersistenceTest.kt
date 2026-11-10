@@ -43,6 +43,7 @@ class SettingsPersistenceTest {
 
     private val custom = AppSettings(
         paletteId = "sakura",
+        listsWriteBack = false,
         amoled = true,
         contrast = ContrastPref.HIGH,
         dynamicColor = false,

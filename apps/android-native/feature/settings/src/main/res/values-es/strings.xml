@@ -168,6 +168,8 @@
     <string name="settings_accounts_auto_progress_hint">Al terminar un episodio de un título de tu lista, su progreso avanza.</string>
     <string name="settings_accounts_auto_add">Añadir a Viendo al empezar</string>
     <string name="settings_accounts_auto_add_hint">Terminar un episodio de un título que no está en tu lista lo añade como Viendo.</string>
+    <string name="settings_accounts_write_back">Enviar los cambios a las cuentas</string>
+    <string name="settings_accounts_write_back_hint">Desactivado: las listas solo vienen de AniList / MAL y los cambios se quedan en este teléfono.</string>
     <!-- lists.import-export (parity wave A closure, worker q): hoja del modo de la primera sincronización -->
     <string name="settings_accounts_sync_mode_title">Cómo sincronizar con %1$s</string>
     <string name="settings_accounts_sync_mode_body_first">Tu lista en este teléfono ya tiene títulos. Elige cómo combinarla con tu lista de %1$s.</string>

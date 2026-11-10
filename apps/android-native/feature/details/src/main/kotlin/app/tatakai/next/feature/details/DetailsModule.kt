@@ -25,6 +25,8 @@ val detailsModule = module {
             prefs = get(),
             // parity wave B (r): downloadModule (:core:download); offline playback of completed downloads.
             downloads = getOrNull(),
+            // dataModule: list progress (AniList / MAL mirror) for resume, watched marks and the manual toggle.
+            lists = getOrNull(),
         )
     }
     viewModel { params ->

@@ -13,6 +13,7 @@ import app.tatakai.next.manga.MangaUpdatesSeries
 import app.tatakai.next.manga.key
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppSettings
+import app.tatakai.next.model.ListProgress
 import app.tatakai.next.model.ListStatus
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MangaChapter
@@ -221,6 +222,43 @@ class MangaDetailsViewModel(
         }
     }
 
+    /**
+     * Chapter row toggle (ListProgress, same rules as the episodes): read sets P = max(P, n) (adds the title as Leyendo when it is not
+     * on the readlist; reaching the total completes it), not read sets P = min(P, n - 1). Through the readlist (AniList when linked).
+     */
+    fun toggleRead(chapter: MangaChapter) {
+        val n = ListProgress.chapterIndex(chapter.number) ?: return
+        val media = (_ui.value.info as? LoadState.Ok)?.value?.media ?: return
+        val current = entry.value
+        val read = ListProgress.isChapterRead(chapter.number, current?.progress ?: 0)
+        viewModelScope.launch {
+            val result = if (read) {
+                // a finished title becomes Leyendo again (P = n - 1 < T)
+                val reopened = ListProgress.statusAfterUnmark(current?.status)?.let { repo.setReadStatus(media, it) } ?: Result.success(Unit)
+                reopened.fold(
+                    onSuccess = { repo.setReadProgress(ref, ListProgress.toggledProgress(current?.progress ?: 0, n, watched = false)) },
+                    onFailure = { Result.failure(it) },
+                )
+            } else {
+                val added = if (current == null) repo.setReadStatus(media, ListStatus.WATCHING) else Result.success(Unit)
+                added.fold(
+                    onSuccess = { repo.setReadProgress(ref, ListProgress.toggledProgress(current?.progress ?: 0, n, watched = true, total = current?.totalChapters ?: media.episodes)) },
+                    onFailure = { Result.failure(it) },
+                )
+            }
+            result.onFailure { e -> _events.tryEmit(DetailsEvent.Failed(e.toAppError())) }
+        }
+    }
+
+    /** The chapter number "Leer capítulo N" opens: the saved one when it wins, else the first after max(P, saved); null = unknown. */
+    fun nextChapterNumber(p: ReadingProgress?, e: ReadEntry?, chapters: List<MangaChapter>): Double? {
+        val listProgress = e?.progress ?: 0
+        if (p != null && ListProgress.resumeSaved(p.chapterNumber, p.completed, listProgress)) return p.chapterNumber
+        val read = ListProgress.readThrough(p?.chapterNumber, listProgress)
+        val asc = ChapterLists.sorted(chapters, ChapterOrder.ASC)
+        return asc.firstOrNull { (it.number ?: 0.0) > read }?.number ?: (read.toInt() + 1).toDouble().takeIf { chapters.isEmpty() && read > 0 }
+    }
+
     fun acceptMature() {
         viewModelScope.launch { catalog.updatePrefs { it.copy(matureAccepted = it.matureAccepted + anilistId) } }
     }
@@ -248,7 +286,9 @@ class MangaDetailsViewModel(
      */
     fun readNext() {
         val p = progress.value
-        if (p != null && !p.completed) {
+        val listProgress = entry.value?.progress ?: 0
+        // the saved page wins unless the list (AniList) is already past that chapter (ListProgress.resumeSaved)
+        if (p != null && ListProgress.resumeSaved(p.chapterNumber, p.completed, listProgress)) {
             _events.tryEmit(
                 DetailsEvent.Open(
                     MangaReaderArgs(mediaId, p.title, p.poster, p.extensionId, p.sourceId, p.itemId, p.chapterId, p.chapterNumber, p.page, anilistId = anilistId),
@@ -258,7 +298,7 @@ class MangaDetailsViewModel(
         }
         val list = (_ui.value.chapters as? LoadState.Ok)?.value.orEmpty()
         val asc = ChapterLists.sorted(list, ChapterOrder.ASC)
-        val read = maxOf(entry.value?.progress?.toDouble() ?: 0.0, p?.chapterNumber ?: 0.0)
+        val read = ListProgress.readThrough(p?.chapterNumber, listProgress)
         val wanted = asc.firstOrNull { (it.number ?: 0.0) > read }?.number ?: asc.firstOrNull()?.number
         _ui.update { it.copy(opening = true) }
         viewModelScope.launch {

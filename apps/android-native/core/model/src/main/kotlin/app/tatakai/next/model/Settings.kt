@@ -50,6 +50,12 @@ data class AppSettings(
     val autoListProgress: Boolean = true,
     /** Worker q: playing a title that is not on the list adds it as WATCHING (checklist lists.auto-add). Off by default. */
     val autoListAdd: Boolean = false,
+    /**
+     * "Enviar los cambios a las cuentas" (desktop `Settings::lists.write_back`): on = local list edits (editor, automatic progress,
+     * watched toggles, manga / novel read lists) are pushed to AniList / MAL; off = lists only come from the accounts (pulls still
+     * happen) and local changes stay on this phone.
+     */
+    val listsWriteBack: Boolean = true,
     /** Worker q: check the release feed once a day and show the new-version notice in Acerca de. */
     val updateCheck: Boolean = true,
     /** Worker o: include 18+ titles in search and feeds (classic "mature content" toggle). */

@@ -16,6 +16,9 @@
     <string name="details_episode_title">%1$d. %2$s</string>
     <string name="details_filler">Relleno</string>
     <string name="details_watched">Visto</string>
+    <string name="details_mark_watched">Marcar el episodio %1$d como visto</string>
+    <string name="details_mark_unwatched">Marcar el episodio %1$d como no visto</string>
+    <string name="details_mark_failed">No se pudo actualizar la lista: %1$s</string>
     <string name="details_resume_at">Retomar en %1$s</string>
     <string name="details_aired">Emitido %1$s</string>
     <plurals name="details_episodes_count">

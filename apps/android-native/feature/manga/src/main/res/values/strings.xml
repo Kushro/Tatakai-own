@@ -26,6 +26,10 @@
     <string name="manga_characters">Characters</string>
     <string name="manga_clear_cache">Clear cache</string>
     <string name="manga_continue">Continue</string>
+    <string name="manga_read_chapter">Read chapter %1$s</string>
+    <string name="manga_continue_chapter">Continue chapter %1$s</string>
+    <string name="manga_mark_read">Mark chapter %1$s as read</string>
+    <string name="manga_mark_unread">Mark chapter %1$s as not read</string>
     <string name="manga_continue_line">Ch. %1$s · page %2$d / %3$d</string>
     <string name="manga_continue_reading">Continue reading</string>
     <string name="manga_direction_ltr">Left to right</string>

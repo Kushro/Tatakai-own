@@ -16,6 +16,10 @@
     <string name="novel_chapters_empty">No chapters match.</string>
     <string name="novel_check_all">Check all</string>
     <string name="novel_continue">Continue</string>
+    <string name="novel_read_chapter">Read chapter %1$s</string>
+    <string name="novel_continue_chapter">Continue chapter %1$s</string>
+    <string name="novel_mark_read">Mark chapter %1$s as read</string>
+    <string name="novel_mark_unread">Mark chapter %1$s as not read</string>
     <string name="novel_continue_line">Ch. %1$s · %2$d%%</string>
     <string name="novel_continue_reading">Continue reading</string>
     <string name="novel_download">Download</string>

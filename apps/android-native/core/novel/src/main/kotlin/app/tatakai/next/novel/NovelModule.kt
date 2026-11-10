@@ -3,6 +3,7 @@ package app.tatakai.next.novel
 
 import app.tatakai.next.model.AppDataWiper
 import app.tatakai.next.model.ChapterDownloadSource
+import app.tatakai.next.model.ReadListPuller
 import app.tatakai.next.model.Narrator
 import app.tatakai.next.model.NovelRepository
 import app.tatakai.next.model.SettingsRepository
@@ -27,7 +28,7 @@ val novelModule: Module = module {
             storeDir = File(androidContext().filesDir, NovelRepositoryImpl.DIR_NAME),
             settings = { settings.settings.value },
         )
-    } binds arrayOf(AppDataWiper::class, ChapterDownloadSource::class)
+    } binds arrayOf(AppDataWiper::class, ChapterDownloadSource::class, ReadListPuller::class)
     single<NovelRepository> { get<NovelRepositoryImpl>() }
     single<Narrator> {
         val settings = get<SettingsRepository>()

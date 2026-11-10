@@ -14,6 +14,7 @@ import app.tatakai.next.model.ListProvider
 import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.LogRepository
 import app.tatakai.next.model.MetadataRepository
+import app.tatakai.next.model.ReadListPuller
 import app.tatakai.next.model.SecretStore
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SourceStatsStore
@@ -80,6 +81,8 @@ val dataModule: Module = module {
     single { PendingOAuthRedirect() }
     single<SecretStore> { KeystoreSecretStore(androidContext().noBackupFilesDir) }
     single<ListsRepository> {
+        val scope = this
+        val listSettings = get<SettingsRepository>()
         val anilistId = getPropertyOrNull<String>(PROP_ANILIST_CLIENT_ID)
         val malId = getPropertyOrNull<String>(PROP_MAL_CLIENT_ID)
         ListsRepositoryImpl(
@@ -89,6 +92,9 @@ val dataModule: Module = module {
             mal = MalListClient(get()),
             clientIds = { p -> if (p == ListProvider.ANILIST) anilistId else malId },
             scheduler = WorkManagerListSyncScheduler(androidContext()),
+            // manga / novel read lists (mangaModule, novelModule), resolved lazily: they need this repository themselves
+            readLists = { scope.getAll<ReadListPuller>() },
+            writeBack = { listSettings.settings.value.listsWriteBack },
         )
     }
     single<LogRepository> { AppLogStore(File(androidContext().filesDir, "logs")).also { AppLog.sink = it } }

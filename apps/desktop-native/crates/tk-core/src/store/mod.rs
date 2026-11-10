@@ -500,6 +500,17 @@ impl LocalStore {
         Ok(continue_watching(self.history(500)?, limit))
     }
 
+    /// Manual "not watched" from episode `episode` on: those history rows are no longer completed (the sync to the
+    /// phone sees them as changed).
+    pub fn reopen_history_from(&self, anime_id: &str, episode: u32) -> Result<usize, StoreError> {
+        self.with(|c| {
+            c.execute(
+                "UPDATE history SET completed = 0, progress_sec = 0, dirty = 1 WHERE anime_id = ?1 AND episode >= ?2 AND completed = 1",
+                rusqlite::params![anime_id, episode],
+            )
+        })
+    }
+
     pub fn progress_for(&self, anime_id: &str) -> Result<Vec<HistoryEntry>, StoreError> {
         self.with(|c| {
             let mut st = c.prepare("SELECT * FROM history WHERE anime_id = ?1 ORDER BY episode ASC")?;

@@ -168,6 +168,8 @@
     <string name="settings_accounts_auto_progress_hint">When you finish an episode of a title on your list, its progress moves forward.</string>
     <string name="settings_accounts_auto_add">Add to Watching when I start</string>
     <string name="settings_accounts_auto_add_hint">Finishing an episode of a title not on your list adds it as Watching.</string>
+    <string name="settings_accounts_write_back">Send changes to accounts</string>
+    <string name="settings_accounts_write_back_hint">Off: lists only come from AniList / MAL and changes stay on this phone.</string>
     <!-- lists.import-export (parity wave A closure, worker q): first-sync mode sheet -->
     <string name="settings_accounts_sync_mode_title">How to sync with %1$s</string>
     <string name="settings_accounts_sync_mode_body_first">Your list on this phone already has titles. Choose how to combine it with your %1$s list.</string>

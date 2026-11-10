@@ -8,6 +8,7 @@
 pub mod import;
 pub mod mal;
 pub mod oauth;
+pub mod progress;
 pub mod sync;
 
 use serde::{Deserialize, Serialize};

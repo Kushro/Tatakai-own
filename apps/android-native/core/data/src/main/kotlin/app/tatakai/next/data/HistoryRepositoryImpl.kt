@@ -5,6 +5,7 @@ import app.tatakai.next.link.LinkHistoryRow
 import app.tatakai.next.link.LinkHistoryUnavailableException
 import app.tatakai.next.model.HistoryEntry
 import app.tatakai.next.model.HistoryRepository
+import app.tatakai.next.model.ListProgress
 import app.tatakai.next.model.ListStatus
 import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.Media
@@ -20,6 +21,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 /**
@@ -38,16 +42,37 @@ class HistoryRepositoryImpl(
     private val autoListAdd: () -> Boolean = { false },
 ) : HistoryRepository {
 
-    /** Legacy rule: drop completed rows, keep ONE row per anime (the most recently watched episode). */
-    override fun continueWatching(limit: Int): Flow<List<HistoryEntry>> =
-        dao.observeRecent(RECENT_WINDOW).map { rows ->
+    /**
+     * Legacy rule: drop completed rows, keep ONE row per anime (the most recently watched episode); then merged with the list entries
+     * being watched (`ListProgress.mergeContinueWatching`), so titles watched on AniList / MAL show up too.
+     */
+    override fun continueWatching(limit: Int): Flow<List<HistoryEntry>> {
+        val fromHistory = dao.observeRecent(RECENT_WINDOW).map { rows ->
             rows.asSequence()
                 .filter { !it.completed }
                 .distinctBy { it.animeId }
-                .take(limit)
                 .map { it.toEntry() }
                 .toList()
         }
+        val repo = lists ?: return fromHistory.map { it.take(limit) }
+        val listed = repo.entries(null).catch { emit(emptyList()) }.distinctUntilChanged()
+        return combine(fromHistory, listed) { history, entries -> ListProgress.mergeContinueWatching(history, entries, limit) }
+            .distinctUntilChanged()
+    }
+
+    /** "Marcar como no visto": the rows of [ref] for episodes >= [fromEpisode] stop counting as completed (pushed to the PC as changed). */
+    override suspend fun clearCompleted(ref: MediaRef, fromEpisode: Int) {
+        val animeId = HistoryEntry.animeIdOf(ref.anilistId, ref.malId) ?: return
+        val rows = dao.observeForAnime(ref.anilistId ?: -1, animeId).first()
+        var changed = false
+        for (row in rows) {
+            if (row.episode < fromEpisode || !row.completed) continue
+            // +1 ms: the change must win the Link merge (newest watchedAt) without reordering the history
+            dao.upsert(row.copy(completed = false, watchedAtMs = row.watchedAtMs + 1, syncedAtMs = null))
+            changed = true
+        }
+        if (changed) scheduler.requestSync(immediate = false)
+    }
 
     override suspend fun record(entry: HistoryEntry) {
         val existing = dao.get(entry.episodeId)

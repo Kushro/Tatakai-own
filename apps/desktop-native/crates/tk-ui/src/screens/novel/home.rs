@@ -101,6 +101,10 @@ impl NovelFilters {
 
 /// Reader route of a "Continue reading" card.
 pub fn resume_route(c: &ContinueReadVm) -> Route {
+    // From the AniList list only (no reader position here): open the title.
+    if c.progress.chapter.ext_id.is_empty() {
+        return Route::NovelDetailsPage { id: c.media.id.clone() };
+    }
     Route::NovelReaderPage {
         id: c.media.id.clone(),
         ext_id: c.progress.chapter.ext_id.clone(),
