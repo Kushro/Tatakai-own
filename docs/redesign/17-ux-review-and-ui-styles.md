@@ -165,7 +165,17 @@ Leyenda: **C+** = lo que el clásico hace mejor · **R+** = lo que el rediseño 
 | Densidad | `s03`, `s07` | Mucho aire vertical arriba y luego todo el contenido abajo del pliegue. El clásico mostraba más arriba del pliegue. |
 | Accesibilidad | `nav_rail.rs`, `s03` | Bien: `aria-current`, `aria-label`, foco visible, reduce-motion. Mal: etiquetas truncadas sin tooltip en el rail compacto (solo `title`) y el contraste de los chips outline del lector o estado de manga es bajo. |
 
-### 1.15 Top 15 por impacto en el usuario
+### 1.15 Prueba con extensiones (2026-11-09, después de los arreglos)
+
+Perfil limpio en el monitor secundario, con Toko 4.5.5, Latino 1.0.1 y HentaiDB 1.1.0 instaladas desde la propia UI (Extensiones › Ruta de un archivo .kai) y el audio de la app silenciado. Capturas en `parity/wave-b/after-fixes/`.
+
+- **Instalar** (`e3`): las tres entraron a la primera, con compatibilidad "Completa", permisos y SHA-256. El bloque de instalación sigue arriba de la lista aunque ya haya extensiones (#7).
+- **Buscar → ficha** (`f1s`, `f3`): Frieren aparece primero. La ficha ahora carga Información, Personajes y Relacionados. Sigue plana (#2) y repite "Enviar a dispositivo" en la cabecera, en la barra flotante y en una tarjeta lateral.
+- **Fuentes** (`g1`, `g2s`): 16 fuentes en ~40 s. La recomendada es Toko · anizone (720p HLS, subs ES, audio JA), que coincide con las preferencias. El ranking y las etiquetas de release se leen bien; los problemas están en #17 y #18.
+- **Reproducción** (`h1`): "Ver episodio 1" arrancó anizone y reprodujo (1:22 de 25:59, con "Saltar intro" a tiempo). El video de mpv no sale en las capturas del inspector ni en las de escritorio (mpv dibuja en una subsuperficie), así que el reproductor se evalúa por sus controles.
+- **No probado**: lector de manga y de novela con una extensión `read` / `novel` (estas tres son de anime), descargas reales y el sniffer de embeds.
+
+### 1.16 Top 19 por impacto en el usuario
 
 | # | Problema | Captura | Arreglo en una línea |
 |---|---|---|---|
@@ -184,8 +194,12 @@ Leyenda: **C+** = lo que el clásico hace mejor · **R+** = lo que el rediseño 
 | 13 | Biblioteca mezcla calendario y social | `s19` | Sacar el widget de emisión. Lo social va a la entrada de cuenta (avatar) del shell. |
 | 14 | CTA "Ver" en manga y novela; estado de lectura como chips sueltos | `s10`, `s11`, `s12` | "Leer" y el mismo "Añadir a lista ▾" que en anime. |
 | 15 | Íconos ambiguos y doble hamburguesa | `s03` | Novelas → `book`, Manga → `menu_book`/`auto_stories`. Quitar la hamburguesa de la title bar. |
+| 16 | Asistente inicial plano: tarjeta alineada a la izquierda sobre fondo vacío, stepper partido en 2 líneas, 21 chips de paleta sin vista previa | `after-fixes/wizard-1`, `s01` | Layout centrado con panel de vista previa a la derecha (la app con la paleta y el modo elegidos), stepper de una línea con números y conector, paletas como swatches grandes. |
+| 17 | La ficha dice "no hay fuentes" o muestra un esqueleto durante ~40 s mientras las extensiones resuelven, sin decir qué pasa | `after-fixes/f3` | Estado "Buscando en Toko, Latino… (2 de 3)" con progreso por extensión y lo primero que llega ya listado. |
+| 18 | Hoja de fuentes: todas dicen "Confiabilidad: Media · 80 %", el hash del torrent se ve crudo y un pack de 44 GB con doblaje RU queda 4.º | `after-fixes/g2s` | Ocultar la confiabilidad hasta tener historial propio, hash en un "copiar", y bajar packs y audio que no coincide con las preferencias (o agruparlos bajo "Otras"). |
+| 19 | Reproductor con 18 botones y la barra inferior que se esconde enseguida | `after-fixes/h1` | Agrupar Imagen en imagen, Captura, Temporizador y Atajos en "Más"; la barra no se oculta mientras el puntero está sobre ella. |
 
-Del 1 al 15 todos afectan a los dos estilos. Conviene arreglarlos **antes** o en paralelo a la Fase 1 de abajo, porque si no se mantienen dos veces.
+Del 1 al 19 todos afectan a los dos estilos (16 a 19 salieron de la prueba con extensiones de §1.15). Conviene arreglarlos **antes** o en paralelo a la Fase 1 de abajo, porque si no se mantienen dos veces.
 
 ---
 
