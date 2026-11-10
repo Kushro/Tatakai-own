@@ -17,3 +17,19 @@ subprojects {
         if (name.startsWith("check") && name.endsWith("AarMetadata")) enabled = false
     }
 }
+
+// A library's bundle<Variant>Aar (run by the root `assembleDebug`) still declares the disabled check's output directory as an
+// input and fails validation when it is missing. A tiny task creates that (empty) directory first; validation runs before a
+// task's own actions, so a doFirst would be too late.
+subprojects {
+    plugins.withId("com.android.library") {
+        for (variant in listOf("Debug", "Release")) {
+            val checkDir = layout.buildDirectory.dir("intermediates/aar_metadata_check/${variant.lowercase()}/check${variant}AarMetadata")
+            val prep = tasks.register("prepare${variant}AarMetadataCheckDir") {
+                outputs.dir(checkDir)
+                doLast { checkDir.get().asFile.mkdirs() }
+            }
+            tasks.matching { it.name == "bundle${variant}Aar" }.configureEach { dependsOn(prep) }
+        }
+    }
+}
