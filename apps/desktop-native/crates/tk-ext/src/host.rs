@@ -400,35 +400,64 @@ impl ExtensionHost {
     /// [`tk_core::sources::INITIAL_RELIABILITY`] until the caller applies `LocalStore::reliability`. Failures of one
     /// extension (or one route) never fail the others.
     pub async fn resolve_candidates(&self, media: &Media, episode: u32) -> Vec<SourceCandidate> {
-        let exts: Vec<(String, String, &'static str, f64)> = {
+        // One entry per extension with its routes. Extensions run concurrently, but the routes of ONE extension run one
+        // after the other, `torrent` first: an extension is a single JS thread, and running `stream` (dozens of
+        // scraping providers, ~40 s) next to `torrent` starved the torrent providers past their own per-provider
+        // timeout (Toko's Nyaa dropped every result in the app while it returned 20 alone).
+        let exts: Vec<(String, String, Vec<&'static str>, f64)> = {
             let map = self.lock();
             let mut v: Vec<_> = map
                 .values()
                 .filter(|e| e.enabled && e.report.level != Compat::Unsupported)
-                .flat_map(|e| {
-                    candidate_routes(&e.manifest, e.torrent_all)
-                        .into_iter()
-                        .map(|route| (e.manifest.id.clone(), e.manifest.name.clone(), route, e.manifest.priority()))
-                        .collect::<Vec<_>>()
-                })
+                .map(|e| (e.manifest.id.clone(), e.manifest.name.clone(), candidate_routes(&e.manifest, e.torrent_all), e.manifest.priority()))
+                .filter(|(_, _, routes, _)| !routes.is_empty())
                 .collect();
             v.sort_by(|a, b| a.3.total_cmp(&b.3).then_with(|| a.0.cmp(&b.0)));
             v
         };
         let params = stream_params(media, episode);
-        let futs = exts.iter().map(|(id, name, route, _)| {
+        let futs = exts.iter().map(|(id, name, routes, _)| {
             let params = params.clone();
             async move {
-                match self.call(id, route, params).await {
-                    Ok(v) => map_candidates(id, name, &v),
-                    Err(e) => {
-                        tracing::warn!(extension = %id, route = %route, error = %e, "source listing failed");
-                        Vec::new()
-                    }
+                let mut ordered: Vec<&'static str> = routes.iter().copied().filter(|r| *r == "torrent").collect();
+                ordered.extend(routes.iter().copied().filter(|r| *r != "torrent"));
+                let mut by_route: Vec<(&'static str, Vec<SourceCandidate>)> = Vec::new();
+                for route in ordered {
+                    by_route.push((route, self.list_route(id, name, route, params.clone()).await));
                 }
+                // Output keeps the manifest's route order (stream before torrent), whatever order they ran in.
+                routes
+                    .iter()
+                    .flat_map(|r| by_route.iter().filter(|(x, _)| x == r).flat_map(|(_, c)| c.clone()).collect::<Vec<_>>())
+                    .collect::<Vec<_>>()
             }
         });
         futures_util::future::join_all(futs).await.into_iter().flatten().collect()
+    }
+
+    /// One route of one extension mapped to candidates (failures are logged and yield none).
+    async fn list_route(&self, id: &str, name: &str, route: &'static str, params: Value) -> Vec<SourceCandidate> {
+        let started = std::time::Instant::now();
+        let episode = params["episode"].clone();
+        match self.call(id, route, params).await {
+            Ok(v) => {
+                let raw = v["sources"].as_array().map_or(0, Vec::len);
+                let mapped = map_candidates(id, name, &v);
+                if tracing::enabled!(tracing::Level::DEBUG) {
+                    let mut by: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+                    for s in v["sources"].as_array().into_iter().flatten() {
+                        let key = s["source"].as_str().or_else(|| s["providerKey"].as_str()).unwrap_or("?").to_owned();
+                        *by.entry(key).or_default() += 1;
+                    }
+                    tracing::debug!(extension = %id, route = %route, episode = %episode, raw, mapped = mapped.len(), ms = started.elapsed().as_millis() as u64, providers = ?by, "source listing");
+                }
+                mapped
+            }
+            Err(e) => {
+                tracing::warn!(extension = %id, route = %route, error = %e, "source listing failed");
+                Vec::new()
+            }
+        }
     }
 }
 

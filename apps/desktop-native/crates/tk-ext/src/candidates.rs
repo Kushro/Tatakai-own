@@ -101,13 +101,19 @@ fn map_one(ext_id: &str, ext_name: &str, s: &Value) -> Option<SourceCandidate> {
             .or_else(|| text(&s["hash"]))
             .or_else(|| magnet.as_deref().and_then(btih))
             .and_then(|h| hex_info_hash(&h))?;
-        let release_name = text(&s["torrentTitle"])
-            .or_else(|| text(&s["title"]))
-            .or_else(|| text(&s["name"]))
-            .or_else(|| text(&s["releaseName"]))
-            .or_else(|| text(&s["fileName"]))
-            .or_else(|| magnet.as_deref().and_then(magnet_name));
-        let mut tags = release_name.as_deref().map(parse_release).unwrap_or_default();
+        // The first name that says something (a group or a resolution) wins: SubsPlease's `torrentTitle` is the bare
+        // "Title - 06" while its magnet `dn` is the full release name with group and resolution.
+        let names: Vec<String> = [text(&s["torrentTitle"]), text(&s["title"]), text(&s["name"]), text(&s["releaseName"]), text(&s["fileName"])]
+            .into_iter()
+            .flatten()
+            .chain(magnet.as_deref().and_then(magnet_name))
+            .collect();
+        let mut tags = names
+            .iter()
+            .map(|n| parse_release(n))
+            .find(|t| t.group.is_some() || t.resolution != Quality::Unknown)
+            .or_else(|| names.first().map(|n| parse_release(n)))
+            .unwrap_or_default();
         if tags.resolution == Quality::Unknown {
             tags.resolution = quality;
         }
@@ -129,7 +135,10 @@ fn map_one(ext_id: &str, ext_name: &str, s: &Value) -> Option<SourceCandidate> {
             .unwrap_or(provider);
         let torrent = TorrentInfo {
             info_hash,
-            size_bytes: size_of(&s["sizeBytes"]).or_else(|| size_of(&s["fileSize"])).or_else(|| size_of(&s["size"])),
+            size_bytes: size_of(&s["sizeBytes"])
+                .or_else(|| size_of(&s["fileSize"]))
+                .or_else(|| size_of(&s["size"]))
+                .or_else(|| magnet.as_deref().and_then(magnet_length)),
             seeders: count(&s["seeders"]),
             leechers: count(&s["leechers"]),
             magnet,
@@ -231,6 +240,12 @@ fn size_of(v: &Value) -> Option<u64> {
 }
 
 /// `dn=<name>` of a magnet link, percent-decoded (`+` is a space).
+/// `xl=` (exact length in bytes) of a magnet link.
+fn magnet_length(magnet: &str) -> Option<u64> {
+    let query = magnet.split_once('?')?.1;
+    query.split('&').find_map(|kv| kv.strip_prefix("xl=")).and_then(|v| v.parse().ok()).filter(|n| *n > 0)
+}
+
 fn magnet_name(magnet: &str) -> Option<String> {
     let query = magnet.split_once('?')?.1;
     let raw = query.split('&').find_map(|kv| kv.strip_prefix("dn="))?;
@@ -464,5 +479,19 @@ mod tests {
         assert_eq!(size_of(&json!("0,92 GB")), Some(920_000_000));
         assert_eq!(size_of(&json!("12 parsecs")), None);
         assert_eq!(size_of(&json!(5)), Some(5));
+    }
+
+    #[test]
+    fn a_bare_torrent_title_falls_back_to_the_magnet_release_name_and_length() {
+        // SubsPlease through Toko: bare torrentTitle, the group / resolution / size live in the magnet
+        let body = json!({ "sources": [{
+            "source": "subplease", "sourceType": "torrent", "quality": "unknown", "torrentTitle": "Magical Explorer - 06",
+            "url": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=%5BSubsPlease%5D%20Magical%20Explorer%20-%2006%20%281080p%29%20%5BF86EEED0%5D.mkv&xl=1395864371"
+        }] });
+        let c = map_candidates("toko", "Toko", &body);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].label, "SubsPlease");
+        assert_eq!(c[0].quality, Quality::P1080);
+        assert_eq!(c[0].torrent.as_ref().unwrap().size_bytes, Some(1_395_864_371));
     }
 }

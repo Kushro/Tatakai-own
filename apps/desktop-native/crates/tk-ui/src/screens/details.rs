@@ -599,6 +599,7 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                 now: now_ts,
                 images,
                 on_toggle: (!is_provider).then_some(on_toggle),
+                fallback_image: vm.as_ref().and_then(|d| d.banner.clone().or_else(|| d.media.cover.clone())),
             }
         },
     };
@@ -625,7 +626,9 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
         Some(Ok(list)) => list.iter().any(|e| e.enabled && e.compat.can_enable()),
         _ => true,
     };
-    let sources_panel = if has_source_ext {
+    // Only once the details (and so the episode to continue) are known: rendering it earlier resolved episode 1 first,
+    // and that ~40 s resolution held the extension's single JS thread while the real episode waited behind it.
+    let sources_panel = if has_source_ext && vm.is_some() {
         rsx! {
             section { class: "tk-details__sources",
                 h3 { class: "tk-panel__title", Icon { name: "extensions".to_string(), size: 20 } {t("details.provider")} }
@@ -1121,6 +1124,8 @@ fn EpisodeList(
     #[props(default = true)] images: bool,
     /// Manual watched / not-watched toggle of an episode (`(number, watched)`); `None` hides the buttons.
     #[props(default)] on_toggle: Option<EventHandler<(u32, bool)>>,
+    /// Series artwork for episodes without their own thumbnail (banner, else cover).
+    #[props(default)] fallback_image: Option<String>,
 ) -> Element {
     let navigator = use_navigator();
     let mut query = use_signal(String::new);
@@ -1215,6 +1220,7 @@ fn EpisodeList(
                         div { key: "{n}", class: "tk-dep-wrap", "data-watched": "{seen}",
                             DetailsEpisodeRow {
                                 episode: e.clone(),
+                                fallback_image: fallback_image.clone(),
                                 current: n == resume,
                                 pills,
                                 unaired,
@@ -1256,9 +1262,15 @@ fn DetailsEpisodeRow(
     #[props(default)] unaired: bool,
     #[props(default)] compact: bool,
     #[props(default = true)] images: bool,
+    #[props(default)] fallback_image: Option<String>,
     #[props(default)] onclick: EventHandler<MouseEvent>,
 ) -> Element {
     let n = episode.number;
+    // No episode thumbnail: the series artwork, dimmed, with the number on top (a bare grey box read as "broken").
+    let (thumb, fallback) = match episode.image.clone() {
+        Some(i) => (Some(i), false),
+        None => (fallback_image.clone(), true),
+    };
     let heading = match episode.title.clone() {
         Some(title) => format!("{n}. {title}"),
         None => tf("details.episode", &[("n", &n.to_string())]),
@@ -1285,9 +1297,12 @@ fn DetailsEpisodeRow(
             if compact {
                 span { class: "tk-dep__num", "aria-hidden": "true", "{n}" }
             } else {
-                div { class: "tk-dep__thumb",
-                    if let Some(img) = episode.image.clone().filter(|_| images) {
+                div { class: "tk-dep__thumb", "data-fallback": "{fallback}",
+                    if let Some(img) = thumb.filter(|_| images) {
                         img { src: "{img}", alt: "", loading: "lazy", decoding: "async", draggable: "false" }
+                        if fallback {
+                            span { class: "tk-dep__badge", "aria-hidden": "true", "{n}" }
+                        }
                     } else {
                         span { class: "tk-dep__mono", "aria-hidden": "true", "{n}" }
                     }

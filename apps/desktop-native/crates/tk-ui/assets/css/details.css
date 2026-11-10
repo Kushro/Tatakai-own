@@ -156,3 +156,7 @@ button.tk-drelated__row:hover { background: var(--md-sys-color-surface-container
 .tk-dep-wrap > .tk-dep__mark { position: absolute; inset-inline-end: var(--tk-space-8); top: 50%; transform: translateY(-50%); }
 .tk-dep-wrap[data-watched="false"] > .tk-dep__mark { opacity: 0.55; }
 .tk-dep-wrap[data-watched="false"]:hover > .tk-dep__mark, .tk-dep-wrap > .tk-dep__mark:focus-visible { opacity: 1; }
+
+/* Episode without its own thumbnail: series artwork, dimmed, with the number centred. */
+.tk-dep__thumb[data-fallback="true"] img { filter: brightness(0.45) saturate(0.8); }
+.tk-dep__badge { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--tk-font-display); font-size: var(--md-sys-typescale-title-large-size); font-weight: var(--md-sys-typescale-title-large-weight-emphasized); color: #fff; text-shadow: 0 1px 3px rgb(0 0 0 / 0.6); }
