@@ -118,10 +118,11 @@ impl ExternalPlayer {
         cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         user_env(&mut cmd);
         if let Some(fg) = frame_gen {
-            for (k, v) in fg.env() {
+            let config = fg.write_config().map_err(|e| PlayerError::External(format!("lsfg-vk config: {e}")))?;
+            for (k, v) in fg.env(&config) {
                 cmd.env(k, v);
             }
-            tracing::info!(multiplier = fg.multiplier, "external mpv with lsfg-vk frame generation");
+            tracing::info!(multiplier = fg.multiplier, config = %config.display(), "external mpv with lsfg-vk frame generation");
         }
         #[cfg(windows)]
         {
@@ -275,22 +276,27 @@ fn escape_title(title: &str) -> String {
 }
 
 /// The command line (pure). Never `--no-config`: this mode exists to use the user's own config.
-/// Frame generation for the external mpv (lsfg-vk 2.x environment configuration).
+/// Frame generation for the external mpv through lsfg-vk 2.x. The layer is configured with a dedicated config file
+/// (`LSFGVK_CONFIG`, written next to the app's data) holding one profile active in `mpv`: the user's own
+/// `~/.config/lsfg-vk/conf.toml` is never touched. (Configuring it only by environment, `LSFGVK_ENV`, made the layer
+/// reject the DLL on lsfg-vk 2.0.0.)
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrameGen {
     /// 2..=4 generated frames per real one.
     pub multiplier: u8,
-    /// The user's `Lossless.dll`; `None` = lsfg-vk's own lookup (its config / Steam library).
+    /// The user's `Lossless.dll`; `None` = the `dll` of the user's lsfg-vk config, else lsfg-vk's own lookup.
     pub dll: Option<PathBuf>,
     /// Optical-flow resolution scale, 0.25..=1.0 (Enigmata's balanced profile: 0.85).
     pub flow_scale: f32,
     /// lsfg-vk performance mode (lighter model).
     pub performance: bool,
+    /// Where the dedicated config file is written (`<dir>/lsfg-vk.toml`).
+    pub config_dir: PathBuf,
 }
 
 impl FrameGen {
-    pub fn new(multiplier: u8, dll: Option<PathBuf>) -> Self {
-        Self { multiplier: multiplier.clamp(2, 4), dll, flow_scale: 0.85, performance: false }
+    pub fn new(multiplier: u8, dll: Option<PathBuf>, config_dir: PathBuf) -> Self {
+        Self { multiplier: multiplier.clamp(2, 4), dll, flow_scale: 0.85, performance: false, config_dir }
     }
 
     /// mpv options: Vulkan presentation so the layer sees a swapchain; no display-resample (lsfg paces frames).
@@ -298,19 +304,66 @@ impl FrameGen {
         vec!["--vo=gpu-next".into(), "--gpu-api=vulkan".into(), "--video-sync=audio".into(), "--interpolation=no".into()]
     }
 
-    /// Environment for the mpv process only.
-    pub fn env(&self) -> Vec<(&'static str, String)> {
-        let mut v = vec![
-            ("LSFGVK_ENV", "1".to_owned()),
-            ("LSFGVK_MULTIPLIER", self.multiplier.clamp(2, 4).to_string()),
-            ("LSFGVK_FLOW_SCALE", format!("{:.2}", self.flow_scale.clamp(0.25, 1.0))),
-            ("LSFGVK_PERFORMANCE_MODE", if self.performance { "1".into() } else { "0".into() }),
-        ];
-        if let Some(dll) = &self.dll {
-            v.push(("LSFGVK_DLL_PATH", dll.to_string_lossy().into_owned()));
-        }
-        v
+    /// The DLL to use: ours, else the one the user's lsfg-vk config names.
+    fn dll_path(&self) -> Option<PathBuf> {
+        self.dll.clone().or_else(|| {
+            let home = std::env::var_os("XDG_CONFIG_HOME")
+                .map(PathBuf::from)
+                .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+            let text = std::fs::read_to_string(home.join("lsfg-vk").join("conf.toml")).ok()?;
+            user_dll(&text)
+        })
     }
+
+    /// The dedicated lsfg-vk config (format version 2): one profile active in `mpv`.
+    pub fn config_toml(&self) -> String {
+        let mut s = String::from("version = 2\n\n[global]\nallow_fp16 = true\n");
+        if let Some(dll) = self.dll_path() {
+            s.push_str(&format!("dll = {}\n", toml_str(&dll.to_string_lossy())));
+        }
+        s.push_str(&format!(
+            "\n[[profile]]\nname = \"Tatakai Next\"\nactive_in = [ \"mpv\" ]\nmultiplier = {}\nflow_scale = {:.2}\n\
+             performance_mode = {}\npacing_mode = \"vsync\"\noverride_present_mode = true\npreserve_swapchain_image_count = false\n",
+            self.multiplier.clamp(2, 4),
+            self.flow_scale.clamp(0.25, 1.0),
+            self.performance
+        ));
+        s
+    }
+
+    /// Writes the config file; returns its path.
+    pub fn write_config(&self) -> std::io::Result<PathBuf> {
+        std::fs::create_dir_all(&self.config_dir)?;
+        let path = self.config_dir.join("lsfg-vk.toml");
+        std::fs::write(&path, self.config_toml())?;
+        Ok(path)
+    }
+
+    /// Environment for the mpv process only.
+    pub fn env(&self, config: &Path) -> Vec<(&'static str, String)> {
+        vec![("LSFGVK_CONFIG", config.to_string_lossy().into_owned())]
+    }
+}
+
+/// `dll = "..."` of the `[global]` table of an lsfg-vk config.
+fn user_dll(toml: &str) -> Option<PathBuf> {
+    let mut in_global = false;
+    for line in toml.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_global = line == "[global]";
+            continue;
+        }
+        if in_global && let Some(rest) = line.strip_prefix("dll") {
+            let v = rest.trim_start().strip_prefix('=')?.trim().trim_matches('"');
+            return (!v.is_empty()).then(|| PathBuf::from(v));
+        }
+    }
+    None
+}
+
+/// A TOML basic string.
+fn toml_str(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 fn mpv_args(endpoint: &str, src: &MediaSource, start_secs: f64, title: &str) -> Vec<OsString> {
@@ -544,19 +597,26 @@ pub fn mpv_version(mpv_path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod frame_gen_tests {
-    use super::FrameGen;
-    use std::path::PathBuf;
+    use super::{FrameGen, user_dll};
+    use std::path::{Path, PathBuf};
 
     #[test]
-    fn frame_gen_configures_vulkan_and_the_lsfg_env() {
-        let fg = FrameGen::new(9, Some(PathBuf::from("/home/u/Lossless.dll")));
+    fn frame_gen_writes_a_dedicated_profile_for_mpv() {
+        let fg = FrameGen::new(9, Some(PathBuf::from("/home/u/Lossless.dll")), PathBuf::from("/tmp/x"));
         assert_eq!(fg.multiplier, 4, "clamped to 2..=4");
         assert!(fg.mpv_args().contains(&"--gpu-api=vulkan".to_owned()));
-        let env = fg.env();
-        assert!(env.contains(&("LSFGVK_ENV", "1".to_owned())));
-        assert!(env.contains(&("LSFGVK_MULTIPLIER", "4".to_owned())));
-        assert!(env.contains(&("LSFGVK_DLL_PATH", "/home/u/Lossless.dll".to_owned())));
-        assert!(FrameGen::new(2, None).env().iter().all(|(k, _)| *k != "LSFGVK_DLL_PATH"));
+        let t = fg.config_toml();
+        assert!(t.starts_with("version = 2"));
+        assert!(t.contains("dll = \"/home/u/Lossless.dll\""), "{t}");
+        assert!(t.contains("active_in = [ \"mpv\" ]") && t.contains("multiplier = 4"), "{t}");
+        assert_eq!(fg.env(Path::new("/tmp/x/lsfg-vk.toml")), vec![("LSFGVK_CONFIG", "/tmp/x/lsfg-vk.toml".to_owned())]);
+    }
+
+    #[test]
+    fn the_users_global_dll_is_read() {
+        let conf = "version = 2\n[global]\nallow_fp16 = true\ndll = \"/home/o/Lossless.dll\"\n[[profile]]\ndll = \"no\"\n";
+        assert_eq!(user_dll(conf), Some(PathBuf::from("/home/o/Lossless.dll")));
+        assert_eq!(user_dll("version = 2\n[[profile]]\nname = \"x\"\n"), None);
     }
 }
 
