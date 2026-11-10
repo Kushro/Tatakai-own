@@ -861,7 +861,6 @@ fn DetailsHeader(
     let size = if embedded { ButtonSize::Md } else { ButtonSize::Lg };
     let synopsis = vm.synopsis.clone().unwrap_or_else(|| t("details.no_synopsis"));
     let long = synopsis.chars().count() > CLAMP_CHARS;
-    let count = vm.episodes_total.map(|n| tn("details.episodes_count", n as usize));
     let resume_at = (vm.resume_episode > 0 && vm.resume_secs > 0)
         .then(|| tf("details.resume_at", &[("t", &format_time(f64::from(vm.resume_secs)))]));
     let more_label = if clamp() { t("common.more") } else { t("common.less") };
@@ -910,9 +909,7 @@ fn DetailsHeader(
                     if !vm.media.subtitle.is_empty() {
                         InfoChip { text: vm.media.subtitle.clone() }
                     }
-                    if let Some(c) = count.clone() {
-                        InfoChip { text: c }
-                    }
+                    // The subtitle already says "2023 - 28 ep": no second episode-count chip (UX review).
                     if let Some(score) = vm.media.score {
                         // One score scale everywhere (UX review #4): the cards' "★ 8.4".
                         InfoChip { text: score_label(score), icon: "star".to_string() }
