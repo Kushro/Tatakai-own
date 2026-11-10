@@ -269,5 +269,7 @@
   "settings.reader.keys.reset_all": "Restaurar todos los predeterminados",
   "settings.reader.keys.press": "Pulsa una tecla…",
   "settings.reader.keys.press_for": "Pulsa la nueva tecla para {action}",
-  "settings.reader.keys.reserved": "Los dígitos cambian de sección y Escape sale del lector: no se pueden asignar."
+  "settings.reader.keys.reserved": "Los dígitos cambian de sección y Escape sale del lector: no se pueden asignar.",
+  "manga.read": "Leer",
+  "manga.list.add": "Añadir a lista"
 }

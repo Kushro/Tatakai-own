@@ -208,7 +208,6 @@ Ninguno se descartó en esta pasada. `data-provider-status` de los 8 proveedores
 ## Pruebas manuales después de la ola B (2026-11-09)
 
 - **Video negro intermitente en el reproductor incrustado (Linux Wayland)**: en un perfil nuevo, la primera reproducción (Toko · anizone, Frieren EP1) avanzó con audio y tiempo pero el área del video quedó negra, sin controles visibles en la captura de escritorio. En un segundo arranque con el mismo perfil se vio bien dos veces seguidas. El log solo dice `embedded mpv GL surface ready` en ambos casos; no se pudo reproducir. Hipótesis a probar: la superficie GL se crea antes de que la ventana termine de moverse / redimensionarse, o la primera hoja / menú abierta sobre la ficha deja la composición de WebKit sin alfa. Revisar con `linux_embed_probe` y con un arranque en frío reproduciendo de inmediato.
-- **Menú del reproductor mal anclado**: "Preajuste de escalado" se abre junto al botón de subtítulos, que queda resaltado.
 - **Aviso de versión nueva falso**: `live::system` informa `a newer release is available latest=v7.0.0` en Next 0.1.0: compara contra los releases del Tatakai clásico. Debe mirar solo los tags de Next (o un canal propio).
 - **Pruebas de reproducción**: el audio de la app se manda a un sink nulo propio (`PULSE_SINK` / `PIPEWIRE_NODE`) y `scripts/parity/mute.sh <pid>` silencia solo los streams de esa app; nunca por nombre "mpv".
 

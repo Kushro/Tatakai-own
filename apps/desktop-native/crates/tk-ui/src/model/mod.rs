@@ -592,22 +592,25 @@ pub enum NavDest {
 }
 
 impl NavDest {
-    /// Rail order; shortcut digit `n` (1..=9, then `0` = 10, outside the player) opens `ALL[n - 1]`. Pages without
-    /// a rail entry hang under a destination (`app::Route::nav_dest`): `/calendar` and `/recommendations` (b) under
-    /// Home; the AniList social pages (`/profile`, `/user/:name`, `/notifications`, `/activity`, n) under Library;
-    /// provider pages (`/provider/:ext_id`, j) under Extensions; the Server page (`/server`, k) under Link.
-    pub const ALL: [NavDest; 10] = [
+    /// Rail order; shortcut digit `n` (1..=9, outside the player) opens `ALL[n - 1]`. The first [`Self::PRIMARY`]
+    /// are the content destinations; the rest sit at the rail's foot (UX review 2026-11-09 #1: 10 entries overflowed
+    /// and truncated their labels). The torrent client has no entry of its own: its pages hang under Downloads.
+    /// Other pages without an entry hang under a destination (`app::Route::nav_dest`): `/calendar` and
+    /// `/recommendations` under Home; the AniList social pages under Library; provider pages under Extensions; the
+    /// Server page under Link.
+    pub const ALL: [NavDest; 9] = [
         Self::Home,
         Self::Search,
         Self::Library,
-        Self::Downloads,
         Self::Manga,
         Self::Novels,
-        Self::Torrents,
+        Self::Downloads,
         Self::Extensions,
         Self::Link,
         Self::Settings,
     ];
+    /// How many of [`Self::ALL`] are content destinations (the rest go to the rail's foot).
+    pub const PRIMARY: usize = 6;
 
     /// i18n key of the label (`nav.<id>`).
     pub fn label_key(self) -> &'static str {

@@ -185,7 +185,7 @@ fn DetailsBody(vm: NovelDetailsVm) -> Element {
                         Pill { text: t("novel.details.adult"), tone: Tone::Warn }
                     }
                     for g in vm.genres.clone() {
-                        Pill { key: "{g}", text: g.clone() }
+                        Pill { key: "{g}", text: crate::screens::search::genre_label(&g) }
                     }
                 }
                 dl { class: "tk-novel-details__meta",

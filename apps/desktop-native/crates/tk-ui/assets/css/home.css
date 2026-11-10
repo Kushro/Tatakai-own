@@ -78,7 +78,9 @@
 .tk-home__more { height: 48px; }
 
 .tk-top10 { display: flex; gap: var(--tk-space-16); overflow-x: auto; list-style: none; margin: 0; padding: 0 0 var(--tk-space-8); scrollbar-width: thin; }
-.tk-top10__item { position: relative; display: flex; align-items: flex-end; flex: none; }
+/* UX review #12: cards top-aligned (bottom alignment staggered them when titles took 1 or 2 lines); the rank sits beside. */
+.tk-top10__item { position: relative; display: flex; align-items: flex-start; flex: none; }
+.tk-top10__item .tk-top10__rank { align-self: center; }
 .tk-top10__rank {
   font: 700 96px/0.8 var(--tk-font-display); letter-spacing: -.06em; margin-right: calc(-1 * var(--tk-space-12));
   color: transparent; -webkit-text-stroke: 2px var(--md-sys-color-outline); z-index: 0; user-select: none;

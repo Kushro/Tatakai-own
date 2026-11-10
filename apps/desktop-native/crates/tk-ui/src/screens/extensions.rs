@@ -189,6 +189,8 @@ pub fn ExtensionsPage() -> Element {
     let snackbar = use_snackbar();
     let backend = services.backend.clone();
     let mut tab = use_signal(|| ExtTab::Installed);
+    // UX review #7: the installer (drop zone + path + URL) folds away; the installed list comes first.
+    let mut install_open = use_signal(|| false);
     let mut list = use_resource({
         let backend = backend.clone();
         move || {
@@ -324,8 +326,31 @@ pub fn ExtensionsPage() -> Element {
     let kill_attr = if kill_on { "on" } else { "off" };
     let tab_body = match current {
         ExtTab::Installed => rsx! {
-            InstallPanel { on_installed: move |_| { list.restart(); updates.restart(); } }
             {body}
+            if install_open() {
+                InstallPanel {
+                    on_installed: move |_| {
+                        install_open.set(false);
+                        list.restart();
+                        updates.restart();
+                    },
+                }
+            } else {
+                div { class: "tk-ext-install-cta", "data-install-open": "false",
+                    Button {
+                        label: t("ext.install.open"),
+                        icon: "plus".to_string(),
+                        variant: ButtonVariant::Tonal,
+                        onclick: move |_| install_open.set(true),
+                    }
+                    Button {
+                        label: t("ext.repos.add_cta"),
+                        icon: "link".to_string(),
+                        variant: ButtonVariant::Outlined,
+                        onclick: move |_| tab.set(ExtTab::Repos),
+                    }
+                }
+            }
         },
         ExtTab::Servers => rsx! { ServersPanel {} },
         ExtTab::Stremio => rsx! { StremioPanel {} },

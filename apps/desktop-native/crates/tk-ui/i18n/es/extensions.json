@@ -149,5 +149,7 @@
   "provider_page.bookmark.saved": "Guardado en tus títulos de proveedor",
   "provider_page.bookmark.removed": "Quitado de los títulos guardados",
   "provider_page.bookmark.complete": "Marcar como completado",
-  "provider_page.bookmark.completed": "Marcado como completado"
+  "provider_page.bookmark.completed": "Marcado como completado",
+  "ext.install.open": "Instalar un archivo .kai…",
+  "ext.repos.add_cta": "Agregar un repositorio"
 }

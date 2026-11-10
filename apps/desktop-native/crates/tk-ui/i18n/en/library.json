@@ -127,5 +127,6 @@
   "accounts.error.exchange": "The service refused the sign-in code. Try again.",
   "accounts.error.expired": "The session expired or was revoked. Connect the account again.",
   "accounts.error.not_connected": "No account is connected.",
-  "accounts.error.provider": "The service answered: {error}"
+  "accounts.error.provider": "The service answered: {error}",
+  "lib.empty.action": "Find something to watch"
 }

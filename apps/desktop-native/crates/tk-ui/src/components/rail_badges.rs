@@ -113,8 +113,8 @@ pub fn use_rail_badges() -> Vec<(NavDest, u32)> {
     [
         (NavDest::Library, unread()),
         (NavDest::Extensions, updates()),
-        (NavDest::Downloads, active()),
-        (NavDest::Torrents, torrents()),
+        // The torrent client lives under Downloads: one badge for web downloads + active torrents.
+        (NavDest::Downloads, active() + torrents()),
     ]
         .into_iter()
         .filter(|(_, n)| *n > 0)

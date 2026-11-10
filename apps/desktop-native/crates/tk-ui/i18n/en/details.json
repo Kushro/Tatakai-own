@@ -139,5 +139,15 @@
   "details.title_lang.hint": "Which title cards, rows and details pages show when AniList has several",
   "details.title_lang.english": "English",
   "details.title_lang.romaji": "Romaji",
-  "details.title_lang.native": "Native"
+  "details.title_lang.native": "Native",
+  "details.status.releasing": "Airing",
+  "details.status.finished": "Finished",
+  "details.status.not_yet_released": "Not yet aired",
+  "details.status.cancelled": "Cancelled",
+  "details.status.hiatus": "On hiatus",
+  "details.more_actions": "More actions",
+  "details.meta.format": "Format",
+  "details.meta.season": "Season",
+  "details.meta.length": "Length",
+  "details.meta.minutes": "{n} min"
 }

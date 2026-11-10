@@ -127,5 +127,6 @@
   "accounts.error.exchange": "El servicio rechazó el código de inicio de sesión. Vuelve a intentarlo.",
   "accounts.error.expired": "La sesión caducó o se revocó. Vuelve a conectar la cuenta.",
   "accounts.error.not_connected": "No hay ninguna cuenta conectada.",
-  "accounts.error.provider": "El servicio respondió: {error}"
+  "accounts.error.provider": "El servicio respondió: {error}",
+  "lib.empty.action": "Buscar algo para ver"
 }

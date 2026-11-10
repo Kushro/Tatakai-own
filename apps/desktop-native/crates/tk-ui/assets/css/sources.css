@@ -60,3 +60,5 @@
 .tk-srow-wrap { display: flex; gap: var(--tk-space-8); align-items: flex-start; }
 .tk-srow-wrap > .tk-srow { flex: 1 1 auto; min-width: 0; }
 .tk-srow-wrap__dl { flex: none; margin-top: var(--tk-space-12); }
+/* UX review #17: what the side panel says while extensions resolve. */
+.tk-srow__resolving { display: flex; align-items: center; gap: var(--tk-space-8); color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }

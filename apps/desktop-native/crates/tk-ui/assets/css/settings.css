@@ -26,6 +26,12 @@
 .tk-settings__link[aria-current="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 .tk-settings__body { display: flex; flex-direction: column; gap: var(--tk-space-24); min-width: 0; }
 .tk-settings__panel { scroll-margin-top: var(--tk-space-16); }
+/* UX review #3: one section at a time; while searching, every section with a matching row (rows that do not match hide). */
+.tk-settings__head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: var(--tk-space-16); }
+.tk-settings__search { width: min(420px, 100%); }
+.tk-settings__panel[data-shown="false"] { display: none; }
+.tk-settings__panel[data-searching="true"] .tk-setting-row[data-match="false"] { display: none; }
+.tk-settings__panel[data-searching="true"]:not(:has(.tk-setting-row[data-match="true"])) { display: none; }
 @media (max-width: 899px) {
   .tk-settings { grid-template-columns: 1fr; }
   .tk-settings__nav { position: static; flex-direction: row; overflow-x: auto; padding-bottom: var(--tk-space-4); }

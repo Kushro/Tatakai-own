@@ -304,7 +304,7 @@ pub fn DownloadsPage() -> Element {
         rsx! {
             button {
                 key: "{tb.id()}",
-                class: "tk-downloads__tab",
+                class: "tk-dtab tk-downloads__tab",
                 role: "tab",
                 r#type: "button",
                 "data-tab": tb.id(),
@@ -465,12 +465,25 @@ pub fn DownloadsPage() -> Element {
             Some(Ok(list)) => {
                 let shown: Vec<DownloadVm> = filter_rows(list, current, &query()).into_iter().cloned().collect();
                 if shown.is_empty() {
-                    let (title, body) = if query().trim().is_empty() {
-                        (t(&format!("downloads.empty.{}.title", current.id())), t(&format!("downloads.empty.{}.body", current.id())))
-                    } else {
+                    let searching = !query().trim().is_empty();
+                    let (title, body) = if searching {
                         (t("downloads.search.empty"), String::new())
+                    } else {
+                        (t(&format!("downloads.empty.{}.title", current.id())), t(&format!("downloads.empty.{}.body", current.id())))
                     };
-                    rsx! { EmptyState { icon: "download".to_string(), title: title, body: body } }
+                    // UX review #6: offer the next step (find something to download) instead of a dead end.
+                    let action = if searching { String::new() } else { t("downloads.empty.action") };
+                    rsx! {
+                        EmptyState {
+                            icon: "download".to_string(),
+                            title,
+                            body,
+                            action_label: action,
+                            on_action: move |_| {
+                                navigator.push(Route::SearchPage {});
+                            },
+                        }
+                    }
                 } else {
                     rsx! {
                         if current == DownloadsTabVm::History {
@@ -560,6 +573,15 @@ pub fn DownloadsPage() -> Element {
             div { class: "tk-page__head tk-downloads__head",
                 h1 { class: "tk-page__title", {t("downloads.title")} }
                 div { class: "tk-downloads__head-actions",
+                    // The torrent client has no rail entry since the UX review (#1): it opens from here.
+                    Button {
+                        label: t("downloads.torrent_client"),
+                        icon: "magnet".to_string(),
+                        variant: ButtonVariant::Outlined,
+                        onclick: move |_| {
+                            navigator.push(Route::TorrentOverviewPage {});
+                        },
+                    }
                     AutoCheckNow { on_done: move |_| refresh.call(()) }
                     Button {
                         label: t("downloads.open_folder"),
@@ -571,7 +593,7 @@ pub fn DownloadsPage() -> Element {
             }
             {storage_head}
             div { class: "tk-downloads__toolbar",
-                div { class: "tk-downloads__tabs", role: "tablist", "aria-label": t("downloads.title"), {tabs} }
+                div { class: "tk-dtabs tk-downloads__tabs", role: "tablist", "aria-label": t("downloads.title"), {tabs} }
                 div { class: "tk-downloads__search",
                     TextField {
                         label: t("downloads.search"),

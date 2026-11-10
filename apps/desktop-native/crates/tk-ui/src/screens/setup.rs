@@ -169,6 +169,7 @@ pub fn SetupPage() -> Element {
                                 class: "tk-setup__dot",
                                 "data-state": dot_state(n, i),
                                 "aria-current": if n == i { "step" } else { "false" },
+                                title: t(&format!("setup.step.{s}")),
                                 span { class: "tk-setup__dot-n", {(n + 1).to_string()} }
                                 span { class: "tk-setup__dot-label", {t(&format!("setup.step.{s}"))} }
                             }

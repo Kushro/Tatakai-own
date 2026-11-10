@@ -13,11 +13,14 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use dioxus::prelude::*;
 
 use crate::app::{Route, Services, Ui};
-use crate::backend::{AiringVm, DetailsExtraVm, DetailsVm, DeviceVm, EpisodeVm, LinkStatusVm, SendToDeviceVm, SourceVm, TrailerVm};
+use crate::backend::{
+    AiringVm, DetailsExtraVm, DetailsVm, DeviceVm, EpisodeVm, LinkStatusVm, MediaFactsVm, SendToDeviceVm, SourceVm, TrailerVm,
+};
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
     Button, ButtonSize, ButtonVariant, ConfirmDialog, DownloadSeasonSheet, EmptyState, ErrorState,
-    FloatingToolbar, IconButton, IconButtonVariant, InfoChip, ListButton, LoadingIndicator, MediaCover, Pill, Reviews,
+    FloatingToolbar, IconButton, IconButtonVariant, InfoChip, ListButton, LoadingIndicator, MediaCover, Menu, MenuItem, Pill,
+    Reviews,
     Segmented, Sheet, SkeletonLines, SourcePicker, SourceSummary, SplitButton, TextField, ToolbarSeparator, Tone,
     use_snackbar,
 };
@@ -485,6 +488,7 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                     on_menu: move |_| open_picker.call(watch_ep),
                     on_send: move |_| ask_send.call(None),
                     on_download: move |_| download_open.set(true),
+                    facts: extra_state.as_ref().and_then(|r| r.as_ref().ok()).map(|x| x.facts.clone()),
                 }
             }
         }
@@ -713,8 +717,10 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
         _ => rsx! {},
     };
 
+    // UX review #8: the floating toolbar steps aside while a sheet or dialog is open (it covered their lists).
+    let overlay_open = picker_open() || download_open() || send_target().is_some();
     let toolbar = match vm.as_ref() {
-        Some(v) => {
+        Some(v) if !overlay_open => {
             let label = if resume > 0 {
                 tf("details.continue", &[("n", &resume.to_string())])
             } else {
@@ -738,7 +744,7 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                 }
             }
         }
-        None => rsx! {},
+        _ => rsx! {},
     };
 
     let tablist_label = t("details.info");
@@ -842,8 +848,11 @@ fn DetailsHeader(
     #[props(default)] on_download: EventHandler<()>,
     #[props(default)] on_trailer: EventHandler<TrailerVm>,
     #[props(default)] on_share: EventHandler<()>,
+    /// Facts of `Backend::details_extra` (format, season, studio...) for the data tiles; `None` while loading.
+    #[props(default)] facts: Option<MediaFactsVm>,
 ) -> Element {
     let mut clamp = use_signal(|| true);
+    let mut more_open = use_signal(|| false);
     let watch_label = if vm.resume_episode > 0 {
         tf("details.continue", &[("n", &vm.resume_episode.to_string())])
     } else {
@@ -877,8 +886,18 @@ fn DetailsHeader(
         }
         None => rsx! {},
     };
+    // UX review #2: a blurred banner behind the header (the classic's look), only with images allowed.
+    let backdrop = (images && !embedded)
+        .then(|| vm.banner.clone().or_else(|| vm.media.cover.clone()))
+        .flatten()
+        .filter(|u| u.starts_with("https://") || u.starts_with("http://"))
+        .map(|u| u.replace(['\'', '"', '(', ')', '\\'], ""));
+    let tiles = meta_tiles(&vm, facts.as_ref());
     rsx! {
         div { class: "tk-dhead", "data-embedded": "{embedded}", "data-resume-secs": "{vm.resume_secs}",
+            if let Some(src) = backdrop {
+                div { class: "tk-dhead__backdrop", "aria-hidden": "true", style: "background-image: url('{src}')" }
+            }
             div { class: "tk-dhead__cover", "data-images": "{images}",
                 MediaCover { src: cover, color: vm.media.color.clone(), title: vm.media.title.clone() }
             }
@@ -886,7 +905,7 @@ fn DetailsHeader(
                 h1 { class: "tk-dhead__title", "{vm.media.title}" }
                 div { class: "tk-chips",
                     if let Some(status) = vm.status.clone() {
-                        Pill { text: status }
+                        Pill { text: status_label(&status) }
                     }
                     if !vm.media.subtitle.is_empty() {
                         InfoChip { text: vm.media.subtitle.clone() }
@@ -895,10 +914,11 @@ fn DetailsHeader(
                         InfoChip { text: c }
                     }
                     if let Some(score) = vm.media.score {
-                        InfoChip { text: tf("details.score", &[("n", &score.to_string())]), icon: "star".to_string() }
+                        // One score scale everywhere (UX review #4): the cards' "★ 8.4".
+                        InfoChip { text: score_label(score), icon: "star".to_string() }
                     }
                     for g in vm.genres.clone() {
-                        InfoChip { key: "{g}", text: g.clone() }
+                        InfoChip { key: "{g}", text: crate::screens::search::genre_label(&g) }
                     }
                 }
                 if let Some((n, label)) = airing {
@@ -930,24 +950,44 @@ fn DetailsHeader(
                         if vm.media.id.starts_with("ext:") {
                             crate::screens::provider::ProviderBookmarkButton { media_id: vm.media.id.clone() }
                         }
-                        Button {
-                            label: t("details.send_device"),
-                            icon: "cast".to_string(),
-                            variant: ButtonVariant::Outlined,
-                            onclick: move |_| on_send.call(()),
-                        }
-                        IconButton {
-                            icon: "download".to_string(),
-                            label: t("details.download"),
-                            variant: IconButtonVariant::Outlined,
-                            onclick: move |_| on_download.call(()),
-                        }
                         {trailer_button}
-                        IconButton {
-                            icon: "link".to_string(),
-                            label: t("details.share"),
-                            variant: IconButtonVariant::Outlined,
-                            onclick: move |_| on_share.call(()),
+                        // UX review #2: the rest of the actions in one menu instead of a second row of buttons.
+                        Menu {
+                            open: more_open(),
+                            label: t("details.more_actions"),
+                            on_close: move |_| more_open.set(false),
+                            trigger: rsx! {
+                                IconButton {
+                                    icon: "more".to_string(),
+                                    label: t("details.more_actions"),
+                                    variant: IconButtonVariant::Outlined,
+                                    onclick: move |_| more_open.toggle(),
+                                }
+                            },
+                            MenuItem {
+                                label: t("details.send_device"),
+                                icon: "cast".to_string(),
+                                on_select: move |_| {
+                                    more_open.set(false);
+                                    on_send.call(());
+                                },
+                            }
+                            MenuItem {
+                                label: t("details.download"),
+                                icon: "download".to_string(),
+                                on_select: move |_| {
+                                    more_open.set(false);
+                                    on_download.call(());
+                                },
+                            }
+                            MenuItem {
+                                label: t("details.share"),
+                                icon: "link".to_string(),
+                                on_select: move |_| {
+                                    more_open.set(false);
+                                    on_share.call(());
+                                },
+                            }
                         }
                     }
                     if let Some(r) = resume_at {
@@ -965,22 +1005,60 @@ fn DetailsHeader(
                         }
                     }
                 }
-                if !embedded {
+                if !embedded && !tiles.is_empty() {
+                    // UX review #2: useful facts (format, season, studio, length, popularity) instead of tiles that
+                    // repeated the chips ("Estado RELEASING", "Géneros 3").
                     div { class: "tk-dmeta",
-                        if let Some(status) = vm.status.clone() {
-                            MetaItem { k: t("details.status"), v: status }
-                        }
-                        if let Some(n) = vm.episodes_total {
-                            MetaItem { k: t("details.episodes"), v: n.to_string() }
-                        }
-                        if !vm.genres.is_empty() {
-                            MetaItem { k: t("details.genres"), v: vm.genres.len().to_string() }
+                        for (k , v) in tiles {
+                            MetaItem { key: "{k}", k: k.clone(), v }
                         }
                     }
                 }
             }
         }
     }
+}
+
+/// AniList status (`RELEASING`, `FINISHED`...) in the UI language; unknown values pass through.
+pub fn status_label(raw: &str) -> String {
+    let key = format!("details.status.{}", raw.trim().to_ascii_lowercase());
+    let text = t(&key);
+    if text == key { raw.to_owned() } else { text }
+}
+
+/// AniList 0..=100 score as the cards show it: `8.4`.
+pub fn score_label(score: u32) -> String {
+    format!("{:.1}", f64::from(score) / 10.0)
+}
+
+/// Header data tiles: format, season, studio, episode length, popularity (only the known ones).
+fn meta_tiles(vm: &DetailsVm, facts: Option<&MediaFactsVm>) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let Some(f) = facts else {
+        if let Some(n) = vm.episodes_total {
+            out.push((t("details.episodes"), n.to_string()));
+        }
+        return out;
+    };
+    if let Some(fmt) = f.format.as_deref() {
+        let key = format!("details.format.{}", fmt.to_ascii_lowercase());
+        let label = t(&key);
+        out.push((t("details.meta.format"), if label == key { fmt.to_owned() } else { label }));
+    }
+    if let (Some(season), Some(year)) = (f.season.as_deref(), f.season_year) {
+        out.push((t("details.meta.season"), format!("{} {year}", t(&format!("details.season.{season}")))));
+    }
+    if let Some(studio) = f.studios.first() {
+        out.push((t("details.studio"), studio.clone()));
+    }
+    if let Some(min) = f.duration_min {
+        let eps = vm.episodes_total.map(|n| format!(" · {}", tn("details.episodes_count", n as usize))).unwrap_or_default();
+        out.push((t("details.meta.length"), format!("{}{eps}", tf("details.meta.minutes", &[("n", &min.to_string())]))));
+    }
+    if let Some(p) = f.popularity {
+        out.push((t("details.facts.popularity"), p.to_string()));
+    }
+    out
 }
 
 #[component]

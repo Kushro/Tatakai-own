@@ -174,6 +174,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let mut legacy = use_signal(|| None::<PlaybackVm>);
     let mut failure = use_signal(|| None::<(UiError, String)>);
     let mut notice = use_signal(|| None::<String>);
+    // UX review #19: the controls stay up while the pointer rests on a bar (they used to hide under it).
+    let mut bars_hover = use_signal(|| false);
     let flash = use_signal(|| None::<(String, u64)>);
     let mut player = use_signal(|| None::<Arc<Player>>);
     let mut preset = use_signal(|| ui.settings.peek().preset());
@@ -908,7 +910,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let sleep_now = sleep();
     let sleep_left = sleep_now.left_secs(now);
     let capture_title = title.clone();
-    let visible = st.controls_visible(now) || keeps_controls_up(fs.phase, st.video_ready) || next_since().is_some();
+    let visible = st.controls_visible(now) || keeps_controls_up(fs.phase, st.video_ready) || next_since().is_some() || bars_hover();
     let current = fs.current_source().cloned();
     let source_label = match (&current, fs.position()) {
         (Some(s), Some((n, total))) if !fs.legacy || total > 1 => {
@@ -1339,6 +1341,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 visible,
             }
             PlayerControls {
+                on_bars_hover: move |over: bool| bars_hover.set(over),
                 state: st.clone(),
                 title,
                 episode,

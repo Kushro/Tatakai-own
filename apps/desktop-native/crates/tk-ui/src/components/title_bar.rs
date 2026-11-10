@@ -89,18 +89,12 @@ pub fn TitleBar(
     let (drag, dbl, min, max, close) = (win.clone(), win.clone(), win.clone(), win.clone(), win.clone());
     let max_label = if maximized() { t("window.restore") } else { t("window.maximize") };
     let max_icon = if maximized() { "restore" } else { "maximize" };
-    let (min_label, close_label, nav_label) = (t("window.minimize"), t("window.close"), t("nav.expand"));
+    // The rail has its own toggle (Ctrl+B); a second hamburger in the title bar was redundant (UX review #15).
+    let _ = on_toggle_nav;
+    let (min_label, close_label) = (t("window.minimize"), t("window.close"));
 
     rsx! {
         header { class: "tk-titlebar",
-            button {
-                class: "tk-titlebar__btn tk-titlebar__menu",
-                r#type: "button",
-                "aria-label": "{nav_label}",
-                title: "{nav_label} (Ctrl+B)",
-                onclick: move |_| on_toggle_nav.call(()),
-                Icon { name: "menu".to_string(), size: 18 }
-            }
             div {
                 class: "tk-titlebar__drag",
                 onmousedown: move |_| drag.drag(),

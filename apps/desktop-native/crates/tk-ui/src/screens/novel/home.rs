@@ -146,7 +146,7 @@ pub fn NovelHomePage() -> Element {
                 for g in GENRES {
                     Chip {
                         key: "{g}",
-                        label: g.to_string(),
+                        label: crate::screens::search::genre_label(g),
                         on: f.genres.iter().any(|x| x == g),
                         onclick: move |_| filters.with_mut(|f| f.toggle_genre(g)),
                     }
@@ -381,6 +381,7 @@ fn HomeContent(vm: ReadHomeVm, on_retry: EventHandler<()>) -> Element {
                     key: "{hero_key}",
                     items: hero.clone(),
                     kicker: t("novel.feed.trending"),
+                    cta: t("novel.read"),
                     on_open: move |id: String| {
                         navigator.push(Route::NovelDetailsPage { id });
                     },

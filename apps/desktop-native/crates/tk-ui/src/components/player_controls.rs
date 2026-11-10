@@ -112,6 +112,8 @@ pub fn PlayerControls(
     #[props(default)] on_smoothing: EventHandler<()>,
     #[props(default)] on_pip: EventHandler<()>,
     #[props(default)] on_capture: EventHandler<()>,
+    /// The pointer entered (true) or left (false) the control bars: the parent keeps them up meanwhile (UX review #19).
+    #[props(default)] on_bars_hover: EventHandler<bool>,
     /// "Subtitle style..." entry of the subtitles menu: opens worker d's `screens::player::subs::SubtitleSheet`
     /// (wave A; docs/redesign/15 section 4).
     #[props(default)] on_subtitle_settings: EventHandler<()>,
@@ -323,6 +325,25 @@ pub fn PlayerControls(
                             on_stable_volume.call(());
                         },
                     }
+                    // UX review #19: occasional actions moved here from the bottom bar (it had 18 buttons).
+                    MenuSeparator {}
+                    MenuItem {
+                        label: t("player.pip"),
+                        icon: "pip".to_string(),
+                        checked: Some(pip),
+                        on_select: move |_| {
+                            more_open.set(false);
+                            on_pip.call(());
+                        },
+                    }
+                    MenuItem {
+                        label: t("player.capture"),
+                        icon: "camera".to_string(),
+                        on_select: move |_| {
+                            more_open.set(false);
+                            on_capture.call(());
+                        },
+                    }
                 }
             }
             div { class: "tk-pc__center",
@@ -369,6 +390,8 @@ pub fn PlayerControls(
                 }
             }
             div { class: "tk-pc__bottom",
+                onmouseenter: move |_| on_bars_hover.call(true),
+                onmouseleave: move |_| on_bars_hover.call(false),
                 if buffering {
                     WavyProgress { fraction: 1.0, label: t("player.buffering"), thin: true }
                 }
@@ -612,8 +635,6 @@ pub fn PlayerControls(
                             },
                         }
                     }
-                    IconButton { icon: "pip".to_string(), label: t("player.pip"), toggled: pip, toggle: true, onclick: move |_| on_pip.call(()) }
-                    IconButton { icon: "camera".to_string(), label: t("player.capture"), onclick: move |_| on_capture.call(()) }
                     IconButton { icon: "fullscreen".to_string(), label: t("player.fullscreen"), onclick: move |_| on_fullscreen.call(()) }
                 }
                 div { class: "tk-pc__shortcuts", "{hint}" }

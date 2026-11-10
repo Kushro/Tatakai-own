@@ -18,12 +18,16 @@ use crate::app::{Route, Services, Ui};
 use crate::backend::{ReleaseSourceVm, SourceKindVm, SourceVm, VideoCodecVm};
 use crate::components::button::{Button, ButtonSize, ButtonVariant, IconButton, IconButtonVariant};
 use crate::components::chips::{Banner, Chip, ChipKind, InfoChip, Pill, Tone};
+use crate::components::loading::LoadingIndicator;
 use crate::components::segmented::{SegOption, Segmented};
 use crate::components::sheet::Sheet;
 use crate::components::state::{EmptyState, ErrorState};
 use crate::i18n::{t, tf};
 use crate::icons::Icon;
 use crate::model::{SourceModeVm, SourcePrefsVm};
+
+/// Reliability of a source the app has never tried (`tk_core::sources::INITIAL_RELIABILITY`).
+const UNTRIED_RELIABILITY: f32 = 0.8;
 
 /// Reliability bar tone (`data-tone`): >= 0.9 ok, >= 0.7 warn, else err.
 pub fn reliability_tone(r: f32) -> &'static str {
@@ -334,14 +338,19 @@ pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>
                         }
                     }
                 }
+                // UX review #18: the raw info hash was noise in every torrent row; it stays only as a data attribute.
                 if let Some(hash) = source.info_hash.clone() {
-                    span { class: "tk-srow__hash", "{hash}" }
+                    span { class: "tk-srow__hash", hidden: true, "data-info-hash": "{hash}" }
                 }
-                span { class: "tk-srow__rel",
-                    span { class: "tk-srow__relbar", "aria-hidden": "true",
-                        i { style: "width:{pct}%", "data-tone": "{tone}" }
+                // UX review #18: a source the app never tried shows the same "Medium · 80 %" as every other; the
+                // reliability appears once there is history (the store moves it off the initial value).
+                if (source.reliability - UNTRIED_RELIABILITY).abs() > f32::EPSILON {
+                    span { class: "tk-srow__rel",
+                        span { class: "tk-srow__relbar", "aria-hidden": "true",
+                            i { style: "width:{pct}%", "data-tone": "{tone}" }
+                        }
+                        span { class: "tk-srow__rel-label", "{rel_text}" }
                     }
-                    span { class: "tk-srow__rel-label", "{rel_text}" }
                 }
             }
             if selected {
@@ -637,6 +646,11 @@ pub fn SourceSummary(media_id: String, episode: u32, on_play: EventHandler<Strin
     };
     let body = match &*sources.read() {
         None => rsx! {
+            // UX review #17: extensions can take tens of seconds; say what is happening instead of a mute skeleton.
+            div { class: "tk-srow__resolving", role: "status", "data-resolving": "true",
+                LoadingIndicator { small: true }
+                span { {t("src.resolving")} }
+            }
             div { class: "tk-list", "aria-hidden": "true",
                 div { class: "tk-skel tk-skel--line" }
                 div { class: "tk-skel tk-skel--line", style: "width:60%" }

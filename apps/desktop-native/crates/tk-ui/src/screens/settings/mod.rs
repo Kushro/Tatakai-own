@@ -1,4 +1,4 @@
-//! Settings: sticky side index (scroll spy) + one section file per owner (wave A contract,
+//! Settings: side index (one section shown at a time, plus a row search) + one section file per owner (wave A contract,
 //! docs/redesign/15-parity-wave-a-contract.md section 2): Appearance, Player (e), Subtitles (d), Metadata,
 //! Accounts (g: AniList / MAL, the only account UI since plan 14 section 0.1 #9 removed the own login), Link,
 //! Data & storage (f), System (f) and About (f). Prototype: `screens.js::S.settings`.
@@ -31,12 +31,13 @@ pub mod social;
 pub mod subtitles;
 pub mod system;
 
-use std::rc::Rc;
+
 
 use dioxus::prelude::*;
 
 use crate::app::{Services, Ui};
 use crate::i18n::{t, tf};
+use crate::components::TextField;
 use crate::icons::Icon;
 use crate::model::{PlatformVm, SettingsAction, reduce_settings};
 
@@ -143,69 +144,27 @@ pub fn SettingsPage() -> Element {
         snack.show(t("settings.saved"));
     });
 
-    // --- side index + scroll spy ---
+    // UX review #3: one section at a time (the single 9000 px page was hard to scan) + a search over every row.
     let mut active = use_signal(|| 0_usize);
-    let panels = use_signal(|| vec![None::<Rc<MountedData>>; SECTIONS.len()]);
-    let mut scroller = use_signal(|| None::<Rc<MountedData>>);
-    let mut spy_busy = use_signal(|| false);
-    let mut spy_dirty = use_signal(|| false);
+    let mut query = use_signal(String::new);
+    use_context_provider(|| SettingsQuery(query));
+    let searching = !query().trim().is_empty();
 
-    // Measures the panels against the scroll container; coalesces scroll events while a pass runs.
-    let spy = use_callback(move |at_bottom: bool| {
-        if at_bottom {
-            if *active.peek() != SECTIONS.len() - 1 {
-                active.set(SECTIONS.len() - 1);
-            }
-            return;
-        }
-        if *spy_busy.peek() {
-            spy_dirty.set(true);
-            return;
-        }
-        spy_busy.set(true);
-        spawn(async move {
-            loop {
-                spy_dirty.set(false);
-                let container = scroller.peek().clone();
-                let list = panels.peek().clone();
-                if let Some(c) = container
-                    && let Ok(cr) = c.get_client_rect().await
-                {
-                    let line = cr.origin.y + cr.size.height * 0.25;
-                    let mut current = 0;
-                    for (i, p) in list.iter().enumerate() {
-                        if let Some(p) = p
-                            && let Ok(r) = p.get_client_rect().await
-                            && r.origin.y <= line
-                        {
-                            current = i;
-                        }
-                    }
-                    if *active.peek() != current {
-                        active.set(current);
-                    }
-                }
-                if !*spy_dirty.peek() {
-                    break;
-                }
-            }
-            spy_busy.set(false);
-        });
-    });
-
-    let reduce = ui.settings.read().reduce_motion;
 
     rsx! {
-        div {
-            class: "tk-settings-scroll",
-            onmounted: move |e| scroller.set(Some(e.data())),
-            onscroll: move |e: Event<ScrollData>| {
-                let bottom = e.scroll_top() + f64::from(e.client_height()) >= f64::from(e.scroll_height()) - 4.0;
-                spy.call(bottom);
-            },
+        div { class: "tk-settings-scroll",
             div { class: "tk-page tk-page--settings",
-                div { class: "tk-page__head",
+                div { class: "tk-page__head tk-settings__head",
                     h1 { class: "tk-page__title", {t("settings.title")} }
+                    div { class: "tk-settings__search", "data-settings-search": "{searching}",
+                        TextField {
+                            label: t("settings.search"),
+                            value: query(),
+                            icon: "search".to_string(),
+                            placeholder: t("settings.search_hint"),
+                            oninput: move |v: String| query.set(v),
+                        }
+                    }
                 }
                 div { class: "tk-settings",
                     nav { class: "tk-settings__nav", "aria-label": t("settings.title"),
@@ -214,15 +173,10 @@ pub fn SettingsPage() -> Element {
                                 key: "{key}",
                                 class: "tk-settings__link",
                                 r#type: "button",
-                                "aria-current": if active() == i { "true" } else { "false" },
+                                "aria-current": if !searching && active() == i { "true" } else { "false" },
                                 onclick: move |_| {
                                     active.set(i);
-                                    let behavior = if reduce { ScrollBehavior::Instant } else { ScrollBehavior::Smooth };
-                                    if let Some(p) = panels.peek()[i].clone() {
-                                        spawn(async move {
-                                            let _ = p.scroll_to(behavior).await;
-                                        });
-                                    }
+                                    query.set(String::new());
                                 },
                                 Icon { name: icon.to_string(), size: 20 }
                                 span { {t(&format!("settings.{key}"))} }
@@ -230,22 +184,22 @@ pub fn SettingsPage() -> Element {
                         }
                     }
 
-                    div { class: "tk-settings__body",
-                        SettingsPanel { index: 0, panels, AppearanceSection { commit, commit_saved } }
-                        SettingsPanel { index: 1, panels, HomeSection { commit_saved } }
-                        SettingsPanel { index: 2, panels, PlayerSection { commit_saved } }
-                        SettingsPanel { index: 3, panels, SubtitlesSection {} }
-                        SettingsPanel { index: 4, panels, ReaderSection { commit_saved } }
-                        SettingsPanel { index: 5, panels, NovelSection { commit_saved } }
-                        SettingsPanel { index: 6, panels, DownloadsSection { commit_saved } }
-                        SettingsPanel { index: 7, panels, MetadataSection { commit_saved } }
-                        SettingsPanel { index: 8, panels, AccountsSection {} }
-                        SettingsPanel { index: 9, panels, SocialSection { commit_saved } }
-                        SettingsPanel { index: 10, panels, LinkSection {} }
-                        SettingsPanel { index: 11, panels, ServerSection { commit_saved } }
-                        SettingsPanel { index: 12, panels, DataSection {} }
-                        SettingsPanel { index: 13, panels, SystemSection {} }
-                        SettingsPanel { index: 14, panels, AboutSection {} }
+                    div { class: "tk-settings__body", "data-searching": "{searching}",
+                        SettingsPanel { index: 0, shown: searching || active() == 0, searching, AppearanceSection { commit, commit_saved } }
+                        SettingsPanel { index: 1, shown: searching || active() == 1, searching, HomeSection { commit_saved } }
+                        SettingsPanel { index: 2, shown: searching || active() == 2, searching, PlayerSection { commit_saved } }
+                        SettingsPanel { index: 3, shown: searching || active() == 3, searching, SubtitlesSection {} }
+                        SettingsPanel { index: 4, shown: searching || active() == 4, searching, ReaderSection { commit_saved } }
+                        SettingsPanel { index: 5, shown: searching || active() == 5, searching, NovelSection { commit_saved } }
+                        SettingsPanel { index: 6, shown: searching || active() == 6, searching, DownloadsSection { commit_saved } }
+                        SettingsPanel { index: 7, shown: searching || active() == 7, searching, MetadataSection { commit_saved } }
+                        SettingsPanel { index: 8, shown: searching || active() == 8, searching, AccountsSection {} }
+                        SettingsPanel { index: 9, shown: searching || active() == 9, searching, SocialSection { commit_saved } }
+                        SettingsPanel { index: 10, shown: searching || active() == 10, searching, LinkSection {} }
+                        SettingsPanel { index: 11, shown: searching || active() == 11, searching, ServerSection { commit_saved } }
+                        SettingsPanel { index: 12, shown: searching || active() == 12, searching, DataSection {} }
+                        SettingsPanel { index: 13, shown: searching || active() == 13, searching, SystemSection {} }
+                        SettingsPanel { index: 14, shown: searching || active() == 14, searching, AboutSection {} }
                     }
                 }
             }
@@ -253,20 +207,37 @@ pub fn SettingsPage() -> Element {
     }
 }
 
-/// One settings section: anchor `set-<id>`, icon + title, and registers its element for the index.
+/// The Settings search text, read by every [`SettingRow`] (rows that do not match hide while searching).
+#[derive(Clone, Copy)]
+pub(super) struct SettingsQuery(Signal<String>);
+
+/// Lower-case, accent-free form for the search ("Subtítulos" matches "subtitulos").
+pub(super) fn fold(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'á' | 'à' | 'ä' | 'â' => 'a',
+            'é' | 'è' | 'ë' | 'ê' => 'e',
+            'í' | 'ì' | 'ï' | 'î' => 'i',
+            'ó' | 'ò' | 'ö' | 'ô' => 'o',
+            'ú' | 'ù' | 'ü' | 'û' => 'u',
+            'ñ' => 'n',
+            other => other,
+        })
+        .collect()
+}
+
+/// One settings section: anchor `set-<id>`, icon + title. Every section stays mounted (state and test hooks);
+/// only the chosen one is shown, or all of them while searching (CSS hides those without a matching row).
 #[component]
-fn SettingsPanel(index: usize, panels: Signal<Vec<Option<Rc<MountedData>>>>, children: Element) -> Element {
-    let mut panels = panels;
+fn SettingsPanel(index: usize, shown: bool, searching: bool, children: Element) -> Element {
     let (sid, icon) = SECTIONS[index];
     rsx! {
         section {
             class: "tk-panel tk-settings__panel",
             id: "set-{sid}",
-            onmounted: move |e| {
-                if let Some(slot) = panels.write().get_mut(index) {
-                    *slot = Some(e.data());
-                }
-            },
+            "data-shown": "{shown}",
+            "data-searching": "{searching}",
             h2 { class: "tk-panel__title",
                 Icon { name: icon.to_string(), size: 24 }
                 {t(&format!("settings.{sid}"))}
@@ -279,8 +250,15 @@ fn SettingsPanel(index: usize, panels: Signal<Vec<Option<Rc<MountedData>>>>, chi
 /// Label + hint on the left, control on the right (`stack` puts the control below).
 #[component]
 pub(super) fn SettingRow(label: String, #[props(default)] hint: String, #[props(default)] stack: bool, children: Element) -> Element {
+    let matches = match try_consume_context::<SettingsQuery>() {
+        Some(SettingsQuery(q)) => {
+            let q = fold(q().trim());
+            q.is_empty() || fold(&label).contains(&q) || fold(&hint).contains(&q)
+        }
+        None => true,
+    };
     rsx! {
-        div { class: "tk-setting-row", "data-stack": "{stack}",
+        div { class: "tk-setting-row", "data-stack": "{stack}", "data-match": "{matches}",
             div { class: "tk-setting-row__text",
                 div { class: "tk-setting-row__label", "{label}" }
                 if !hint.is_empty() {
@@ -294,7 +272,13 @@ pub(super) fn SettingRow(label: String, #[props(default)] hint: String, #[props(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_port;
+    use super::{fold, parse_port};
+
+    #[test]
+    fn search_ignores_case_and_accents() {
+        assert_eq!(fold("Subtítulos ÑANDÚ"), "subtitulos nandu");
+        assert!(fold("Reproducción automática").contains(&fold("reproduccion")));
+    }
 
     #[test]
     fn port_field_accepts_only_unprivileged_ports() {

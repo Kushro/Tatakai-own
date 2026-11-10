@@ -14,8 +14,8 @@ pub fn icon_for(dest: NavDest) -> &'static str {
         NavDest::Library => "library",
         // Wave B (docs/redesign/16 section 2): Downloads (h), Manga (l), Novels (m).
         NavDest::Downloads => "download",
-        NavDest::Manga => "grid",
-        NavDest::Novels => "bookmark",
+        NavDest::Manga => "book_open",
+        NavDest::Novels => "book",
         NavDest::Torrents => "magnet",
         NavDest::Extensions => "extensions",
         NavDest::Link => "link",
@@ -59,34 +59,48 @@ pub fn NavRail(
                 Icon { name: "search".to_string(), size: 24 }
                 span { class: "tk-rail__label", "{search_label}" }
             }
-            for (i , dest) in NavDest::ALL.into_iter().enumerate() {
-                {
-                    let label = t(dest.label_key());
-                    let active = current == Some(dest);
-                    let badge = badges.iter().find(|(d, _)| *d == dest).map(|(_, n)| *n).unwrap_or(0);
-                    let n = i + 1;
-                    rsx! {
-                        button {
-                            key: "{label}",
-                            class: "tk-rail__item",
-                            r#type: "button",
-                            "data-active": "{active}",
-                            "aria-current": if active { "page" } else { "false" },
-                            "aria-label": "{label}",
-                            title: "{label} ({n})",
-                            onclick: move |_| on_navigate.call(dest),
-                            span { class: "tk-rail__indicator",
-                                Icon { name: icon_for(dest).to_string(), size: 24 }
-                                if badge > 0 {
-                                    span { class: "tk-rail__badge", "aria-hidden": "true", "{badge}" }
-                                }
-                            }
-                            span { class: "tk-rail__label", "{label}" }
-                        }
-                    }
+            for (i , dest) in NavDest::ALL.into_iter().enumerate().take(NavDest::PRIMARY) {
+                RailDest { dest, n: i + 1, current, badges: badges.clone(), on_navigate }
+            }
+            div { class: "tk-rail__foot",
+                for (i , dest) in NavDest::ALL.into_iter().enumerate().skip(NavDest::PRIMARY) {
+                    RailDest { dest, n: i + 1, current, badges: badges.clone(), on_navigate }
+                }
+                {children}
+            }
+        }
+    }
+}
+
+/// One destination of the rail (content list or foot).
+#[component]
+fn RailDest(
+    dest: NavDest,
+    n: usize,
+    current: Option<NavDest>,
+    badges: Vec<(NavDest, u32)>,
+    on_navigate: EventHandler<NavDest>,
+) -> Element {
+    let label = t(dest.label_key());
+    let active = current == Some(dest);
+    let badge = badges.iter().find(|(d, _)| *d == dest).map(|(_, n)| *n).unwrap_or(0);
+    rsx! {
+        button {
+            class: "tk-rail__item",
+            r#type: "button",
+            "data-active": "{active}",
+            "data-nav": "{dest.label_key()}",
+            "aria-current": if active { "page" } else { "false" },
+            "aria-label": "{label}",
+            title: "{label} ({n})",
+            onclick: move |_| on_navigate.call(dest),
+            span { class: "tk-rail__indicator",
+                Icon { name: icon_for(dest).to_string(), size: 24 }
+                if badge > 0 {
+                    span { class: "tk-rail__badge", "aria-hidden": "true", "{badge}" }
                 }
             }
-            div { class: "tk-rail__foot", {children} }
+            span { class: "tk-rail__label", "{label}" }
         }
     }
 }

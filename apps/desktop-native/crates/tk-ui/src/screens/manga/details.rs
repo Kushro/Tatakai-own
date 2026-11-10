@@ -25,7 +25,7 @@ use crate::app::{Route, Services, Ui};
 use crate::backend::{ChapterProviderVm, ChapterRefVm, ChapterVm, ListEntryUpdateVm, ListEntryVm, ListStatusVm, MangaDetailsVm, RelatedVm};
 use crate::components::{
     Button, ButtonSize, ButtonVariant, Chip, EmptyState, ErrorState, IconButton, IconButtonVariant, InfoChip,
-    MediaCover, Pill, Sheet, SkeletonLines, SkeletonRow, Switch, TextField, Tone, use_snackbar,
+    MediaCover, Menu, MenuItem, Pill, Sheet, SkeletonLines, SkeletonRow, Switch, TextField, Tone, use_snackbar,
 };
 use crate::i18n::{t, tf};
 use crate::icons::Icon;
@@ -340,7 +340,8 @@ fn Header(
                         InfoChip { text: tf("manga.details.volumes_n", &[("n", &n.to_string())]) }
                     }
                     if let Some(sc) = vm.media.score {
-                        InfoChip { text: tf("manga.details.score", &[("n", &sc.to_string())]), icon: "star".to_string() }
+                        // One score scale everywhere (UX review #4): "★ 8.4" like the cards and the anime details.
+                        InfoChip { text: crate::screens::details::score_label(sc), icon: "star".to_string() }
                     }
                     if vm.adult {
                         Pill { text: "18+".to_string(), tone: Tone::Warn }
@@ -414,6 +415,11 @@ fn ReadStatus(media_id: String, chapters_total: Option<u32>, entry: Option<Resul
             });
         }
     });
+    let mut menu_open = use_signal(|| false);
+    let list_label = match status {
+        Some(s) => t(&format!("manga.status.{}", s.id())),
+        None => t("manga.list.add"),
+    };
     let progress_text = match chapters_total {
         Some(total) => tf("manga.list.progress_of", &[("n", &progress.to_string()), ("total", &total.to_string())]),
         None => tf("manga.list.progress", &[("n", &progress.to_string())]),
@@ -430,22 +436,40 @@ fn ReadStatus(media_id: String, chapters_total: Option<u32>, entry: Option<Resul
                 if let Some(Err(e)) = entry.clone() {
                     ErrorState { error: e, compact: true, on_retry: move |_| on_change.call(()) }
                 }
-                div { class: "tk-chips", role: "group", "aria-label": t("manga.list.title"),
+                // UX review #14: the same "Add to list ▾" menu as the anime details instead of six loose chips that read
+                // like filters.
+                Menu {
+                    open: menu_open(),
+                    label: t("manga.list.title"),
+                    on_close: move |_| menu_open.set(false),
+                    trigger: rsx! {
+                        Button {
+                            label: list_label,
+                            icon: if status.is_some() { "check".to_string() } else { "bookmark".to_string() },
+                            variant: ButtonVariant::Tonal,
+                            disabled: busy(),
+                            onclick: move |_| menu_open.toggle(),
+                        }
+                    },
                     for s in ListStatusVm::ALL {
-                        Chip {
+                        MenuItem {
                             key: "{s.id()}",
                             label: t(&format!("manga.status.{}", s.id())),
-                            on: status == Some(s),
-                            disabled: busy(),
-                            onclick: move |_| save.call(Some(ListEntryUpdateVm { status: Some(s), ..ListEntryUpdateVm::default() })),
+                            checked: Some(status == Some(s)),
+                            on_select: move |_| {
+                                menu_open.set(false);
+                                save.call(Some(ListEntryUpdateVm { status: Some(s), ..ListEntryUpdateVm::default() }));
+                            },
                         }
                     }
                     if status.is_some() {
-                        IconButton {
-                            icon: "close".to_string(),
+                        MenuItem {
                             label: t("manga.list.remove"),
-                            disabled: busy(),
-                            onclick: move |_| save.call(None),
+                            icon: "close".to_string(),
+                            on_select: move |_| {
+                                menu_open.set(false);
+                                save.call(None);
+                            },
                         }
                     }
                 }

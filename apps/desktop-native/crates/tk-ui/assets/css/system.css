@@ -87,3 +87,18 @@
   .tk-setup__card { padding: var(--tk-space-16); }
   .tk-setup__dot-label { display: none; }
 }
+
+/* UX review #16: the wizard was a card stuck to the left of an empty window with a stepper on two lines. Centered,
+   one-line stepper (only the current step shows its name; the rest keep a tooltip), bigger palette swatches. */
+.tk-page--setup { display: flex; justify-content: center; align-items: flex-start; padding-top: clamp(16px, 6vh, 72px); }
+.tk-page--setup .tk-setup { width: min(860px, 100%); }
+.tk-page--setup .tk-setup__head { align-items: center; text-align: center; }
+.tk-page--setup .tk-setup__steps { flex-wrap: nowrap; align-items: center; justify-content: center; overflow-x: auto; max-width: 100%; }
+.tk-page--setup .tk-setup__dot { white-space: nowrap; }
+.tk-page--setup .tk-setup__dot + .tk-setup__dot::before { content: ""; width: 20px; height: 2px; margin-right: var(--tk-space-4); border-radius: 1px; background: var(--md-sys-color-outline-variant); }
+.tk-page--setup .tk-setup__dot[data-state="done"] + .tk-setup__dot::before { background: var(--md-sys-color-primary); }
+.tk-page--setup .tk-setup__dot:not([data-state="current"]) .tk-setup__dot-label { display: none; }
+.tk-page--setup .tk-setup__card { padding: var(--tk-space-32); box-shadow: var(--tk-shadow-1); }
+.tk-page--setup .tk-swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--tk-space-8); }
+.tk-page--setup .tk-swatch__dot { width: 28px; height: 28px; }
+
