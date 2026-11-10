@@ -43,7 +43,7 @@ use std::time::Duration;
 use dioxus::desktop::tao::dpi::PhysicalSize;
 use dioxus::desktop::{DesktopContext, LogicalSize, use_window};
 use dioxus::prelude::*;
-use tk_player::{EngineMode, KeyAction, Player, PlayerEvent, Rect, ShaderPreset, TrackInfo, TrackKind};
+use tk_player::{Anime4kQuality, EngineMode, KeyAction, Player, PlayerEvent, Rect, ShaderPreset, TrackInfo, TrackKind};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::{Route, Services, Ui};
@@ -219,6 +219,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
 
     // Engine (docs/redesign/09 section 4.4), decided at boot from Settings > Player.
     let mut ext_mpv = use_signal(|| None::<PathBuf>);
+    let mut frame_gen = use_signal(|| None::<tk_player::FrameGen>);
     let external = use_hook(|| Rc::new(ExternalSlot::default()));
     let ext_ended = use_signal(|| false);
     let ext_closed = use_signal(|| false);
@@ -244,6 +245,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         player,
         flash,
         ext_mpv,
+        frame_gen,
         external: external.clone(),
         ext_ended,
         ext_closed,
@@ -272,9 +274,18 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 let settings = ui.settings.peek().clone();
                 mpv_missing.set(None);
                 ext_mpv.set(None);
+                frame_gen.set(None);
                 enhanced.set(false);
                 uosc.set(false);
-                match settings.player_mode {
+                // docs/redesign/18: frame generation runs in the external mpv (Vulkan + lsfg-vk), whatever the
+                // chosen engine; only on Linux, where lsfg-vk exists.
+                let fg_mult = settings.video.frame_gen.multiplier();
+                let use_fg = cfg!(target_os = "linux") && fg_mult > 1;
+                if use_fg {
+                    frame_gen.set(Some(tk_player::FrameGen::new(fg_mult, settings.video.lsfg_dll.clone().map(PathBuf::from))));
+                }
+                let engine = if use_fg { PlayerModeVm::External } else { settings.player_mode };
+                match engine {
                     PlayerModeVm::External => {
                         let custom = settings.external_mpv_path.clone();
                         let path = custom.clone().map(PathBuf::from);
@@ -399,6 +410,13 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 let _ = p.set_loop_file(false);
                 let _ = p.set_interpolation(false);
                 let _ = p.set_stable_volume(settings.flow.stable_volume);
+                // Video enhancements (docs/redesign/18): Anime4K chain size before the preset, deband, image.
+                let v = &settings.video;
+                let _ = p.set_shader_quality(if v.anime4k_hq { Anime4kQuality::High } else { Anime4kQuality::Fast });
+                let _ = p.set_deband(v.deband);
+                if v.adjusted() {
+                    let _ = p.set_image_adjust(v.brightness, v.contrast, v.saturation, v.gamma);
+                }
                 let initial = settings.preset();
                 // Our presets are an Embedded-only feature: mpv-anime-build brings its own shaders.
                 if initial != ShaderPreset::Off && !*enhanced.peek() {
@@ -1395,6 +1413,45 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                         let _ = p.set_mute(!pstate.peek().muted);
                     }
                     dispatch(&mut pstate, PlayerAction::ToggleMute);
+                },
+                anime4k_hq: ui.settings.read().video.anime4k_hq,
+                deband: ui.settings.read().video.deband,
+                on_anime4k_hq: {
+                    let backend = backend.clone();
+                    move |on: bool| {
+                        let mut v = ui.settings.peek().video.clone();
+                        v.anime4k_hq = on;
+                        if let Some(p) = player.peek().clone() {
+                            let q = if on { Anime4kQuality::High } else { Anime4kQuality::Fast };
+                            let mut notice = notice;
+                            // The VL files may be missing on a fresh profile: install them, then retry once.
+                            if p.set_shader_quality(q).is_err() {
+                                notice.set(Some(t("player.shaders_fetching")));
+                                let (backend, p) = (backend.clone(), p.clone());
+                                spawn(async move {
+                                    match backend.fetch_shaders().await {
+                                        Ok(_) if p.set_shader_quality(q).is_ok() => notice.set(None),
+                                        Ok(_) => notice.set(Some(t("player.shaders_missing"))),
+                                        Err(e) => notice.set(Some(tf("player.shaders_fetch_failed", &[("detail", &e.detail)]))),
+                                    }
+                                });
+                            }
+                        }
+                        let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetVideo(v));
+                        ui.commit_settings(&backend, s);
+                    }
+                },
+                on_deband: {
+                    let backend = backend.clone();
+                    move |on: bool| {
+                        let mut v = ui.settings.peek().video.clone();
+                        v.deband = on;
+                        if let Some(p) = player.peek().clone() {
+                            let _ = p.set_deband(on);
+                        }
+                        let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetVideo(v));
+                        ui.commit_settings(&backend, s);
+                    }
                 },
                 on_preset: {
                     let backend = backend.clone();

@@ -271,7 +271,7 @@ pub fn shortcut_in(map: &ShortcutMapVm, key: &str, ctrl: bool, editable: bool, i
         match lower.as_str() {
             "b" => return Some(Shortcut::ToggleNav),
             "k" => return Some(Shortcut::FocusSearch),
-            "1" | "2" | "3" | "4" | "5" | "6" if in_player => return lower.parse().ok().map(Shortcut::Preset),
+            "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" if in_player => return lower.parse().ok().map(Shortcut::Preset),
             _ => {}
         }
         return if in_player && !editable { resolve_player(map, key, true) } else { None };
@@ -358,11 +358,10 @@ mod tests {
 
     #[test]
     fn presets_map_ctrl_digits_in_the_player() {
-        for n in 1..=6u8 {
+        for n in 1..=9u8 {
             assert_eq!(shortcut(&n.to_string(), true, false, true), Some(Shortcut::Preset(n)));
         }
         assert_eq!(shortcut("1", true, false, false), None);
-        assert_eq!(shortcut("7", true, false, true), None);
         assert_eq!(shortcut("0", true, false, true), None);
     }
 

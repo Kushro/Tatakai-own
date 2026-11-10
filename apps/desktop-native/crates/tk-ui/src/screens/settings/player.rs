@@ -14,9 +14,10 @@ use crate::components::{
     SkeletonLines, Switch, TextField, Tone, use_snackbar,
 };
 use crate::i18n::{t, tf};
+use crate::model::video::{ADJUST_MAX, ADJUST_MIN};
 use crate::model::{
-    DUB_LANGS, EnhancedUiVm, PlatformVm, PlayerFlowPrefs, PlayerModeVm, QualityVm, SUB_LANGS, SettingsAction,
-    ShortcutMapVm, SourceModeVm, UiError,
+    DUB_LANGS, EnhancedUiVm, FrameGenVm, PlatformVm, PlayerFlowPrefs, PlayerModeVm, QualityVm, SUB_LANGS, SettingsAction,
+    ShortcutMapVm, SourceModeVm, UiError, VideoPrefs,
 };
 use crate::screens::player::presence;
 use crate::shortcuts::{Shortcut, assign, binding, conflicts, display_spec, is_reserved, spec_from_event, unassign};
@@ -46,6 +47,7 @@ pub fn PlayerSection(commit_saved: Callback<SettingsAction>) -> Element {
                 },
             }
         }
+        VideoRows { on_action: commit_saved }
         SettingRow { label: t("src.mode"), hint: t("src.mode.hint"),
             Segmented {
                 options: seg(&SourceModeVm::ALL, SourceModeVm::id, "src.mode"),
@@ -605,3 +607,104 @@ mod tests {
         assert!(AUTO_NEXT_CHOICES.windows(2).all(|w| w[0] < w[1]));
     }
 }
+
+/// docs/redesign/18: Anime4K chain size, debanding, image adjustments and frame generation (`Settings::video`).
+#[component]
+fn VideoRows(on_action: Callback<SettingsAction>) -> Element {
+    let ui = use_context::<Ui>();
+    let v = ui.settings.read().video.clone();
+    let lsfg = cfg!(target_os = "linux");
+    let set = move |f: Box<dyn FnOnce(&mut VideoPrefs)>| {
+        let mut next = ui.settings.peek().video.clone();
+        f(&mut next);
+        on_action.call(SettingsAction::SetVideo(next));
+    };
+    let adjust = |key: &'static str, value: i8, apply: fn(&mut VideoPrefs, i8)| {
+        rsx! {
+            div { class: "tk-video-adjust", "data-adjust": "{key}",
+                span { class: "tk-video-adjust__label", {t(&format!("settings.video.{key}"))} }
+                input {
+                    r#type: "range",
+                    min: "{ADJUST_MIN}",
+                    max: "{ADJUST_MAX}",
+                    value: "{value}",
+                    "aria-label": t(&format!("settings.video.{key}")),
+                    onchange: move |e| {
+                        if let Ok(n) = e.value().parse::<i8>() {
+                            set(Box::new(move |p| apply(p, n)));
+                        }
+                    },
+                }
+                span { class: "tk-video-adjust__value", "{value}" }
+            }
+        }
+    };
+    rsx! {
+        SettingRow { label: t("settings.video.anime4k_hq"), hint: t("settings.video.anime4k_hq_hint"),
+            Switch {
+                checked: v.anime4k_hq,
+                label: t("settings.video.anime4k_hq"),
+                on_toggle: move |on: bool| set(Box::new(move |p| p.anime4k_hq = on)),
+            }
+        }
+        SettingRow { label: t("settings.video.deband"), hint: t("settings.video.deband_hint"),
+            Switch {
+                checked: v.deband,
+                label: t("settings.video.deband"),
+                on_toggle: move |on: bool| set(Box::new(move |p| p.deband = on)),
+            }
+        }
+        SettingRow { label: t("settings.video.image"), hint: t("settings.video.image_hint"), stack: true,
+            div { class: "tk-video-adjusts",
+                {adjust("brightness", v.brightness, |p, n| p.brightness = n)}
+                {adjust("contrast", v.contrast, |p, n| p.contrast = n)}
+                {adjust("saturation", v.saturation, |p, n| p.saturation = n)}
+                {adjust("gamma", v.gamma, |p, n| p.gamma = n)}
+                if v.adjusted() {
+                    Button {
+                        label: t("settings.video.reset_image"),
+                        variant: ButtonVariant::Text,
+                        size: ButtonSize::Sm,
+                        onclick: move |_| set(Box::new(|p| {
+                            p.brightness = 0;
+                            p.contrast = 0;
+                            p.saturation = 0;
+                            p.gamma = 0;
+                        })),
+                    }
+                }
+            }
+        }
+        SettingRow {
+            label: t("settings.video.frame_gen"),
+            hint: if lsfg { t("settings.video.frame_gen_hint") } else { t("settings.video.frame_gen_unavailable") },
+            stack: true,
+            Segmented {
+                options: seg(&FrameGenVm::ALL, FrameGenVm::id, "settings.video.frame_gen"),
+                selected: v.frame_gen.id().to_owned(),
+                label: t("settings.video.frame_gen"),
+                small: true,
+                on_select: move |id: String| {
+                    if let Some(m) = FrameGenVm::from_id(&id) {
+                        set(Box::new(move |p| p.frame_gen = m));
+                    }
+                },
+            }
+        }
+        if lsfg && v.frame_gen != FrameGenVm::Off {
+            SettingRow { label: t("settings.video.lsfg_dll"), hint: t("settings.video.lsfg_dll_hint"), stack: true,
+                TextField {
+                    label: t("settings.video.lsfg_dll"),
+                    value: v.lsfg_dll.clone().unwrap_or_default(),
+                    icon: "folder".to_string(),
+                    mono: true,
+                    placeholder: "~/.local/share/Steam/steamapps/common/Lossless Scaling/Lossless.dll".to_string(),
+                    oninput: move |text: String| {
+                        set(Box::new(move |p| p.lsfg_dll = Some(text)));
+                    },
+                }
+            }
+        }
+    }
+}
+

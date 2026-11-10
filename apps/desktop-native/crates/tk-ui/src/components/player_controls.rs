@@ -98,6 +98,12 @@ pub fn PlayerControls(
     #[props(default)] on_volume: EventHandler<u8>,
     #[props(default)] on_toggle_mute: EventHandler<()>,
     #[props(default)] on_preset: EventHandler<ShaderPreset>,
+    /// Anime4K uses the VL networks (`Settings::video.anime4k_hq`).
+    #[props(default)] anime4k_hq: bool,
+    #[props(default)] on_anime4k_hq: EventHandler<bool>,
+    /// mpv debanding (`Settings::video.deband`).
+    #[props(default)] deband: bool,
+    #[props(default)] on_deband: EventHandler<bool>,
     #[props(default)] on_next: EventHandler<()>,
     #[props(default)] on_fullscreen: EventHandler<()>,
     /// Source chip / "Pick a source".
@@ -580,13 +586,35 @@ pub fn PlayerControls(
                                 MenuItem {
                                     key: "{p.id()}",
                                     label: t(&format!("preset.{}", p.id())),
-                                    hint: format!("Ctrl+{}", i + 1),
+                                    hint: if i < 9 { format!("Ctrl+{}", i + 1) } else { String::new() },
                                     checked: Some(p == preset),
                                     on_select: move |_| {
                                         preset_open.set(false);
                                         on_preset.call(p);
                                     },
                                 }
+                            }
+                            // docs/redesign/18: Anime4K chain size and debanding, live.
+                            MenuSeparator {}
+                            MenuItem {
+                                label: t("player.anime4k_hq"),
+                                icon: "hd".to_string(),
+                                hint: t("player.anime4k_hq_hint"),
+                                checked: Some(anime4k_hq),
+                                on_select: move |_| {
+                                    preset_open.set(false);
+                                    on_anime4k_hq.call(!anime4k_hq);
+                                },
+                            }
+                            MenuItem {
+                                label: t("player.deband"),
+                                icon: "tune".to_string(),
+                                hint: t("player.deband_hint"),
+                                checked: Some(deband),
+                                on_select: move |_| {
+                                    preset_open.set(false);
+                                    on_deband.call(!deband);
+                                },
                             }
                         }
                     }

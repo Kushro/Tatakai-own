@@ -96,15 +96,33 @@ impl ExternalPlayer {
     /// Fails with [`PlayerError::External`] when the process cannot start or the IPC endpoint never appears.
     /// Blocking (waits for the endpoint, usually a few hundred ms): call from `spawn_blocking`.
     pub fn spawn(mpv_path: &Path, src: &MediaSource, start_secs: f64, title: &str) -> Result<Self, PlayerError> {
+        Self::spawn_with(mpv_path, src, start_secs, title, None)
+    }
+
+    /// [`Self::spawn`] with frame generation (docs/redesign/18): mpv renders through Vulkan (`vo=gpu-next`,
+    /// `gpu-api=vulkan`) so the lsfg-vk Vulkan layer can hook its swapchain, configured for this process only by
+    /// environment (`LSFGVK_ENV=1`, `LSFGVK_MULTIPLIER`, ...): the user's own lsfg-vk profiles are not touched.
+    pub fn spawn_with(mpv_path: &Path, src: &MediaSource, start_secs: f64, title: &str, frame_gen: Option<&FrameGen>) -> Result<Self, PlayerError> {
         let endpoint = new_endpoint();
         #[cfg(unix)]
         let _ = std::fs::remove_file(&endpoint);
         let mut cmd = Command::new(mpv_path);
-        cmd.args(mpv_args(&endpoint, src, start_secs, title))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        let mut args = mpv_args(&endpoint, src, start_secs, title);
+        if let Some(fg) = frame_gen {
+            // Before the trailing `--` and the URL.
+            let at = args.iter().position(|a| a == "--").unwrap_or(args.len());
+            for (i, a) in fg.mpv_args().into_iter().enumerate() {
+                args.insert(at + i, a.into());
+            }
+        }
+        cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
         user_env(&mut cmd);
+        if let Some(fg) = frame_gen {
+            for (k, v) in fg.env() {
+                cmd.env(k, v);
+            }
+            tracing::info!(multiplier = fg.multiplier, "external mpv with lsfg-vk frame generation");
+        }
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -257,6 +275,44 @@ fn escape_title(title: &str) -> String {
 }
 
 /// The command line (pure). Never `--no-config`: this mode exists to use the user's own config.
+/// Frame generation for the external mpv (lsfg-vk 2.x environment configuration).
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrameGen {
+    /// 2..=4 generated frames per real one.
+    pub multiplier: u8,
+    /// The user's `Lossless.dll`; `None` = lsfg-vk's own lookup (its config / Steam library).
+    pub dll: Option<PathBuf>,
+    /// Optical-flow resolution scale, 0.25..=1.0 (Enigmata's balanced profile: 0.85).
+    pub flow_scale: f32,
+    /// lsfg-vk performance mode (lighter model).
+    pub performance: bool,
+}
+
+impl FrameGen {
+    pub fn new(multiplier: u8, dll: Option<PathBuf>) -> Self {
+        Self { multiplier: multiplier.clamp(2, 4), dll, flow_scale: 0.85, performance: false }
+    }
+
+    /// mpv options: Vulkan presentation so the layer sees a swapchain; no display-resample (lsfg paces frames).
+    pub fn mpv_args(&self) -> Vec<String> {
+        vec!["--vo=gpu-next".into(), "--gpu-api=vulkan".into(), "--video-sync=audio".into(), "--interpolation=no".into()]
+    }
+
+    /// Environment for the mpv process only.
+    pub fn env(&self) -> Vec<(&'static str, String)> {
+        let mut v = vec![
+            ("LSFGVK_ENV", "1".to_owned()),
+            ("LSFGVK_MULTIPLIER", self.multiplier.clamp(2, 4).to_string()),
+            ("LSFGVK_FLOW_SCALE", format!("{:.2}", self.flow_scale.clamp(0.25, 1.0))),
+            ("LSFGVK_PERFORMANCE_MODE", if self.performance { "1".into() } else { "0".into() }),
+        ];
+        if let Some(dll) = &self.dll {
+            v.push(("LSFGVK_DLL_PATH", dll.to_string_lossy().into_owned()));
+        }
+        v
+    }
+}
+
 fn mpv_args(endpoint: &str, src: &MediaSource, start_secs: f64, title: &str) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
         "--force-window=immediate".into(),
@@ -484,6 +540,24 @@ pub fn mpv_version(mpv_path: &Path) -> Option<String> {
         return None;
     }
     String::from_utf8_lossy(&out.stdout).lines().next().map(|l| l.trim().to_owned()).filter(|l| !l.is_empty())
+}
+
+#[cfg(test)]
+mod frame_gen_tests {
+    use super::FrameGen;
+    use std::path::PathBuf;
+
+    #[test]
+    fn frame_gen_configures_vulkan_and_the_lsfg_env() {
+        let fg = FrameGen::new(9, Some(PathBuf::from("/home/u/Lossless.dll")));
+        assert_eq!(fg.multiplier, 4, "clamped to 2..=4");
+        assert!(fg.mpv_args().contains(&"--gpu-api=vulkan".to_owned()));
+        let env = fg.env();
+        assert!(env.contains(&("LSFGVK_ENV", "1".to_owned())));
+        assert!(env.contains(&("LSFGVK_MULTIPLIER", "4".to_owned())));
+        assert!(env.contains(&("LSFGVK_DLL_PATH", "/home/u/Lossless.dll".to_owned())));
+        assert!(FrameGen::new(2, None).env().iter().all(|(k, _)| *k != "LSFGVK_DLL_PATH"));
+    }
 }
 
 #[cfg(test)]

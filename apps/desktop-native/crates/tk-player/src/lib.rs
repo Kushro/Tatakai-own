@@ -40,9 +40,9 @@ pub use null_player::Player;
 pub use embed::EmbedTarget;
 pub use engine::{EngineConfig, EngineMode};
 pub use enhanced_conf::shader_presets_apply;
-pub use external::{ExternalEvent, ExternalPlayer, find_mpv, mpv_version};
+pub use external::{ExternalEvent, ExternalPlayer, FrameGen, find_mpv, mpv_version};
 pub use host::PlayerHost;
-pub use preset::{ShaderPreset, glsl_shaders_value, list_separator, shader_paths};
+pub use preset::{Anime4kQuality, ShaderPreset, all_preset_files, glsl_shaders_value, list_separator, shader_paths};
 pub use subs::{SubStyle, sub_options};
 pub use types::{KeyAction, MediaSource, PlayerError, PlayerEvent, Rect, SubtitleSource, TrackInfo, TrackKind};
 
