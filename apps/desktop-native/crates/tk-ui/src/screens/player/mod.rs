@@ -69,7 +69,7 @@ use crate::shortcuts::Shortcut;
 
 use self::episodes::EpisodeSheet;
 use self::flow::{
-    ExternalSlot, Flow, apply_preset, button_index, dispatch, legacy_sources, no_player_text, remember_pick, report,
+    ExternalSlot, Flow, button_index, choose_preset, dispatch, legacy_sources, no_player_text, remember_pick, report,
     report_source,
 };
 use self::torrent::{SEEK_MARKS_EVERY, TorrentSession, TorrentSlot, end_torrent, take_batch_next, torrent_line};
@@ -400,7 +400,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 let initial = settings.preset();
                 // Our presets are an Embedded-only feature: mpv-anime-build brings its own shaders.
                 if initial != ShaderPreset::Off && !*enhanced.peek() {
-                    apply_preset(&p, initial, &mut notice);
+                    choose_preset(&backend, p.clone(), initial, notice, || {});
                 }
                 // Manual mode without a pick: `to_resolve` is None, so this returns without network.
                 spawn(ctx.clone().drive(None));
@@ -789,12 +789,14 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     }
                 }
                 Shortcut::Preset(n) => {
-                    if let Some(next) = ShaderPreset::from_shortcut(n)
-                        && apply_preset(&p, next, &mut notice)
-                    {
-                        preset.set(next);
-                        let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(next));
-                        ui.commit_settings(&backend, s);
+                    if let Some(next) = ShaderPreset::from_shortcut(n) {
+                        let saver = backend.clone();
+                        let mut preset = preset;
+                        choose_preset(&backend, p.clone(), next, notice, move || {
+                            preset.set(next);
+                            let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(next));
+                            ui.commit_settings(&saver, s);
+                        });
                     }
                 }
                 // Wave A (worker e): the rest of the rebindable player actions (docs/redesign/15 section 4).
@@ -1394,12 +1396,14 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 on_preset: {
                     let backend = backend.clone();
                     move |next: ShaderPreset| {
-                        if let Some(p) = player.peek().clone()
-                            && apply_preset(&p, next, &mut notice)
-                        {
-                            preset.set(next);
-                            let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(next));
-                            ui.commit_settings(&backend, s);
+                        if let Some(p) = player.peek().clone() {
+                            let saver = backend.clone();
+                            let mut preset = preset;
+                            choose_preset(&backend, p, next, notice, move || {
+                                preset.set(next);
+                                let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(next));
+                                ui.commit_settings(&saver, s);
+                            });
                         }
                     }
                 },

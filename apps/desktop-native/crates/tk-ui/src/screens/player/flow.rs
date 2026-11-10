@@ -133,6 +133,38 @@ pub(super) fn remember_pick(backend: &BackendRef, id: &str, episode: u32, source
     });
 }
 
+/// Applies `next`; when its shader files are missing (development build, fresh Linux install) downloads them once
+/// through `Backend::fetch_shaders` and tries again. `on_active` runs when the preset is finally active.
+pub(super) fn choose_preset(
+    backend: &BackendRef,
+    p: Arc<Player>,
+    next: ShaderPreset,
+    mut notice: Signal<Option<String>>,
+    on_active: impl FnOnce() + 'static,
+) {
+    match p.set_shader_preset(next) {
+        Ok(()) => {
+            notice.set(None);
+            on_active();
+        }
+        Err(PlayerError::ShadersMissing(_) | PlayerError::NoShadersDir) => {
+            notice.set(Some(t("player.shaders_fetching")));
+            let backend = backend.clone();
+            spawn(async move {
+                match backend.fetch_shaders().await {
+                    Ok(_) => {
+                        if apply_preset(&p, next, &mut notice) {
+                            on_active();
+                        }
+                    }
+                    Err(e) => notice.set(Some(tf("player.shaders_fetch_failed", &[("detail", &e.detail)]))),
+                }
+            });
+        }
+        Err(e) => tracing::warn!(error = %e, "changing the shader preset failed"),
+    }
+}
+
 /// Returns whether the preset is now active.
 pub(super) fn apply_preset(p: &Player, preset: ShaderPreset, notice: &mut Signal<Option<String>>) -> bool {
     match p.set_shader_preset(preset) {

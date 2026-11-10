@@ -17,7 +17,7 @@
   "player.error.trying_next": "That source failed. Trying another one.",
   "player.error.no_more": "No other source is available for this episode.",
   "player.error.no_player": "The video player could not start. Check the log in the logs folder of the app's data directory.",
-  "player.shaders_missing": "Upscaling shaders are missing. Run packaging\\fetch-deps.ps1 and restart.",
+  "player.shaders_missing": "Upscaling shaders are missing. Check your connection: they are downloaded the first time you pick a preset.",
   "player.fullscreen": "Full screen",
   "preset.title": "Upscaling preset",
   "preset.off": "Off",
@@ -136,5 +136,7 @@
   "player.discord.paused": "Paused · {title}",
   "player.discord.episode": "Episode {n}",
   "player.discord.playing_small": "Playing",
-  "player.discord.paused_small": "Paused"
+  "player.discord.paused_small": "Paused",
+  "player.shaders_fetch_failed": "Upscaling shaders are missing and could not be downloaded: {detail}",
+  "player.shaders_fetching": "Downloading the upscaling shaders (about 1 MB, verified)…"
 }

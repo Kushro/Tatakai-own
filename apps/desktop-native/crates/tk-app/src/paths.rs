@@ -90,10 +90,11 @@ pub fn fonts_dir(exe_dir_override: Option<&Path>) -> PathBuf {
     ])
 }
 
-/// Anime4K / FSR shader files: `<exe>/shaders`, else `<data>/shaders`.
+/// Anime4K / FSR shader files: `<exe>/shaders` when the installer shipped them, else `<data>/shaders` (writable:
+/// `shaders::fetch` downloads there on first use, so a development build or a fresh Linux install also works).
 pub fn shaders_dir(paths: &AppPaths, exe_dir_override: Option<&Path>) -> PathBuf {
-    let exe = exe_dir_override.map(Path::to_path_buf).unwrap_or_else(exe_dir);
-    first_existing(&[exe.join("shaders"), paths.root.join("shaders")])
+    let exe = exe_dir_override.map(Path::to_path_buf).unwrap_or_else(exe_dir).join("shaders");
+    if exe.is_dir() { exe } else { paths.root.join("shaders") }
 }
 
 /// `anime4k.lock.json` shipped next to the shaders (installer) or in the source tree (development).
