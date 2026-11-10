@@ -17,7 +17,7 @@
   "player.error.trying_next": "Esa fuente falló. Probando otra.",
   "player.error.no_more": "No hay otra fuente disponible para este episodio.",
   "player.error.no_player": "No se pudo iniciar el reproductor de video. Revisa el registro en la carpeta logs del directorio de datos de la app.",
-  "player.shaders_missing": "Faltan los shaders de escalado. Ejecuta packaging\\fetch-deps.ps1 y reinicia.",
+  "player.shaders_missing": "Faltan los shaders de escalado. Revisa la conexión: se descargan la primera vez que eliges un preajuste.",
   "player.fullscreen": "Pantalla completa",
   "preset.title": "Preajuste de escalado",
   "preset.off": "Desactivado",
@@ -136,5 +136,7 @@
   "player.discord.paused": "En pausa · {title}",
   "player.discord.episode": "Episodio {n}",
   "player.discord.playing_small": "Reproduciendo",
-  "player.discord.paused_small": "En pausa"
+  "player.discord.paused_small": "En pausa",
+  "player.shaders_fetch_failed": "Faltan los shaders de escalado y no se pudieron descargar: {detail}",
+  "player.shaders_fetching": "Descargando los shaders de escalado (cerca de 1 MB, verificados)…"
 }

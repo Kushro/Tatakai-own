@@ -594,6 +594,9 @@ impl Backend for LiveBackend {
     async fn anime_build_status(&self) -> UiResult<AnimeBuildVm> {
         Ok(crate::anime_build::status(&AppPaths::from_root(self.data_root.clone())))
     }
+    async fn fetch_shaders(&self) -> UiResult<u32> {
+        crate::shaders::fetch(&crate::paths::shaders_dir(&AppPaths::from_root(self.data_root.clone()), None)).await
+    }
     async fn prepare_anime_build(&self) -> UiResult<std::path::PathBuf> {
         let paths = AppPaths::from_root(self.data_root.clone());
         tokio::task::spawn_blocking(move || crate::anime_build::prepare(&paths))

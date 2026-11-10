@@ -27,6 +27,9 @@ mod paths;
 #[cfg_attr(not(feature = "live"), allow(dead_code))] // wipe is used by worker f's live/system.rs
 mod reset;
 mod settings_store;
+/// Anime4K / FSR shaders downloaded on first use (verified against packaging/*.lock.json).
+#[cfg(feature = "live")]
+mod shaders;
 mod single_instance;
 /// Wave B (worker m): narration engines (system voice, OpenAI-compatible, ElevenLabs, local KittenTTS).
 #[cfg(feature = "live")]

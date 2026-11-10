@@ -1373,6 +1373,12 @@ pub trait Backend: Send + Sync + 'static {
     async fn prepare_anime_build(&self) -> UiResult<PathBuf> {
         Err(UiError::not_wired("prepare_anime_build"))
     }
+    /// Downloads the Anime4K / FSR shader files the presets need into the player's shader folder, each verified
+    /// against the SHA-256 of `packaging/{anime4k,fsr}.lock.json` (files already present and valid are kept).
+    /// Returns how many files were downloaded. Called by the player the first time a preset finds them missing.
+    async fn fetch_shaders(&self) -> UiResult<u32> {
+        Err(UiError::not_wired("fetch_shaders"))
+    }
     /// The real data directory for Settings texts (replaces the hard-coded `%APPDATA%`), e.g.
     /// `/home/ana/.config/Tatakai-Next` or `C:\Users\ana\AppData\Roaming\Tatakai-Next`. Empty when unknown.
     fn data_dir_display(&self) -> String {
