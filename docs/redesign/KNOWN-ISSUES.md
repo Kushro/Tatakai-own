@@ -217,3 +217,15 @@ Ninguno se descartó en esta pasada. `data-provider-status` de los 8 proveedores
 - **Generación de cuadros (lsfg-vk)**: funciona con el mpv externo (Vulkan) y un config dedicado de lsfg-vk (`LSFGVK_CONFIG`, perfil "Tatakai Next" activo en `mpv`). lsfg-vk 2.x necesita `lsfg-vk.dll` (el paquete de shaders que trae para Lossless Scaling), no el `Lossless.dll` del juego ("Unable to find base shader 'mipmaps'"): la app busca primero un `lsfg-vk.dll` junto al DLL configurado y en la carpeta de Lossless Scaling de Steam. Pendiente: que la app vuelva sola al reproductor integrado si ese mpv se cierra al arrancar, y que la ventana de mpv externo no aparezca en el monitor equivocado (la ubica el compositor).
 - **Shaders**: se instalan desde el zip verificado de mpv-anime-build (21 archivos en un perfil nuevo); en una instalación sin el zip (AppImage) solo se pueden bajar los de Anime4K rápido y FSR por URL (los de alta calidad VL, Fidelity, ArtCNN, NVScaler y CAS no tienen lock de URL).
 
+
+## Link desde el teléfono (2026-11-10)
+
+Probado de punta a punta con el moto g51: perfil "LSFG frame generation 2x" sobre `test-streams.mux.dev/x36xhzz` (HLS). El teléfono reproduce 1080p a 120 fps (VAAPI → `temple-lsfg` → `h264_vaapi`). Se corrigieron dos bugs que rompían **todo** HLS por Link, no solo LSFG:
+- El fetcher reescribía los segmentos sin extensión y FFmpeg ≥ 7 los rechaza (`allowed_segment_extensions`): ahora la URL reescrita termina en la extensión original o `.ts` / `.mp4`.
+- El sink perdía los segmentos: FFmpeg hace half-close después del cuerpo del PUT y hyper lo tomaba como aborto (`half_close(true)`). El motor falso de los tests ahora sube igual que FFmpeg.
+
+Pendiente:
+- El teléfono corta por timeout de lectura (OkHttp) antes de los 20 s que el servidor espera un segmento (`segment_wait`); el primer intento falla mientras LSFG arranca y hay que tocar Reintentar. Alinear: reintento en el cliente o espera más corta con 503 + `Retry-After`.
+- Con `fps=…:start_time=0` y fuentes HLS que empiezan en t≈10 s, los primeros ~10 s son el primer cuadro congelado.
+- El servidor Link solo arranca al abrir la pantalla Enlace; con la app recién abierta el teléfono ve "PC fuera de alcance".
+- Los perfiles Anime4K + LSFG no aparecen en las capacidades; los nombres de perfil llegan en inglés al teléfono.

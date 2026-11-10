@@ -106,7 +106,27 @@ fn enc(u: &Url) -> String {
     URL_SAFE_NO_PAD.encode(u.as_str())
 }
 
+/// Extensions FFmpeg's HLS demuxer accepts for segments (its `allowed_segment_extensions` default, FFmpeg >= 7):
+/// a rewritten URL must end in one of them or FFmpeg refuses the segment ("is not in allowed_segment_extensions").
+const HLS_SEGMENT_EXTS: [&str; 16] = ["ts", "m4s", "mp4", "m4v", "m4a", "aac", "ac3", "eac3", "ec3", "mp3", "mkv", "mpegts", "cmfv", "cmfa", "fmp4", "vtt"];
+
+/// The extension a rewritten URL carries: the original one when FFmpeg accepts it, else `fallback`.
+fn hls_ext(u: &Url, fallback: &'static str) -> String {
+    let last = u.path_segments().and_then(|mut s| s.next_back()).unwrap_or("");
+    match last.rsplit_once('.') {
+        Some((_, e)) if HLS_SEGMENT_EXTS.contains(&e.to_ascii_lowercase().as_str()) => e.to_ascii_lowercase(),
+        _ => fallback.to_owned(),
+    }
+}
+
+/// `enc(u)` + `.ext` (base64url never contains a dot, so [`dec`] strips it unambiguously).
+fn enc_ext(u: &Url, ext: &str) -> String {
+    format!("{}.{ext}", enc(u))
+}
+
 fn dec(s: &str) -> Option<Url> {
+    // Rewritten URLs end in a cosmetic extension for FFmpeg's HLS demuxer (`enc_ext`): drop it.
+    let s = s.split_once('.').map_or(s, |(b, _)| b);
     let bytes = URL_SAFE_NO_PAD.decode(s).ok()?;
     Url::parse(std::str::from_utf8(&bytes).ok()?).ok()
 }
@@ -185,7 +205,7 @@ impl Fetcher {
     /// The loopback URL FFmpeg opens: an HLS playlist (rewritten) or an opaque stream (mp4).
     pub fn entry_url(&self, token: &str, target: &Url, hls: bool) -> String {
         if hls {
-            format!("http://{}/u/{token}/p/0/{}", self.addr, enc(target))
+            format!("http://{}/u/{token}/p/0/{}", self.addr, enc_ext(target, "m3u8"))
         } else {
             format!("http://{}/u/{token}/s/{}", self.addr, enc(target))
         }
@@ -267,8 +287,11 @@ fn map_uri(t: &Token, prefix: &str, depth: u8, u: &Url, kind: UriKind) -> Result
         return Err(RewriteError::Denied);
     }
     Ok(match kind {
-        UriKind::Playlist => format!("{prefix}/p/{}/{}", depth + 1, enc(u)),
-        UriKind::Segment | UriKind::Key | UriKind::Map => format!("{prefix}/s/{}", enc(u)),
+        UriKind::Playlist => format!("{prefix}/p/{}/{}", depth + 1, enc_ext(u, "m3u8")),
+        // FFmpeg >= 7 refuses HLS segments whose URL lacks a known extension (`allowed_segment_extensions`).
+        UriKind::Segment => format!("{prefix}/s/{}", enc_ext(u, &hls_ext(u, "ts"))),
+        UriKind::Map => format!("{prefix}/s/{}", enc_ext(u, &hls_ext(u, "mp4"))),
+        UriKind::Key => format!("{prefix}/s/{}", enc(u)),
     })
 }
 

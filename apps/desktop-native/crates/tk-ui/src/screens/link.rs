@@ -84,11 +84,30 @@ pub fn LinkPage() -> Element {
     let mut revoke_target = use_signal(|| None::<DeviceVm>);
     let mut device_error = use_signal(|| None::<UiError>);
 
-    // One-second clock for the countdown (only runs while this page is open).
+    // One-second clock for the countdown (only runs while this page is open). While a pairing window is open the
+    // status (and its device list) is reloaded every 2 s, so a phone that just paired shows up without leaving the
+    // page; once a new device appears the window is closed here too (the code is single-use).
     use_future(move || async move {
+        let mut tick = 0_u32;
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
             now.set(now_unix());
+            tick = tick.wrapping_add(1);
+            let open = pairing.peek().as_ref().is_some_and(|p| !p.is_expired(now_unix()));
+            if open && tick % 2 == 0 {
+                let before = match &*status.peek() {
+                    Some(Ok(s)) => s.devices.len(),
+                    _ => 0,
+                };
+                status.restart();
+                // Give the reload a moment, then close the window if a device was added.
+                tokio::time::sleep(Duration::from_millis(600)).await;
+                if let Some(Ok(s)) = &*status.peek()
+                    && s.devices.len() > before
+                {
+                    pairing.set(None);
+                }
+            }
         }
     });
 

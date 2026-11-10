@@ -131,11 +131,9 @@ impl Engine for FakeEngine {
         self.args.lock().unwrap().push(job.args.iter().map(|a| a.to_string_lossy().into_owned()).collect());
         let (total, bytes, delay, results) = (self.total_segments, self.seg_bytes, self.delay, self.put_results.clone());
         let task = tokio::spawn(async move {
-            let client = no_proxy_client();
             let put = |name: String, body: Vec<u8>| {
-                let client = client.clone();
                 let url = format!("{}/{name}", job.sink_base);
-                async move { client.put(url).body(body).send().await.map(|r| r.status().as_u16()).unwrap_or(0) }
+                async move { ffmpeg_style_put(&url, &body).await }
             };
             if put("init.mp4".into(), b"INIT".to_vec()).await != 200 {
                 return;
@@ -151,6 +149,28 @@ impl Engine for FakeEngine {
         });
         Ok(Box::new(FakeProc { task: Some(task) }))
     }
+}
+
+/// PUT `body` the way FFmpeg's HLS muxer does (`-method PUT`): chunked body, then a half-close (shutdown of the write
+/// side) before reading the status line. A server that treats the half-close as an abort drops the request.
+async fn ffmpeg_style_put(url: &str, body: &[u8]) -> u16 {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let Some(rest) = url.strip_prefix("http://") else { return 0 };
+    let Some((host, path)) = rest.split_once('/') else { return 0 };
+    let Ok(mut sock) = tokio::net::TcpStream::connect(host).await else { return 0 };
+    let mut req = format!("PUT /{path} HTTP/1.1\r\nTransfer-Encoding: chunked\r\nUser-Agent: Lavf\r\nConnection: close\r\nHost: {host}\r\n\r\n").into_bytes();
+    for chunk in body.chunks(32 * 1024) {
+        req.extend_from_slice(format!("{:x}\r\n", chunk.len()).as_bytes());
+        req.extend_from_slice(chunk);
+        req.extend_from_slice(b"\r\n");
+    }
+    req.extend_from_slice(b"0\r\n\r\n");
+    if sock.write_all(&req).await.is_err() || sock.shutdown().await.is_err() {
+        return 0;
+    }
+    let mut resp = Vec::new();
+    let _ = sock.read_to_end(&mut resp).await;
+    std::str::from_utf8(&resp).ok().and_then(|r| r.split(' ').nth(1)).and_then(|c| c.parse().ok()).unwrap_or(0)
 }
 
 // ---- host + canned ffmpeg detection ----------------------------------------------------------------------------------

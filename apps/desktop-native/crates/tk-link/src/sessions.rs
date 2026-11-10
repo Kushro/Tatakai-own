@@ -593,6 +593,7 @@ impl Manager {
                     let wait = {
                         let mut st = s.state();
                         if st.run_gen != run_gen || st.phase == Phase::Closed {
+                            tracing::debug!(k, run_gen, current = st.run_gen, "sink: stale segment");
                             return Err(SinkError::Stale);
                         }
                         let too_far = k > st.playhead.saturating_add(self.tuning.max_lead_segments);
@@ -613,6 +614,7 @@ impl Manager {
                     st.window.bytes -= old.len();
                 }
                 self.evict(&mut st);
+                tracing::debug!(k, run_gen, bytes = st.window.bytes, playhead = st.playhead, "sink: segment stored");
                 if st.phase == Phase::Preparing && st.window.init.is_some() {
                     st.phase = Phase::Ready;
                 }
@@ -707,11 +709,13 @@ impl Manager {
                 ((behind || too_far || dead) && !restarted).then_some(k)
             };
             if let Some(at) = restart_at {
+                tracing::debug!(k, "segment outside the window: restarting the engine there");
                 restarted = true;
                 self.start_run(s, at).await;
                 continue;
             }
             if tokio::time::timeout_at(deadline, notified).await.is_err() {
+                tracing::debug!(k, "segment wait timed out");
                 return Err(ErrorCode::SegmentWaitTimeout.into());
             }
         }
