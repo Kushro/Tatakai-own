@@ -112,7 +112,9 @@ impl Ui {
     pub fn commit_settings(mut self, backend: &BackendRef, next: Settings) {
         self.settings.set(next.clone());
         let backend = backend.clone();
-        spawn(async move {
+        // `spawn_forever`: a save started right before a navigation (the setup wizard's "Start watching" replaces the
+        // route at once) must not die with the calling component's scope.
+        dioxus::dioxus_core::spawn_forever(async move {
             if let Err(e) = backend.save_settings(&next).await {
                 tracing::warn!(detail = %e.detail, "saving settings failed");
             }

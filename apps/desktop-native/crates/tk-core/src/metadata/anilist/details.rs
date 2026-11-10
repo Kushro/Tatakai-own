@@ -396,9 +396,13 @@ pub fn watch_order_steps(chain: &[ChainNode], current: usize) -> Vec<WatchStep> 
     out
 }
 
-fn id_vars(r: &MediaRef) -> Value {
-    let mal = if r.anilist_id.is_some() { None } else { r.mal_id };
-    json!({ "id": r.anilist_id, "idMal": mal })
+/// Only the id that is known goes out: AniList answers `404 Not Found` when `idMal: null` travels next to `id`.
+pub(crate) fn id_vars(r: &MediaRef) -> Value {
+    match (r.anilist_id, r.mal_id) {
+        (Some(id), _) => json!({ "id": id }),
+        (None, Some(mal)) => json!({ "idMal": mal }),
+        (None, None) => json!({}),
+    }
 }
 
 impl AniList {
@@ -516,8 +520,11 @@ mod tests {
 
     #[test]
     fn id_vars_prefer_the_anilist_id() {
-        assert_eq!(id_vars(&MediaRef::anilist(21)), json!({ "id": 21, "idMal": null }));
+        // AniList 404s on `"idMal": null` next to `id` (seen in the wave B re-review): never send a null id
+        assert_eq!(id_vars(&MediaRef::anilist(21)), json!({ "id": 21 }));
+        let both = MediaRef { mal_id: Some(20), ..MediaRef::anilist(21) };
+        assert_eq!(id_vars(&both), json!({ "id": 21 }));
         let mal = MediaRef { mal_id: Some(5114), ..MediaRef::default() };
-        assert_eq!(id_vars(&mal), json!({ "id": null, "idMal": 5114 }));
+        assert_eq!(id_vars(&mal), json!({ "idMal": 5114 }));
     }
 }
