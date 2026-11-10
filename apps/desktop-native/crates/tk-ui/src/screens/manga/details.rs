@@ -288,9 +288,21 @@ fn Header(
     let long = synopsis.chars().count() > SYNOPSIS_CLAMP;
     let clamped = long && clamp();
 
-    // "Continue chapter N" at the stored position, else the first chapter's best source.
+    // "Continue chapter N" at the stored position, else the first chapter's best source. AniList-first: when the
+    // list progress (chapters read) is past the stored position, offer the chapter after it.
     let resume = vm.resume.clone();
+    let list_read = match &entry {
+        Some(Ok(Some(e))) => e.progress as f32,
+        _ => 0.0,
+    };
+    let list_next = (list_read > 0.0 && resume.as_ref().is_none_or(|r| r.chapter_number <= list_read))
+        .then(|| crate::model::manga::neighbour_chapter(&merged, list_read, true))
+        .flatten();
     let (read_label, target): (String, Option<ChapterRefVm>) = match (&resume, merged.first()) {
+        _ if list_next.is_some() => {
+            let next = list_next.expect("checked");
+            (tf("manga.details.read_n", &[("n", &chapter_label(next.number))]), Some(next.chapter.reference.clone()))
+        }
         (Some(r), _) if !r.completed => (tf("manga.details.continue", &[("n", &chapter_label(r.chapter_number))]), Some(r.chapter.clone())),
         (Some(r), _) => match crate::model::manga::neighbour_chapter(&merged, r.chapter_number, true) {
             Some(next) => (tf("manga.details.read_n", &[("n", &chapter_label(next.number))]), Some(next.chapter.reference.clone())),

@@ -192,16 +192,29 @@ impl LiveBackend {
         UiError::new(ErrorKind::Other, e.to_string())
     }
 
+    /// "Continue watching": the playback history merged with the list mirror (AniList-first: a series at 2/12 on
+    /// AniList shows episode 3 even if it was never played here; `tk_core::lists::progress::continue_rows`).
     fn continue_vms(&self, limit: usize) -> Vec<ContinueVm> {
-        self.store
-            .continue_watching(limit)
-            .unwrap_or_default()
+        let history = self.store.history(500).unwrap_or_default();
+        let mut list = self.store.list_entries(tk_core::lists::sync::LOCAL, Some("watching")).unwrap_or_default();
+        list.extend(self.store.list_entries(tk_core::lists::sync::LOCAL, Some("repeating")).unwrap_or_default());
+        tk_core::lists::progress::continue_rows(history, &list, limit)
             .into_iter()
             .map(|e| {
                 self.remember_title(&e.anime_id, &e.title, e.poster.as_deref());
-                ContinueVm { media: history_media(&e), episode: e.episode, progress_secs: e.progress_sec, duration_secs: e.duration_sec }
+                ContinueVm {
+                    media: MediaVm { id: e.anime_id, title: e.title, cover: e.poster, color: None, subtitle: String::new(), score: None },
+                    episode: e.episode,
+                    progress_secs: e.progress_sec,
+                    duration_secs: e.duration_sec,
+                }
             })
             .collect()
+    }
+
+    /// The list mirror row of a title (AniList-first progress), if any.
+    fn list_row(&self, r: &MediaRef) -> Option<tk_core::store::lists::ListEntryRow> {
+        HistoryEntry::anime_key(r).and_then(|k| self.store.list_entry(tk_core::lists::sync::LOCAL, &k).ok().flatten())
     }
 
     fn start_secs(&self, r: &MediaRef, episode: u32) -> u32 {
@@ -330,13 +343,8 @@ impl Backend for LiveBackend {
             return ext_catalog::details(self, id).await;
         }
         let (r, media) = self.media(id).await?;
-        let mut rows = self.progress(&r);
-        rows.sort_by(|a, b| b.watched_at.cmp(&a.watched_at));
-        let (resume_episode, resume_secs) = match rows.first() {
-            Some(e) if e.completed => (e.episode + 1, 0),
-            Some(e) => (e.episode, e.progress_sec),
-            None => (0, 0),
-        };
+        // History position, or the list progress when it is further (AniList-first).
+        let (resume_episode, resume_secs) = tk_core::lists::progress::resume(&self.progress(&r), self.list_row(&r).as_ref());
         Ok(DetailsVm {
             media: to_vm(&media),
             banner: media.banner.clone(),
@@ -370,6 +378,7 @@ impl Backend for LiveBackend {
                 (e.episode, f)
             })
             .collect();
+        let list_progress = self.list_row(&r).map_or(0, |l| l.progress);
         let eps = self.router.episodes(&r).await.map_err(provider_err)?;
         Ok(eps
             .into_iter()
@@ -379,9 +388,13 @@ impl Backend for LiveBackend {
                 image: e.image,
                 air_date: e.air_date,
                 is_filler: e.is_filler,
-                watched: watched.get(&e.number).copied().unwrap_or(0.0),
+                watched: tk_core::lists::progress::watched_fraction(e.number, watched.get(&e.number).copied().unwrap_or(0.0), list_progress),
             })
             .collect())
+    }
+
+    async fn set_episode_watched(&self, id: &str, episode: u32, watched: bool) -> UiResult<()> {
+        lists::set_episode_watched(self, id, episode, watched).await
     }
 
     async fn playback(&self, id: &str, episode: u32) -> UiResult<PlaybackVm> {

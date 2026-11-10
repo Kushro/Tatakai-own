@@ -149,5 +149,8 @@
   "details.meta.format": "Formato",
   "details.meta.season": "Temporada",
   "details.meta.length": "Duración",
-  "details.meta.minutes": "{n} min"
+  "details.meta.minutes": "{n} min",
+  "details.mark_watched": "Marcar el episodio {n} como visto",
+  "details.mark_unwatched": "Marcar el episodio {n} como no visto",
+  "details.mark_failed": "No se pudo actualizar el progreso: {detail}"
 }

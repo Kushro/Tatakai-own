@@ -98,6 +98,7 @@ internal object SettingsCodec {
     private val UPDATE_CHECK = booleanPreferencesKey("update_check")
     private val SHOW_ADULT = booleanPreferencesKey("show_adult")
     private val AUTO_LIST_ADD = booleanPreferencesKey("auto_list_add")
+    private val LISTS_WRITE_BACK = booleanPreferencesKey("lists_write_back")
     private val TITLE_LANGUAGE = stringPreferencesKey("title_language")
     // parity wave A, 2026-11-09 amendment (worker q): history over Link, first-run wizard
     private val HISTORY_SYNC_LINK = booleanPreferencesKey("history_sync_link")
@@ -149,6 +150,7 @@ internal object SettingsCodec {
             updateCheck = p[UPDATE_CHECK] ?: d.updateCheck,
             showAdult = p[SHOW_ADULT] ?: d.showAdult,
             autoListAdd = p[AUTO_LIST_ADD] ?: d.autoListAdd,
+            listsWriteBack = p[LISTS_WRITE_BACK] ?: d.listsWriteBack,
             titleLanguage = enumOr(p[TITLE_LANGUAGE], d.titleLanguage),
             historySyncOverLink = p[HISTORY_SYNC_LINK] ?: d.historySyncOverLink,
             onboardingDone = p[ONBOARDING_DONE] ?: d.onboardingDone,
@@ -197,6 +199,7 @@ internal object SettingsCodec {
         p[UPDATE_CHECK] = s.updateCheck
         p[SHOW_ADULT] = s.showAdult
         p[AUTO_LIST_ADD] = s.autoListAdd
+        p[LISTS_WRITE_BACK] = s.listsWriteBack
         p[TITLE_LANGUAGE] = s.titleLanguage.name
         p[HISTORY_SYNC_LINK] = s.historySyncOverLink
         p[ONBOARDING_DONE] = s.onboardingDone

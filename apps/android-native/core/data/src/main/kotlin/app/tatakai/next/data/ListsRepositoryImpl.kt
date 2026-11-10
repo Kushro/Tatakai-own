@@ -30,6 +30,7 @@ import app.tatakai.next.model.ListSyncReport
 import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaRef
+import app.tatakai.next.model.ReadListPuller
 import app.tatakai.next.model.SecretKeys
 import app.tatakai.next.model.SecretStore
 import kotlinx.coroutines.CancellationException
@@ -132,6 +133,16 @@ class ListsRepositoryImpl(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     /** Sync once shortly after creation (app open) when an account is linked. */
     syncOnStart: Boolean = true,
+    /**
+     * The manga / novel read lists (:core:manga, :core:novel), resolved at sync time (they depend on this repository). [syncNow] pulls
+     * every one of them on every call while AniList is linked, and adds what they received to [ListSyncReport.pulled].
+     */
+    private val readLists: () -> List<ReadListPuller> = { emptyList() },
+    /**
+     * `AppSettings.listsWriteBack` ("Enviar los cambios a las cuentas"). Off: nothing is queued or pushed to AniList / MAL (editor,
+     * automatic progress, watched toggles, favorites, conflict "keep local"); [syncNow] still pulls, local edits stay local.
+     */
+    private val writeBack: () -> Boolean = { true },
 ) : ListsRepository, ListsSyncControl {
 
     private val syncMutex = Mutex()
@@ -249,7 +260,7 @@ class ListsRepositoryImpl(
             status = null, totalEpisodes = media.episodes, updatedAtMs = clock(),
         )).copy(favorite = favorite, updatedAtMs = clock())
         dao.upsert(row)
-        if (row.anilistId != null && isLinked(ListProvider.ANILIST)) {
+        if (row.anilistId != null && writeBack() && isLinked(ListProvider.ANILIST)) {
             dao.putChange(ListChangeRow(ListProvider.ANILIST.id, key, OP_FAVORITE, favorite = favorite, createdAtMs = clock()))
             scheduler?.requestPush()
         }
@@ -257,7 +268,8 @@ class ListsRepositoryImpl(
     }
 
     override suspend fun setCharacterFavorite(character: CharacterRef, favorite: Boolean): Result<Unit> = write {
-        val linked = isLinked(ListProvider.ANILIST)
+        // write-back off: a local favorite only (no tombstone / pending push for AniList)
+        val linked = writeBack() && isLinked(ListProvider.ANILIST)
         val prev = dao.character(character.id)
         when {
             favorite -> dao.putCharacter(
@@ -301,7 +313,7 @@ class ListsRepositoryImpl(
     /** Stores [row] and queues it for every linked provider. */
     private suspend fun store(row: ListEntryRow, queue: String) {
         dao.upsert(row)
-        val linked = dao.accounts()
+        val linked = if (writeBack()) dao.accounts() else emptyList()
         linked.forEach { a -> dao.putChange(ListChangeRow(a.provider, row.key, queue, createdAtMs = clock())) }
         if (linked.isNotEmpty()) scheduler?.requestPush()
         cleanup(row)
@@ -446,6 +458,26 @@ class ListsRepositoryImpl(
                 onFailure = { if (firstError == null) firstError = it },
             )
         }
+        // The read lists (manga / novels) follow the AniList account: refreshed on every "Sincronizar ahora", not once per process.
+        if (rows.any { it.provider == ListProvider.ANILIST.id } && ListProvider.ANILIST !in _firstSyncPending.value) {
+            val pullers = runCatching { readLists() }.getOrDefault(emptyList())
+            for (puller in pullers) {
+                val result = try {
+                    puller.pullReadList()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Result.failure(e)
+                }
+                result.fold(
+                    onSuccess = { n -> total = total.copy(pulled = total.pulled + n) },
+                    onFailure = { e ->
+                        AppLog.w(TAG, "read list pull failed: ${(e as? AppException)?.error ?: e::class.java.simpleName}")
+                        total = total.copy(failed = total.failed + 1)
+                    },
+                )
+            }
+        }
         return firstError?.let { Result.failure(it) } ?: Result.success(total)
     }
 
@@ -500,7 +532,8 @@ class ListsRepositoryImpl(
                         pulled++
                     }
                     SyncAction.PUSH -> {
-                        if (row != null) {
+                        // write-back off: the local edit stays local (the next pull still brings remote changes)
+                        if (row != null && writeBack()) {
                             pushRow(provider, api, row)
                             pushed++
                         }
@@ -512,7 +545,8 @@ class ListsRepositoryImpl(
                         }
                     }
                 }
-                if (key in queued) dao.deleteChange(provider.id, key, OP_SAVE)
+                // a push skipped by write-back off keeps its queued change for when it is turned on again
+                if (key in queued && (action != SyncAction.PUSH || writeBack())) dao.deleteChange(provider.id, key, OP_SAVE)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AppException) {
@@ -537,7 +571,8 @@ class ListsRepositoryImpl(
         var pulled = 0
         val nodes = withToken(ListProvider.ANILIST) { anilist.favoriteAnimeNodes(it) }
         val remoteFavs = nodes.map { it.id }.toMutableSet()
-        for (change in dao.changes().filter { it.provider == ListProvider.ANILIST.id && it.op == OP_FAVORITE }) {
+        val queuedFavorites = if (writeBack()) dao.changes().filter { it.provider == ListProvider.ANILIST.id && it.op == OP_FAVORITE } else emptyList()
+        for (change in queuedFavorites) {
             val row = dao.get(change.key)
             val id = row?.anilistId
             val wanted = change.favorite ?: row?.favorite ?: false
@@ -563,7 +598,7 @@ class ListsRepositoryImpl(
             )
             pulled++
         }
-        pushed += pushCharacters()
+        if (writeBack()) pushed += pushCharacters()
         val remoteChars = withToken(ListProvider.ANILIST) { anilist.favoriteCharacterNodes(it) }
         val remoteCharIds = remoteChars.map { it.id }.toSet()
         for (c in dao.observeCharacters().first()) {
@@ -591,6 +626,8 @@ class ListsRepositoryImpl(
     }
 
     override suspend fun pushPending(): ListSyncReport = syncMutex.withLock {
+        // write-back off: nothing leaves the phone (anything queued before stays queued until it is turned on again)
+        if (!writeBack()) return@withLock ListSyncReport(0, 0, 0, 0)
         var pushed = 0
         var conflicts = 0
         var failed = 0
@@ -731,13 +768,13 @@ class ListsRepositoryImpl(
             ConflictChoice.KEEP_LOCAL -> {
                 // the remote values are acknowledged as the base: the queued push then overwrites them without a new conflict
                 dao.upsert(row.withBase(provider, remote.values()))
-                dao.putChange(ListChangeRow(provider.id, c.key, OP_SAVE, createdAtMs = clock()))
+                if (writeBack()) dao.putChange(ListChangeRow(provider.id, c.key, OP_SAVE, createdAtMs = clock()))
             }
             ConflictChoice.KEEP_REMOTE -> {
                 val next = row.applyRemote(remote, clock()).withBase(provider, remote.values())
                 dao.upsert(next)
                 // the other linked providers follow the new local values
-                dao.accounts().filter { it.provider != provider.id }.forEach { a ->
+                dao.accounts().filter { it.provider != provider.id && writeBack() }.forEach { a ->
                     dao.putChange(ListChangeRow(a.provider, c.key, OP_SAVE, createdAtMs = clock()))
                 }
             }

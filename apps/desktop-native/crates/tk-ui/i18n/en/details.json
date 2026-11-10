@@ -149,5 +149,8 @@
   "details.meta.format": "Format",
   "details.meta.season": "Season",
   "details.meta.length": "Length",
-  "details.meta.minutes": "{n} min"
+  "details.meta.minutes": "{n} min",
+  "details.mark_watched": "Mark episode {n} as watched",
+  "details.mark_unwatched": "Mark episode {n} as not watched",
+  "details.mark_failed": "Could not update the progress: {detail}"
 }

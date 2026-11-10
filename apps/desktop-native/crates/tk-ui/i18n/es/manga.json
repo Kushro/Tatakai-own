@@ -271,5 +271,6 @@
   "settings.reader.keys.press_for": "Pulsa la nueva tecla para {action}",
   "settings.reader.keys.reserved": "Los dígitos cambian de sección y Escape sale del lector: no se pueden asignar.",
   "manga.read": "Leer",
-  "manga.list.add": "Añadir a lista"
+  "manga.list.add": "Añadir a lista",
+  "manga.home.next_chapter": "Sigue en el capítulo {n}"
 }

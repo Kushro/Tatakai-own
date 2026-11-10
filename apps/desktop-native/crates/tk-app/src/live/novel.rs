@@ -200,7 +200,10 @@ pub async fn home(b: &LiveBackend) -> UiResult<ReadHomeVm> {
         }),
     }
     Ok(ReadHomeVm {
-        continue_reading: continue_reading(b, &al).await,
+        continue_reading: {
+            let rows = continue_reading(b, &al).await;
+            super::manga::with_list_items(b, ReadKindVm::Novel, rows, CONTINUE_LIMIT as usize)
+        },
         sections,
     })
 }

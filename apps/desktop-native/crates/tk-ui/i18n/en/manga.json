@@ -271,5 +271,6 @@
   "settings.reader.keys.press_for": "Press the new key for {action}",
   "settings.reader.keys.reserved": "Digits switch sections and Escape leaves the reader: they cannot be assigned.",
   "manga.read": "Read",
-  "manga.list.add": "Add to list"
+  "manga.list.add": "Add to list",
+  "manga.home.next_chapter": "Next: chapter {n}"
 }

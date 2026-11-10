@@ -99,6 +99,7 @@ fun NovelHomeScreen(
     val vm: NovelHomeViewModel = koinViewModel()
     LaunchedEffect(initialQuery) { vm.applyInitial(initialQuery) }
     val home by vm.home.collectAsStateWithLifecycle()
+    val continueReading by vm.continueReading.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val filters by vm.filters.collectAsStateWithLifecycle()
     val results by vm.results.collectAsStateWithLifecycle()
@@ -193,11 +194,22 @@ fun NovelHomeScreen(
                             is LoadState.Err -> NovelError(hero.cause, vm::refresh)
                         }
                     }
-                    if (home.lastRead.isNotEmpty()) {
+                    if (continueReading.isNotEmpty()) {
                         item(key = "continue") {
                             NovelSectionHeader(stringResource(R.string.novel_continue_reading))
                             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                items(home.lastRead, key = { it.mediaId }) { p ->
+                                items(continueReading, key = { it.mediaId }) { c ->
+                                    val p = home.lastRead.firstOrNull { it.mediaId == c.mediaId }?.takeIf { c.resume }
+                                    // list-only (or list ahead of the saved position): "Capítulo N" opens the details
+                                    if (p == null) {
+                                        NovelCard(
+                                            title = c.title,
+                                            cover = c.poster,
+                                            subtitle = stringResource(R.string.novel_chapter_n, ChapterText.formatNumber(c.chapter) ?: "?"),
+                                            onClick = { onMediaClick(c.toMedia()) },
+                                        )
+                                        return@items
+                                    }
                                     NovelCard(
                                         title = p.title,
                                         cover = p.poster,
@@ -257,6 +269,7 @@ fun NovelLibraryTab(onOpenDetails: (anilistId: Int) -> Unit, onOpenAccounts: () 
     val vm: NovelLibraryViewModel = koinViewModel()
     val entries by vm.entries.collectAsStateWithLifecycle()
     val lastRead by vm.lastRead.collectAsStateWithLifecycle()
+    val continueReading by vm.continueReading.collectAsStateWithLifecycle()
     val linked by vm.linked.collectAsStateWithLifecycle()
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf<ListStatus?>(ListStatus.WATCHING) }
@@ -273,7 +286,7 @@ fun NovelLibraryTab(onOpenDetails: (anilistId: Int) -> Unit, onOpenAccounts: () 
             if (linked) IconButton(onClick = vm::sync, enabled = !syncing) { Icon(Icons.Outlined.Sync, contentDescription = stringResource(R.string.novel_library_sync)) }
         }
         val list = entries ?: return@Column
-        if (list.isEmpty() && lastRead.isEmpty()) {
+        if (list.isEmpty() && continueReading.isEmpty()) {
             EmptyState(
                 icon = Icons.Outlined.AutoStories,
                 title = stringResource(R.string.novel_library_empty),
@@ -286,13 +299,18 @@ fun NovelLibraryTab(onOpenDetails: (anilistId: Int) -> Unit, onOpenAccounts: () 
         }
         val shown = if (filter == null) list else list.filter { it.status == filter }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
-            if (lastRead.isNotEmpty()) {
+            if (continueReading.isNotEmpty()) {
                 item(key = "continue") {
                     NovelSectionHeader(stringResource(R.string.novel_continue_reading))
                     LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(lastRead, key = { it.mediaId }) { p ->
-                            val id = NovelRepositoryImpl.refOf(p.mediaId)?.anilistId
-                            NovelCard(p.title, p.poster, stringResource(R.string.novel_continue_line, ChapterText.formatNumber(p.chapterNumber) ?: "?", (p.offset * 100).toInt()), onClick = { id?.let(onOpenDetails) }, progress = p.offset)
+                        items(continueReading, key = { it.mediaId }) { c ->
+                            val id = c.ref.anilistId
+                            val p = lastRead.firstOrNull { it.mediaId == c.mediaId }?.takeIf { c.resume }
+                            if (p != null) {
+                                NovelCard(p.title, p.poster, stringResource(R.string.novel_continue_line, ChapterText.formatNumber(p.chapterNumber) ?: "?", (p.offset * 100).toInt()), onClick = { id?.let(onOpenDetails) }, progress = p.offset)
+                            } else {
+                                NovelCard(c.title, c.poster, stringResource(R.string.novel_chapter_n, ChapterText.formatNumber(c.chapter) ?: "?"), onClick = { id?.let(onOpenDetails) })
+                            }
                         }
                     }
                 }

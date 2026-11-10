@@ -33,7 +33,7 @@ every copied file is recorded in the app's `THIRD_PARTY_NOTICES.md`.
 Everyday commands (from the repo root):
 
 ```
-node --test packages/tokens/test contracts/test          # tokens (schema, no-diff regeneration, AA contrast) + contracts + tatakai.me/telemetry guard
+node --test packages/tokens/test/*.test.mjs contracts/test/*.test.mjs          # tokens (schema, no-diff regeneration, AA contrast) + contracts + tatakai.me/telemetry guard
 node packages/tokens/generate.mjs                        # regenerate Tokens.kt + tokens.css after editing tokens.json
 node contracts/fixtures/extensions/build.mjs             # re-pack fixture .kai (packed/*.kai are committed)
 node contracts/fixtures/metadata/gen-expected.mjs        # refresh the metadata mapping oracle

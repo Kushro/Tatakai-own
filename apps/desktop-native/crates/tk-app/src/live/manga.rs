@@ -425,6 +425,8 @@ pub async fn home(b: &LiveBackend) -> UiResult<ReadHomeVm> {
             progress: progress_vm(r),
         })
         .collect();
+    ensure_pulled(b).await;
+    let continue_reading = with_list_items(b, ReadKindVm::Manga, continue_reading, 20);
     let rows = home_rows();
     let mut sections = Vec::with_capacity(rows.len() + 1);
     let followed = followed_updates(b);
@@ -570,6 +572,38 @@ fn mu_facts(
     if let Some(u) = &mu.url {
         external.push(("MangaUpdates".into(), u.clone()));
     }
+}
+
+/// AniList-first "continue reading" (2026-11-10): the reader positions plus the titles being read on the list
+/// (Reading / Rereading, started, not finished) that have no position here. A list-only item has no chapter reference (empty
+/// `ext_id`): the card opens the title instead of the reader and shows "Next: chapter P + 1". Newest first.
+pub(crate) fn with_list_items(b: &LiveBackend, kind: ReadKindVm, items: Vec<ContinueReadVm>, limit: usize) -> Vec<ContinueReadVm> {
+    let have: HashSet<String> = items.iter().map(|c| c.media.id.clone()).collect();
+    let mut all = items;
+    for r in b.store.read_list_entries(kind.id(), None).unwrap_or_default() {
+        if !matches!(r.status.as_str(), "watching" | "repeating")
+            || r.progress == 0
+            || r.chapters.is_some_and(|c| c > 0 && r.progress >= c)
+            || have.contains(&r.media_id)
+        {
+            continue;
+        }
+        all.push(ContinueReadVm {
+            media: media_of_row(&r.media_id, Some(&r.title), r.poster.as_deref()),
+            kind,
+            progress: ReadProgressVm {
+                chapter: ChapterRefVm { ext_id: String::new(), chapter_id: String::new() },
+                chapter_number: (r.progress + 1) as f32,
+                position: 0,
+                total: None,
+                completed: false,
+                updated_unix: r.updated_at,
+            },
+        });
+    }
+    all.sort_by(|a, b| b.progress.updated_unix.cmp(&a.progress.updated_unix));
+    all.truncate(limit);
+    all
 }
 
 fn resume_of(b: &LiveBackend, kind: ReadKindVm, id: &str) -> Option<ReadProgressVm> {
@@ -1075,6 +1109,8 @@ pub async fn chapters(b: &LiveBackend, id: &str, refresh: bool) -> UiResult<Vec<
     let ctx = ChapterCtx::new(b);
     let key = ctx.key_for(id).await?;
     let lists = ctx.lists(id, &key, refresh).await;
+    // AniList-first: chapters up to the list progress count as read
+    let list_progress = b.store.read_list_entry(kind, id).ok().flatten().map_or(0.0, |r| r.progress as f32);
     let progress: HashMap<(String, String), ReadProgressRow> = b
         .store
         .read_progress(kind, id)
@@ -1119,9 +1155,14 @@ pub async fn chapters(b: &LiveBackend, id: &str, refresh: bool) -> UiResult<Vec<
                                 group: c.group.clone(),
                                 published_unix: c.published_unix,
                                 pages: c.pages,
-                                read: progress
-                                    .get(&k)
-                                    .map_or(0.0, |p| tk_ui::model::manga::read_fraction(&progress_vm(p))),
+                                // a chapter covered by the list progress (AniList-first) counts as read
+                                read: if c.number > 0.0 && c.number <= list_progress {
+                                    1.0
+                                } else {
+                                    progress
+                                        .get(&k)
+                                        .map_or(0.0, |p| tk_ui::model::manga::read_fraction(&progress_vm(p)))
+                                },
                                 downloaded: offline.contains(&k),
                             }
                         })
@@ -1452,22 +1493,29 @@ fn kind_of_format(format: Option<&str>) -> ReadKindVm {
 
 /// Pull the AniList manga list into the mirror once per session (dirty rows are kept: their op is queued).
 async fn ensure_pulled(b: &LiveBackend) {
+    pull_read_lists(b, false).await;
+}
+
+/// Mirror the AniList manga list (manga + novels) into `read_list_entries`. Lazily once per run, or every time with
+/// `force` ("Sync lists"). Returns how many rows are new or changed (status / progress / score), `None` when nothing
+/// was pulled (no account, already pulled, network error).
+pub(crate) async fn pull_read_lists(b: &LiveBackend, force: bool) -> Option<u32> {
     static PULLED: OnceLock<tokio::sync::Mutex<bool>> = OnceLock::new();
     let lock = PULLED.get_or_init(|| tokio::sync::Mutex::new(false));
     let mut done = lock.lock().await;
-    if *done {
-        return;
+    if *done && !force {
+        return None;
     }
     let Some(tok) = anilist_token(b) else {
         *done = true;
-        return;
+        return None;
     };
     let al = anilist();
     let user = match tok.user_id {
         Some(u) => Some(u),
         None => al.viewer(&tok.access_token).await.ok().map(|v| v.id),
     };
-    let Some(user) = user else { return };
+    let Some(user) = user else { return None };
     flush(b).await;
     match tokio::time::timeout(Duration::from_secs(15), al.manga_list(&tok.access_token, user)).await {
         Ok(Ok(entries)) => {
@@ -1496,17 +1544,41 @@ async fn ensure_pulled(b: &LiveBackend) {
                     dirty: false,
                 });
             }
+            let mut changed = 0;
             for kind in ReadKindVm::ALL {
                 let rows = by_kind.remove(kind.id()).unwrap_or_default();
+                let before: HashMap<String, (String, u32, Option<u8>)> = b
+                    .store
+                    .read_list_entries(kind.id(), None)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|r| (r.media_id, (r.status, r.progress, r.score)))
+                    .collect();
+                changed += rows
+                    .iter()
+                    .filter(|r| before.get(&r.media_id) != Some(&(r.status.clone(), r.progress, r.score)))
+                    .count() as u32;
                 if let Err(e) = b.store.replace_read_list(kind.id(), &rows) {
                     tracing::warn!(error = %e, "could not mirror the AniList manga list");
                 }
             }
             *done = true;
+            Some(changed)
         }
-        Ok(Err(e)) => tracing::warn!(error = %e, "AniList manga list pull failed"),
-        Err(_) => tracing::warn!("AniList manga list pull timed out"),
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "AniList manga list pull failed");
+            None
+        }
+        Err(_) => {
+            tracing::warn!("AniList manga list pull timed out");
+            None
+        }
     }
+}
+
+/// Edits go to AniList only with "send changes to accounts" on (`Settings::lists.write_back`), like the anime list.
+fn write_back(b: &LiveBackend) -> bool {
+    settings(b).lists.write_back
 }
 
 /// Push every queued op; network failures stay queued, other failures count attempts.
@@ -1628,7 +1700,7 @@ pub async fn set_read_list_entry(
         row.notes = Some(n.clone()).filter(|n| !n.trim().is_empty());
     }
     row.updated_at = now();
-    let connected = anilist_token(b).is_some() && row.anilist_id.is_some();
+    let connected = anilist_token(b).is_some() && row.anilist_id.is_some() && write_back(b);
     row.dirty = connected;
     b.store.put_read_list_entry(&row).map_err(other)?;
     if connected {
@@ -1659,6 +1731,7 @@ pub async fn remove_read_list_entry(b: &LiveBackend, kind: ReadKindVm, media_id:
         .map_err(other)?;
     if let Some(row) = existing
         && anilist_token(b).is_some()
+        && write_back(b)
     {
         let payload = json!({ "remoteId": row.remote_id });
         b.store

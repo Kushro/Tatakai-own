@@ -3,6 +3,7 @@ package app.tatakai.next.manga
 
 import app.tatakai.next.model.AppDataWiper
 import app.tatakai.next.model.ChapterDownloadSource
+import app.tatakai.next.model.ReadListPuller
 import app.tatakai.next.model.MangaRepository
 import app.tatakai.next.model.SettingsRepository
 import org.koin.android.ext.koin.androidContext
@@ -28,7 +29,7 @@ val mangaModule: Module = module {
             storeDir = File(androidContext().filesDir, MangaRepositoryImpl.DIR_NAME),
             settings = { settings.settings.value },
         )
-    } binds arrayOf(AppDataWiper::class, ChapterDownloadSource::class)
+    } binds arrayOf(AppDataWiper::class, ChapterDownloadSource::class, ReadListPuller::class)
     single<MangaRepository> { get<MangaRepositoryImpl>() }
     // Extras of the manga / novel screens (AniList facts, MangaUpdates, prefs, reliability), private to the readers.
     single<MangaCatalog> { get<MangaRepositoryImpl>() }

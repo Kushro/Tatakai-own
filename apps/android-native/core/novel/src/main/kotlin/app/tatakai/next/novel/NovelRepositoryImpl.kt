@@ -38,6 +38,7 @@ import app.tatakai.next.model.NovelReaderArgs
 import app.tatakai.next.model.NovelRepository
 import app.tatakai.next.model.NovelSourceSummary
 import app.tatakai.next.model.ReadEntry
+import app.tatakai.next.model.ReadListPuller
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -109,7 +110,7 @@ class NovelRepositoryImpl(
     private val storeDir: File,
     private val settings: () -> AppSettings = { AppSettings() },
     private val clock: () -> Long = System::currentTimeMillis,
-) : NovelRepository, ChapterDownloadSource, AppDataWiper {
+) : NovelRepository, ChapterDownloadSource, AppDataWiper, ReadListPuller {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val anilist = AniListMangaApi(client)
 
@@ -118,7 +119,9 @@ class NovelRepositoryImpl(
     private val countStore = JsonFileStore(File(storeDir, "counts.json"), MapSerializer(String.serializer(), Int.serializer())) { emptyMap() }
     private val downloadsStore = JsonFileStore(File(storeDir, "downloads.json"), ListSerializer(DownloadedNovelChapter.serializer())) { emptyList() }
     private val updatesStore = JsonFileStore(File(storeDir, "updates.json"), NovelUpdatesDoc.serializer()) { NovelUpdatesDoc() }
-    private val readlistStore = ReadlistStore(File(storeDir, "readlist.json"), anilist, lists, novels = true, clock = clock)
+    private val readlistStore = ReadlistStore(
+        File(storeDir, "readlist.json"), anilist, lists, novels = true, clock = clock, writeBack = { settings().listsWriteBack },
+    )
     private val texts = NovelTextStore(File(storeDir, NovelTextStore.FILE_NAME))
 
     private val progressState = MutableStateFlow<Map<String, NovelProgress>>(emptyMap())
@@ -330,6 +333,9 @@ class NovelRepositoryImpl(
 
     /** Pulls the AniList novel list into the local readlist (Library › Novelas refresh). */
     suspend fun pullReadlist(): Result<Int> = readlistStore.pull()
+
+    /** "Sincronizar ahora" of the lists (ListsRepository.syncNow) refreshes the novel read list too. */
+    override suspend fun pullReadList(): Result<Int> = readlistStore.pull()
 
     suspend fun dismissUpdate(mediaId: String) {
         updatesState.value = updatesStore.update { doc -> doc.copy(updates = doc.updates.filterNot { mediaKey(it.entry.ref) == mediaId }) }.updates

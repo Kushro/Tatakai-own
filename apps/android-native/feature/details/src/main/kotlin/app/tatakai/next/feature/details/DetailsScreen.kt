@@ -163,6 +163,9 @@ fun DetailsScreen(
                     resources.getString(R.string.details_send_failed, event.cause.describe(resources)),
                 )
                 DetailsEvent.NoWebSource -> snackbar.show(resources.getString(R.string.details_send_no_web))
+                is DetailsEvent.ListUpdateFailed -> snackbar.show(
+                    resources.getString(R.string.details_mark_failed, event.cause.describe(resources)),
+                )
             }
         }
     }
@@ -207,6 +210,7 @@ fun DetailsScreen(
         onEpisodeView = viewModel::setEpisodeView,
         onAcceptAdult = viewModel::acceptAdult,
         onRevealCover = viewModel::revealCover,
+        onToggleWatched = viewModel::toggleWatched.takeIf { viewModel.canToggleWatched },
     )
     val seed = parseHexColor((state.media as? LoadState.Ok)?.value?.color)
     TatakaiSeedTheme(seed = seed) {
@@ -278,6 +282,8 @@ internal data class DetailsActions(
     val onAcceptAdult: () -> Unit = {},
     /** matureContent BLUR: tap on the blurred banner / cover reveals them. */
     val onRevealCover: () -> Unit = {},
+    /** Episode row "Marcar como visto / no visto" (list progress); null = no lists layer (the button is hidden). */
+    val onToggleWatched: ((Int) -> Unit)? = null,
 )
 
 @Composable
@@ -315,7 +321,7 @@ internal fun DetailsContent(
 
 @Composable
 internal fun watchLabel(state: DetailsUiState): String = when {
-    state.progress.isEmpty() -> stringResource(R.string.details_watch_ep, state.continueEpisode)
+    !state.hasProgress -> stringResource(R.string.details_watch_ep, state.continueEpisode)
     else -> stringResource(R.string.details_continue, state.continueEpisode)
 }
 

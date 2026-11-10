@@ -11,6 +11,10 @@ import app.tatakai.next.model.HistoryRepository
 import app.tatakai.next.model.LinkRepository
 import app.tatakai.next.model.LinkSource
 import app.tatakai.next.model.LinkState
+import app.tatakai.next.model.ListEntry
+import app.tatakai.next.model.ListProgress
+import app.tatakai.next.model.ListStatus
+import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MatureContentMode
 import app.tatakai.next.model.Media
@@ -93,14 +97,30 @@ data class DetailsUiState(
     /** parity wave B (r, downloads.local-library.play-offline): episodes with a completed web download (marked, played offline). */
     val downloaded: Set<Int> = emptySet(),
     val episodeView: EpisodeView = EpisodeView.LIST,
+    /** The title's row of the local list mirror (AniList / MAL); null = not on the list (or no lists layer). */
+    val listEntry: ListEntry? = null,
 ) {
-    /** Episode the primary button resumes / starts. */
-    val continueEpisode: Int
-        get() = continueTarget(progress, (media as? LoadState.Ok)?.value?.episodes)
+    private val total: Int? get() = listEntry?.totalEpisodes?.takeIf { it > 0 } ?: (media as? LoadState.Ok)?.value?.episodes
 
-    /** The history entry of [continueEpisode] when it is unfinished ("Retomar en 12:34"). */
+    /** Episodes watched according to the list (P); 0 when not on the list. */
+    val listProgress: Int get() = listEntry?.progress ?: 0
+
+    /** Today's history rule alone (last unfinished episode, else the next one). */
+    private val historyTarget: Int get() = continueTarget(progress, total)
+
+    /** Episode the primary button resumes / starts: max(history, list progress + 1), capped to the total (ListProgress.resumeEpisode). */
+    val continueEpisode: Int
+        get() = ListProgress.resumeEpisode(historyTarget, listProgress, total)
+
+    /** Something was watched (history or list): "Continuar" instead of "Ver". */
+    val hasProgress: Boolean get() = progress.isNotEmpty() || listProgress > 0
+
+    /** The history entry of [continueEpisode] when it is unfinished ("Retomar en 12:34"); only when the history episode is the one shown. */
     val resumeEntry: HistoryEntry?
-        get() = progress[continueEpisode]?.takeIf { !it.completed && it.progressSec > 0 }
+        get() = progress[continueEpisode]?.takeIf { continueEpisode == historyTarget && !it.completed && it.progressSec > 0 }
+
+    /** Episode row mark: within the list progress, or its history row is completed. */
+    fun isWatched(episode: Int): Boolean = ListProgress.isEpisodeWatched(episode, listProgress, progress[episode])
 
     /** A reachable paired PC exists. */
     val pcAvailable: Boolean get() = (link as? LinkState.Paired)?.reachable == true
@@ -150,6 +170,9 @@ sealed interface DetailsEvent {
 
     /** "Enviar a dispositivo" needs a web stream (the PC fetches a URL). */
     data object NoWebSource : DetailsEvent
+
+    /** "Marcar como visto / no visto" could not update the list. */
+    data class ListUpdateFailed(val cause: AppError) : DetailsEvent
 }
 
 /** Last watched episode if unfinished, else the one after it (bounded by [total]); 1 when nothing was watched. */
@@ -164,7 +187,7 @@ class DetailsViewModel(
     private val kind: MediaKind,
     private val ref: MediaRef,
     private val metadata: MetadataRepository,
-    history: HistoryRepository,
+    private val history: HistoryRepository,
     private val extensions: ExtensionRepository,
     private val link: LinkRepository,
     settings: SettingsRepository? = null,
@@ -173,6 +196,8 @@ class DetailsViewModel(
     private val prefs: DetailsPrefs = InMemoryDetailsPrefs(),
     // parity wave B (r): completed downloads play without network; null when :core:download is not bound.
     private val downloads: DownloadRepository? = null,
+    /** The local list mirror (dataModule); null = no lists layer: no list progress and no manual watched toggle. */
+    private val lists: ListsRepository? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(DetailsUiState(episodeView = prefs.episodeView()))
@@ -191,6 +216,14 @@ class DetailsViewModel(
             viewModelScope.launch {
                 history.progressFor(id).catch { }.collect { map ->
                     _state.update { it.copy(progress = map) }
+                    ensurePanel()
+                }
+            }
+        }
+        lists?.let { repo ->
+            viewModelScope.launch {
+                repo.entry(ref).catch { }.collect { e ->
+                    _state.update { it.copy(listEntry = e) }
                     ensurePanel()
                 }
             }
@@ -319,8 +352,43 @@ class DetailsViewModel(
 
     /** Leading half of the split button / floating toolbar: Watch or Continue with the panel's choice. */
     fun onWatch() {
-        val episode = _state.value.continueEpisode
-        emitPlayer(episode, sourceKey = sourceKeyFor(episode))
+        val s = _state.value
+        val episode = s.continueEpisode
+        // the saved position only when the history episode is the one shown (the list progress may point past it)
+        emitPlayer(episode, sourceKey = sourceKeyFor(episode), resume = s.resumeEntry != null)
+    }
+
+    /** True when the manual watched toggle is available (a lists layer is bound). */
+    val canToggleWatched: Boolean get() = lists != null
+
+    /**
+     * Episode row toggle (ListProgress): "Marcar como visto" sets P = max(P, n) (adds the title as WATCHING when it is not on the
+     * list; reaching the total completes it, like the automatic progress); "Marcar como no visto" sets P = min(P, n - 1) and clears
+     * the completed flag of the local history rows >= n. Goes through [ListsRepository] (local first, queued for linked accounts).
+     */
+    fun toggleWatched(episode: Int) {
+        val repo = lists ?: return
+        val media = mediaOrNull ?: return
+        val s = _state.value
+        val entry = s.listEntry
+        val watched = s.isWatched(episode)
+        val total = entry?.totalEpisodes?.takeIf { it > 0 } ?: media.episodes
+        viewModelScope.launch {
+            val result = runCatchingApp {
+                if (watched) {
+                    if (entry != null && entry.progress >= episode) {
+                        // a finished title becomes Viendo again (P = n - 1 < T)
+                        ListProgress.statusAfterUnmark(entry.status)?.let { repo.setStatus(media, it).getOrThrow() }
+                        repo.setProgress(media.ref, ListProgress.toggledProgress(entry.progress, episode, watched = false)).getOrThrow()
+                    }
+                    history.clearCompleted(media.ref, episode)
+                } else {
+                    if (entry == null) repo.setStatus(media, ListStatus.WATCHING).getOrThrow()
+                    repo.setProgress(media.ref, ListProgress.toggledProgress(entry?.progress ?: 0, episode, watched = true, total = total)).getOrThrow()
+                }
+            }
+            result.onFailure { e -> _events.trySend(DetailsEvent.ListUpdateFailed(e.toAppError())) }
+        }
     }
 
     /** An episode row: straight to the player (the player resolves and fails over; Manual mode asks there). */
@@ -545,11 +613,17 @@ class DetailsViewModel(
      * [preferLocal]: a completed download of [episode] plays offline (parity wave B, r: downloads.local-library.play-offline) unless
      * the user picked a source in the sheet or plays on the PC.
      */
-    private fun emitPlayer(episode: Int, sourceKey: String?, remoteSessionId: String? = null, preferLocal: Boolean = true) {
+    private fun emitPlayer(
+        episode: Int,
+        sourceKey: String?,
+        remoteSessionId: String? = null,
+        preferLocal: Boolean = true,
+        resume: Boolean = true,
+    ) {
         val s = _state.value
         val title = (s.media as? LoadState.Ok)?.value?.title ?: return
         val saved = s.progress[episode]
-        val startMs = if (saved != null && !saved.completed) saved.progressSec * 1000L else 0L
+        val startMs = if (resume && saved != null && !saved.completed) saved.progressSec * 1000L else 0L
         val repo = downloads
         fun send(localUri: String?) {
             _events.trySend(

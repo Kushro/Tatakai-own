@@ -1507,6 +1507,11 @@ pub trait Backend: Send + Sync + 'static {
     async fn watch_order(&self, _id: &str) -> UiResult<Vec<WatchOrderEntryVm>> {
         Err(UiError::not_wired("watch_order"))
     }
+    /// Manual "watched / not watched" of one episode (2026-11-10, `tk_core::lists::progress::toggle`): moves the list
+    /// progress (and pushes it like any list edit, only when "send changes to accounts" is on).
+    async fn set_episode_watched(&self, _id: &str, _episode: u32, _watched: bool) -> UiResult<()> {
+        Err(UiError::not_wired("set_episode_watched"))
+    }
 
     // ----- d: subtitles, translation, capture -----
 

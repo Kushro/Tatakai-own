@@ -42,6 +42,7 @@ import app.tatakai.next.designsystem.components.EmptyState
 import app.tatakai.next.manga.ChapterText
 import app.tatakai.next.manga.MangaCatalog
 import app.tatakai.next.manga.MangaRepositoryImpl
+import app.tatakai.next.model.ContinueReadingItem
 import app.tatakai.next.model.ListProvider
 import app.tatakai.next.model.ListStatus
 import app.tatakai.next.model.ListsRepository
@@ -54,6 +55,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -67,6 +69,11 @@ class MangaLibraryViewModel(
 ) : ViewModel() {
     val entries: StateFlow<List<ReadEntry>?> = repo.readlist(null).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val lastRead: StateFlow<List<ReadingProgress>> = repo.lastRead(10).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** "Seguir leyendo": saved pages + readlist entries being read (ListProgress.mergeContinueReading). */
+    val continueReading: StateFlow<List<ContinueReadingItem>> = combine(repo.lastRead(CONTINUE_LIMIT), repo.readlist(null)) { p, l ->
+        mangaContinueReading(p, l, CONTINUE_LIMIT)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val anilistLinked: StateFlow<Boolean> = (lists?.accounts?.map { a -> a.any { it.provider == ListProvider.ANILIST } } ?: flowOf(false))
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
     private val _syncing = MutableStateFlow(false)
@@ -92,15 +99,21 @@ fun MangaLibraryTab(onOpenDetails: (anilistId: Int) -> Unit, onOpenAccounts: () 
     val vm: MangaLibraryViewModel = koinViewModel()
     val entries by vm.entries.collectAsStateWithLifecycle()
     val lastRead by vm.lastRead.collectAsStateWithLifecycle()
+    val continueReading by vm.continueReading.collectAsStateWithLifecycle()
     val linked by vm.anilistLinked.collectAsStateWithLifecycle()
     val syncing by vm.syncing.collectAsStateWithLifecycle()
     LaunchedEffect(linked) { if (linked) vm.sync() }
     ReadlistContent(
         entries = entries,
-        continueItems = lastRead.mapNotNull { p ->
-            MangaRepositoryImpl.refOf(p.mediaId)?.anilistId?.let { id ->
-                ContinueItem(id, p.title, p.poster, stringResource(R.string.manga_continue_line, ChapterText.formatNumber(p.chapterNumber) ?: "?", p.page + 1, p.totalPages.coerceAtLeast(1)))
+        continueItems = continueReading.mapNotNull { c ->
+            val id = c.ref.anilistId ?: return@mapNotNull null
+            val p = lastRead.firstOrNull { it.mediaId == c.mediaId }?.takeIf { c.resume }
+            val line = if (p != null) {
+                stringResource(R.string.manga_continue_line, ChapterText.formatNumber(p.chapterNumber) ?: "?", p.page + 1, p.totalPages.coerceAtLeast(1))
+            } else {
+                stringResource(R.string.manga_chapter_n, ChapterText.formatNumber(c.chapter) ?: "?")
             }
+            ContinueItem(id, c.title, c.poster, line)
         },
         linked = linked,
         syncing = syncing,
@@ -112,6 +125,8 @@ fun MangaLibraryTab(onOpenDetails: (anilistId: Int) -> Unit, onOpenAccounts: () 
         modifier = modifier,
     )
 }
+
+private const val CONTINUE_LIMIT = 10
 
 internal data class ContinueItem(val anilistId: Int, val title: String, val poster: String?, val line: String)
 

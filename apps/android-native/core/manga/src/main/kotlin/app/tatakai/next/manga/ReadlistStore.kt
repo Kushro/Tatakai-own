@@ -37,6 +37,8 @@ class ReadlistStore(
     private val lists: ListsRepository?,
     private val novels: Boolean,
     private val clock: () -> Long = System::currentTimeMillis,
+    /** `AppSettings.listsWriteBack`: off = local edits never reach AniList (not even later as pending); [pull] still merges. */
+    private val writeBack: () -> Boolean = { true },
 ) {
     private val store = JsonFileStore(file, ReadlistDoc.serializer()) { ReadlistDoc() }
     private val _entries = MutableStateFlow<List<ReadEntry>>(emptyList())
@@ -116,11 +118,15 @@ class ReadlistStore(
     suspend fun pull(): Result<Int> {
         val token = lists?.accessToken(ListProvider.ANILIST) ?: return Result.success(0)
         return try {
-            store.read().pending.forEach { id ->
-                val entry = _entries.value.firstOrNull { it.ref.anilistId == id }
-                if (entry == null) anilist.deleteEntry(token, id) else anilist.saveEntry(token, id, entry.status, entry.progress)
+            // from the file, not [entries]: a pull right after app start may run before [load] filled them (a missing entry deletes remotely)
+            if (writeBack()) {
+                val saved = store.read()
+                saved.pending.forEach { id ->
+                    val entry = saved.entries.firstOrNull { it.ref.anilistId == id }
+                    if (entry == null) anilist.deleteEntry(token, id) else anilist.saveEntry(token, id, entry.status, entry.progress)
+                }
+                store.update { it.copy(pending = emptySet()) }
             }
-            store.update { it.copy(pending = emptySet()) }
             val remote = anilist.readList(token).filter { isNovel(it.format) == novels }
             var changed = 0
             val doc = store.update { doc ->
@@ -142,6 +148,8 @@ class ReadlistStore(
     }
 
     private suspend fun push(anilistId: Int, call: suspend (String) -> Unit): Result<Unit> {
+        // "Enviar los cambios a las cuentas" off: the change stays on this phone
+        if (!writeBack()) return Result.success(Unit)
         val token = runCatching { lists?.accessToken(ListProvider.ANILIST) }.getOrNull() ?: return Result.success(Unit)
         return try {
             call(token)

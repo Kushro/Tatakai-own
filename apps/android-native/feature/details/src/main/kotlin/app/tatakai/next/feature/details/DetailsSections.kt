@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material.icons.outlined.Cast
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Extension
@@ -638,8 +640,8 @@ private fun LazyListScope.episodeItems(media: Media, state: DetailsUiState, acti
                             rowItems.forEach { item ->
                                 CompactEpisodeCell(
                                     item = item,
-                                    progress = state.progress[item.episode.number],
-                                    current = item.episode.number == current && state.progress.isNotEmpty(),
+                                    watched = state.isWatched(item.episode.number),
+                                    current = item.episode.number == current && state.hasProgress,
                                     onClick = { actions.onEpisodeClick(item.episode.number) },
                                     modifier = Modifier.weight(1f),
                                 )
@@ -650,14 +652,17 @@ private fun LazyListScope.episodeItems(media: Media, state: DetailsUiState, acti
                 }
             } else {
                 items(page, key = { "ep-${it.episode.number}" }, contentType = { "episode" }) { item ->
+                    val number = item.episode.number
                     DetailsEpisodeRow(
                         episode = item.episode,
                         unaired = item.unaired,
-                        progress = state.progress[item.episode.number],
-                        current = item.episode.number == current && state.progress.isNotEmpty(),
-                        downloaded = item.episode.number in state.downloaded,
-                        onClick = { actions.onEpisodeClick(item.episode.number) },
-                        onDownload = { actions.onDownloadEpisode(item.episode.number) },
+                        progress = state.progress[number],
+                        watched = state.isWatched(number),
+                        current = number == current && state.hasProgress,
+                        downloaded = number in state.downloaded,
+                        onClick = { actions.onEpisodeClick(number) },
+                        onDownload = { actions.onDownloadEpisode(number) },
+                        onToggleWatched = actions.onToggleWatched?.let { toggle -> { toggle(number) } },
                     )
                 }
             }
@@ -669,12 +674,11 @@ private fun LazyListScope.episodeItems(media: Media, state: DetailsUiState, acti
 @Composable
 private fun CompactEpisodeCell(
     item: EpisodeItem,
-    progress: HistoryEntry?,
+    watched: Boolean,
     current: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val watched = progress?.completed == true
     val container = when {
         watched -> MaterialTheme.colorScheme.secondaryContainer
         item.episode.isFiller -> MaterialTheme.colorScheme.tertiaryContainer
@@ -715,6 +719,10 @@ private fun DetailsEpisodeRow(
     onDownload: () -> Unit,
     /** parity wave B (r): a completed download exists (plays offline). */
     downloaded: Boolean = false,
+    /** Within the list progress or completed in the history (ListProgress.isEpisodeWatched). */
+    watched: Boolean = progress?.completed == true,
+    /** "Marcar como visto / no visto"; null hides the button. */
+    onToggleWatched: (() -> Unit)? = null,
 ) {
     var menu by remember { mutableStateOf(false) }
     val rowModifier = if (current) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier
@@ -729,7 +737,7 @@ private fun DetailsEpisodeRow(
     ) {
         Box(Modifier.width(128.dp)) {
             MediaCover(url = episode.image, aspectRatio = 16f / 9f, modifier = Modifier.fillMaxWidth())
-            val fraction = progress?.takeIf { !it.completed }?.progressFraction()
+            val fraction = progress?.takeIf { !it.completed && !watched }?.progressFraction()
             if (fraction != null) {
                 LinearProgressIndicator(
                     progress = { fraction },
@@ -750,7 +758,6 @@ private fun DetailsEpisodeRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            val watched = progress?.completed == true
             if (episode.isFiller || watched || unaired || downloaded) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (unaired) Pill(stringResource(R.string.details_unaired), tone = PillTone.NEUTRAL)
@@ -764,6 +771,18 @@ private fun DetailsEpisodeRow(
                     stringResource(R.string.details_aired, formatAirDate(it)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (!unaired && onToggleWatched != null) {
+            IconButton(onClick = onToggleWatched) {
+                Icon(
+                    if (watched) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                    contentDescription = stringResource(
+                        if (watched) R.string.details_mark_unwatched else R.string.details_mark_watched,
+                        episode.number,
+                    ),
+                    tint = if (watched) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

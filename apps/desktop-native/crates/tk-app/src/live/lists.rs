@@ -941,7 +941,7 @@ pub async fn list_sync_now(b: &LiveBackend) -> UiResult<ListSyncVm> {
     out.errors.extend(first.errors);
     let mut any_ok = false;
     let mut last_err = None;
-    for s in services {
+    for s in services.clone() {
         let mut tok = match token(b, s).await {
             Ok(t) => t,
             Err(e) => {
@@ -964,6 +964,12 @@ pub async fn list_sync_now(b: &LiveBackend) -> UiResult<ListSyncVm> {
                 last_err = Some(ui);
             }
         }
+    }
+    // The AniList manga list (manga + novels) is part of "Sync lists" too, re-pulled every time.
+    if services.contains(&Service::AniList)
+        && let Some(n) = super::manga::pull_read_lists(b, true).await
+    {
+        out.pulled += n;
     }
     let second = flush(b, None).await;
     out.pushed += second.pushed;
@@ -1143,6 +1149,31 @@ pub async fn on_progress(b: &LiveBackend, id: &str, episode: u32, progress_secs:
     if let Err(e) = write_patch(b, id, &patch).await {
         tracing::warn!(detail = %e.detail, "automatic list progress failed");
     }
+}
+
+/// `Backend::set_episode_watched`: the manual watched / not-watched toggle of an episode moves the list progress
+/// (`tk_core::lists::progress::toggle`) through the same path as any list edit, so AniList only hears about it
+/// when "send changes to accounts" is on. Unwatching also reopens the local history rows from that episode on.
+pub async fn set_episode_watched(b: &LiveBackend, id: &str, episode: u32, watched: bool) -> UiResult<()> {
+    if super::ext_catalog::is_provider_id(id) {
+        return Err(UiError::new(ErrorKind::Other, "provider titles have no list progress"));
+    }
+    let current = b.store.list_entry(LOCAL, id).map_err(store_err)?;
+    let total = match &current {
+        Some(c) if c.episodes.is_some() => c.episodes,
+        _ => match tokio::time::timeout(PUSH_BUDGET, b.media(id)).await {
+            Ok(Ok((_, m))) => m.episodes,
+            _ => None,
+        },
+    };
+    let patch = tk_core::lists::progress::toggle(current.as_ref().map(|c| (c.status.as_str(), c.progress)), episode, watched, total);
+    if let Some(patch) = patch {
+        write_patch(b, id, &patch).await?;
+    }
+    if !watched {
+        b.store.reopen_history_from(id, episode).map_err(store_err)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

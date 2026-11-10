@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ChecklistRtl
 import androidx.compose.material.icons.outlined.Close
@@ -80,6 +81,7 @@ import app.tatakai.next.designsystem.components.Pill
 import app.tatakai.next.designsystem.components.SectionCard
 import app.tatakai.next.designsystem.components.rememberAfterDelay
 import app.tatakai.next.manga.ChapterText
+import app.tatakai.next.model.ListProgress
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.NovelChapter
 import app.tatakai.next.model.NovelReaderArgs
@@ -169,7 +171,10 @@ fun NovelDetailsScreen(
             is LoadState.Ok -> {
                 val media = info.value.media
                 val title = media.displayTitle(lang)
-                val readUpTo = maxOf(entry?.progress?.toDouble() ?: 0.0, progress?.chapterNumber ?: 0.0)
+                // chapter marks follow the readlist progress (AniList when linked): ListProgress.isChapterRead
+                val listProgress = entry?.progress ?: 0
+                val nextChapter = ChapterText.formatNumber(vm.nextChapterNumber(progress, entry, (ui.chapters as? LoadState.Ok)?.value.orEmpty()))
+                val started = progress != null || listProgress > 0
                 LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp)) {
                     item(key = "header") {
                         Box(Modifier.fillMaxWidth()) {
@@ -194,7 +199,15 @@ fun NovelDetailsScreen(
                         var menu by remember { mutableStateOf(false) }
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = vm::readNext) { Text(stringResource(if (progress != null) R.string.novel_continue else R.string.novel_read)) }
+                                Button(onClick = vm::readNext) {
+                                    Text(
+                                        when {
+                                            nextChapter == null -> stringResource(if (started) R.string.novel_continue else R.string.novel_read)
+                                            started -> stringResource(R.string.novel_continue_chapter, nextChapter)
+                                            else -> stringResource(R.string.novel_read_chapter, nextChapter)
+                                        },
+                                    )
+                                }
                                 Box {
                                     FilledTonalButton(onClick = { menu = true }) { Text(entry?.status?.let { stringResource(it.readLabelRes()) } ?: stringResource(R.string.novel_add_to_list)) }
                                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -304,8 +317,9 @@ fun NovelDetailsScreen(
                                     items(shown, key = { "c-" + NovelRepositoryImpl.downloadId(it) }) { ch ->
                                         val id = NovelRepositoryImpl.downloadId(ch)
                                         val isDownloaded = ch.downloaded || id in downloaded
-                                        NovelChapterRow(ch, read = ch.number != null && ch.number!! <= readUpTo, downloaded = isDownloaded, selecting = ui.selecting, selected = id in ui.selected,
-                                            onToggle = { vm.toggle(ch) }, onOpen = { onOpenReader(vm.argsFor(ch, offline = isDownloaded)) })
+                                        NovelChapterRow(ch, read = ListProgress.isChapterRead(ch.number, listProgress), downloaded = isDownloaded, selecting = ui.selecting, selected = id in ui.selected,
+                                            onToggle = { vm.toggle(ch) }, onOpen = { onOpenReader(vm.argsFor(ch, offline = isDownloaded)) },
+                                            onToggleRead = { vm.toggleRead(ch) })
                                     }
                                 }
                             }
@@ -369,7 +383,16 @@ private fun NovelChapterTools(ui: NovelDetailsUi, vm: NovelDetailsViewModel) {
 }
 
 @Composable
-private fun NovelChapterRow(ch: NovelChapter, read: Boolean, downloaded: Boolean, selecting: Boolean, selected: Boolean, onToggle: () -> Unit, onOpen: () -> Unit) {
+private fun NovelChapterRow(
+    ch: NovelChapter,
+    read: Boolean,
+    downloaded: Boolean,
+    selecting: Boolean,
+    selected: Boolean,
+    onToggle: () -> Unit,
+    onOpen: () -> Unit,
+    onToggleRead: () -> Unit = {},
+) {
     val date = ch.releasedAtMs?.let { remember(it) { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) } }
     ListItem(
         headlineContent = {
@@ -383,7 +406,21 @@ private fun NovelChapterRow(ch: NovelChapter, read: Boolean, downloaded: Boolean
         },
         supportingContent = { Text(listOfNotNull(ch.translator, ch.lang?.uppercase(), date).joinToString(" · ")) },
         leadingContent = if (selecting) ({ Checkbox(checked = selected, onCheckedChange = { onToggle() }) }) else null,
-        trailingContent = { if (downloaded) Icon(Icons.Outlined.DownloadDone, contentDescription = stringResource(R.string.novel_downloaded)) },
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (downloaded) Icon(Icons.Outlined.DownloadDone, contentDescription = stringResource(R.string.novel_downloaded))
+                val label = ChapterText.formatNumber(ch.number)
+                if (!selecting && label != null) {
+                    IconButton(onClick = onToggleRead) {
+                        Icon(
+                            if (read) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                            contentDescription = stringResource(if (read) R.string.novel_mark_unread else R.string.novel_mark_read, label),
+                            tint = if (read) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
         modifier = Modifier.clickable { if (selecting) onToggle() else onOpen() },
     )
 }

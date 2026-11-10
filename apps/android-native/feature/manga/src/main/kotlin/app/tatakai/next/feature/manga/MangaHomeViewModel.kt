@@ -7,6 +7,7 @@ import app.tatakai.next.manga.MangaCatalog
 import app.tatakai.next.manga.MangaPrefs
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppSettings
+import app.tatakai.next.model.ContinueReadingItem
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MangaHome
 import app.tatakai.next.model.MangaRepository
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -69,6 +71,11 @@ class MangaHomeViewModel(
     settingsRepo: SettingsRepository,
 ) : ViewModel() {
     val home: StateFlow<MangaHome> = repo.home().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MangaHome())
+
+    /** "Seguir leyendo": [MangaHome.lastRead] merged with the readlist entries being read (ListProgress.mergeContinueReading). */
+    val continueReading: StateFlow<List<ContinueReadingItem>> = combine(repo.lastRead(HOME_CONTINUE_LIMIT), repo.readlist(null)) { p, l ->
+        mangaContinueReading(p, l, HOME_CONTINUE_LIMIT)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val settings: StateFlow<AppSettings> = settingsRepo.settings
     val prefs: StateFlow<MangaPrefs> = catalog.prefs
 
@@ -168,3 +175,5 @@ class MangaHomeViewModel(
         viewModelScope.launch { catalog.dismissUpdate(mediaId) }
     }
 }
+
+private const val HOME_CONTINUE_LIMIT = 20

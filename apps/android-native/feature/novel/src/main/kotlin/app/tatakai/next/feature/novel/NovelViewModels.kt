@@ -7,7 +7,9 @@ import app.tatakai.next.manga.MangaCatalog
 import app.tatakai.next.manga.MangaInfo
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppSettings
+import app.tatakai.next.model.ContinueReadingItem
 import app.tatakai.next.model.ListProvider
+import app.tatakai.next.model.ListProgress
 import app.tatakai.next.model.ListStatus
 import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.LoadState
@@ -34,6 +36,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -80,6 +83,11 @@ class NovelHomeViewModel(
     settingsRepo: SettingsRepository,
 ) : ViewModel() {
     val home: StateFlow<NovelHome> = repo.home().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), NovelHome())
+
+    /** "Seguir leyendo": saved positions + readlist entries being read (ListProgress.mergeContinueReading). */
+    val continueReading: StateFlow<List<ContinueReadingItem>> = combine(repo.lastRead(NOVEL_CONTINUE_LIMIT), repo.readlist(null)) { p, l ->
+        novelContinueReading(p, l, NOVEL_CONTINUE_LIMIT)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val settings: StateFlow<AppSettings> = settingsRepo.settings
     private val _filters = MutableStateFlow(NovelFilters())
     val filters: StateFlow<NovelFilters> = _filters.asStateFlow()
@@ -347,14 +355,50 @@ class NovelDetailsViewModel(
     /** "Leer" / "Continuar": the saved position, else the first unread chapter of the selected source. */
     fun readNext() {
         val p = progress.value
-        if (p != null && p.offset < NovelRepositoryImpl.COMPLETED_OFFSET) {
+        val listProgress = entry.value?.progress ?: 0
+        // the saved paragraph wins unless the list (AniList) is already past that chapter (ListProgress.resumeSaved)
+        if (p != null && ListProgress.resumeSaved(p.chapterNumber, p.offset >= NovelRepositoryImpl.COMPLETED_OFFSET, listProgress)) {
             _events.tryEmit(NovelEvent.Open(NovelReaderArgs(mediaId, p.title, p.poster, p.extensionId, p.sourceId, p.itemId, p.chapterId, p.chapterNumber, p.paragraph, anilistId = anilistId)))
             return
         }
         val asc = NovelChapters.sorted((_ui.value.chapters as? LoadState.Ok)?.value.orEmpty(), ascending = true)
-        val read = maxOf(entry.value?.progress?.toDouble() ?: 0.0, p?.chapterNumber ?: 0.0)
+        val read = ListProgress.readThrough(p?.chapterNumber, listProgress)
         val next = asc.firstOrNull { (it.number ?: 0.0) > read } ?: asc.firstOrNull()
         if (next == null) _events.tryEmit(NovelEvent.NoChapter) else _events.tryEmit(NovelEvent.Open(argsFor(next)))
+    }
+
+    /** The chapter number "Leer capítulo N" opens (same rule as [readNext]); null = unknown. */
+    fun nextChapterNumber(p: NovelProgress?, e: ReadEntry?, chapters: List<NovelChapter>): Double? {
+        val listProgress = e?.progress ?: 0
+        if (p != null && ListProgress.resumeSaved(p.chapterNumber, p.offset >= NovelRepositoryImpl.COMPLETED_OFFSET, listProgress)) return p.chapterNumber
+        val read = ListProgress.readThrough(p?.chapterNumber, listProgress)
+        val asc = NovelChapters.sorted(chapters, ascending = true)
+        return asc.firstOrNull { (it.number ?: 0.0) > read }?.number ?: (read.toInt() + 1).toDouble().takeIf { chapters.isEmpty() && read > 0 }
+    }
+
+    /** Chapter row toggle (ListProgress): read sets P = max(P, n) (adds the title as Leyendo when needed), not read sets P = min(P, n - 1). */
+    fun toggleRead(ch: NovelChapter) {
+        val n = ListProgress.chapterIndex(ch.number) ?: return
+        val media = media() ?: return
+        val current = entry.value
+        val read = ListProgress.isChapterRead(ch.number, current?.progress ?: 0)
+        viewModelScope.launch {
+            val result = if (read) {
+                // a finished title becomes Leyendo again (P = n - 1 < T)
+                val reopened = ListProgress.statusAfterUnmark(current?.status)?.let { repo.setReadStatus(media, it) } ?: Result.success(Unit)
+                reopened.fold(
+                    onSuccess = { repo.setReadProgress(ref, ListProgress.toggledProgress(current?.progress ?: 0, n, watched = false)) },
+                    onFailure = { Result.failure(it) },
+                )
+            } else {
+                val added = if (current == null) repo.setReadStatus(media, ListStatus.WATCHING) else Result.success(Unit)
+                added.fold(
+                    onSuccess = { repo.setReadProgress(ref, ListProgress.toggledProgress(current?.progress ?: 0, n, watched = true, total = current?.totalChapters ?: media.episodes)) },
+                    onFailure = { Result.failure(it) },
+                )
+            }
+            result.onFailure { _events.tryEmit(NovelEvent.Failed(it.toAppError())) }
+        }
     }
 }
 
@@ -366,6 +410,11 @@ class NovelLibraryViewModel(
 ) : ViewModel() {
     val entries: StateFlow<List<ReadEntry>?> = repo.readlist(null).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val lastRead: StateFlow<List<NovelProgress>> = repo.lastRead(10).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** "Seguir leyendo": saved positions + readlist entries being read (ListProgress.mergeContinueReading). */
+    val continueReading: StateFlow<List<ContinueReadingItem>> = combine(repo.lastRead(10), repo.readlist(null)) { p, l ->
+        novelContinueReading(p, l, 10)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val linked: StateFlow<Boolean> = (lists?.accounts?.map { a -> a.any { it.provider == ListProvider.ANILIST } } ?: flowOf(false))
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
     private val _syncing = MutableStateFlow(false)
@@ -380,3 +429,5 @@ class NovelLibraryViewModel(
         }
     }
 }
+
+private const val NOVEL_CONTINUE_LIMIT = 20

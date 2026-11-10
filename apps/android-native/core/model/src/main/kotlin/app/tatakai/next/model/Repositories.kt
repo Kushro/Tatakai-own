@@ -130,6 +130,10 @@ interface HistoryRepository {
      * no `DELETE /v1/history`, so in wave A it only resets the Link cursor (the PC's copy is cleared on the PC; KNOWN-ISSUES).
      */
     suspend fun clearHistory(includeRemote: Boolean): Result<Unit> = Result.failure(NotImplementedError("clearHistory"))
+
+    // --- list progress (ListProgress): "Marcar como no visto" ---
+    /** Clears the `completed` flag of the local rows of [ref] for episodes >= [fromEpisode] (synced like any other change). */
+    suspend fun clearCompleted(ref: MediaRef, fromEpisode: Int) {}
 }
 
 interface SettingsRepository {

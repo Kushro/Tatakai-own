@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ChecklistRtl
 import androidx.compose.material.icons.outlined.Close
@@ -91,6 +92,7 @@ import app.tatakai.next.manga.ChapterText
 import app.tatakai.next.manga.MangaInfo
 import app.tatakai.next.manga.MangaRepositoryImpl
 import app.tatakai.next.manga.key
+import app.tatakai.next.model.ListProgress
 import app.tatakai.next.model.ListStatus
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MangaChapter
@@ -201,6 +203,7 @@ fun MangaDetailsScreen(
                         ui = ui,
                         entry = entry,
                         progressChapter = progress?.chapterNumber,
+                        nextChapter = vm.nextChapterNumber(progress, entry, (ui.chapters as? LoadState.Ok)?.value.orEmpty()),
                         downloadedIds = downloaded.map { MangaRepositoryImpl.downloadId(it) }.toSet(),
                         blurCover = info.value.isAdult && settings.matureContent == MatureContentMode.BLUR,
                         titleLanguage = settings.mangaTitleLanguage,
@@ -240,6 +243,7 @@ private fun DetailsBody(
     ui: MangaDetailsUi,
     entry: ReadEntry?,
     progressChapter: Double?,
+    nextChapter: Double?,
     downloadedIds: Set<String>,
     blurCover: Boolean,
     titleLanguage: app.tatakai.next.model.TitleLanguage,
@@ -254,7 +258,8 @@ private fun DetailsBody(
 ) {
     val media = info.media
     val title = media.displayTitle(titleLanguage)
-    val readUpTo = maxOf(entry?.progress?.toDouble() ?: 0.0, progressChapter ?: 0.0)
+    // chapter marks follow the readlist progress (AniList when linked): ListProgress.isChapterRead
+    val readUpTo = (entry?.progress ?: 0).toDouble()
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = padding.calculateTopPadding(), bottom = padding.calculateBottomPadding() + 24.dp)) {
         item(key = "header") { Header(info, title, media.alternativeTitle(title), blurCover) }
         item(key = "actions") {
@@ -262,7 +267,8 @@ private fun DetailsBody(
                 entry = entry,
                 total = info.chapters ?: ui.details?.chapters,
                 opening = ui.opening,
-                hasProgress = progressChapter != null,
+                hasProgress = progressChapter != null || (entry?.progress ?: 0) > 0,
+                nextChapter = nextChapter,
                 onRead = vm::readNext,
                 onStatus = vm::setStatus,
                 onProgress = vm::setProgress,
@@ -394,13 +400,20 @@ private fun ActionsRow(
     onRead: () -> Unit,
     onStatus: (ListStatus?) -> Unit,
     onProgress: (Int) -> Unit,
+    nextChapter: Double? = null,
 ) {
     var statusMenu by remember { mutableStateOf(false) }
     Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(onClick = onRead, enabled = !opening) {
                 if (opening) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                Text(stringResource(if (hasProgress) R.string.manga_continue else R.string.manga_read), modifier = Modifier.padding(start = 6.dp))
+                val n = ChapterText.formatNumber(nextChapter)
+                val label = when {
+                    n == null -> stringResource(if (hasProgress) R.string.manga_continue else R.string.manga_read)
+                    hasProgress -> stringResource(R.string.manga_continue_chapter, n)
+                    else -> stringResource(R.string.manga_read_chapter, n)
+                }
+                Text(label, modifier = Modifier.padding(start = 6.dp))
             }
             Box {
                 FilledTonalButton(onClick = { statusMenu = true }) {
@@ -644,7 +657,7 @@ private fun ChapterRow(
 ) {
     val id = MangaRepositoryImpl.downloadId(ch)
     val isDownloaded = ch.downloaded || id in downloadedIds
-    val read = ch.number != null && ch.number!! <= readUpTo
+    val read = ListProgress.isChapterRead(ch.number, readUpTo.toInt())
     val date = ch.releasedAtMs?.let { remember(it) { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) } }
     ListItem(
         headlineContent = {
@@ -660,7 +673,19 @@ private fun ChapterRow(
         },
         leadingContent = if (ui.selecting) ({ Checkbox(checked = id in ui.selected, onCheckedChange = { vm.toggle(ch) }) }) else null,
         trailingContent = {
-            if (isDownloaded) Icon(Icons.Outlined.DownloadDone, contentDescription = stringResource(R.string.manga_downloaded))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isDownloaded) Icon(Icons.Outlined.DownloadDone, contentDescription = stringResource(R.string.manga_downloaded))
+                val label = ChapterText.formatNumber(ch.number)
+                if (!ui.selecting && label != null) {
+                    IconButton(onClick = { vm.toggleRead(ch) }) {
+                        Icon(
+                            if (read) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                            contentDescription = stringResource(if (read) R.string.manga_mark_unread else R.string.manga_mark_read, label),
+                            tint = if (read) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
         },
         modifier = Modifier.clickable {
             if (ui.selecting) vm.toggle(ch) else onOpenReader(vm.argsFor(ch.copy(downloaded = isDownloaded)))
