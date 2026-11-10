@@ -20,17 +20,53 @@ val anilistClientId = cfg("TATAKAI_ANILIST_CLIENT_ID")
 val malClientId = cfg("TATAKAI_MAL_CLIENT_ID")
 fun String.asBuildConfigString() = "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
+// Release signing (2026-11-10): TATAKAI_SIGNING = path of a keystore .properties file (storeFile, storeType, keyAlias,
+// storePassword, keyPassword), e.g. KKUP/tatakai.keystore.properties locally or one CI writes from repo secrets. When its
+// storeFile does not exist on this machine (a Windows path), the keystore next to the .properties file with the same base
+// name is used. Without TATAKAI_SIGNING the release APK is unsigned (CI refuses to publish it).
+val signingProps: Properties? = cfg("TATAKAI_SIGNING").takeIf { it.isNotEmpty() }?.let { path ->
+    val f = file(path)
+    require(f.isFile) { "TATAKAI_SIGNING points at a missing file: $path" }
+    Properties().apply { f.inputStream().use { load(it) } }.also { it.setProperty("__dir", f.parentFile.path); it.setProperty("__base", f.name.removeSuffix(".properties")) }
+}
+// Versions come from the release tag in CI (TATAKAI_VERSION_NAME / TATAKAI_VERSION_CODE); local builds are "-dev".
+val versionNameCfg = cfg("TATAKAI_VERSION_NAME").ifEmpty { "0.1.0-dev" }
+val versionCodeCfg = cfg("TATAKAI_VERSION_CODE").toIntOrNull() ?: 1
+
 android {
     namespace = "app.tatakai.next"
 
     defaultConfig {
         applicationId = "app.tatakai.own.next"
-        versionCode = 1
-        versionName = "0.1.0-m0"
+        versionCode = versionCodeCfg
+        versionName = versionNameCfg
         buildConfigField("String", "TATAKAI_ANILIST_CLIENT_ID", anilistClientId.asBuildConfigString())
         buildConfigField("String", "TATAKAI_MAL_CLIENT_ID", malClientId.asBuildConfigString())
     }
     buildFeatures { buildConfig = true }
+    // Release CI (TATAKAI_ABI_SPLITS=true): one APK per ABI (arm64 ~70 MB instead of ~180 MB) plus a universal one;
+    // same versionCode for all (sideloaded, never Play). Local builds keep the single universal APK.
+    splits {
+        abi {
+            isEnable = cfg("TATAKAI_ABI_SPLITS") == "true"
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
+    }
+    signingProps?.let { p ->
+        signingConfigs {
+            create("release") {
+                val declared = p.getProperty("storeFile")?.let { file(it) }
+                storeFile = declared?.takeIf { it.isFile } ?: File(p.getProperty("__dir"), p.getProperty("__base"))
+                storeType = p.getProperty("storeType") ?: "PKCS12"
+                keyAlias = p.getProperty("keyAlias")
+                storePassword = p.getProperty("storePassword")
+                keyPassword = p.getProperty("keyPassword")
+            }
+        }
+        buildTypes { getByName("release") { signingConfig = signingConfigs.getByName("release") } }
+    }
     // The check*AarMetadata tasks are disabled repo-wide (see root build.gradle.kts), but release lintVital
     // pulls in each library's bundleReleaseLocalLintAar, which requires that task's output directory to exist.
     // Skip lintVital on assembleRelease; run `./gradlew lint` explicitly when needed.
