@@ -74,9 +74,12 @@ test('parity checklist: owner letters match the wave; android owner never from a
 // directories (plan §3), so a `foo.rs` path is also accepted once it became `foo/mod.rs`.
 const nextExists = (p) => existsSync(join(repo, p)) || (p.endsWith('.rs') && existsSync(join(repo, p.replace(/\.rs$/, '/mod.rs'))));
 
+// `classic` paths point into the classic app, which lives on the `legacy` branch: checked only where it is checked out.
+const classicPresent = existsSync(join(repo, 'src')) && existsSync(join(repo, 'desktop'));
+
 test('parity checklist: every classic and next path exists; out entries carry a note', () => {
   for (const x of list) {
-    assert.ok(existsSync(join(repo, x.classic)), `${x.id}: classic path does not exist: ${x.classic}`);
+    if (classicPresent) assert.ok(existsSync(join(repo, x.classic)), `${x.id}: classic path does not exist: ${x.classic}`);
     if (x.next !== null) assert.ok(nextExists(x.next), `${x.id}: next path does not exist: ${x.next}`);
     if (x.status === 'out') assert.ok(x.note, `${x.id}: an "out" entry must say why in note`);
   }

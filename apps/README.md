@@ -1,6 +1,6 @@
 # apps/ - native Tatakai (M3 Expressive) apps
 
-New code in new directories; the legacy React/Capacitor/Electron app (`src/`, `android/`, `desktop/`, `supabase/`) keeps shipping untouched until parity (M4).
+Tatakai Next is the whole of `main` since 2026-11-10; the classic React/Capacitor/Electron app lives on the `legacy` branch.
 Design docs: [`docs/redesign/`](../docs/redesign/README.md). Contracts shared by both platforms: [`contracts/`](../contracts). Design tokens: [`packages/tokens/`](../packages/tokens).
 
 | Path | What | License |

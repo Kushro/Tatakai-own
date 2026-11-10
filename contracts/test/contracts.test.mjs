@@ -61,7 +61,10 @@ test('link/openapi.v1.json: M0 scope (E6/E7 trims) and structural integrity', ()
   assert.equal(doc['x-transport'].defaultPort, 47321);
   assert.equal(doc['x-pairing-payload'].scheme, 'tatakai-link:v1');
   assert.ok(doc['x-ffmpeg'].protocolWhitelist.startsWith('http,tcp,crypto'));
-  assert.deepEqual(doc.components.schemas.Profile.properties.id.enum, ['p-none', 'p-anime4k-1080', 'p-anime4k-1440', 'p-anime4k-2160', 'p-anime4k-1080-fg2x']);
+  assert.deepEqual(doc.components.schemas.Profile.properties.id.enum, ['p-none', 'p-anime4k-1080', 'p-anime4k-1440', 'p-anime4k-2160', 'p-anime4k-1080-fg2x',
+    // LSFG frame generation on the PC (additive, 2026-11-10: Enigmata Temple's pipeline in tk-link)
+    'p-lsfg-1080-x2', 'p-lsfg-1080-x3', 'p-lsfg-1080-x4', 'p-lsfg-1080-x5', 'p-lsfg-1080-auto120',
+    'p-anime4k-lsfg-1080-x2', 'p-anime4k-lsfg-1080-x3', 'p-anime4k-lsfg-1080-x4', 'p-anime4k-lsfg-1080-x5', 'p-anime4k-lsfg-1080-auto120']);
   assert.equal(doc.components.schemas.SessionCreated.properties.heartbeat_interval_secs.const, 4);
   assert.equal(doc.components.schemas.SessionCreate.properties.source.discriminator.propertyName, 'kind');
 });
@@ -73,8 +76,11 @@ test('extension-host/routes.v1.json lists the legacy route families', () => {
   for (const id of ['health', 'sources', 'stream', 'torrent', 'providers', 'providers/{id}', 'manga/chapters', 'manga/pages', 'novel/search', 'novel/chapters', 'novel/content',
     'custom/home', 'custom/search', 'custom/info', 'custom/watch', 'custom/read']) assert.ok(ids.includes(id), `missing route ${id}`);
   assert.equal(routes.package.bundleMaxBytes, 10485760);
-  // every documented bundle method exists in the legacy host source (guards against drift when the contract is edited)
-  const host = text(join(repo, 'desktop/runtime/extension-api-host/host-server.cjs'));
+  // every documented bundle method exists in the legacy host source (guards against drift when the contract is edited);
+  // the classic app lives on the `legacy` branch, so on `main` this half is skipped
+  const hostFile = join(repo, 'desktop/runtime/extension-api-host/host-server.cjs');
+  if (!existsSync(hostFile)) return;
+  const host = text(hostFile);
   for (const m of ['streamAll', 'torrentAll', 'sourcesAll', 'listProviders', 'runProvider', 'getMangaChapters', 'getMangaPages', 'getNovelChapters', 'getNovelContent',
     'getNovelSearch', 'customHome', 'customSearch', 'customInfo', 'customWatch', 'customRead']) {
     assert.ok(host.includes(`bundle.${m}`), `legacy host no longer calls bundle.${m}`);
@@ -120,9 +126,14 @@ test('fixtures/extensions: committed packed/*.kai are current and contain manife
   for (const name of fixtureNames()) {
     const file = join(kaiDir, 'packed', `${name}.kai`);
     assert.ok(existsSync(file), `missing ${file} - run node contracts/fixtures/extensions/build.mjs`);
-    const committed = readFileSync(file);
-    assert.ok(committed.equals(buildKai(name)), `${name}.kai is stale - run node contracts/fixtures/extensions/build.mjs`);
-    const entries = readZipEntries(committed);
+    // compare the unzipped entries: deflate output differs between zlib versions (Node releases)
+    const committed = readZipEntries(readFileSync(file));
+    const fresh = readZipEntries(buildKai(name));
+    assert.deepEqual(Object.keys(committed).sort(), Object.keys(fresh).sort(), `${name}.kai is stale - run node contracts/fixtures/extensions/build.mjs`);
+    for (const [entry, bytes] of Object.entries(fresh)) {
+      assert.ok(committed[entry].equals(bytes), `${name}.kai is stale (${entry}) - run node contracts/fixtures/extensions/build.mjs`);
+    }
+    const entries = committed;
     assert.deepEqual(Object.keys(entries).sort(), ['bundle.js', 'manifest.json']);
     const manifest = JSON.parse(entries['manifest.json'].toString('utf8'));
     for (const f of ['id', 'name', 'version', 'type', 'description', 'permissions']) assert.ok(f in manifest, `${name}: manifest.${f}`);
@@ -208,22 +219,5 @@ test('fixtures/metadata: every fixture is valid JSON and the AniList ones follow
   assert.equal(expected['anizip-frieren.json'].episodes[0].title, "The Journey's End");
 });
 
-// ---------------------------------------------------------------- Supabase m0 tables (E9)
-test('supabase/m0-tables.md copies the watch_history schema literally and documents the id formats', () => {
-  const sql = text(join(repo, 'supabase', 'main.sql'));
-  const block = /CREATE TABLE public\.watch_history \(([\s\S]*?)\n\);/.exec(sql);
-  assert.ok(block, 'watch_history table not found in supabase/main.sql');
-  const md = text(join(contracts, 'supabase', 'm0-tables.md'));
-  const columnLines = block[1].split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('CONSTRAINT'));
-  assert.ok(columnLines.length >= 13);
-  for (const line of columnLines) assert.ok(md.includes(line), `m0-tables.md is missing the literal column definition: ${line}`);
-  for (const needle of ['UNIQUE (user_id, episode_id)', 'on_conflict=user_id,episode_id', 'resolution=merge-duplicates', '`${anime_id}?ep=${episode_number}`', 'String(anilistId)', '>= 0.9']) {
-    assert.ok(md.includes(needle), `m0-tables.md must mention ${needle}`);
-  }
-  // the legacy writer still uses what the doc says
-  const hook = text(join(repo, 'src/hooks/user/useWatchHistory.ts'));
-  assert.ok(hook.includes("onConflict: 'user_id,episode_id'"));
-  assert.ok(hook.includes('progressSeconds / _dur >= 0.9'));
-  const watchPage = text(join(repo, 'src/pages/watch/WatchPage.tsx'));
-  assert.ok(watchPage.includes('decodedEpisodeId.split("?")[0]'), 'legacy anime_id derivation changed - update m0-tables.md');
-});
+// Supabase m0 tables (E9): Tatakai Next has no own backend since 2026-11-09; contracts/supabase/m0-tables.md documents
+// the classic schema, which is checked on the `legacy` branch.
