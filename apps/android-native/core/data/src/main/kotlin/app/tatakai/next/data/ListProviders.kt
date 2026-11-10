@@ -266,10 +266,13 @@ class AniListListClient(private val client: OkHttpClient, private val endpoint: 
                 "forceSingleCompletedList: true) { hasNextChunk lists { entries { $ENTRY_FIELDS media { id idMal episodes isFavourite " +
                 "title { userPreferred romaji english native } coverImage { large medium } } } } } }"
 
-        /** Implicit grant URL (the token comes back in the redirect fragment). */
+        /**
+         * Implicit grant URL (the token comes back in the redirect fragment). No `redirect_uri`: AniList's implicit grant
+         * always redirects to the URL registered on the client (`tatakai://oauth/anilist`) and refuses the request with
+         * `unsupported_grant_type` when the parameter is present (same URL as the desktop's `anilist_authorize_url`).
+         */
         fun authorizeUrl(clientId: String, state: String): String =
             "$AUTHORIZE_URL?client_id=${OAuthRedirect.encode(clientId)}" +
-                "&redirect_uri=${OAuthRedirect.encode(OAuthRedirect.redirectUri(ListProvider.ANILIST))}" +
                 "&response_type=token&state=${OAuthRedirect.encode(state)}"
 
         private fun vars(vararg pairs: Pair<String, Any>): JsonObject = JsonObject(
