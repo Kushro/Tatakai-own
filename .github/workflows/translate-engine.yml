@@ -2,7 +2,7 @@ name: Translate engine verification
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [legacy]
     paths:
       - 'translate-engine/**'
       - 'desktop/runtime/translate/**'

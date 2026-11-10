@@ -4,7 +4,13 @@ All notable changes to Tatakai are documented here.
 
 ---
 
-## [Unreleased]
+## [7.0.1] - 2026-11-10
+
+Tatakai Classic pasa a la rama `legacy` (Tatakai Next ocupa `main`). Sus releases se etiquetan `legacy-v<versión>` y nunca se marcan como "latest".
+
+- Los APK se firman con la clave de lanzamiento del proyecto (`tatakai`, SHA-256 `42:B7:74:11:…:20:5A`). Las versiones anteriores usaban una clave temporal distinta en cada build: hay que desinstalar una vez antes de instalar esta.
+- La actualización automática de escritorio (electron-updater) lee el release "latest" del repositorio, que ahora es de Tatakai Next: Classic deja de recibir avisos de actualización.
+
 
 Servidor de extensiones integrado: un solo repositorio para la app y el servidor.
 
