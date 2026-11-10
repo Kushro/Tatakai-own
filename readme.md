@@ -1,3 +1,5 @@
+> **Tatakai Classic (rama `legacy`).** Esta es la app clásica (Electron + Capacitor), en mantenimiento. La app nueva, **Tatakai Next** (Rust + Kotlin), vive en [`main`](https://github.com/Kushro/Tatakai-own/tree/main). Releases de Classic: etiquetas `legacy-v*`.
+
 <div align="center">
   <img
     src="public/assets/logo/tatakaibanner.png"

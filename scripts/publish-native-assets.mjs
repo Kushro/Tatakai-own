@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 const tag = process.env.GITHUB_REF_NAME;
 const repo = process.env.GITHUB_REPOSITORY;
 const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
-if (tag !== `v${version}` || !repo) {
+if (tag !== `legacy-v${version}` || !repo) {
   throw new Error('Release identity does not match package version');
 }
 
@@ -43,7 +43,7 @@ if (!await gh(['release', 'view', tag, '--repo', repo], { optional: true, retrie
     const end = changelog.indexOf('\n## [', start + 1);
     if (start < 0) throw new Error('Release changelog missing');
     writeFileSync(notes, changelog.slice(start, end < 0 ? undefined : end));
-    if (!await gh(['release', 'create', tag, '--repo', repo, '--draft', '--target', process.env.GITHUB_SHA, '--title', `Tatakai ${version}`, '--notes-file', notes], { optional: true, retries: 3, backoffMs: 3000 })) {
+    if (!await gh(['release', 'create', tag, '--repo', repo, '--draft', '--target', process.env.GITHUB_SHA, '--title', `Tatakai Classic ${version}`, '--notes-file', notes], { optional: true, retries: 3, backoffMs: 3000 })) {
       await gh(['release', 'view', tag, '--repo', repo], { retries: 5, backoffMs: 2000 });
     }
   } finally {
