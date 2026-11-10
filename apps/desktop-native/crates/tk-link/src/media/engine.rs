@@ -79,7 +79,18 @@ impl FfmpegEngine {
 
     fn command(&self, program: &Path, args: &[OsString], workdir: &Path) -> tokio::process::Command {
         let mut cmd = tokio::process::Command::new(program);
-        cmd.args(args).current_dir(workdir).envs(VULKAN_EXTRA_ENV).stderr(Stdio::null()).kill_on_drop(true);
+        cmd.args(args).current_dir(workdir).envs(VULKAN_EXTRA_ENV).kill_on_drop(true);
+        // Diagnostics: with `TATAKAI_LINK_MEDIA_LOG=<dir>` each media process appends its stderr to
+        // `<dir>/<program>.log` (FFmpeg / temple-lsfg errors); otherwise stderr is discarded.
+        let log = std::env::var_os("TATAKAI_LINK_MEDIA_LOG").map(PathBuf::from).and_then(|dir| {
+            let name = program.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "media".into());
+            std::fs::create_dir_all(&dir).ok()?;
+            std::fs::OpenOptions::new().create(true).append(true).open(dir.join(format!("{name}.log"))).ok()
+        });
+        match log {
+            Some(f) => cmd.stderr(Stdio::from(f)),
+            None => cmd.stderr(Stdio::null()),
+        };
         #[cfg(windows)]
         cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
         super::job::die_with_parent(&mut cmd);

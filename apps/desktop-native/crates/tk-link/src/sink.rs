@@ -29,7 +29,10 @@ pub async fn start(manager: Arc<Manager>) -> std::io::Result<(SocketAddr, tokio:
                     let manager = manager.clone();
                     async move { Ok::<_, std::convert::Infallible>(handle(manager, req).await.unwrap_or_else(status)) }
                 });
-                let _ = hyper::server::conn::http1::Builder::new().serve_connection(TokioIo::new(sock), svc).await;
+                // FFmpeg's HLS muxer half-closes (shuts down its write side) right after the body and only then reads
+                // the status; without `half_close` hyper takes that EOF as an abort and drops the request mid-handler,
+                // so large segments (and every back-pressured one) were silently lost.
+                let _ = hyper::server::conn::http1::Builder::new().half_close(true).serve_connection(TokioIo::new(sock), svc).await;
             });
         }
     });
@@ -57,11 +60,17 @@ async fn handle(manager: Arc<Manager>, req: Request<Incoming>) -> Result<Respons
     if seg.next().is_some() {
         return Err(StatusCode::NOT_FOUND);
     }
-    let session = manager.by_sink_token(token).ok_or(StatusCode::NOT_FOUND)?;
-    let body = Limited::new(req.into_body(), MAX_OBJECT_BYTES).collect().await.map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?.to_bytes();
-    match manager.sink_put(&session, run_gen, &name, body).await {
+    let Some(session) = manager.by_sink_token(token) else {
+        tracing::debug!(%name, "sink: unknown token");
+        return Err(StatusCode::NOT_FOUND);
+    };
+    let body = Limited::new(req.into_body(), MAX_OBJECT_BYTES).collect().await.map_err(|e| { tracing::debug!(%name, error = %e, "sink: body failed"); StatusCode::PAYLOAD_TOO_LARGE })?.to_bytes();
+    let len = body.len();
+    let r = match manager.sink_put(&session, run_gen, &name, body).await {
         Ok(()) => Ok(status(StatusCode::OK)),
         Err(SinkError::BadName) => Err(StatusCode::BAD_REQUEST),
         Err(SinkError::Stale) => Err(StatusCode::CONFLICT),
-    }
+    };
+    tracing::debug!(%name, run_gen, len, status = r.as_ref().map_or_else(|c| c.as_u16(), |_| 200), "sink: put");
+    r
 }

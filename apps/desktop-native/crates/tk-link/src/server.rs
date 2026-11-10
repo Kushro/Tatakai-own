@@ -339,8 +339,17 @@ fn with_type(body: impl Into<Body>, ct: &'static str, no_store: bool) -> Respons
 
 async fn session_file(State(st): State<AppState>, axum::Extension(Authed(device)): axum::Extension<Authed>, Path((id, file)): Path<(String, String)>) -> ApiResult<Response> {
     let s = st.manager.owned(&id, &device)?;
+    tracing::debug!(session = %id, %file, "media request");
+    let started = std::time::Instant::now();
+    let r = session_file_inner(&st, &s, &file).await;
+    tracing::debug!(session = %id, %file, ok = r.is_ok(), ms = started.elapsed().as_millis() as u64, "media response");
+    r
+}
+
+async fn session_file_inner(st: &AppState, s: &Arc<crate::sessions::Session>, file: &str) -> ApiResult<Response> {
+    let s = s.clone();
     // heartbeat-less clients still keep the session alive while they fetch media
-    match file.as_str() {
+    match file {
         "master.m3u8" => Ok(with_type(st.manager.master_playlist(&s)?, "application/vnd.apple.mpegurl", true)),
         "media.m3u8" => Ok(with_type(st.manager.media_playlist(&s)?, "application/vnd.apple.mpegurl", true)),
         "init.mp4" => Ok(with_type(st.manager.init_segment(&s).await?, "video/mp4", false)),
