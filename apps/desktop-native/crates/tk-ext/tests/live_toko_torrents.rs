@@ -34,6 +34,12 @@ impl BrowserRuntime for NoBrowser {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "network + a local toko.kai"]
 async fn toko_torrent_providers_in_the_native_runtime() {
+    // TOKO_SETLOCALE=1: what GTK does at start (`setlocale(LC_ALL, "")`), so LC_NUMERIC follows the user's locale.
+    #[cfg(unix)]
+    if std::env::var("TOKO_SETLOCALE").is_ok() {
+        // SAFETY: called before any other thread of this test reads the locale.
+        unsafe { libc::setlocale(libc::LC_ALL, c"".as_ptr()) };
+    }
     let kai = std::env::var("TOKO_KAI").unwrap_or_default();
     let dir = tempfile::tempdir().unwrap();
     // TOKO_STORE=<a copy of an app's extensions folder>: use that installation as is (no install).

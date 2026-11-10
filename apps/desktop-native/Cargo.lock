@@ -7581,6 +7581,7 @@ dependencies = [
  "base64 0.22.1",
  "futures-util",
  "hex 0.4.3",
+ "libc",
  "reqwest 0.12.28",
  "rquickjs",
  "scraper",

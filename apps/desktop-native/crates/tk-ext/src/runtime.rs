@@ -152,7 +152,29 @@ struct Js {
     _rt: Runtime,
 }
 
+/// Switch THIS thread to the "C" numeric locale. QuickJS parses number literals and `parseFloat` / `Number()` and
+/// prints numbers through the C library (`strtod`, `snprintf`), which follow `LC_NUMERIC`; GTK sets the process
+/// locale to the user's (`setlocale(LC_ALL, "")`), and with a decimal-comma locale (es_AR, de_DE, fr_FR...) the
+/// literal `0.4` in a bundle parsed as `0`: every fractional score was 0 (Toko's Nyaa dropped all of its results in
+/// the app while a test process, still in the "C" locale, kept them). `uselocale` is per thread, so the UI keeps the
+/// user's locale.
+#[cfg(unix)]
+pub(crate) fn c_numeric_locale() {
+    // SAFETY: newlocale with a null base allocates a new locale object (never freed: one per worker thread, which
+    // lives as long as its extension); uselocale only changes the calling thread.
+    unsafe {
+        let loc = libc::newlocale(libc::LC_NUMERIC_MASK, c"C".as_ptr(), std::ptr::null_mut());
+        if !loc.is_null() {
+            libc::uselocale(loc);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+pub(crate) fn c_numeric_locale() {}
+
 fn worker_main(cfg: WorkerConfig, handle: tokio::runtime::Handle, rx: mpsc::Receiver<Cmd>) {
+    c_numeric_locale();
     let (ev_tx, ev_rx) = mpsc::channel::<Event>();
     let start = Instant::now();
     let deadline = Arc::new(AtomicU64::new(u64::MAX));
