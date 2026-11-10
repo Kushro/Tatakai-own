@@ -133,7 +133,8 @@
 
 /* ---- player button (sibling of the controls) ---- */
 .tk-player__download {
-  position: absolute; top: var(--tk-space-16); right: var(--tk-space-16); z-index: 3;
+  /* Left of the top bar's Episodes / Shortcuts / More buttons (40 px + 12 px gap each): at `right: 16px` it covered "More". */
+  position: absolute; top: var(--tk-space-16); right: calc(var(--tk-space-16) + 3 * 52px); z-index: 3;
   transition: opacity var(--md-sys-motion-effects-default-duration) var(--md-sys-motion-effects-default-easing);
 }
 .tk-player__download[data-visible="false"] { opacity: 0; pointer-events: none; }
