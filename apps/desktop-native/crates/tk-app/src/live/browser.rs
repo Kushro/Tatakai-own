@@ -6,8 +6,13 @@
 //! views, not Dioxus `new_window`s: Dioxus' navigation handler sends every `https:` navigation to the system
 //! browser, which would open the provider site there.
 //!
-//! * Linux: a `gtk::OffscreenWindow` (mapped, so the page sees itself visible and is not throttled, yet never on
-//!   screen) holding a `gtk::Box` the view is built into with `build_gtk`; `headless: false` uses a normal toplevel.
+//! * Linux: a `gtk::Box` the view is built into with `build_gtk`, placed in a 1x1 px, fully transparent `gtk::Layout`
+//!   packed at the end of the main window (mapped, so the page sees itself visible and is not throttled, yet never
+//!   seen). It used to be a `gtk::OffscreenWindow`, but the app runs WebKitGTK's DMA-BUF renderer (needed for the
+//!   embedded video, docs/redesign/10-linux-video-embed-debt.md) and that renderer asks GDK for a GL context on the
+//!   view's window: the offscreen backend has none, so GDK aborted the whole app ("GDK is not able to create a GL
+//!   context") the first time an extension opened a hidden view (Cloudflare bypass of a manga source, embed sniffer).
+//!   `headless: false` uses a normal toplevel.
 //! * Windows: a child view of the main window (`build_as_child`), hidden unless `headless: false`, with its own
 //!   WebView2 data folder (environments sharing the app's folder must use identical options).
 //!
@@ -268,8 +273,12 @@ mod ui {
         /// Waiters of the current navigation, resolved by the page-load handler.
         loads: Loads,
         view: wry::WebView,
+        /// `headless: false` only (the debugging toplevel); hidden views live in the main window's host layout.
         #[cfg(target_os = "linux")]
-        window: gtk::Window,
+        window: Option<gtk::Window>,
+        /// The box the view was built into (a child of the hidden host, or of `window`).
+        #[cfg(target_os = "linux")]
+        container: gtk::Box,
         /// Declared after `view`: the web context outlives the view.
         #[cfg(windows)]
         _context: wry::WebContext,
@@ -469,8 +478,13 @@ setInterval(function(){ try {
         use webkit2gtk::{PermissionRequestExt, WebViewExt};
         use wry::{WebViewBuilderExtUnix, WebViewExtUnix};
 
-        let window: gtk::Window = if headless {
-            gtk::OffscreenWindow::new().upcast()
+        let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let window = if headless {
+            // Inside the main window (it has a GL-capable Wayland / X11 surface), never an offscreen window.
+            let host = hidden_host().ok_or(BrowserError::Unavailable)?;
+            container.set_size_request(1000, 760);
+            host.put(&container, 0, 0);
+            None
         } else {
             let w = gtk::Window::new(gtk::WindowType::Toplevel);
             // Closing the debugging window only hides it; the session ends with close() or the auto-close.
@@ -478,16 +492,14 @@ setInterval(function(){ try {
                 w.hide();
                 gtk::glib::Propagation::Stop
             });
-            w
+            w.set_default_size(1000, 760);
+            w.add(&container);
+            Some(w)
         };
-        window.set_default_size(1000, 760);
-        let container = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        window.add(&container);
         let view = match configure(wry::WebViewBuilder::new(), domains.clone(), loads.clone(), true, sniff).build_gtk(&container) {
             Ok(v) => v,
             Err(e) => {
-                // SAFETY: the window was created above and is not used after this.
-                unsafe { window.destroy() };
+                remove_container(&container, window);
                 return Err(failed(e));
             }
         };
@@ -495,8 +507,55 @@ setInterval(function(){ try {
             request.deny();
             true
         });
-        window.show_all();
-        Ok(Session { ext_id, domains, loads, view, window })
+        match &window {
+            Some(w) => w.show_all(),
+            None => container.show_all(),
+        }
+        Ok(Session { ext_id, domains, loads, view, window, container })
+    }
+
+    #[cfg(target_os = "linux")]
+    thread_local! {
+        /// 1x1 px transparent layout at the end of the main window's box: parent of every hidden view.
+        static HIDDEN_HOST: RefCell<Option<gtk::Layout>> = const { RefCell::new(None) };
+    }
+
+    /// The hidden-view host, created on first use in the main window's `default_vbox` (UI thread only).
+    #[cfg(target_os = "linux")]
+    fn hidden_host() -> Option<gtk::Layout> {
+        use dioxus::desktop::tao::platform::unix::WindowExtUnix;
+        use gtk::prelude::*;
+        if let Some(h) = HIDDEN_HOST.with(|h| h.borrow().clone()) {
+            return Some(h);
+        }
+        let desktop = dioxus::desktop::window();
+        let vbox = desktop.window.default_vbox()?;
+        let layout = gtk::Layout::new(None::<&gtk::Adjustment>, None::<&gtk::Adjustment>);
+        layout.set_widget_name("tk-hidden-views");
+        // Its own size stays 1x1 whatever the children request (a Layout scrolls its content); fully transparent
+        // and insensitive, so it never shows nor takes input.
+        layout.set_size_request(1, 1);
+        layout.set_opacity(0.0);
+        layout.set_sensitive(false);
+        vbox.pack_end(&layout, false, false, 0);
+        layout.show();
+        HIDDEN_HOST.with(|h| *h.borrow_mut() = Some(layout.clone()));
+        Some(layout)
+    }
+
+    /// Takes a view's box out of its parent (the hidden host) or destroys the debugging toplevel.
+    #[cfg(target_os = "linux")]
+    fn remove_container(container: &gtk::Box, window: Option<gtk::Window>) {
+        use gtk::prelude::*;
+        match window {
+            // SAFETY: the window is ours alone (never handed out) and is not used after this.
+            Some(w) => unsafe { w.destroy() },
+            None => {
+                if let Some(parent) = container.parent().and_then(|p| p.downcast::<gtk::Container>().ok()) {
+                    parent.remove(container);
+                }
+            }
+        }
     }
 
     #[cfg(windows)]
@@ -712,11 +771,9 @@ setInterval(function(){ try {
         }
         #[cfg(target_os = "linux")]
         {
-            use gtk::prelude::*;
-            let Session { view, window, .. } = session;
+            let Session { view, window, container, .. } = session;
             drop(view);
-            // SAFETY: the window is ours alone (never handed out) and is not used after this.
-            unsafe { window.destroy() };
+            remove_container(&container, window);
         }
         #[cfg(not(target_os = "linux"))]
         {
