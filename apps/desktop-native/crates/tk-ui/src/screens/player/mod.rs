@@ -282,7 +282,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 let fg_mult = settings.video.frame_gen.multiplier();
                 let use_fg = cfg!(target_os = "linux") && fg_mult > 1;
                 if use_fg {
-                    frame_gen.set(Some(tk_player::FrameGen::new(fg_mult, settings.video.lsfg_dll.clone().map(PathBuf::from))));
+                    // The dedicated lsfg-vk config is a throwaway file: the runtime dir (or temp) is enough.
+                    let lsfg_dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("tatakai-next");
+                    frame_gen.set(Some(tk_player::FrameGen::new(fg_mult, settings.video.lsfg_dll.clone().map(PathBuf::from), lsfg_dir)));
                 }
                 let engine = if use_fg { PlayerModeVm::External } else { settings.player_mode };
                 match engine {
