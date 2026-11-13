@@ -62,6 +62,7 @@ import app.tatakai.next.player.PlayerPrefs
 import app.tatakai.next.player.PlayerSessionFactory
 import app.tatakai.next.player.SubtitleTools
 import app.tatakai.next.ui.state.contrastLevel
+import app.tatakai.next.ui.state.rememberIsOnline
 import app.tatakai.next.ui.state.userMessage
 import org.koin.compose.getKoin
 import org.koin.core.qualifier.named
@@ -167,6 +168,21 @@ private fun PlayerBody(
     var flash by remember { mutableStateOf<PlayerNotice?>(null) }
 
     LaunchedEffect(vm) { vm.notices.collect { flash = it } }
+    // Link session: when the network drops for longer than the player's retries, the session comes back by itself once the
+    // network returns (same as tapping Retry; the PC keeps the session 120 s). Only an offline -> online change retries, so an
+    // error the PC itself returns never loops.
+    if (args.remoteSessionId != null) {
+        val online = rememberIsOnline()
+        var wentOffline by remember { mutableStateOf(false) }
+        LaunchedEffect(online) {
+            if (!online) {
+                wentOffline = true
+            } else if (wentOffline) {
+                wentOffline = false
+                if (vm.state.value.phase == PlayerPhase.ERROR) vm.retry()
+            }
+        }
+    }
     // Manual mode: open the picker once by itself (prototype: 300 ms after entering).
     LaunchedEffect(state.phase) {
         if (state.phase == PlayerPhase.MANUAL && !manualPrompted) {
