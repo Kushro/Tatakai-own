@@ -193,7 +193,9 @@ class PlaybackController(
                 }
             }
             .build()
-        val mediaSource = DefaultMediaSourceFactory(factory).createMediaSource(item)
+        val mediaSource = DefaultMediaSourceFactory(factory)
+            .apply { if (remote) setLoadErrorHandlingPolicy(RemoteLoadErrorPolicy()) }
+            .createMediaSource(item)
         loaded = true
         _cues.value = emptyList()
         _state.value = _state.value.copy(

@@ -739,14 +739,18 @@ class PlayerViewModel(
         if (st.durationMs > 0) lastDurationMs = st.durationMs
         val f = flow
         val err = st.error
-        if (err != null && handledErrorLoad != st.loadId) {
-            handledErrorLoad = st.loadId
-            if (f != null && playbackInFlow()) {
-                if (playback != null) endTorrent(completed = false)
-                fail(f.attempt, FailKind.PLAYBACK, "${err.name} (${err.code})")
-            } else {
-                _state.update { it.copy(phase = PlayerPhase.ERROR, error = AppError.Unknown(err.name)) }
+        if (err != null) {
+            if (handledErrorLoad != st.loadId) {
+                handledErrorLoad = st.loadId
+                if (f != null && playbackInFlow()) {
+                    if (playback != null) endTorrent(completed = false)
+                    fail(f.attempt, FailKind.PLAYBACK, "${err.name} (${err.code})")
+                } else {
+                    _state.update { it.copy(phase = PlayerPhase.ERROR, error = AppError.Unknown(err.name)) }
+                }
             }
+            // The failed load keeps publishing its (errored) state every tick: nothing below may run for it, or the
+            // phase went back to PLAYING / BUFFERING and the error screen (and its Retry) disappeared, leaving a frozen player.
             return
         }
         if (st.started && handledStartLoad != st.loadId) {
