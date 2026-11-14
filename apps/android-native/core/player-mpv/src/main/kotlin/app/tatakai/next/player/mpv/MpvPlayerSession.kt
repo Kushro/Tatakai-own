@@ -18,6 +18,7 @@ import app.tatakai.next.player.PlaybackState
 import app.tatakai.next.player.PlayerSession
 import app.tatakai.next.player.PlayerSessionFactory
 import app.tatakai.next.player.SessionTicker
+import app.tatakai.next.player.MPV_OPEN_ERROR_CODE
 import app.tatakai.next.player.MPV_START_TIMEOUT_CODE
 import app.tatakai.next.player.MPV_START_TIMEOUT_MS
 import app.tatakai.next.player.ShaderFallback
@@ -84,6 +85,9 @@ class MpvPlayerSession(
     private var prepareJob: Job? = null
     private var audioLang: String? = null
     private var subLang: String? = null
+
+    /** loadId of the last load watched by the start timeout ([mpvStartWatched]); its errors before a frame go to Media3 (BUG-080). */
+    @Volatile private var watchedLoadId = -1
 
     private fun battery(): BatteryInfo? = runCatching {
         val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return@runCatching null
@@ -157,7 +161,7 @@ class MpvPlayerSession(
                     subtitleIsAss = subs.any { it.selected && it.ass },
                     audioTracks = m.audio.map { t -> AudioOption(t.id, t.title ?: t.lang ?: "#${t.id}", t.lang, t.selected) },
                     fullAss = true,
-                    error = m.error?.let { PlaybackError(if (it == START_TIMEOUT) MPV_START_TIMEOUT_CODE else -1, it, exhausted = true) },
+                    error = m.error?.let { PlaybackError(mpvErrorCode(it, m.started, m.loadId == watchedLoadId), it, exhausted = true) },
                     subText = m.subText,
                     subtitleDelayMs = m.subDelayMs,
                     loop = m.loop,
@@ -194,7 +198,10 @@ class MpvPlayerSession(
     }
 
     private fun open(source: PlayableSource, url: String, startSecs: Double, subs: List<String>, loadId: Int) {
-        engine.loadPrepared(url, source.headers, startSecs, subs)
+        val lavf = HlsPrefetch.lavfOptions(url, source.url)
+        if (lavf.isNotEmpty()) android.util.Log.i("mpv", "filtered HLS master opened with demuxer-lavf-o=$lavf")
+        watchedLoadId = if (mpvStartWatched(source.container, source.torrent)) loadId else -1
+        engine.loadPrepared(url, source.headers, startSecs, subs, lavf)
         // BUG-059: a network stream that shows no frame in time is given up (the view-model moves it to Media3). Safety net only:
         // the filtered master above is what makes such streams start.
         startWatch = if (mpvStartWatched(source.container, source.torrent)) {
@@ -297,7 +304,17 @@ class MpvPlayerSession(
 private const val BATTERY_CHECK_MS = 60_000L
 
 /** mpv error text of a load given up by the start watchdog (BUG-059). */
-private const val START_TIMEOUT = "start timeout"
+internal const val START_TIMEOUT = "start timeout"
+
+/**
+ * [PlaybackError.code] for an mpv error: the start timeout, an error before the first frame of a watched network stream (BUG-080:
+ * the view-model moves both to Media3), or -1 (the source fails as usual: torrents, local files, errors after playback started).
+ */
+internal fun mpvErrorCode(error: String, started: Boolean, watched: Boolean): Int = when {
+    error == START_TIMEOUT -> MPV_START_TIMEOUT_CODE
+    !started && watched -> MPV_OPEN_ERROR_CODE
+    else -> -1
+}
 
 /** Koin-bound factory of mpv sessions (see `mpvPlayerModule`). [preset] is read at creation time. */
 @UnstableApi

@@ -972,7 +972,11 @@ class PlayerViewModel(
     }
 
     /** Replaces the Media3 session with a libmpv one and reloads [src] at [positionMs] (BUG-020). */
-    private fun switchToMpv(src: PlayableSource, positionMs: Long?) = switchEngine(PlayerEngine.MPV, src, positionMs, PlayerNotice.SwitchedToMpv)
+    private fun switchToMpv(src: PlayableSource, positionMs: Long?) {
+        // Media3 already failed this source: an mpv open error (BUG-080) must not send it back to Media3.
+        media3TriedFor = src.url
+        switchEngine(PlayerEngine.MPV, src, positionMs, PlayerNotice.SwitchedToMpv)
+    }
 
     /** Replaces the session with one of [target] for the rest of this player (the setting is not changed) and reloads [src]. */
     private fun switchEngine(target: PlayerEngine, src: PlayableSource, positionMs: Long?, notice: PlayerNotice) {

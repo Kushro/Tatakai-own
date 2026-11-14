@@ -45,6 +45,15 @@ class DecodeRecoveryTest {
     }
 
     @Test
+    fun anMpvOpenErrorBeforeTheFirstFrameAlsoMovesTheSourceToMedia3Once() {
+        // BUG-080: "Protocol 'http' not on whitelist" fails the load in ~2 s, long before the start timeout.
+        assertTrue(switchToMedia3OnStall(MPV_OPEN_ERROR_CODE, onMpv = true, remote = false, triedMedia3 = false))
+        assertFalse(switchToMedia3OnStall(MPV_OPEN_ERROR_CODE, onMpv = true, remote = false, triedMedia3 = true), "only once per source")
+        assertFalse(switchToMedia3OnStall(MPV_OPEN_ERROR_CODE, onMpv = true, remote = true, triedMedia3 = false), "Link already uses Media3")
+        assertFalse(switchToMedia3OnStall(MPV_OPEN_ERROR_CODE, onMpv = false, remote = false, triedMedia3 = false))
+    }
+
+    @Test
     fun torrentStreamsAreNotWatchedByTheStartTimeout() {
         assertTrue(mpvStartWatched(Container.HLS, torrent = false))
         assertTrue(mpvStartWatched(Container.MP4, torrent = false))

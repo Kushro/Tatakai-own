@@ -192,7 +192,7 @@ class MpvEngine(context: Context) {
     fun load(url: String, headers: Map<String, String>, startSecs: Double, subtitleUrls: List<String>) {
         if (released) return
         beginLoad()
-        loadPrepared(url, headers, startSecs, subtitleUrls)
+        loadPrepared(url, headers, startSecs, subtitleUrls, lavfOptions = "")
     }
 
     /**
@@ -209,9 +209,11 @@ class MpvEngine(context: Context) {
     }
 
     /** Opens [url] for the load [beginLoad] started (see [load]). */
-    fun loadPrepared(url: String, headers: Map<String, String>, startSecs: Double, subtitleUrls: List<String>) {
+    fun loadPrepared(url: String, headers: Map<String, String>, startSecs: Double, subtitleUrls: List<String>, lavfOptions: String = "") {
         if (released) return
         pendingSubtitles = subtitleUrls
+        // BUG-080: set on every load, so the widened protocol whitelist of a filtered local master does not leak into the next one.
+        mpv.setPropertyString("demuxer-lavf-o", lavfOptions)
         val ua = headers.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
         val referer = headers.entries.firstOrNull { it.key.equals("Referer", ignoreCase = true) }?.value
         val rest = headers.filterKeys { !it.equals("User-Agent", ignoreCase = true) && !it.equals("Referer", ignoreCase = true) }

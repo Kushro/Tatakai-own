@@ -45,6 +45,13 @@ const val MAX_SILENT_RETRIES = 1
 /** [PlaybackError.code] of an mpv load that produced no frame within [MPV_START_TIMEOUT_MS]. */
 const val MPV_START_TIMEOUT_CODE = -2
 
+/**
+ * [PlaybackError.code] of an mpv load of a watched stream ([mpvStartWatched]) that failed before its first frame (BUG-080: FFmpeg
+ * refused the stream right away, e.g. "Protocol 'http' not on whitelist"). Like [MPV_START_TIMEOUT_CODE], the view-model then plays
+ * the same source with Media3 instead of counting it as failed.
+ */
+const val MPV_OPEN_ERROR_CODE = -3
+
 /** How long a network (non-torrent) stream may take in libmpv before its first frame. */
 const val MPV_START_TIMEOUT_MS = 15_000L
 
@@ -53,8 +60,8 @@ fun mpvStartWatched(container: Container, torrent: Boolean): Boolean =
     !torrent && container != Container.PROGRESSIVE
 
 /**
- * Whether an mpv error moves the same source to Media3 (BUG-059): only the start timeout, outside a Link session (those already play in
- * Media3), with Media3 not tried yet for this source.
+ * Whether an mpv error moves the same source to Media3 (BUG-059 / BUG-080): the start timeout or an error before the first frame,
+ * outside a Link session (those already play in Media3), with Media3 not tried yet for this source.
  */
 fun switchToMedia3OnStall(code: Int, onMpv: Boolean, remote: Boolean, triedMedia3: Boolean): Boolean =
-    onMpv && code == MPV_START_TIMEOUT_CODE && !remote && !triedMedia3
+    onMpv && (code == MPV_START_TIMEOUT_CODE || code == MPV_OPEN_ERROR_CODE) && !remote && !triedMedia3

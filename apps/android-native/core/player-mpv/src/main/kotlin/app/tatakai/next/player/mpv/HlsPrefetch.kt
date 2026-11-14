@@ -51,5 +51,19 @@ internal object HlsPrefetch {
         }
     }.getOrNull()
 
+    /**
+     * BUG-080: FFmpeg opens a local master with `protocol_whitelist=file,crypto,data` and then refuses its absolute http(s) playlist
+     * URLs ("Protocol 'http' not on whitelist"). The filtered master from [filteredMaster] is opened with the network protocols allowed;
+     * every other load keeps FFmpeg's default (empty value: mpv clears the option). Value for mpv's `demuxer-lavf-o` (a key/value list:
+     * the comma-separated whitelist is quoted with `[...]`).
+     */
+    fun lavfOptions(playedUrl: String, sourceUrl: String): String =
+        if (playedUrl != sourceUrl && isLocalPath(playedUrl)) "protocol_whitelist=[$LOCAL_MASTER_PROTOCOLS]" else ""
+
+    private fun isLocalPath(url: String): Boolean = url.startsWith("/") || url.startsWith("file://")
+
+    /** What a filtered master and its nested playlists, keys and segments need (the PC's proxy is http, CDNs are https). */
+    const val LOCAL_MASTER_PROTOCOLS = "file,http,https,tcp,tls,crypto,data"
+
     private const val FETCH_TIMEOUT_S = 8L
 }
