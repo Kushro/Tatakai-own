@@ -573,6 +573,18 @@ fn start_err(e: &LinkError, port: u16) -> UiError {
     }
 }
 
+/// The active paired devices of `<dir>/devices.json` with the server down: none online, no error.
+fn paired_vm(dir: &Path, port: u16) -> LinkStatusVm {
+    let devices = tk_link::devices::DeviceRegistry::open(dir.join("devices.json"))
+        .map(|r| r.list())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|d| d.is_active(now_unix()))
+        .map(|d| device_vm(d, &[]))
+        .collect();
+    LinkStatusVm { running: false, port, devices, error: None }
+}
+
 fn device_vm(d: Device, online: &[String]) -> DeviceVm {
     // Wave B (k, `link.last-seen`): tk-link refreshes both on every authenticated request of the phone.
     let online = online.iter().any(|id| *id == d.id);
@@ -714,14 +726,18 @@ impl LinkService {
 
     /// Server down: the paired devices still come from `devices.json`, none of them online.
     fn stopped_vm(&self, port: u16, error: UiError) -> LinkStatusVm {
-        let devices = tk_link::devices::DeviceRegistry::open(self.dir.join("devices.json"))
-            .map(|r| r.list())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|d| d.is_active(now_unix()))
-            .map(|d| device_vm(d, &[]))
-            .collect();
-        LinkStatusVm { running: false, port, devices, error: Some(error) }
+        LinkStatusVm { error: Some(error), ..paired_vm(&self.dir, port) }
+    }
+
+    /// BUG-130: the status without starting the server (no firewall prompt): the running server's devices, or the
+    /// paired ones from `devices.json` (none online) while it is down. Waits for a start in progress (the state lock),
+    /// so right after launch it answers with the server `start_if_paired` brought up.
+    pub async fn peek(&self) -> LinkStatusVm {
+        let st = self.state.lock().await;
+        match st.handle.as_ref() {
+            Some(h) => Self::running_vm(h),
+            None => paired_vm(&self.dir, st.port),
+        }
     }
 
     /// App start-up: with at least one paired phone the server starts right away, so the phone reaches this PC without
@@ -866,6 +882,34 @@ mod tests {
         // not cancelled: the step's value comes through
         let q = SendProgress::new();
         assert_eq!(unless_cancelled(&q, async { 3 }).await.ok(), Some(3));
+    }
+
+    #[test]
+    fn the_paired_devices_are_read_without_the_server() {
+        // BUG-130: Details lists the paired phones right after launch, without starting Link
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(paired_vm(dir.path(), 47321), LinkStatusVm { running: false, port: 47321, devices: Vec::new(), error: None });
+        let reg = tk_link::devices::DeviceRegistry::open(dir.path().join("devices.json")).unwrap();
+        let now = now_unix();
+        let dev = |id: &str, revoked_at: Option<i64>| Device {
+            id: id.into(),
+            name: format!("phone {id}"),
+            fingerprint: format!("fp-{id}"),
+            created_at: now - 10,
+            not_after: now + 3600,
+            revoked_at,
+            platform: "android".into(),
+            last_seen_at: Some(now - 5),
+        };
+        reg.add(dev("a", None)).unwrap();
+        reg.add(dev("b", Some(now - 1))).unwrap();
+        drop(reg);
+        let vm = paired_vm(dir.path(), 47321);
+        assert!(!vm.running && vm.error.is_none());
+        assert_eq!(vm.devices.len(), 1);
+        assert_eq!(vm.devices[0].id, "a");
+        assert!(!vm.devices[0].online);
+        assert_eq!(vm.devices[0].last_seen_unix, Some(now - 5));
     }
 
     #[test]

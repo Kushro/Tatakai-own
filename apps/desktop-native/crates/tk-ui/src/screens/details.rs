@@ -305,15 +305,22 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
             async move { if embedded { Ok(Vec::new()) } else { backend.extensions().await } }
         }
     });
-    // tk-app starts the Link server on `link_status()` (firewall prompt): only ask once a Link screen has
-    // started it this session (the shell then holds a status); otherwise the panel offers the Link page.
+    // BUG-130: the devices load on their own when the page opens: the shell's last Link answer (its poll follows the
+    // server and who is online) or, before that, `link_peek()`, which never starts the server (no firewall prompt).
     let shell_link = try_use_context::<ShellStatus>().map(|s| s.link);
     let mut link = use_resource({
         let backend = backend.clone();
         move || {
             let backend = backend.clone();
-            let started = shell_link.is_some_and(|l| l.peek().is_some());
-            async move { if embedded || !started { Ok(LinkStatusVm::default()) } else { backend.link_status().await } }
+            // Read (not peeked): the list follows the shell's poll.
+            let polled = shell_link.and_then(|l| l());
+            async move {
+                match link_query(embedded, polled) {
+                    LinkQuery::Skip => Ok(LinkStatusVm::default()),
+                    LinkQuery::Known(st) => Ok(st),
+                    LinkQuery::Ask => backend.link_peek().await,
+                }
+            }
         }
     });
 
@@ -731,8 +738,9 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
         Some(Err(e)) => rsx! {
             ErrorState { error: e.clone(), compact: true, on_retry: move |_| link.restart() }
         },
+        // BUG-130: no paired device (not "not seen since pairing", which is about one device).
         Some(Ok(st)) if st.devices.is_empty() => rsx! {
-            p { class: "tk-muted", {t("link.never_seen")} }
+            p { class: "tk-muted", {t("details.link.no_devices")} }
             Button {
                 label: t("nav.link"),
                 icon: "link".to_string(),
@@ -1494,8 +1502,38 @@ pub(crate) fn send_outcome_text(o: &SendOutcomeVm) -> Option<String> {
     Some(tf(if o.torrent_failed { "details.send_other_torrent" } else { "details.send_other" }, &[("source", &source)]))
 }
 
+/// Where the "Send to device" card takes its Link status from (BUG-130).
+#[derive(Debug, Clone, PartialEq)]
+enum LinkQuery {
+    /// The embedded pane shows no card.
+    Skip,
+    /// The shell already holds an answer (its poll, or the Link page).
+    Known(LinkStatusVm),
+    /// Ask `Backend::link_peek()` (never starts the server).
+    Ask,
+}
+
+fn link_query(embedded: bool, polled: Option<LinkStatusVm>) -> LinkQuery {
+    match (embedded, polled) {
+        (true, _) => LinkQuery::Skip,
+        (false, Some(st)) => LinkQuery::Known(st),
+        (false, None) => LinkQuery::Ask,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_send_card_asks_for_the_devices_without_waiting_for_the_link_page() {
+        // BUG-130: right after launch (the shell has no answer yet) Details asks `link_peek()` itself
+        assert_eq!(link_query(false, None), LinkQuery::Ask);
+        let st = LinkStatusVm { running: true, port: 47321, devices: Vec::new(), error: None };
+        assert_eq!(link_query(false, Some(st.clone())), LinkQuery::Known(st.clone()));
+        assert_eq!(link_query(true, Some(st)), LinkQuery::Skip);
+        assert_eq!(link_query(true, None), LinkQuery::Skip);
+        assert_ne!(t("details.link.no_devices"), t("link.never_seen"));
+    }
+
     use super::*;
 
     fn ep(n: u32, watched: f64, filler: bool) -> EpisodeVm {

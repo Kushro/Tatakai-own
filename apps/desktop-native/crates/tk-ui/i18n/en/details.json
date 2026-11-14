@@ -82,6 +82,7 @@
   "details.dur.m": "{m}m",
   "details.trailer": "Trailer",
   "details.trailer.failed": "Could not open the trailer.",
+  "details.link.no_devices": "No paired devices yet. Pair your phone in Link.",
   "details.link.failed": "Could not open the link.",
   "details.share": "Share",
   "details.share.copied": "Link copied to the clipboard",

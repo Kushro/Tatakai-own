@@ -82,6 +82,7 @@
   "details.dur.m": "{m} min",
   "details.trailer": "Tráiler",
   "details.trailer.failed": "No se pudo abrir el tráiler.",
+  "details.link.no_devices": "Todavía no hay dispositivos emparejados. Empareja tu teléfono en Enlace.",
   "details.link.failed": "No se pudo abrir el enlace.",
   "details.share": "Compartir",
   "details.share.copied": "Enlace copiado al portapapeles",

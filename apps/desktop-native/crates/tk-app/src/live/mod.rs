@@ -599,6 +599,9 @@ impl Backend for LiveBackend {
     async fn link_status(&self) -> UiResult<LinkStatusVm> {
         self.link.status().await
     }
+    async fn link_peek(&self) -> UiResult<LinkStatusVm> {
+        Ok(self.link.peek().await)
+    }
     async fn link_open_pairing(&self) -> UiResult<Pairing> {
         self.link.open_pairing().await
     }

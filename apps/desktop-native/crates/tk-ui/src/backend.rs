@@ -1329,6 +1329,11 @@ pub trait Backend: Send + Sync + 'static {
 
     // --- Tatakai Link ---
     async fn link_status(&self) -> UiResult<LinkStatusVm>;
+    /// BUG-130: the status without starting the server (`link_status` starts it): the running server's devices,
+    /// or the paired ones (none online) while it is down. Details and the title bar chip use it.
+    async fn link_peek(&self) -> UiResult<LinkStatusVm> {
+        self.link_status().await
+    }
     async fn link_open_pairing(&self) -> UiResult<Pairing>;
     async fn link_revoke(&self, device_id: &str) -> UiResult<()>;
     /// Windows Firewall rule for the private profile (UAC prompt). Returns when the elevated process ends.
