@@ -194,6 +194,59 @@ fun tagChips(s: RankedSource): List<TagChip> {
 /** `es, en` -> `ES · EN`; empty -> null (the row then prints "none"). */
 fun langsLabel(list: List<String>): String? = list.takeIf { it.isNotEmpty() }?.joinToString(" · ") { it.uppercase() }
 
+/** Track languages shown before "+N" (BUG-065, same as the desktop's `LANGS_SHOWN`). */
+const val LANGS_SHOWN = 6
+
+private val LANGUAGE_NAMES = listOf(
+    "english" to "en", "spanish" to "es", "español" to "es", "castilian" to "es", "portuguese" to "pt", "french" to "fr", "german" to "de",
+    "italian" to "it", "russian" to "ru", "arabic" to "ar", "japanese" to "ja", "chinese" to "zh", "korean" to "ko", "hindi" to "hi",
+    "indonesian" to "id", "thai" to "th", "vietnamese" to "vi", "turkish" to "tr", "polish" to "pl", "malay" to "ms", "dutch" to "nl",
+    "swedish" to "sv", "ukrainian" to "uk", "hebrew" to "he",
+)
+
+/**
+ * BUG-065 (port of the desktop's `lang_code`): a track language as a short code. Codes stay (`es-419` -> `ES-419`); track names become
+ * ISO 639 with region (`ENGLISH (CR ENGLISH)` -> `EN`, `PORTUGUESE (CR PORTUGUESE(BRAZIL))` -> `PT-BR`, `CHINESE (TRADITIONAL)` ->
+ * `ZH-HANT`). Unknown names stay as they are, upper-cased.
+ */
+fun langCode(raw: String): String {
+    val s = raw.trim()
+    val parts = s.split('-', '_')
+    val head = parts.first()
+    val isCode = head.length in 2..3 && head.all { it.isLetter() && it.code < 128 } &&
+        parts.drop(1).all { p -> p.length in 2..4 && p.all { it.isLetterOrDigit() && it.code < 128 } }
+    if (isCode) return s.replace('_', '-').uppercase()
+    val lower = s.lowercase()
+    val name = lower.substringBefore('(').trim()
+    val code = LANGUAGE_NAMES.firstOrNull { (n, _) -> name == n || name.startsWith("$n ") }?.second ?: return s.uppercase()
+    val region = when {
+        "brazil" in lower -> "BR"
+        "latin" in lower || "419" in lower -> "419"
+        code == "es" && ("spain" in lower || "castilian" in lower || "europe" in lower) -> "ES"
+        code == "pt" && "portugal" in lower -> "PT"
+        "traditional" in lower -> "HANT"
+        "simplified" in lower -> "HANS"
+        else -> null
+    }
+    return if (region != null) "${code.uppercase()}-$region" else code.uppercase()
+}
+
+/**
+ * BUG-065: `ENGLISH (CR ENGLISH) · PORTUGUESE (CR PORTUGUESE(BRAZIL)) · …` -> `ES-419 · EN · PT-BR · … +7`: short codes without repeats,
+ * the preferred language [first] (and its regional variants) first, more than [LANGS_SHOWN] end in "+N". null when [list] is empty.
+ */
+fun langsShort(list: List<String>, first: String?): String? {
+    val codes = list.map(::langCode).filter { it.isNotEmpty() }.distinct().toMutableList()
+    if (codes.isEmpty()) return null
+    val f = first?.trim()?.uppercase().orEmpty()
+    if (f.isNotEmpty()) codes.sortBy { !(it == f || it.startsWith("$f-")) }
+    if (codes.size > LANGS_SHOWN) {
+        val rest = codes.size - (LANGS_SHOWN - 1)
+        return codes.take(LANGS_SHOWN - 1).joinToString(" · ") + " +$rest"
+    }
+    return codes.joinToString(" · ")
+}
+
 /**
  * BUG-017 / BUG-020 (plan §11.2): the ranking as this device sees it — sources without a hardware decoder (MediaCodecList) go after the
  * ones it decodes in hardware. Used by the player and by the Details panel so both recommend the same row.

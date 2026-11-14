@@ -3,6 +3,12 @@
 
 package app.tatakai.next.feature.player.sources
 
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import org.koin.compose.getKoin
+import app.tatakai.next.model.SourcePrefs
+import app.tatakai.next.model.SettingsRepository
+import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -164,7 +170,7 @@ private fun PickerContent(
                     options = listOf(
                         SegmentedOption(KindTab.ALL, stringResource(R.string.src_filter_all)),
                         SegmentedOption(KindTab.WEB, stringResource(UiR.string.src_web), icon = Icons.Rounded.Language),
-                        SegmentedOption(KindTab.TORRENT, stringResource(UiR.string.src_torrent), icon = Icons.Rounded.Download),
+                        SegmentedOption(KindTab.TORRENT, stringResource(UiR.string.src_torrent), icon = Icons.Rounded.Hub),
                     ),
                     selected = when (filters.kind) {
                         null -> KindTab.ALL
@@ -354,7 +360,8 @@ private fun SourceRowContent(
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(
-                    if (torrent) Icons.Rounded.Download else Icons.Rounded.Language,
+                    // BUG-054: the type icon is not the download action's arrow (the "Descargar" button below keeps it).
+                    if (torrent) Icons.Rounded.Hub else Icons.Rounded.Language,
                     contentDescription = stringResource(if (torrent) UiR.string.src_torrent else UiR.string.src_web),
                     tint = if (enabled) scheme.primary else scheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
@@ -437,52 +444,59 @@ private fun TagChipView(chip: TagChip) {
             stringResource(R.string.src_tag_batch)
         }
     }
-    val colors = when (chip) {
-        TagChip.SeadexBest -> AssistChipDefaults.assistChipColors(containerColor = scheme.primaryContainer, labelColor = scheme.onPrimaryContainer)
-        is TagChip.Batch -> AssistChipDefaults.assistChipColors(containerColor = scheme.tertiaryContainer, labelColor = scheme.onTertiaryContainer)
-        is TagChip.Group -> AssistChipDefaults.assistChipColors(containerColor = scheme.secondaryContainer, labelColor = scheme.onSecondaryContainer)
-        else -> AssistChipDefaults.assistChipColors()
+    // BUG-066: the tags only describe the source; the card is what you tap. A Pill is not a button for touch or TalkBack.
+    val tone = when (chip) {
+        TagChip.SeadexBest -> PillTone.OK
+        is TagChip.Batch -> PillTone.WARN
+        else -> PillTone.NEUTRAL
     }
-    AssistChip(
-        onClick = {},
-        label = { Text(text, style = MaterialTheme.typography.labelSmall) },
-        colors = colors,
-        modifier = Modifier.height(28.dp),
-    )
+    Pill(text, tone = tone)
 }
 
+/**
+ * BUG-065 (UX-06): the facts of a source in one or two lines of body text (`anizone · 720p HLS · Subs ES-419 · EN +12 · Doblaje JA`),
+ * instead of a label-over-value grid in monospace that made each card ~9 lines tall on a phone. Languages are short codes with the
+ * preferred one first (as on the desktop).
+ */
 @Composable
 private fun Facts(source: RankedSource) {
     val c = source.candidate
-    val facts = mutableListOf<Pair<String, String>>()
+    val koin = getKoin()
+    val prefs = remember { koin.getOrNull<SettingsRepository>()?.settings?.value?.sourcePrefs } ?: SourcePrefs()
+    val parts = mutableListOf<String>()
     if (c.kind == SourceKind.WEB) {
-        facts += stringResource(R.string.src_picker_server) to c.label
+        parts += c.label
         // parity wave B (t, contract §3.3): an embed page shows the translated "Embed" instead of the raw container label.
         val container = if (c.isEmbed) stringResource(UiR.string.src_embed) else c.container
         val quality = listOfNotNull(c.quality.takeIf { it != Quality.UNKNOWN }?.label(), container).joinToString(" ").trim()
-        if (quality.isNotEmpty()) facts += stringResource(R.string.src_picker_quality) to quality
-        c.web?.latencyMs?.let { facts += stringResource(R.string.src_picker_latency) to stringResource(R.string.src_picker_latency_ms, it) }
+        if (quality.isNotEmpty()) parts += quality
+        c.web?.latencyMs?.let { parts += stringResource(R.string.src_picker_latency_ms, it) }
     } else {
-        facts += stringResource(R.string.src_picker_group) to c.label
-        c.torrent?.sizeBytes?.let { facts += stringResource(R.string.src_picker_size) to formatBytes(it) }
+        c.torrent?.sizeBytes?.let { parts += formatBytes(it) }
         c.torrent?.let {
-            // Unknown seeders (SubsPlease's feed, BUG-030) omit the row instead of claiming 0.
-            it.seeders?.let { n -> facts += stringResource(R.string.src_picker_seeders) to n.toString() }
-            facts += stringResource(R.string.src_picker_leechers) to it.leechers.toString()
+            // Unknown seeders (SubsPlease's feed, BUG-030) omit the count instead of claiming 0.
+            it.seeders?.let { n -> parts += stringResource(R.string.src_picker_seeders_short, n) }
+            parts += stringResource(R.string.src_picker_leechers_short, it.leechers)
         }
     }
     // BUG-004: no language list is not "none": a "Multi-sub" release has several, and otherwise the source simply did not say.
     val unknown = stringResource(R.string.src_picker_unknown)
-    facts += stringResource(R.string.src_picker_subs) to (langsLabel(c.subs) ?: if (c.tags.multiSub) stringResource(R.string.src_picker_several) else unknown)
-    facts += stringResource(R.string.src_picker_dubs) to (langsLabel(c.dubs) ?: if (c.tags.dualAudio) stringResource(R.string.src_picker_several) else unknown)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        facts.forEach { (k, v) ->
-            Column {
-                Text(k, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(v, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-            }
-        }
-    }
+    val several = stringResource(R.string.src_picker_several)
+    val subs = langsShort(c.subs, prefs.subLang) ?: if (c.tags.multiSub) several else unknown
+    val dubs = langsShort(c.dubs, prefs.dubLang) ?: if (c.tags.dualAudio) several else unknown
+    parts += stringResource(R.string.src_picker_subs_inline, subs)
+    parts += stringResource(R.string.src_picker_dubs_inline, dubs)
+    Text(
+        parts.joinToString(" · "),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.semantics {
+            contentDescription = parts.dropLast(2).joinToString(", ") +
+                ", ${c.subs.joinToString(", ").ifEmpty { subs }}, ${c.dubs.joinToString(", ").ifEmpty { dubs }}"
+        },
+    )
 }
 
 @Composable

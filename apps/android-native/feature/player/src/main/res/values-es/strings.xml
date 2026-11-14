@@ -120,6 +120,10 @@
     <string name="src_picker_seeders">Seeders</string>
     <string name="src_picker_leechers">Leechers</string>
     <string name="src_picker_subs">Subs</string>
+    <string name="src_picker_seeders_short">%1$d seeders</string>
+    <string name="src_picker_leechers_short">%1$d leechers</string>
+    <string name="src_picker_subs_inline">Subs %1$s</string>
+    <string name="src_picker_dubs_inline">Doblaje %1$s</string>
     <string name="src_picker_dubs">Doblaje</string>
     <string name="src_picker_none">ninguno</string>
     <string name="src_picker_unknown">sin datos</string>

@@ -25,6 +25,14 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.ViewCompat
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 /** Width (dp) from which the sheet becomes a side sheet (window size class Medium+). */
 const val SIDE_SHEET_MIN_WIDTH_DP = 600
@@ -46,10 +54,26 @@ fun AdaptiveSheet(
             Column(Modifier.navigationBarsPadding().padding(bottom = 16.dp), content = content)
         }
     } else {
+        // BUG-079: over an immersive screen (the player in landscape) the side sheet keeps the status bar hidden too.
+        val hostView = LocalView.current
+        val immersive = remember(hostView) {
+            ViewCompat.getRootWindowInsets(hostView)?.isVisible(WindowInsetsCompat.Type.statusBars()) == false
+        }
         Dialog(
             onDismissRequest = onDismissRequest,
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
         ) {
+            if (immersive) {
+                val dialogView = LocalView.current
+                LaunchedEffect(dialogView) {
+                    (dialogView.parent as? DialogWindowProvider)?.window?.let { w ->
+                        WindowCompat.getInsetsController(w, dialogView).apply {
+                            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                            hide(WindowInsetsCompat.Type.systemBars())
+                        }
+                    }
+                }
+            }
             Box(
                 Modifier
                     .fillMaxSize()
@@ -62,7 +86,8 @@ fun AdaptiveSheet(
                         .width(400.dp)
                         // swallow clicks so tapping inside the sheet does not hit the scrim
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = {}),
-                    shape = MaterialTheme.shapes.large,
+                    // BUG-079: it touches the right edge of the screen, so only the inner corners are rounded.
+                    shape = RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerLow,
                     tonalElevation = 1.dp,
                 ) {

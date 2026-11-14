@@ -14,6 +14,7 @@ import app.tatakai.next.model.WebInfo
 import app.tatakai.next.player.CodecCaps
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 // Ported from the desktop tests of tk-ui/src/components/sources.rs.
@@ -140,5 +141,26 @@ class SourceFiltersTest {
         assertEquals(RelTone.LOW, reliabilityTone(0.69f))
         assertEquals("ES · EN", langsLabel(listOf("es", "en")))
         assertEquals(null, langsLabel(emptyList()))
+    }
+
+    @Test
+    fun trackNamesBecomeShortCodes() {
+        // BUG-065: Crunchyroll-style names from nebula-megaplay took two lines in the phone's card.
+        assertEquals("EN", langCode("ENGLISH (CR ENGLISH)"))
+        assertEquals("PT-BR", langCode("PORTUGUESE (CR PORTUGUESE(BRAZIL))"))
+        assertEquals("ES-419", langCode("SPANISH (CR SPANISH(LATIN AMERICA))"))
+        assertEquals("ES-ES", langCode("SPANISH (SPAIN)"))
+        assertEquals("ZH-HANT", langCode("CHINESE (CR CHINESE(TRADITIONAL))"))
+        assertEquals("ES-419", langCode("es-419"))
+        assertEquals("KLINGON", langCode("klingon"))
+    }
+
+    @Test
+    fun longListsPutThePreferredFirstAndEndInPlusN() {
+        val subs = listOf("ENGLISH (CR ENGLISH)", "ENGLISH (FORCED)", "PORTUGUESE (BRAZIL)", "SPANISH (LATIN AMERICA)", "SPANISH (SPAIN)",
+            "ARABIC", "FRENCH", "GERMAN", "ITALIAN")
+        assertEquals("ES-419 · ES-ES · EN · PT-BR · AR +3", langsShort(subs, "es"))
+        assertEquals("JA", langsShort(listOf("ja", "JAPANESE"), "ja"))
+        assertNull(langsShort(emptyList(), "es"))
     }
 }

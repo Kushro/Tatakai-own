@@ -11,4 +11,5 @@ dependencies {
     api(libs.compose.material.icons.extended)
     api(libs.materialkolor)
     api(libs.kotlinx.collections.immutable)
+    implementation(libs.androidx.core.ktx) // BUG-079: WindowInsetsControllerCompat for the immersive side sheet
 }
