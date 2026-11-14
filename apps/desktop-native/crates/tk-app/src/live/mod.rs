@@ -81,6 +81,9 @@ pub struct LiveBackend {
     /// `(media id, episode) -> (resolved at, candidates)`: `sources()` and `playback_source()` share one resolution
     /// (stream URLs expire, hence the TTL). Cleared when the set of enabled extensions changes.
     candidates: Mutex<HashMap<(String, u32), (Instant, Vec<SourceCandidate>)>>,
+    /// When the extensions' outbound route (proxy / FlareSolverr) last changed (BUG-102): an empty listing right
+    /// after is asked again once before "No sources found".
+    net_changed: Mutex<Option<Instant>>,
     /// Torrent engine, started on demand (wave 3 A, `live/torrent.rs`).
     torrent: torrent::TorrentService,
     /// OS keyring / fallback file (wave A, `tk_core::Secrets`, f): AniList / MAL tokens (g), translation keys (d),
@@ -101,6 +104,20 @@ pub struct LiveBackend {
 
 /// How long a resolved source list is reused before the extensions are asked again.
 const SOURCES_TTL: Duration = Duration::from_secs(5 * 60);
+/// BUG-102: how long after an outbound-route change an empty source listing is retried once, and the pause before.
+const NET_CHANGE_WINDOW: Duration = Duration::from_secs(90);
+const NET_CHANGE_RETRY_PAUSE: Duration = Duration::from_secs(2);
+
+/// Whether the outbound route of the extensions differs between two saved settings. Pure.
+fn route_changed(old: &Settings, new: &Settings) -> bool {
+    let (a, b) = (old.server.clone().sanitized(), new.server.clone().sanitized());
+    a.outbound_proxy != b.outbound_proxy || a.flaresolverr_url != b.flaresolverr_url
+}
+
+/// Whether an empty listing at `now` follows a route change closely enough to be asked again. Pure.
+fn retry_after_route_change(changed_at: Option<Instant>, now: Instant) -> bool {
+    changed_at.is_some_and(|at| now.saturating_duration_since(at) < NET_CHANGE_WINDOW)
+}
 /// History rows shown in the Library.
 const LIBRARY_HISTORY: u32 = 200;
 
@@ -139,6 +156,7 @@ impl LiveBackend {
             ext,
             link,
             candidates: Mutex::new(HashMap::new()),
+            net_changed: Mutex::new(None),
             torrent: torrent::TorrentService::new(paths.clone()),
             secrets: tk_core::Secrets::open(&paths.root),
             downloads: downloads::Downloads::new(paths.clone(), store.clone(), client.clone()),
@@ -543,10 +561,18 @@ impl Backend for LiveBackend {
         // Wave B (b, `settings.metadata.extra-providers`): switched-off providers are not routed.
         self.router.set_priority(settings.home.enabled_providers(&settings.provider_priority));
         set_title_language(&settings.title_language);
+        let route_moved = route_changed(&settings_store::load(&self.settings_file), settings);
         settings_store::save(&self.settings_file, settings).map_err(|e| UiError::new(ErrorKind::Other, e.to_string()))?;
         // Wave B: services that keep a copy of their prefs (no-ops until their owners land).
         downloads::on_settings(self, settings).await;
         server::on_settings(self, settings).await;
+        if route_moved {
+            // BUG-102: lists resolved through the old route are dropped, and the next empty one is asked again.
+            self.invalidate_sources();
+            if let Ok(mut g) = self.net_changed.lock() {
+                *g = Some(Instant::now());
+            }
+        }
         Ok(())
     }
 
@@ -571,17 +597,31 @@ impl Backend for LiveBackend {
         }
         let (_, media) = self.media(id).await?;
         let settings = settings_store::load(&self.settings_file);
-        let mut candidates = self.episode_candidates(id, episode, &media, false).await;
-        // Wave B (k, `sources.embed-sniffer.timeout-setting`): with the sniffer off, embed pages are not offered.
-        if !settings.server.sniffer_enabled {
-            candidates.retain(|c| !c.web.as_ref().is_some_and(|w| w.embed));
-        }
         let prefs = sources::core_prefs(&settings.sources);
         let enabled: HashMap<String, bool> =
             self.ext.installed().into_iter().map(|e| (e.id, e.enabled && e.compat != Compat::Unsupported)).collect();
         let picked = self.store.picked_source(id, episode).ok().flatten();
-        let ranked = sources::ranked_vms(candidates, &prefs, |ext_id| enabled.get(ext_id).copied().unwrap_or(ext_catalog::is_remote_ext_id(ext_id)), picked.as_deref());
-        if ranked.is_empty() && self.ext.host().has_source_extensions() {
+        let rank = |mut candidates: Vec<SourceCandidate>| {
+            // Wave B (k, `sources.embed-sniffer.timeout-setting`): with the sniffer off, embed pages are not offered.
+            if !settings.server.sniffer_enabled {
+                candidates.retain(|c| !c.web.as_ref().is_some_and(|w| w.embed));
+            }
+            sources::ranked_vms(candidates, &prefs, |ext_id| enabled.get(ext_id).copied().unwrap_or(ext_catalog::is_remote_ext_id(ext_id)), picked.as_deref())
+        };
+        let mut ranked = rank(self.episode_candidates(id, episode, &media, false).await);
+        let has_sources_ext = self.ext.host().has_source_extensions();
+        let changed_at = self.net_changed.lock().ok().and_then(|g| *g);
+        if ranked.is_empty() && has_sources_ext && retry_after_route_change(changed_at, Instant::now()) {
+            // BUG-102: the first listing after the proxy changed can come back empty (extension work still running
+            // on the old route); ask once more before saying "No sources found".
+            tracing::info!("empty source listing right after an outbound-route change; asking the extensions again");
+            if let Ok(mut g) = self.net_changed.lock() {
+                *g = None;
+            }
+            tokio::time::sleep(NET_CHANGE_RETRY_PAUSE).await;
+            ranked = rank(self.episode_candidates(id, episode, &media, true).await);
+        }
+        if ranked.is_empty() && has_sources_ext {
             return Err(self.why_no_sources(&settings).await);
         }
         // Wave A, worker i: `SourceVm::debrid` from the connected debrid services (best effort). Wave B
@@ -1372,5 +1412,31 @@ mod season_cap_tests {
         assert_eq!(cap_to_season(aired, Some(12), "2026-11-14").len(), 13);
         assert_eq!(cap_to_season(eps.clone(), None, "2026-11-14").len(), 22);
         assert_eq!(cap_to_season(eps, Some(0), "2026-11-14").len(), 22);
+    }
+}
+
+#[cfg(test)]
+mod route_change_tests {
+    use super::*;
+
+    #[test]
+    fn a_proxy_change_retries_the_next_empty_listing_once() {
+        // BUG-102: clearing (or changing) the outbound proxy marks the route as changed; other edits do not.
+        let mut old = Settings::default();
+        old.server.outbound_proxy = Some("http://127.0.0.1:9".into());
+        let mut new = old.clone();
+        assert!(!route_changed(&old, &new));
+        new.server.name = "PC".into();
+        assert!(!route_changed(&old, &new));
+        new.server.outbound_proxy = None;
+        assert!(route_changed(&old, &new));
+        let mut fs = old.clone();
+        fs.server.flaresolverr_url = Some("http://127.0.0.1:8191".into());
+        assert!(route_changed(&old, &fs));
+
+        let now = Instant::now();
+        assert!(!retry_after_route_change(None, now));
+        assert!(retry_after_route_change(Some(now), now + Duration::from_secs(20)));
+        assert!(!retry_after_route_change(Some(now), now + NET_CHANGE_WINDOW));
     }
 }
