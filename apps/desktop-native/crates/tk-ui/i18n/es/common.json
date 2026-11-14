@@ -234,6 +234,8 @@
   "src.subs": "Subs",
   "src.dubs": "Doblaje",
   "src.none": "ninguno",
+  "src.subs_multi": "varios (en el archivo)",
+  "src.subs_unlisted": "sin datos (van en el archivo)",
   "src.prefer": "Tipo preferido",
   "src.prefer.any": "Cualquiera",
   "src.quality": "Calidad mínima",

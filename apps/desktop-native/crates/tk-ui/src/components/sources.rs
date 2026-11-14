@@ -92,9 +92,19 @@ fn row_meta(s: &SourceVm) -> Vec<(String, String)> {
             }
         }
     }
-    out.push((t("src.subs"), langs(&s.subs)));
+    out.push((t("src.subs"), subs_text(s)));
     out.push((t("src.dubs"), langs(&s.dubs)));
     out
+}
+
+/// BUG-004: torrent indexes do not list subtitle tracks (they are inside the file), so an empty list is not "none":
+/// "Multi-sub" releases say several, the rest "not listed". Web sources list theirs.
+fn subs_text(s: &SourceVm) -> String {
+    match s.kind {
+        SourceKindVm::Torrent if s.subs.is_empty() && s.tags.multi_sub => t("src.subs_multi"),
+        SourceKindVm::Torrent if s.subs.is_empty() => t("src.subs_unlisted"),
+        _ => langs(&s.subs),
+    }
 }
 
 /// Release-tag chips of a row, in display order, as `(text, tone)`; the tone is the `data-tone` of `.tk-stag`
@@ -769,6 +779,20 @@ mod tests {
             debrid: None,
             embed: false,
         }
+    }
+
+    #[test]
+    fn torrent_subs_are_never_claimed_to_be_none() {
+        // BUG-004: "Multi-sub" torrents said "Subs: none".
+        let multi = vm("Erai-raws", SourceKindVm::Torrent, "1080p", 0.8, ReleaseTagsVm { multi_sub: true, ..ReleaseTagsVm::default() });
+        assert_eq!(subs_text(&multi), t("src.subs_multi"));
+        let plain = vm("Judas", SourceKindVm::Torrent, "1080p", 0.8, ReleaseTagsVm::default());
+        assert_eq!(subs_text(&plain), t("src.subs_unlisted"));
+        let web = vm("Alpha", SourceKindVm::Web, "1080p", 0.8, ReleaseTagsVm::default());
+        assert_eq!(subs_text(&web), t("src.none"));
+        let mut listed = plain.clone();
+        listed.subs = vec!["es".into()];
+        assert_eq!(subs_text(&listed), "ES");
     }
 
     fn sample() -> Vec<SourceVm> {

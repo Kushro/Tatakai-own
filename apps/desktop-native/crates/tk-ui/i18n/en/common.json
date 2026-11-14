@@ -234,6 +234,8 @@
   "src.subs": "Subs",
   "src.dubs": "Dub",
   "src.none": "none",
+  "src.subs_multi": "several (in the file)",
+  "src.subs_unlisted": "not listed (inside the file)",
   "src.prefer": "Preferred type",
   "src.prefer.any": "Any",
   "src.quality": "Minimum quality",
