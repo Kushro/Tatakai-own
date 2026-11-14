@@ -78,8 +78,9 @@ fun <T> Segmented(
                     ),
                     icon = {
                         val icon = option.icon
-                        if (iconOnly && icon != null) {
-                            Icon(icon, contentDescription = null, modifier = Modifier.size(SegmentedButtonDefaults.IconSize))
+                        if (iconOnly) {
+                            // BUG-053 (r3): the icon slot is not drawn when the label is empty (the buttons showed blank); the icon goes
+                            // in the label instead.
                         } else if (icon != null && !isSelected) {
                             Icon(icon, contentDescription = null, modifier = Modifier.size(SegmentedButtonDefaults.IconSize))
                         } else {
@@ -87,7 +88,12 @@ fun <T> Segmented(
                         }
                     },
                     label = {
-                        if (!iconOnly) Text(
+                        val icon = option.icon
+                        if (iconOnly && icon != null) {
+                            Icon(icon, contentDescription = null, modifier = Modifier.size(SegmentedButtonDefaults.IconSize))
+                        } else if (iconOnly) {
+                            Text(option.label, maxLines = 1, overflow = TextOverflow.Ellipsis) // an option without icon: never blank
+                        } else Text(
                             option.label,
                             style = if (small) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
                             maxLines = 1,
