@@ -222,6 +222,14 @@ sealed interface PlayerNotice {
     data class LinkProfileChanged(val ok: Boolean) : PlayerNotice
 }
 
+/**
+ * BUG-038 / BUG-009 / BUG-058: whether recovering a Link session opens a new one. [alive] = whether the PC still has the session
+ * (null: the PC could not be asked). A session the PC closed is always renewed; one it still has only on the user's Retry
+ * (reloading a stuck session fails again), never on the automatic path. Needs a session the phone can renew ([canRenew]).
+ */
+internal fun shouldRenewRemote(alive: Boolean?, canRenew: Boolean, auto: Boolean): Boolean =
+    canRenew && (alive == false || (alive == true && !auto))
+
 /** BUG-038 / BUG-026: why a Link (PC) playback stopped, for an error screen in words (no Media3 codes, no "Extensions"). */
 enum class RemoteFailure {
     /** The PC did not answer (network cut, PC asleep): playback resumes by itself when the network returns. */
@@ -1085,24 +1093,29 @@ class PlayerViewModel(
     /**
      * BUG-038: a Link session failed (or Retry on it). The PC is asked whether the session still exists: gone + started by this
      * phone -> a NEW session with the same source and profile at the current position; gone + sent by the PC -> "send it again";
-     * alive -> reload it (auto: show the error, Retry reloads); PC unreachable -> "connection lost" (resumes when the network returns).
+     * alive -> auto: show the error; Retry: a new session too (a stuck one fails again when reloaded); PC unreachable -> "connection lost" (resumes when the network returns).
      */
     private fun recoverRemote(auto: Boolean) {
         val id = remoteId ?: return
         if (remoteRecovery?.isActive == true) return
         remoteRecovery = viewModelScope.launch {
             val positionMs = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs
-            when (remote.sessionAlive(id)) {
-                false -> if (remote.canRenew(id)) {
+            val alive = remote.sessionAlive(id)
+            // BUG-009 / BUG-023 / BUG-058: Retry on a session the PC still has opens a NEW one at the same point (reloading
+            // the stuck one failed again with `ParserException`); the automatic path still shows the error first.
+            val renew = shouldRenewRemote(alive, remote.canRenew(id), auto)
+            when {
+                renew -> {
                     _state.update { it.copy(phase = PlayerPhase.BUFFERING, error = null, remoteFailure = null) }
-                    remote.renew(id, positionMs / 1000.0).fold(
+                    remote.renew(id, positionMs / 1000.0, _state.value.linkProfile).fold(
                         onSuccess = { renewed ->
                             remoteId = renewed.sessionId
                             val src = RemotePlayback.source(remote, renewed.sessionId, args.title)
                             if (src == null) {
                                 _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
                             } else {
-                                _notices.trySend(PlayerNotice.LinkSessionRenewed)
+                                // "the session had expired" only when it had; a Retry on a stuck one just plays again
+                                if (alive == false) _notices.trySend(PlayerNotice.LinkSessionRenewed)
                                 loadIntoSession(src, startOverride = positionMs)
                             }
                         },
@@ -1113,11 +1126,10 @@ class PlayerViewModel(
                             remoteError(if (ended) RemoteFailure.SESSION_ENDED else RemoteFailure.PC_ERROR, e.asAppError())
                         },
                     )
-                } else {
-                    remoteError(RemoteFailure.SESSION_ENDED, null)
                 }
-                true -> if (auto) remoteError(RemoteFailure.PC_ERROR, null) else start()
-                null -> if (auto) remoteError(RemoteFailure.CONNECTION_LOST, AppError.Offline) else start()
+                alive == false -> remoteError(RemoteFailure.SESSION_ENDED, null)
+                alive == true -> if (auto) remoteError(RemoteFailure.PC_ERROR, null) else start()
+                else -> if (auto) remoteError(RemoteFailure.CONNECTION_LOST, AppError.Offline) else start()
             }
         }
     }

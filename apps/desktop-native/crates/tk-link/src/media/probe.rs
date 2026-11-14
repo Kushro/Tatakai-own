@@ -2,7 +2,9 @@
 //!
 //! `FrameRate` is ported from Enigmata-Temple `crates/temple-core/src/media/probe.rs` (AGPL-3.0, same author). Link
 //! only asks `ffprobe` for the first video stream's `r_frame_rate` / `avg_frame_rate`, reading the loopback fetcher
-//! URL with the same `-protocol_whitelist` as FFmpeg.
+//! URL with the same `-protocol_whitelist` as FFmpeg. The same probe also reads the container duration (BUG-009 /
+//! BUG-023): sources that do not announce one (a torrent file, an MP4 by URL) get it from here, so the phone sees a
+//! VOD playlist with the real length instead of a growing EVENT playlist.
 
 use serde::Deserialize;
 
@@ -58,7 +60,7 @@ pub fn ffprobe_args(input_url: &str) -> Vec<String> {
         "-select_streams",
         "v:0",
         "-show_entries",
-        "stream=r_frame_rate,avg_frame_rate",
+        "stream=r_frame_rate,avg_frame_rate:format=duration",
         "-print_format",
         "json",
         "-i",
@@ -85,6 +87,37 @@ pub fn parse_ffprobe_rate(stdout: &str) -> Option<FrameRate> {
     let out: Out = serde_json::from_str(stdout).ok()?;
     let s = out.streams.into_iter().next()?;
     [s.r_frame_rate, s.avg_frame_rate].into_iter().flatten().find_map(|t| FrameRate::parse(&t))
+}
+
+/// Longest duration accepted from `ffprobe` (a broken header can claim anything).
+pub const MAX_SOURCE_SECS: f64 = 24.0 * 3600.0;
+
+/// What one `ffprobe` run tells about the source.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SourceInfo {
+    pub rate: Option<FrameRate>,
+    /// Container duration in seconds (`format.duration`), when known and sane (above 1 s, at most 24 h).
+    pub duration_secs: Option<f64>,
+}
+
+/// The container duration in `ffprobe -print_format json` output (`format.duration`, a string in seconds).
+pub fn parse_ffprobe_duration(stdout: &str) -> Option<f64> {
+    #[derive(Deserialize)]
+    struct Format {
+        duration: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Out {
+        format: Option<Format>,
+    }
+    let out: Out = serde_json::from_str(stdout).ok()?;
+    let d = out.format?.duration?.trim().parse::<f64>().ok()?;
+    (d.is_finite() && d > 1.0 && d <= MAX_SOURCE_SECS).then_some(d)
+}
+
+/// Rate and duration of one `ffprobe` output.
+pub fn parse_ffprobe(stdout: &str) -> SourceInfo {
+    SourceInfo { rate: parse_ffprobe_rate(stdout), duration_secs: parse_ffprobe_duration(stdout) }
 }
 
 #[cfg(test)]
@@ -115,5 +148,17 @@ mod tests {
         let a = ffprobe_args("http://127.0.0.1:1/u/t");
         assert_eq!(a.last().unwrap(), "http://127.0.0.1:1/u/t");
         assert!(a.windows(2).any(|w| w[0] == "-protocol_whitelist" && w[1] == "http,tcp,crypto"));
+        assert!(a.windows(2).any(|w| w[0] == "-show_entries" && w[1].ends_with(":format=duration")));
+    }
+
+    #[test]
+    fn ffprobe_json_gives_the_container_duration() {
+        let j = r#"{"streams":[{"r_frame_rate":"24000/1001"}],"format":{"duration":"1421.312000"}}"#;
+        let info = parse_ffprobe(j);
+        assert_eq!(info.duration_secs, Some(1421.312));
+        assert_eq!(info.rate, Some(FrameRate { num: 24_000, den: 1001 }));
+        for bad in [r#"{"format":{"duration":"N/A"}}"#, r#"{"format":{}}"#, r#"{"streams":[]}"#, r#"{"format":{"duration":"0.4"}}"#, r#"{"format":{"duration":"999999"}}"#, "x"] {
+            assert_eq!(parse_ffprobe_duration(bad), None, "{bad}");
+        }
     }
 }

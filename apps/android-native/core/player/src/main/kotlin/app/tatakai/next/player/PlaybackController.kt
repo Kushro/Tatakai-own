@@ -16,6 +16,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistTracker
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.DynamicsProcessing
@@ -193,9 +195,21 @@ class PlaybackController(
                 }
             }
             .build()
-        val mediaSource = DefaultMediaSourceFactory(factory)
-            .apply { if (remote) setLoadErrorHandlingPolicy(RemoteLoadErrorPolicy()) }
-            .createMediaSource(item)
+        val mediaSource = if (remote && source.container == Container.HLS && subs.isEmpty()) {
+            // BUG-009 / BUG-023: a Link session without a known duration is a growing (EVENT) playlist that stops growing
+            // while the PC waits for the playhead (pause, full buffer). Media3 calls a live playlist that has not changed
+            // for 3.5 target durations (7 s) "stuck" and ends playback; the PC's playlist is only slow, so it gets a minute.
+            HlsMediaSource.Factory(factory)
+                .setLoadErrorHandlingPolicy(RemoteLoadErrorPolicy())
+                .setPlaylistTrackerFactory { dataSources, errors, parsers, cmcd, executor ->
+                    DefaultHlsPlaylistTracker(dataSources, errors, parsers, cmcd, REMOTE_PLAYLIST_STUCK_COEFFICIENT, executor)
+                }
+                .createMediaSource(item)
+        } else {
+            DefaultMediaSourceFactory(factory)
+                .apply { if (remote) setLoadErrorHandlingPolicy(RemoteLoadErrorPolicy()) }
+                .createMediaSource(item)
+        }
         loaded = true
         _cues.value = emptyList()
         _state.value = _state.value.copy(
@@ -392,6 +406,9 @@ class PlaybackController(
         const val TICK_MS = PLAYER_TICK_MS
         const val PROGRESS_INTERVAL_MS = PLAYER_PROGRESS_INTERVAL_MS
         const val HEARTBEAT_INTERVAL_MS = PLAYER_HEARTBEAT_INTERVAL_MS
+
+        /** Link playlists may stay unchanged this many target durations (2 s each: one minute) before Media3 gives up. */
+        const val REMOTE_PLAYLIST_STUCK_COEFFICIENT = 30.0
 
         // 11 §5.3: 30-60 s buffer, prioritise time over size (torrent loopback streams start slowly and stall on missing pieces).
         const val MIN_BUFFER_MS = 30_000

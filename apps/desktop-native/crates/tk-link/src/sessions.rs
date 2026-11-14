@@ -25,7 +25,7 @@ use crate::fetcher::{FetchError, Fetcher, SourceSpec};
 use crate::media::args::{self, PipelineParams};
 use crate::media::capabilities::{Environment, MAX_RAM_BYTES};
 use crate::media::engine::{Engine, EngineExit, EngineJob, LsfgStages};
-use crate::media::probe::{FALLBACK_RATE, FrameRate};
+use crate::media::probe::{FALLBACK_RATE, FrameRate, SourceInfo};
 use crate::media::profiles::{self, Encoder, ProfileSpec, SEGMENT_SECS};
 use tk_core::net::{Policy, sanitize_headers};
 
@@ -112,6 +112,13 @@ struct State {
     finished: bool,
     kill: Option<Arc<Notify>>,
     throttled: bool,
+    /// BUG-058: the highest segment of the current run a phone is waiting for. Back-pressure never holds the engine
+    /// below it: the phone's player decides how much it needs before it plays, and a PC that waits for the playhead
+    /// to move while the player waits for that segment deadlocks (buffering forever).
+    wanted: u32,
+    /// BUG-009 / BUG-023: the end of the EVENT playlist (sessions without a duration). It never shrinks (a restart at
+    /// an earlier segment would otherwise make the playlist shorter, which Media3 takes for a stale or broken one).
+    event_top: u32,
     /// BUG-025 sustain measurement of the current run: when it started, segments stored, whether back-pressure held it.
     run_started: Instant,
     run_segments: u32,
@@ -193,6 +200,12 @@ pub enum SourceRequest {
         #[serde(default)]
         container: Option<String>,
     },
+}
+
+/// Back-pressure: segment `k` waits while it is more than `max_lead` segments past the playhead, unless a phone is
+/// already waiting for it or for a later one (`wanted`, BUG-058). Pure.
+pub fn lead_exceeded(k: u32, playhead: u32, wanted: u32, max_lead: u32) -> bool {
+    k > playhead.saturating_add(max_lead) && k > wanted
 }
 
 /// Seconds of a run after which the sustain verdict is taken (BUG-025).
@@ -340,13 +353,22 @@ impl Manager {
         };
         let (input_url, fetch_token, duration, torrent_id) = self.open_source(&source).await?;
 
-        let lsfg_rate = match profile.fg.lsfg() {
-            Some(_) => Some(self.engine.source_rate(&input_url).await.unwrap_or_else(|| {
+        // one probe for what the source does not say: the frame rate (LSFG) and, BUG-009 / BUG-023, the duration of
+        // sources that do not announce it (a torrent file, an MP4 by URL). With a duration the phone gets a VOD playlist
+        // (real length, seek anywhere); without one it gets a growing EVENT playlist, which Media3 declares stuck when
+        // back-pressure holds it still.
+        let needs_rate = profile.fg.lsfg().is_some();
+        let info = if needs_rate || duration.is_none() { self.engine.source_info(&input_url).await } else { SourceInfo::default() };
+        let duration = duration.or(info.duration_secs);
+        if duration.is_none() {
+            tracing::info!("source duration unknown; the session uses a growing (EVENT) playlist");
+        }
+        let lsfg_rate = needs_rate.then(|| {
+            info.rate.unwrap_or_else(|| {
                 tracing::info!("source frame rate unknown; LSFG assumes 24000/1001");
                 FALLBACK_RATE
-            })),
-            None => None,
-        };
+            })
+        });
 
         // one active session per device
         self.close_device_session(device_id);
@@ -386,6 +408,8 @@ impl Manager {
                 finished: false,
                 kill: None,
                 throttled: false,
+                wanted: start_segment,
+                event_top: start_segment,
                 run_started: Instant::now(),
                 run_segments: 0,
                 run_throttled: false,
@@ -591,6 +615,7 @@ impl Manager {
             st.playhead = start_segment;
             st.window = Window::default();
             st.finished = false;
+            st.wanted = start_segment;
             st.run_started = Instant::now();
             st.run_segments = 0;
             st.run_throttled = false;
@@ -708,7 +733,7 @@ impl Manager {
                             tracing::debug!(k, run_gen, current = st.run_gen, "sink: stale segment");
                             return Err(SinkError::Stale);
                         }
-                        let too_far = k > st.playhead.saturating_add(self.tuning.max_lead_segments);
+                        let too_far = lead_exceeded(k, st.playhead, st.wanted, self.tuning.max_lead_segments);
                         st.throttled = too_far;
                         st.run_throttled |= too_far;
                         too_far
@@ -722,6 +747,7 @@ impl Manager {
                 if st.run_gen != run_gen || st.phase == Phase::Closed {
                     return Err(SinkError::Stale);
                 }
+                st.event_top = st.event_top.max(k + 1);
                 st.window.bytes += body.len();
                 if let Some(old) = st.window.segs.insert(k, body) {
                     st.window.bytes -= old.len();
@@ -814,7 +840,7 @@ impl Manager {
         loop {
             let notified = s.notify.notified();
             let restart_at = {
-                let st = s.state();
+                let mut st = s.state();
                 match st.phase {
                     Phase::Closed => return Err(ErrorCode::SessionGone.into()),
                     Phase::Failed(_) => return Err(ErrorCode::SourceUnavailable.into()),
@@ -828,7 +854,16 @@ impl Manager {
                 let too_far = k > frontier.saturating_add(self.tuning.seek_ahead_segments);
                 // finished runs never produce k again; evicted or never-produced segments need a new run
                 let dead = st.finished && !st.window.segs.contains_key(&k);
-                ((behind || too_far || dead) && !restarted).then_some(k)
+                let restart = (behind || too_far || dead) && !restarted;
+                if !restart && k > st.wanted {
+                    // the phone waits for k: let the engine produce it even past the lead (BUG-058). Wake the held PUT
+                    // and look again with a fresh `notified` (this one already saw the wake-up).
+                    st.wanted = k;
+                    drop(st);
+                    s.notify.notify_waiters();
+                    continue;
+                }
+                restart.then_some(k)
             };
             if let Some(at) = restart_at {
                 tracing::debug!(k, "segment outside the window: restarting the engine there");
@@ -867,7 +902,7 @@ impl Manager {
             }
             None => {
                 p.push_str("#EXT-X-PLAYLIST-TYPE:EVENT\n#EXT-X-INDEPENDENT-SEGMENTS\n#EXT-X-MAP:URI=\"init.mp4\"\n");
-                let top = st.window.segs.keys().next_back().map_or(st.gen_start, |m| m + 1);
+                let top = st.window.segs.keys().next_back().map_or(st.gen_start, |m| m + 1).max(st.event_top);
                 for k in 0..top {
                     p.push_str(&format!("#EXTINF:{secs:.6},\nseg_{k}.m4s\n"));
                 }
@@ -932,6 +967,17 @@ pub enum SinkError {
 #[cfg(test)]
 mod sustain_tests {
     use super::*;
+
+    #[test]
+    fn back_pressure_never_holds_a_segment_the_phone_waits_for() {
+        // playhead 331, lead 15: 346 passes, 347 waits ...
+        assert!(!lead_exceeded(346, 331, 331, 15));
+        assert!(lead_exceeded(347, 331, 331, 15));
+        // ... unless the phone asked for 347 (or later): BUG-058, buffering forever after "Sin mejora"
+        assert!(!lead_exceeded(347, 331, 347, 15));
+        assert!(!lead_exceeded(349, 331, 350, 15));
+        assert!(lead_exceeded(351, 331, 350, 15));
+    }
 
     #[test]
     fn sustain_verdicts() {

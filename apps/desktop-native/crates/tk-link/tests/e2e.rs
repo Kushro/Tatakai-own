@@ -547,3 +547,53 @@ async fn a_torrent_source_streams_from_the_engine_loopback_server() {
     // only the engine's own `/<token>/` path is trusted
     assert!(tk_link::torrent_stream_origin(&url::Url::parse("http://10.0.0.2:80/t/x").unwrap()).is_none());
 }
+
+/// BUG-058: back-pressure must not hold a segment the phone is waiting for. With the playhead stuck (the player is
+/// buffering and keeps reporting the same position) the engine stops at playhead + 15; a request for the next one used
+/// to wait until it timed out, again and again (buffering forever after switching to "Sin mejora").
+#[tokio::test]
+async fn a_segment_the_phone_waits_for_is_produced_past_the_lead() {
+    let engine = FakeEngine::new(200, 100, Duration::from_millis(0));
+    let mut h = harness(engine.clone(), quick_tuning(), lenient_default()).await;
+    let p = h.pair("Pixel").await;
+    let port = upstream_hls(200).await;
+    let sid = json(create(&h, &p, port, json!({})).await).await["session_id"].as_str().unwrap().to_owned();
+    wait_until("engine to be throttled", || async {
+        json(p.client.get(h.url(&format!("/v1/sessions/{sid}"))).send().await.unwrap()).await["throttled"] == true
+    })
+    .await;
+    p.client.post(h.url(&format!("/v1/sessions/{sid}/position"))).json(&json!({ "position_secs": 0.0, "paused": false })).send().await.unwrap();
+    for k in 16..19 {
+        let started = std::time::Instant::now();
+        let r = p.client.get(h.url(&format!("/v1/sessions/{sid}/seg_{k}.m4s"))).send().await.unwrap();
+        assert_eq!(r.status(), 200, "seg_{k}");
+        assert!(started.elapsed() < Duration::from_secs(3), "seg_{k} waited for the playhead");
+    }
+    // no restart: the same run kept going
+    assert_eq!(engine.starts.lock().unwrap().as_slice(), [0]);
+}
+
+/// BUG-009 / BUG-023: a source without a known duration (torrent file, MP4 by URL) gets it from the probe, so the
+/// phone sees a VOD playlist with the real length (seek anywhere, no "stuck" live playlist).
+#[tokio::test]
+async fn sources_without_a_duration_get_the_probed_one_and_a_vod_playlist() {
+    let engine = FakeEngine::new(10, 100, Duration::from_millis(1));
+    *engine.probed_duration.lock().unwrap() = Some(19.5);
+    let mut h = harness(engine.clone(), quick_tuning(), lenient_default()).await;
+    let p = h.pair("Pixel").await;
+    let (port, _seen) = stub(|_| (200, vec![("content-type".into(), "video/mp4".into())], vec![0u8; 64])).await;
+    let r = p.client.post(h.url("/v1/sessions")).json(&json!({ "source": { "kind": "url", "url": format!("http://127.0.0.1:{port}/ep.mp4"), "container": "mp4" } })).send().await.unwrap();
+    assert_eq!(r.status(), 201);
+    let c = json(r).await;
+    assert_eq!(c["duration_secs"], 19.5);
+    let sid = c["session_id"].as_str().unwrap().to_owned();
+    wait_until("ready", || async { p.client.get(h.url(&format!("/v1/sessions/{sid}/media.m3u8"))).send().await.unwrap().status() == 200 }).await;
+    let pl = p.client.get(h.url(&format!("/v1/sessions/{sid}/media.m3u8"))).send().await.unwrap().text().await.unwrap();
+    assert!(pl.contains("#EXT-X-PLAYLIST-TYPE:VOD") && pl.contains("#EXT-X-ENDLIST"), "{pl}");
+    assert_eq!(pl.matches("#EXTINF").count(), 10);
+    // without a probe answer it stays a growing EVENT playlist
+    *engine.probed_duration.lock().unwrap() = None;
+    let r = p.client.post(h.url("/v1/sessions")).json(&json!({ "source": { "kind": "url", "url": format!("http://127.0.0.1:{port}/ep2.mp4"), "container": "mp4" } })).send().await.unwrap();
+    let c = json(r).await;
+    assert!(c.get("duration_secs").is_none(), "{c}");
+}

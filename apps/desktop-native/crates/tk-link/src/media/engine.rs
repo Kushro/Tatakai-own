@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::job::JobObject;
 use super::lsfg::VULKAN_EXTRA_ENV;
-use super::probe::{self, FrameRate};
+use super::probe::{self, FrameRate, SourceInfo};
 
 /// The first two LSFG stages; the third (the encoder that PUTs) is [`EngineJob::args`].
 pub struct LsfgStages {
@@ -61,6 +61,12 @@ pub trait Engine: Send + Sync {
     /// Frame rate of the first video stream of the loopback input (LSFG needs it). `None` = unknown.
     async fn source_rate(&self, _input_url: &str) -> Option<FrameRate> {
         None
+    }
+
+    /// Frame rate and container duration of the loopback input in one probe (BUG-009 / BUG-023: sources without a
+    /// known duration). The default only knows the rate.
+    async fn source_info(&self, input_url: &str) -> SourceInfo {
+        SourceInfo { rate: self.source_rate(input_url).await, duration_secs: None }
     }
 }
 
@@ -230,6 +236,16 @@ impl Engine for FfmpegEngine {
     }
 
     async fn source_rate(&self, input_url: &str) -> Option<FrameRate> {
+        self.source_info(input_url).await.rate
+    }
+
+    async fn source_info(&self, input_url: &str) -> SourceInfo {
+        self.probe(input_url).await.unwrap_or_default()
+    }
+}
+
+impl FfmpegEngine {
+    async fn probe(&self, input_url: &str) -> Option<SourceInfo> {
         let ffprobe = self.ffprobe.as_ref()?;
         let mut cmd = tokio::process::Command::new(ffprobe);
         cmd.args(probe::ffprobe_args(input_url)).stdin(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
@@ -238,10 +254,10 @@ impl Engine for FfmpegEngine {
         super::job::die_with_parent(&mut cmd);
         let out = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await.ok()?.ok()?;
         if !out.status.success() || out.stdout.len() > 256 * 1024 {
-            tracing::warn!("the source frame-rate probe failed");
+            tracing::warn!("the source probe failed");
             return None;
         }
-        probe::parse_ffprobe_rate(&String::from_utf8_lossy(&out.stdout))
+        Some(probe::parse_ffprobe(&String::from_utf8_lossy(&out.stdout)))
     }
 }
 
