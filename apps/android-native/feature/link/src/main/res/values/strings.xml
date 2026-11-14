@@ -80,7 +80,7 @@
     <string name="linked_discovered_pair_confirm">Trust and pair</string>
 
     <!-- PC extension server client (docs/redesign/13 §3.10, D8). Same copy as extensionServerClient.* of the classic app. -->
-    <string name="extserver_title">PC extension server</string>
+    <string name="extserver_title">Extensions from your PC</string>
     <string name="extserver_intro">Link this phone to Tatakai running on your Windows or Linux PC to use its extensions from here. Results from the PC appear in the source list next to your local extensions.</string>
     <string name="extserver_entry_title">Extensions from your PC</string>
     <string name="extserver_entry_body">Use the Tatakai extensions (.kai) installed on your PC from this phone, plus its Aniyomi, Mihon and CloudStream sources if it has them.</string>
@@ -140,7 +140,7 @@
     <string name="extserver_err_generic">The server could not complete the request (%1$s).</string>
     <string name="extserver_benefits_title">Why link your phone to your PC?</string>
     <string name="extserver_pros_title">Advantages</string>
-    <string name="extserver_pro_other_ecosystems">Install Tatakai extensions (.kai) on the PC only and use them on your phone too, along with Aniyomi, Mihon and CloudStream sources that only run on the PC.</string>
+    <string name="extserver_pro_other_ecosystems">Install Tatakai extensions (.kai) on the PC only and use them on your phone too, plus its Aniyomi, Mihon or CloudStream sources if it has them.</string>
     <string name="extserver_pro_install_once">Install and configure extensions once for every device.</string>
     <string name="extserver_pro_pc_scrapes">The PC does the scraping and the Cloudflare bypass with its own browser.</string>
     <string name="extserver_pro_shared_cache">Shared cache and progressive results: sources appear as soon as each one answers.</string>

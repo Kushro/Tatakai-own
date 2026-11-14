@@ -112,7 +112,7 @@ fun ExtensionServersScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.extserver_title)) },
+                title = { Text(stringResource(R.string.extserver_title), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back))

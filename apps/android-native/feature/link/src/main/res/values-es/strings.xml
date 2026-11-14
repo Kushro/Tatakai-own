@@ -80,7 +80,7 @@
     <string name="linked_discovered_pair_confirm">Confiar y emparejar</string>
 
     <!-- PC extension server client (docs/redesign/13 §3.10, D8). Same copy as extensionServerClient.* of the classic app. -->
-    <string name="extserver_title">Servidor de extensiones de la PC</string>
+    <string name="extserver_title">Extensiones de tu PC</string>
     <string name="extserver_intro">Vincula este teléfono con Tatakai abierto en tu PC con Windows o Linux para usar sus extensiones desde aquí. Los resultados de la PC aparecen en la lista de fuentes junto a tus extensiones locales.</string>
     <string name="extserver_entry_title">Extensiones de tu PC</string>
     <string name="extserver_entry_body">Usa desde este teléfono las extensiones de Tatakai (.kai) instaladas en tu PC y, si la PC las tiene, también las de Aniyomi, Mihon y CloudStream.</string>
@@ -96,8 +96,8 @@
     <string name="extserver_manual_title">O escribe la dirección y la contraseña</string>
     <string name="extserver_url_label">Dirección del servidor</string>
     <string name="extserver_url_placeholder">http://192.168.1.20:8090</string>
-    <string name="extserver_password_label">Contraseña de viewer</string>
-    <string name="extserver_password_hint">Solo si la PC tiene contraseña de viewer. Si no, empareja con el código QR.</string>
+    <string name="extserver_password_label">Contraseña de visor</string>
+    <string name="extserver_password_hint">Solo si la PC tiene contraseña de visor. Si no, empareja con el código QR.</string>
     <string name="extserver_connect">Conectar</string>
     <string name="extserver_connecting">Conectando…</string>
     <string name="extserver_connected">Conectado a %1$s</string>
@@ -140,7 +140,7 @@
     <string name="extserver_err_generic">El servidor no pudo completar la petición (%1$s).</string>
     <string name="extserver_benefits_title">¿Por qué vincular el teléfono con tu PC?</string>
     <string name="extserver_pros_title">Ventajas</string>
-    <string name="extserver_pro_other_ecosystems">Instala las extensiones de Tatakai (.kai) solo en la PC y úsalas también en el teléfono, junto con las de Aniyomi, Mihon y CloudStream que solo corren en la PC.</string>
+    <string name="extserver_pro_other_ecosystems">Instala las extensiones de Tatakai (.kai) solo en la PC y úsalas también en el teléfono; si la PC tiene fuentes de Aniyomi, Mihon o CloudStream, también.</string>
     <string name="extserver_pro_install_once">Instala y configura las extensiones una sola vez para todos tus dispositivos.</string>
     <string name="extserver_pro_pc_scrapes">La PC hace el scraping y el bypass de Cloudflare con su propio navegador.</string>
     <string name="extserver_pro_shared_cache">Caché compartida y resultados progresivos: las fuentes aparecen en cuanto cada una responde.</string>
@@ -155,7 +155,7 @@
     <string name="extserver_extra_qr">Emparejamiento con QR de un solo uso que caduca en 5 minutos.</string>
     <string name="extserver_extra_revocable">Tokens de dispositivo que puedes revocar desde la PC cuando quieras.</string>
     <string name="extserver_extra_fallback">Si la PC no responde, la app sigue usando sus extensiones locales.</string>
-    <string name="extserver_extra_viewer_password">Contraseña de viewer opcional.</string>
+    <string name="extserver_extra_viewer_password">Contraseña de visor opcional.</string>
     <string name="extserver_coming_soon_title">Próximamente</string>
     <string name="extserver_coming_soon_desktop_next">Modo servidor para Tatakai Next de escritorio, opcional y configurable.</string>
 </resources>
