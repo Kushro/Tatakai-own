@@ -168,10 +168,10 @@ private fun PlayerBody(
     var flash by remember { mutableStateOf<PlayerNotice?>(null) }
 
     LaunchedEffect(vm) { vm.notices.collect { flash = it } }
-    // Link session: when the network drops for longer than the player's retries, the session comes back by itself once the
-    // network returns (same as tapping Retry; the PC keeps the session 120 s). Only an offline -> online change retries, so an
-    // error the PC itself returns never loops.
-    if (args.remoteSessionId != null) {
+    // When the network drops for longer than the player's retries, playback comes back by itself once the network returns (same as
+    // tapping Retry; the PC keeps a Link session 120 s). Only an offline -> online change retries, so an error the server itself
+    // returns never loops. BUG-042 (b): every source, not only Link sessions (a direct web source stayed on the error screen).
+    run {
         val online = rememberIsOnline()
         var wentOffline by remember { mutableStateOf(false) }
         LaunchedEffect(online) {

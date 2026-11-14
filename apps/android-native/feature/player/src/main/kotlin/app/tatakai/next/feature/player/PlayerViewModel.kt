@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.feature.player
 
+import app.tatakai.next.feature.player.sources.rankForThisDevice
 import android.net.Uri
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
@@ -73,6 +74,11 @@ import app.tatakai.next.player.providerSources
 import app.tatakai.next.player.resolveWebStream
 import app.tatakai.next.player.markDebrid
 import app.tatakai.next.player.resolvePick
+import app.tatakai.next.player.PlaybackError
+import app.tatakai.next.player.decodesInHardware
+import app.tatakai.next.player.decodeRecovery
+import app.tatakai.next.player.DeviceCodecs
+import app.tatakai.next.player.DecodeRecovery
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -192,6 +198,9 @@ sealed interface PlayerNotice {
     data class TranslationFailed(val message: String) : PlayerNotice
     data class PretranslateDone(val failed: Int) : PlayerNotice
     data object PretranslateUnavailable : PlayerNotice
+
+    /** BUG-020: Media3 could not decode this video; it plays with libmpv (software decoding, may be slow). */
+    data object SwitchedToMpv : PlayerNotice
 }
 
 data class PlayerUiState(
@@ -209,6 +218,8 @@ data class PlayerUiState(
     val failed: List<FailedSource> = emptyList(),
     val lastFailedTorrent: Boolean = false,
     val hasWeb: Boolean = false,
+    /** BUG-020: sources still to try (enabled, not failed); the error screen only says "no other source" at 0. */
+    val remaining: Int = 0,
     /** Message of a failure outside the source flow (direct torrent / local file / media error). */
     val error: AppError? = null,
     val torrent: TorrentUi? = null,
@@ -270,7 +281,8 @@ class PlayerViewModel(
     private val embedSniffer: EmbedSniffer? = null,
 ) : ViewModel() {
     private val initialSettings: AppSettings = settingsRepository?.settings?.value ?: AppSettings()
-    private val engine: PlayerEngine = when {
+    /** Can change once, from Media3 to libmpv, when Media3 cannot decode the video (BUG-020, [switchToMpv]). */
+    private var engine: PlayerEngine = when {
         args.remoteSessionId != null -> PlayerEngine.MEDIA3 // the PC's HLS needs the mTLS OkHttp client
         initialSettings.playerEngine == PlayerEngine.MPV && mpvFactory == null -> PlayerEngine.MEDIA3
         else -> initialSettings.playerEngine
@@ -316,6 +328,10 @@ class PlayerViewModel(
     private var loadsIssued = 0
     private var handledErrorLoad = 0
     private var handledStartLoad = 0
+
+    /** BUG-020 / BUG-042: silent decoder retries spent on [decodeRetryKey] (the flow attempt, or the direct source's URL). */
+    private var decodeRetries = 0
+    private var decodeRetryKey: String? = null
     private var autoSkippedIntro = false
     private var nextDismissed = false
     private var assNoticeShown = false
@@ -449,7 +465,7 @@ class PlayerViewModel(
         }
         val stored = if (provider != null) null else mediaId?.let { id -> runCatching { stats?.pickedSource(id, args.episode) }.getOrNull() }
         // 15 §3.9: torrent rows as the linked debrid services see them (identity without an account). Provider sources are web only.
-        val marked = if (provider != null) ranked else markDebrid(ranked, debrid)
+        val marked = if (provider != null) ranked else rankForThisDevice(markDebrid(ranked, debrid))
         // Bug sources.remembered-vs-prefs: this session's pick always wins; the remembered one only while it fits the preferences.
         val pick = resolvePick(marked, args.sourceKey, stored, settings.sourcePrefs)
         val sources = pick.sources
@@ -495,6 +511,7 @@ class PlayerViewModel(
                 failed = f.failed,
                 lastFailedTorrent = f.lastFailedTorrent(),
                 hasWeb = f.bestWeb() != null,
+                remaining = f.remaining(),
                 mode = f.mode,
             )
         }
@@ -719,9 +736,9 @@ class PlayerViewModel(
         return s
     }
 
-    private fun loadIntoSession(source: PlayableSource) {
+    private fun loadIntoSession(source: PlayableSource, startOverride: Long? = null) {
         val s = ensureSession()
-        val resume = s.currentPositionMs().takeIf { loadsIssued > 0 && it > 0 } ?: args.startMs
+        val resume = startOverride ?: s.currentPositionMs().takeIf { loadsIssued > 0 && it > 0 } ?: args.startMs
         loadsIssued++
         autoSkippedIntro = false
         currentSource = source
@@ -742,6 +759,7 @@ class PlayerViewModel(
         if (err != null) {
             if (handledErrorLoad != st.loadId) {
                 handledErrorLoad = st.loadId
+                if (recoverDecode(err)) return
                 if (f != null && playbackInFlow()) {
                     if (playback != null) endTorrent(completed = false)
                     fail(f.attempt, FailKind.PLAYBACK, "${err.name} (${err.code})")
@@ -787,6 +805,54 @@ class PlayerViewModel(
         ) {
             startNextCountdown()
         }
+    }
+
+    /**
+     * BUG-020 / BUG-042 (plan §11.2): a Media3 decoder error first gets one silent reload at the same position when the device decodes the
+     * video in hardware (transient errors, e.g. right after a seek); a video without a hardware decoder (HEVC 10 bits on the moto g51), or
+     * a second failure, moves to libmpv (FFmpeg software decoding) with a discreet notice. Returns true when the error was handled here.
+     */
+    private fun recoverDecode(err: PlaybackError): Boolean {
+        val src = currentSource ?: return false
+        val inFlow = flow != null && playbackInFlow()
+        val key = if (inFlow) "attempt:${flow?.attempt}" else "url:${src.url}"
+        if (key != decodeRetryKey) {
+            decodeRetryKey = key
+            decodeRetries = 0
+        }
+        val tags = if (inFlow) flow?.currentSource()?.candidate?.tags else null
+        val hardware = tags?.let { decodesInHardware(it, DeviceCodecs.capabilities()) } ?: true
+        val mpvOk = mpvFactory != null && args.remoteSessionId == null
+        val position = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs.takeIf { it > 0 }
+        return when (decodeRecovery(err.code, engine == PlayerEngine.MEDIA3, mpvOk, hardware, decodeRetries)) {
+            DecodeRecovery.RETRY_SAME -> {
+                decodeRetries++
+                loadIntoSession(src, startOverride = position)
+                true
+            }
+            DecodeRecovery.SWITCH_TO_MPV -> {
+                switchToMpv(src, position)
+                true
+            }
+            DecodeRecovery.NONE -> false
+        }
+    }
+
+    /** Replaces the Media3 session with a libmpv one and reloads [src] at [positionMs] (BUG-020). */
+    private fun switchToMpv(src: PlayableSource, positionMs: Long?) {
+        sessionJob?.cancel()
+        sessionJob = null
+        session?.release()
+        session = null
+        engine = PlayerEngine.MPV
+        // loadId is per session: the new one starts again from 1.
+        loadsIssued = 0
+        handledErrorLoad = 0
+        handledStartLoad = 0
+        secondaryDecidedLoad = -1
+        _state.update { it.copy(engine = PlayerEngine.MPV, session = null) }
+        _notices.trySend(PlayerNotice.SwitchedToMpv)
+        loadIntoSession(src, startOverride = positionMs ?: args.startMs)
     }
 
     /** The current load belongs to the source flow (not a direct torrent / local / remote load). */

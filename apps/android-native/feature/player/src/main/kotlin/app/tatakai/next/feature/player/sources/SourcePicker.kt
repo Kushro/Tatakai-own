@@ -77,7 +77,7 @@ import app.tatakai.next.model.SourceKind
 import app.tatakai.next.model.SourceMode
 import app.tatakai.next.player.CodecCaps
 import app.tatakai.next.player.DeviceCodecs
-import app.tatakai.next.player.isDeviceCompatible
+import app.tatakai.next.player.decodesInHardware
 import app.tatakai.next.ui.format.formatBytes
 import app.tatakai.next.ui.state.userMessage
 import app.tatakai.next.ui.R as UiR
@@ -342,7 +342,8 @@ private fun SourceRowContent(
     val enabled = source.extEnabled
     val torrent = c.kind == SourceKind.TORRENT
     val scheme = MaterialTheme.colorScheme
-    val compatible = isDeviceCompatible(c.tags, caps)
+    // BUG-017 (plan §11.2): no hardware decoder for this video = software decoding, "may be slow on this device".
+    val compatible = decodesInHardware(c.tags, caps)
     Surface(
         modifier = modifier.fillMaxWidth().clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick),
         shape = MaterialTheme.shapes.large,

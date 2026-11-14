@@ -41,6 +41,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -106,7 +107,7 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
     LaunchedEffect(notice) {
         delay(
             when (notice) {
-                PlayerNotice.AssSimplified, is PlayerNotice.StoredSourceIgnored, PlayerNotice.PretranslateUnavailable -> 5_000
+                PlayerNotice.AssSimplified, is PlayerNotice.StoredSourceIgnored, PlayerNotice.PretranslateUnavailable, PlayerNotice.SwitchedToMpv -> 5_000
                 is PlayerNotice.ScreenshotSaved -> 4_000
                 else -> FLASH_MS
             },
@@ -131,6 +132,7 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
             stringResource(R.string.player_pretranslate_done)
         }
         PlayerNotice.PretranslateUnavailable -> stringResource(R.string.player_pretranslate_unavailable)
+        PlayerNotice.SwitchedToMpv -> stringResource(R.string.player_switched_to_mpv)
     }
     val scheme = MaterialTheme.colorScheme
     Surface(modifier.widthIn(max = 560.dp).padding(horizontal = 16.dp), shape = RoundedCornerShape(50), color = scheme.inverseSurface, contentColor = scheme.inverseOnSurface) {
@@ -231,7 +233,15 @@ internal fun PlaybackErrorView(
         val cause = when {
             noFile != null -> stringResource(R.string.player_torrent_no_file_cause)
             state.failed.isEmpty() && state.error != null -> state.error.userMessage()
+            // BUG-020: never "no other source" while the list still has sources to try.
+            state.remaining > 0 -> pluralStringResource(R.plurals.player_error_remaining, state.remaining, state.remaining)
             else -> stringResource(R.string.player_error_no_more)
+        }.let { base ->
+            if (state.failed.lastOrNull()?.let { it.kind == FailKind.PLAYBACK && it.detail.contains("DECOD") } == true) {
+                stringResource(R.string.player_error_decoder) + " " + base
+            } else {
+                base
+            }
         }
         Text(cause, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant, textAlign = TextAlign.Center)
         if (state.failed.isNotEmpty()) {

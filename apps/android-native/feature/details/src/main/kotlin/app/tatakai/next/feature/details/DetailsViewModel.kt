@@ -1,5 +1,6 @@
 package app.tatakai.next.feature.details
 
+import app.tatakai.next.feature.player.sources.rankForThisDevice
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.tatakai.next.model.AppError
@@ -301,7 +302,7 @@ class DetailsViewModel(
         panelJob?.cancel()
         _state.update { it.copy(panel = SourcePanel(episode), selectedKey = null) }
         panelJob = viewModelScope.launch {
-            val result = runCatchingApp { extensions.resolveCandidates(media, episode) }
+            val result = runCatchingApp { rankForThisDevice(extensions.resolveCandidates(media, episode)) }
             _state.update { s ->
                 if (s.panel?.episode != episode) return@update s
                 val sources = result.getOrNull()

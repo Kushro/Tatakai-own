@@ -33,6 +33,12 @@
     <string name="player_pick_source">Choose a source</string>
     <string name="player_error_title">Playback failed</string>
     <string name="player_error_no_more">No other source is available for this episode.</string>
+    <plurals name="player_error_remaining">
+        <item quantity="one">This source did not work. There is %1$d more source in the list: pick it or retry.</item>
+        <item quantity="other">This source did not work. There are %1$d more sources in the list: pick one or retry.</item>
+    </plurals>
+    <string name="player_error_decoder">This phone could not decode the video of this source.</string>
+    <string name="player_switched_to_mpv">This phone has no hardware decoder for this video: it now plays with libmpv (software), it may be slow</string>
     <string name="player_fallback_next">That source failed. Trying another one.</string>
     <string name="player_failed_list">Tried</string>
     <string name="player_failed_entry">%1$s: %2$s</string>
@@ -100,7 +106,7 @@
     <string name="src_picker_none">none</string>
     <string name="src_picker_reliability">Reliability: %1$s · %2$d %%</string>
     <string name="src_picker_download">Download for later</string>
-    <string name="src_picker_incompatible">This device may not decode this video</string>
+    <string name="src_picker_incompatible">No hardware decoder for this video: it may be slow on this device</string>
     <string name="src_filter_all">All</string>
     <string name="src_filter_clear">Clear filters</string>
     <string name="src_filter_count">%1$d of %2$d</string>

@@ -193,3 +193,10 @@ fun tagChips(s: RankedSource): List<TagChip> {
 
 /** `es, en` -> `ES · EN`; empty -> null (the row then prints "none"). */
 fun langsLabel(list: List<String>): String? = list.takeIf { it.isNotEmpty() }?.joinToString(" · ") { it.uppercase() }
+
+/**
+ * BUG-017 / BUG-020 (plan §11.2): the ranking as this device sees it — sources without a hardware decoder (MediaCodecList) go after the
+ * ones it decodes in hardware. Used by the player and by the Details panel so both recommend the same row.
+ */
+fun rankForThisDevice(sources: List<RankedSource>): List<RankedSource> =
+    app.tatakai.next.player.rankForDevice(sources, app.tatakai.next.player.DeviceCodecs.capabilities())
