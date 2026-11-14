@@ -287,32 +287,69 @@ pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<S
         .into_iter()
         .find(|d| d.id == req.device_id && d.is_active(now_unix()))
         .ok_or_else(|| UiError::new(ErrorKind::Auth, format!("device {} is not paired", req.device_id)))?;
-    // BUG-009: the episode's chosen torrent (or the top-ranked source when it is a torrent) goes first, streamed by
-    // this PC's engine; the web streams follow.
-    let torrent = unless_cancelled(progress, torrent_choice(b, &req.media_id, req.episode)).await?;
-    let torrent_first = torrent.is_some();
+    // BUG-009 / BUG-115: the episode's chosen source goes first (a torrent streamed by this PC's engine, or the chosen
+    // web stream resolved on its own); with no choice, the top-ranked source when it is a torrent. The web streams of
+    // every extension follow, and only those say "sent another source".
+    let picked = b.store.picked_source(&req.media_id, req.episode).ok().flatten();
+    let first = match picked {
+        Some(p) => first_source(Some(&p), None),
+        None => first_source(None, unless_cancelled(progress, recommended_source(b, &req.media_id, req.episode)).await?.as_deref()),
+    };
     let mut last: Option<UiError> = None;
-    if let Some(uri) = torrent {
-        let title = unless_cancelled(progress, b.media(&req.media_id)).await?.map(|(_, m)| m.title).unwrap_or_default();
-        let source = SourceRequest::Torrent { uri, media_id: req.media_id.clone(), episode: req.episode };
-        match start_and_hand_off(&h, &device.id, req, source, &title).await? {
-            Ok(()) => return Ok(send_outcome(0, true, "")),
-            Err(e) => last = Some(e),
+    let mut tried_url: Option<String> = None;
+    let torrent_first = matches!(first, FirstSource::Torrent(_));
+    // a chosen source was tried before the web streams: any of them is "another source"
+    let fallback = !matches!(first, FirstSource::Ranked);
+    match first {
+        FirstSource::Torrent(uri) => {
+            let title = unless_cancelled(progress, b.media(&req.media_id)).await?.map(|(_, m)| m.title).unwrap_or_default();
+            let source = SourceRequest::Torrent { uri, media_id: req.media_id.clone(), episode: req.episode };
+            match start_and_hand_off(&h, &device.id, req, source, &title).await? {
+                Ok(()) => return Ok(send_outcome(0, true, "")),
+                Err(e) => last = Some(e),
+            }
+            tracing::info!("send to device: the torrent could not be opened, sending a web stream instead");
+            progress.back_to_preparing();
         }
-        tracing::info!("send to device: the torrent could not be opened, sending a web stream instead");
-        progress.back_to_preparing();
+        FirstSource::Web(key) => {
+            let resolved =
+                unless_cancelled(progress, <LiveBackend as Backend>::playback_source(b, &req.media_id, req.episode, &key)).await?;
+            match resolved {
+                Ok(p) => {
+                    let chosen = p.streams.iter().find_map(|s| session_source(&s.url, &s.headers).map(|src| (src, s.url.clone())));
+                    if let Some((source, url)) = chosen {
+                        tracing::info!(source = %key, "send to device: sending the chosen web source");
+                        match start_and_hand_off(&h, &device.id, req, source, &p.title).await? {
+                            Ok(()) => return Ok(send_outcome(0, false, "")),
+                            Err(e) => last = Some(e),
+                        }
+                        tried_url = Some(url);
+                        progress.back_to_preparing();
+                    } else {
+                        last = Some(UiError::new(ErrorKind::NoSource, format!("{key}: no stream the phone can open")));
+                    }
+                }
+                Err(e) => last = Some(e),
+            }
+            tracing::info!(source = %key, "send to device: the chosen web source could not be sent, trying the others");
+        }
+        FirstSource::Ranked => {}
     }
     let playback = match unless_cancelled(progress, <LiveBackend as Backend>::playback(b, &req.media_id, req.episode)).await? {
         Ok(p) => p,
-        Err(e) if torrent_first => {
-            tracing::debug!(detail = %e.detail, "send to device: no web stream after the torrent");
+        Err(e) if fallback => {
+            tracing::debug!(detail = %e.detail, "send to device: no other web stream after the chosen source");
             return Err(last.unwrap_or(e));
         }
         Err(e) => return Err(e),
     };
-    // names for the "sent another source" notice (plan §9.1 / §11.4): the torrent is the chosen source, never named
-    let offset = usize::from(torrent_first);
-    let streams = playback.streams.iter().filter_map(|s| session_source(&s.url, &s.headers).map(|src| (src, stream_name(&s.provider, s.quality.as_deref()))));
+    // names for the "sent another source" notice (plan §9.1 / §11.4): the chosen source is never named
+    let offset = usize::from(fallback);
+    let streams = playback
+        .streams
+        .iter()
+        .filter(|s| tried_url.as_deref() != Some(s.url.as_str()))
+        .filter_map(|s| session_source(&s.url, &s.headers).map(|src| (src, stream_name(&s.provider, s.quality.as_deref()))));
     for (i, (source, name)) in streams.enumerate() {
         match start_and_hand_off(&h, &device.id, req, source, &playback.title).await? {
             Ok(()) => return Ok(send_outcome(i + offset, torrent_first, &name)),
@@ -387,7 +424,7 @@ fn stream_name(provider: &str, quality: Option<&str>) -> String {
 }
 
 /// Plan §9.1 / §11.4: what to tell the user after the source at `index` was sent. The first one is the chosen source
-/// (the torrent when `torrent_first`, else the top web stream); any later one went "instead". Pure.
+/// (the torrent when `torrent_first`, else the chosen or top web stream); any later one went "instead". Pure.
 fn send_outcome(index: usize, torrent_first: bool, name: &str) -> SendOutcomeVm {
     if index == 0 {
         return SendOutcomeVm::default();
@@ -395,15 +432,34 @@ fn send_outcome(index: usize, torrent_first: bool, name: &str) -> SendOutcomeVm 
     SendOutcomeVm { sent_instead: Some(name.trim().to_owned()), torrent_failed: torrent_first }
 }
 
-/// BUG-009: the torrent to send for `media_id` / `episode`: the user's pick when it is a torrent, else the top-ranked
-/// source when it is one (the order the PC player uses). `None` = send web streams.
-async fn torrent_choice(b: &LiveBackend, media_id: &str, episode: u32) -> Option<String> {
-    let picked = b.store.picked_source(media_id, episode).ok().flatten();
-    if let Some(p) = picked.filter(|p| is_torrent_source_id(p)) {
-        return Some(p);
+/// What [`send_to_device`] tries before the web streams of every extension.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FirstSource {
+    /// A torrent source id, streamed by the PC's engine.
+    Torrent(String),
+    /// The web source the user chose for the episode, resolved on its own.
+    Web(String),
+    /// No choice and the top-ranked source is a web stream: the resolved web streams, best first.
+    Ranked,
+}
+
+/// BUG-009 / BUG-115: the episode's chosen source (`picked`, torrent or web) wins; with no choice, the top-ranked
+/// source (`recommended`) when it is a torrent (the order the PC player uses). Pure.
+fn first_source(picked: Option<&str>, recommended: Option<&str>) -> FirstSource {
+    match picked.map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) if is_torrent_source_id(p) => FirstSource::Torrent(p.to_owned()),
+        Some(p) => FirstSource::Web(p.to_owned()),
+        None => match recommended.filter(|r| is_torrent_source_id(r)) {
+            Some(r) => FirstSource::Torrent(r.to_owned()),
+            None => FirstSource::Ranked,
+        },
     }
+}
+
+/// The id of the top-ranked source of `media_id` / `episode` (only asked when the user chose none).
+async fn recommended_source(b: &LiveBackend, media_id: &str, episode: u32) -> Option<String> {
     let ranked = <LiveBackend as Backend>::sources(b, media_id, episode).await.ok()?;
-    ranked.first().filter(|s| is_torrent_source_id(&s.id)).map(|s| s.id.clone())
+    ranked.into_iter().next().map(|s| s.id)
 }
 
 /// `<ext>|torrent|<label>` (`tk_core::sources::source_key`). Pure.
@@ -900,6 +956,21 @@ mod tests {
         for bad in ["http://192.168.1.43:8098/api/server/v1/media/abc/x.ts", "http://192.168.1.43:8099/api/server/v1/devices", "http://192.168.1.44:8099/api/server/v1/media/a/x.ts"] {
             assert!(!o.iter().any(|t| t.matches(&reqwest::Url::parse(bad).unwrap())), "{bad}");
         }
+    }
+
+    #[test]
+    fn the_chosen_source_goes_first_even_when_the_recommended_one_is_a_torrent() {
+        // BUG-115: chosen web + recommended torrent -> the chosen web source, never the torrent
+        assert_eq!(first_source(Some("toko|web|anizone"), Some("toko|torrent|ToonsHub")), FirstSource::Web("toko|web|anizone".into()));
+        assert_eq!(first_source(Some("toko|web|anizone"), None), FirstSource::Web("toko|web|anizone".into()));
+        // a chosen torrent
+        assert_eq!(first_source(Some("toko|torrent|Erai"), Some("toko|torrent|ToonsHub")), FirstSource::Torrent("toko|torrent|Erai".into()));
+        assert_eq!(first_source(Some("toko|torrent|Erai"), Some("toko|web|anizone")), FirstSource::Torrent("toko|torrent|Erai".into()));
+        // no choice: the recommended one when it is a torrent, else the ranked web streams
+        assert_eq!(first_source(None, Some("toko|torrent|ToonsHub")), FirstSource::Torrent("toko|torrent|ToonsHub".into()));
+        assert_eq!(first_source(Some(" "), Some("toko|torrent|ToonsHub")), FirstSource::Torrent("toko|torrent|ToonsHub".into()));
+        assert_eq!(first_source(None, Some("toko|web|anizone")), FirstSource::Ranked);
+        assert_eq!(first_source(None, None), FirstSource::Ranked);
     }
 
     #[test]
