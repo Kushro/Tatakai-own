@@ -61,7 +61,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -400,18 +399,7 @@ private fun SourceRowContent(
             }
             if (!compact) {
                 Facts(source)
-                if (torrent) {
-                    c.torrent?.infoHash?.let {
-                        Text(
-                            it,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = scheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
+                // BUG-087: no raw info-hash on the card (desktop does not show it either).
                 if (!compatible) {
                     Text(stringResource(R.string.src_picker_incompatible), style = MaterialTheme.typography.bodySmall, color = scheme.tertiary)
                 }

@@ -316,7 +316,7 @@ class ExtensionRepositoryImpl(
             localCandidates(media, episode) to remote.await()
         }
         val (localRaw, localIds) = local
-        return rankAll(media, episode, localRaw + ext, localIds + ext.map { it.extId })
+        return rankAll(media, episode, SourceDedup.withoutRemoteDuplicates(localRaw, ext), localIds + ext.map { it.extId })
     }
 
     /**
@@ -333,7 +333,7 @@ class ExtensionRepositoryImpl(
         var emitted = false
         suspend fun publish() = gate.withLock {
             val remote = ext.toList().flatten()
-            send(rankAll(media, episode, local + remote, localIds + remote.map { it.extId }))
+            send(rankAll(media, episode, SourceDedup.withoutRemoteDuplicates(local, remote), localIds + remote.map { it.extId }))
             emitted = true
         }
         coroutineScope {
