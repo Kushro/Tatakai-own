@@ -68,6 +68,12 @@ interface RemotePlaybackAccess {
 
     /** BUG-022: the profile [sessionId] was created with by this phone; null = the PC's default (or unknown). */
     fun profileOf(sessionId: String): String? = null
+
+    /**
+     * BUG-131: `GET /v1/sessions/{id}` `state`: true once the PC serves the playlist (`ready`), false when it failed or closed
+     * the session, null while it prepares (or the PC cannot be asked).
+     */
+    suspend fun sessionReady(sessionId: String): Boolean? = null
 }
 
 /**
@@ -317,6 +323,11 @@ class LinkRepositoryImpl(
 
     override fun profileOf(sessionId: String): String? = origins[sessionId]?.profile
 
+    override suspend fun sessionReady(sessionId: String): Boolean? = withContext(io) {
+        val c = connectionOrNull()?.client ?: return@withContext null
+        sessionReadiness(c.sessionState(sessionId))
+    }
+
     override fun canRenew(sessionId: String): Boolean = origins.containsKey(sessionId) || sessions.containsKey(sessionId)
 
     /**
@@ -450,6 +461,19 @@ class LinkRepositoryImpl(
     }
 
     internal companion object {
+        /** BUG-131: `ready` -> true; `failed` / `closed` / session gone -> false; `preparing` or no answer -> null. */
+        fun sessionReadiness(r: LinkResult<SessionStateDto>): Boolean? = when (r) {
+            is LinkResult.Ok -> when (r.value.state) {
+                "ready" -> true
+                "preparing" -> null
+                else -> false
+            }
+            is LinkResult.Failure -> {
+                val e = r.error
+                if (e is LinkError.Api && (e.error == LinkApiError.SessionGone || e.error == LinkApiError.SessionNotFound)) false else null
+            }
+        }
+
         const val LAST_SEEN_PERSIST_MS = 60_000L
         const val EVENTS_BACKOFF_MS = 5_000L
         const val EVENTS_BACKOFF_MAX_MS = 60_000L

@@ -123,7 +123,8 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
         delay(
             when (notice) {
                 PlayerNotice.AssSimplified, is PlayerNotice.StoredSourceIgnored, PlayerNotice.PretranslateUnavailable, PlayerNotice.SwitchedToMpv,
-                PlayerNotice.SwitchedToMedia3, PlayerNotice.LinkSessionRenewed -> 5_000
+                PlayerNotice.SwitchedToMedia3, PlayerNotice.LinkSessionRenewed, PlayerNotice.LinkProfileRetried -> 5_000
+                is PlayerNotice.LinkProfile -> if (notice.result is LinkProfileResult.Failed) 5_000 else FLASH_MS
                 is PlayerNotice.ScreenshotSaved -> 4_000
                 else -> FLASH_MS
             },
@@ -158,15 +159,30 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
             },
         )
         PlayerNotice.LinkSessionRenewed -> stringResource(R.string.player_link_renewed)
-        is PlayerNotice.LinkProfileChanged ->
-            stringResource(if (notice.ok) R.string.player_link_profile_changed else R.string.player_link_profile_failed)
+        is PlayerNotice.LinkProfile -> stringResource(linkProfileText(notice.result))
+        PlayerNotice.LinkProfileRetried -> stringResource(R.string.player_link_profile_retried)
     }
+    val failed = notice is PlayerNotice.LinkProfile && notice.result is LinkProfileResult.Failed
     val scheme = MaterialTheme.colorScheme
     Surface(modifier.widthIn(max = 560.dp).padding(horizontal = 16.dp), shape = RoundedCornerShape(50), color = scheme.inverseSurface, contentColor = scheme.inverseOnSurface) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
-            Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(if (failed) Icons.Rounded.ErrorOutline else Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp))
             Text(text, style = MaterialTheme.typography.labelLarge)
         }
+    }
+}
+
+/** BUG-131: the notice of each way a Link profile change ends. */
+internal fun linkProfileText(result: LinkProfileResult): Int = when (result) {
+    is LinkProfileResult.Changed -> R.string.player_link_profile_changed
+    LinkProfileResult.SameProfile -> R.string.player_link_profile_same
+    LinkProfileResult.Busy -> R.string.player_link_profile_busy
+    LinkProfileResult.NoSession -> R.string.player_link_profile_failed_no_session
+    is LinkProfileResult.Failed -> when (result.reason) {
+        LinkProfileFailure.TIMEOUT -> R.string.player_link_profile_failed_timeout
+        LinkProfileFailure.OFFLINE -> R.string.player_link_profile_failed_offline
+        LinkProfileFailure.SESSION_ENDED -> R.string.player_link_profile_failed_ended
+        LinkProfileFailure.PC_ERROR -> R.string.player_link_profile_failed
     }
 }
 

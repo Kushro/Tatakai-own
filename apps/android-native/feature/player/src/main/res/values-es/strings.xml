@@ -63,7 +63,15 @@
     <string name="player_link_profile">Perfil de mejora</string>
     <string name="player_link_profile_hint">La PC reinicia la sesión con el perfil elegido en el mismo punto. Tu perfil preferido no cambia.</string>
     <string name="player_link_profile_changed">Perfil cambiado: la sesión sigue en el mismo punto.</string>
-    <string name="player_link_profile_failed">La PC no pudo cambiar el perfil; sigue el anterior.</string>
+    <string name="player_link_profile_failed">No se pudo cambiar el perfil: la PC no pudo abrir la sesión nueva. Sigue el anterior.</string>
+    <string name="player_link_profile_failed_timeout">No se pudo cambiar el perfil: la PC no respondió a tiempo. Inténtalo de nuevo.</string>
+    <string name="player_link_profile_failed_offline">No se pudo cambiar el perfil: no hay conexión con tu PC. Sigue el anterior.</string>
+    <string name="player_link_profile_failed_ended">No se pudo cambiar el perfil: tu PC ya cerró esta sesión. Vuelve a enviarla desde la PC.</string>
+    <string name="player_link_profile_failed_no_session">No se pudo cambiar el perfil: este video no viene de tu PC.</string>
+    <string name="player_link_profile_same">Ya estás usando ese perfil.</string>
+    <string name="player_link_profile_busy">Ya se está cambiando el perfil…</string>
+    <string name="player_link_profile_changing">Cambiando perfil…</string>
+    <string name="player_link_profile_retried">La sesión nueva no arrancaba: tu PC la abrió otra vez en el mismo punto.</string>
     <string name="player_go_extensions">Ir a Extensiones</string>
     <string name="player_open_linked">Dispositivo enlazado</string>
     <string name="player_no_sources_title">No hay fuentes para este episodio</string>

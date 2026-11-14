@@ -62,7 +62,15 @@
     <string name="player_link_profile">Enhancement profile</string>
     <string name="player_link_profile_hint">The PC restarts the session with the chosen profile at the same point. Your preferred profile does not change.</string>
     <string name="player_link_profile_changed">Profile changed: the session continues at the same point.</string>
-    <string name="player_link_profile_failed">The PC could not change the profile; the previous one continues.</string>
+    <string name="player_link_profile_failed">Could not change the profile: the PC could not open the new session. The previous one continues.</string>
+    <string name="player_link_profile_failed_timeout">Could not change the profile: the PC did not answer in time. Try again.</string>
+    <string name="player_link_profile_failed_offline">Could not change the profile: no connection with your PC. The previous one continues.</string>
+    <string name="player_link_profile_failed_ended">Could not change the profile: your PC already closed this session. Send it again from the PC.</string>
+    <string name="player_link_profile_failed_no_session">Could not change the profile: this video does not come from your PC.</string>
+    <string name="player_link_profile_same">You are already using that profile.</string>
+    <string name="player_link_profile_busy">The profile is already changing…</string>
+    <string name="player_link_profile_changing">Changing profile…</string>
+    <string name="player_link_profile_retried">The new session did not start: your PC opened it again at the same point.</string>
     <string name="player_go_extensions">Go to Extensions</string>
     <string name="player_open_linked">Linked device</string>
     <string name="player_no_sources_title">No sources for this episode</string>

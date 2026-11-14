@@ -91,7 +91,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -354,6 +356,10 @@ internal fun PlayerContent(
                 BufferingOverlay(state, Modifier.align(Alignment.Center))
             }
             hud?.let { HudPill(it, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 16.dp)) }
+            // BUG-131: the whole time a Link profile change runs (the result comes as a notice below)
+            if (state.linkProfileChanging && hud == null) {
+                LinkProfileChangingPill(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 16.dp))
+            }
             flash?.let { FlashToast(it, onFlashDone, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp)) }
 
             val skip = state.markers.skipAt(ps.positionMs / 1000.0)
@@ -407,7 +413,9 @@ internal fun PlayerContent(
     }
 
     sheet?.let { kind ->
-        ModalBottomSheet(onDismissRequest = { sheet = null }) {
+        // BUG-131: the profile list opens whole (half open in landscape it showed two rows and cut the rest at the screen edge)
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = kind == Sheet.LinkProfile)
+        ModalBottomSheet(onDismissRequest = { sheet = null }, sheetState = sheetState) {
             when (kind) {
                 Sheet.Quality -> {
                     SheetRow(stringResource(R.string.player_quality_auto), ps.selectedHeight == null) { session.selectVideoHeight(null); sheet = null }
@@ -464,6 +472,18 @@ private fun SheetRow(text: String, selected: Boolean, onClick: () -> Unit) {
 
 private data class Hud(val kind: Kind, val percent: Int = 0, val seconds: Int = 0, val muted: Boolean = false) {
     enum class Kind { Brightness, Volume, Seek, Hold }
+}
+
+/** BUG-131: "Cambiando perfil…" while the PC opens the session with the new profile. */
+@Composable
+private fun LinkProfileChangingPill(modifier: Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(modifier, shape = RoundedCornerShape(50), color = scheme.surfaceContainerHigh.copy(alpha = 0.9f), contentColor = scheme.onSurface) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            Text(stringResource(R.string.player_link_profile_changing), style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        }
+    }
 }
 
 @Composable
@@ -728,7 +748,8 @@ private fun Controls(
                     } else if (state.linkProfiles.isNotEmpty()) {
                         // BUG-022: change the PC's enhancement profile without leaving the player
                         IconButton(onClick = { onOpenSheet(Sheet.LinkProfile) }, enabled = !state.linkProfileChanging) {
-                            Icon(Icons.Rounded.AutoAwesome, stringResource(R.string.player_link_profile), tint = on)
+                            // the explicit tint hid the disabled state: dimmed while a change runs (BUG-131)
+                            Icon(Icons.Rounded.AutoAwesome, stringResource(R.string.player_link_profile), tint = if (state.linkProfileChanging) on.copy(alpha = 0.38f) else on)
                         }
                     }
                     if (hasKeyboard) IconButton(onClick = onHelp) { Icon(Icons.Rounded.Keyboard, stringResource(R.string.player_shortcuts), tint = on) }

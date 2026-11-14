@@ -218,8 +218,11 @@ sealed interface PlayerNotice {
     /** BUG-038: the PC had closed the Link session; a new one continues at the same position. */
     data object LinkSessionRenewed : PlayerNotice
 
-    /** BUG-022: the Link session restarted with another profile at the same position ([ok] = false: it could not). */
-    data class LinkProfileChanged(val ok: Boolean) : PlayerNotice
+    /** BUG-022 / BUG-131: how a Link profile change ended (changed, same profile, busy, or why it failed). */
+    data class LinkProfile(val result: LinkProfileResult) : PlayerNotice
+
+    /** BUG-131: the renewed Link session did not start in time and was opened again once. */
+    data object LinkProfileRetried : PlayerNotice
 }
 
 /**
@@ -377,6 +380,17 @@ class PlayerViewModel(
     /** BUG-038: the Link session being played; a renewed session replaces [PlayerArgs.remoteSessionId]. */
     private var remoteId: String? = args.remoteSessionId
     private var remoteRecovery: Job? = null
+
+    /** BUG-131: one profile change at a time, bounded, with a result for every tap ([LinkProfileChange]). */
+    private val profileChange = LinkProfileChange(
+        scope = viewModelScope,
+        renew = { id, startSecs, profile -> remote.renew(id, startSecs, profile) },
+        ready = { id -> remote.sessionReady(id) },
+        log = { line -> runCatching { android.util.Log.i(LINK_LOG_TAG, line) } },
+    )
+
+    /** BUG-131: waits for a renewed Link session to show its first frame ([watchRenewedStart]). */
+    private var renewWatch: Job? = null
     private var handledErrorLoad = 0
     private var handledStartLoad = 0
 
@@ -1002,20 +1016,28 @@ class PlayerViewModel(
 
     /** Replaces the session with one of [target] for the rest of this player (the setting is not changed) and reloads [src]. */
     private fun switchEngine(target: PlayerEngine, src: PlayableSource, positionMs: Long?, notice: PlayerNotice) {
+        engine = target
+        _state.update { it.copy(engine = target) }
+        _notices.trySend(notice)
+        replaceSession(src, positionMs ?: args.startMs)
+    }
+
+    /** Releases the engine session and loads [src] at [positionMs] in a new one of [engine] (speed kept). */
+    private fun replaceSession(src: PlayableSource, positionMs: Long) {
+        val speed = session?.state?.value?.speed
         sessionJob?.cancel()
         sessionJob = null
         session?.release()
         session = null
-        engine = target
         // loadId is per session: the new one starts again from 1.
         loadsIssued = 0
         handledErrorLoad = 0
         handledStartLoad = 0
         secondaryDecidedLoad = -1
         shaderNoticeSeq = 0
-        _state.update { it.copy(engine = target, session = null) }
-        _notices.trySend(notice)
-        loadIntoSession(src, startOverride = positionMs ?: args.startMs)
+        _state.update { it.copy(session = null) }
+        loadIntoSession(src, startOverride = positionMs)
+        if (speed != null && speed != 1f) session?.setSpeed(speed)
     }
 
     /** The current load belongs to the source flow (not a direct torrent / local / remote load). */
@@ -1124,6 +1146,9 @@ class PlayerViewModel(
     private fun recoverRemote(auto: Boolean) {
         val id = remoteId ?: return
         if (remoteRecovery?.isActive == true) return
+        // BUG-131: the PC closed the old session for a profile change that is still waiting for the new one: that change
+        // replaces the session (a recovery here would open a third one with the old profile)
+        if (auto && profileChange.changing.value) return
         remoteRecovery = viewModelScope.launch {
             val positionMs = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs
             val alive = remote.sessionAlive(id)
@@ -1142,7 +1167,7 @@ class PlayerViewModel(
                             } else {
                                 // "the session had expired" only when it had; a Retry on a stuck one just plays again
                                 if (alive == false) _notices.trySend(PlayerNotice.LinkSessionRenewed)
-                                loadIntoSession(src, startOverride = positionMs)
+                                loadRenewed(src, positionMs)
                             }
                         },
                         onFailure = { e ->
@@ -1175,22 +1200,67 @@ class PlayerViewModel(
      * PC replaces the old one). The choice is not saved as the preferred profile (that stays on the Linked screen).
      */
     fun changeLinkProfile(profileId: String) {
-        val id = remoteId ?: return
-        if (profileId == _state.value.linkProfile || _state.value.linkProfileChanging) return
         val positionMs = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs
-        _state.update { it.copy(linkProfileChanging = true) }
-        viewModelScope.launch {
-            val renewed = remote.renew(id, positionMs / 1000.0, profileId).getOrNull()
+        profileChange.request(
+            sessionId = remoteId,
+            currentProfile = _state.value.linkProfile,
+            profileId = profileId,
+            positionMs = positionMs,
+            onStarted = { _state.update { it.copy(linkProfileChanging = true) } },
+            onResult = { result ->
+                _state.update { it.copy(linkProfileChanging = profileChange.changing.value) }
+                if (result is LinkProfileResult.Changed) {
+                    remoteId = result.sessionId
+                    _state.update { it.copy(linkProfile = result.profileId, phase = PlayerPhase.BUFFERING, error = null, remoteFailure = null) }
+                    val src = RemotePlayback.source(remote, result.sessionId, args.title)
+                    if (src == null) {
+                        _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
+                        _notices.trySend(PlayerNotice.LinkProfile(LinkProfileResult.Failed(LinkProfileFailure.PC_ERROR)))
+                        return@request
+                    }
+                    loadRenewed(src, result.positionMs)
+                } else if (result is LinkProfileResult.Failed && session?.state?.value?.error != null) {
+                    // the old session failed while the change ran (its recovery waited for it): recover it now
+                    recoverRemote(auto = true)
+                }
+                _notices.trySend(PlayerNotice.LinkProfile(result))
+            },
+        )
+    }
+
+    /**
+     * BUG-131: a renewed Link session (other profile, or recovered) plays in a NEW engine session: reusing the old one kept its
+     * decoders and audio sink (r6: after an audio timestamp discontinuity of the old stream the reused decoder never got input
+     * again and the player stayed "preparing" with 60 s buffered). If it shows no frame in [RENEWED_START_TIMEOUT_MS] it is
+     * opened once more through the Retry path (a new PC session at the same point), then the error screen with Retry.
+     */
+    private fun loadRenewed(src: PlayableSource, positionMs: Long) {
+        replaceSession(src, positionMs)
+        watchRenewedStart(positionMs)
+    }
+
+    private fun watchRenewedStart(positionMs: Long, retried: Boolean = false) {
+        renewWatch?.cancel()
+        val load = loadsIssued
+        renewWatch = viewModelScope.launch {
+            delay(RENEWED_START_TIMEOUT_MS)
+            if (load != loadsIssued || handledStartLoad == load || handledErrorLoad == load) return@launch
+            val id = remoteId ?: return@launch
+            runCatching { android.util.Log.i(LINK_LOG_TAG, "renewed session $id did not start in ${RENEWED_START_TIMEOUT_MS}ms (retried=$retried)") }
+            if (retried) {
+                remoteError(RemoteFailure.PC_ERROR, null)
+                return@launch
+            }
+            val renewed = remote.renew(id, positionMs / 1000.0, _state.value.linkProfile).getOrNull()
             val src = renewed?.let { RemotePlayback.source(remote, it.sessionId, args.title) }
             if (renewed == null || src == null) {
-                _state.update { it.copy(linkProfileChanging = false) }
-                _notices.trySend(PlayerNotice.LinkProfileChanged(ok = false))
+                remoteError(RemoteFailure.PC_ERROR, null)
                 return@launch
             }
             remoteId = renewed.sessionId
-            _state.update { it.copy(linkProfile = profileId, linkProfileChanging = false, phase = PlayerPhase.BUFFERING) }
-            loadIntoSession(src, startOverride = positionMs)
-            _notices.trySend(PlayerNotice.LinkProfileChanged(ok = true))
+            _notices.trySend(PlayerNotice.LinkProfileRetried)
+            replaceSession(src, positionMs)
+            watchRenewedStart(positionMs, retried = true)
         }
     }
 
@@ -1644,6 +1714,12 @@ class PlayerViewModel(
         const val SEEK_MARKS_POLL_MS = 2_500L
         const val COMPLETED_FRACTION = 0.9
         const val NO_FILE_PREFIX = "torrent:no_file:"
+
+        /** BUG-131: logcat tag of the Link profile changes (`adb logcat -s TatakaiLink`). */
+        const val LINK_LOG_TAG = "TatakaiLink"
+
+        /** BUG-131: a renewed Link session that shows no frame in this time is opened once more. */
+        const val RENEWED_START_TIMEOUT_MS = 20_000L
     }
 }
 

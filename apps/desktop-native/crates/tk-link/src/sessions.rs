@@ -182,6 +182,16 @@ pub struct SessionCreated {
     pub idle_timeout_secs: u64,
 }
 
+/// `(kind, renewed session id)` of a create request, for the BUG-131 log lines ("-" when it renews nothing).
+fn source_log_fields(src: &SourceRequest) -> (&'static str, String) {
+    match src {
+        SourceRequest::Library { .. } => ("library", "-".to_owned()),
+        SourceRequest::Session { session_id } => ("session", session_id.clone()),
+        SourceRequest::Torrent { .. } => ("torrent", "-".to_owned()),
+        SourceRequest::Url { .. } => ("url", "-".to_owned()),
+    }
+}
+
 /// `POST /v1/sessions` body (already validated JSON shape).
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -365,6 +375,20 @@ impl Manager {
     // ---- create / close ---------------------------------------------------------------------------------------------
 
     pub async fn create(self: &Arc<Self>, device_id: &str, req: CreateRequest) -> ApiResult<SessionCreated> {
+        // BUG-131: one line per request and one per outcome, so a profile change the phone sent can be told apart from
+        // one that never reached the PC (a refusal answers before any other log line).
+        let (kind, renews) = source_log_fields(&req.source);
+        let profile = req.profile.clone().unwrap_or_else(|| profiles::DEFAULT_PROFILE.to_owned());
+        tracing::info!(device = device_id, source = kind, renews = %renews, profile = %profile, start_secs = req.start_secs, "Link session requested");
+        let result = self.create_inner(device_id, req).await;
+        match &result {
+            Ok(c) => tracing::info!(session = %c.session_id, source = kind, renews = %renews, profile = %profile, "Link session created"),
+            Err(e) => tracing::info!(source = kind, renews = %renews, profile = %profile, error = e.0.as_str(), "Link session refused"),
+        }
+        result
+    }
+
+    async fn create_inner(self: &Arc<Self>, device_id: &str, req: CreateRequest) -> ApiResult<SessionCreated> {
         if !req.start_secs.is_finite() || req.start_secs < 0.0 || req.audio_track > 32 {
             return Err(ErrorCode::RequestInvalid.into());
         }
@@ -1067,5 +1091,19 @@ mod sustain_tests {
         assert_eq!(sustain_verdict(false, 11, w, false), Some(true));
         // 6 segments after the first = 12 s of video in 20 s: does not keep up
         assert_eq!(sustain_verdict(false, 7, w, false), Some(false));
+    }
+}
+
+#[cfg(test)]
+mod create_log_tests {
+    use super::{source_log_fields, SourceRequest};
+
+    // BUG-131: the "Link session requested / created / refused" lines name the renewed session of a profile change
+    #[test]
+    fn a_session_source_names_the_session_it_renews() {
+        let (kind, renews) = source_log_fields(&SourceRequest::Session { session_id: "945e3855".into() });
+        assert_eq!((kind, renews.as_str()), ("session", "945e3855"));
+        let (kind, renews) = source_log_fields(&SourceRequest::Torrent { uri: "magnet:?".into(), media_id: "1".into(), episode: 4 });
+        assert_eq!((kind, renews.as_str()), ("torrent", "-"));
     }
 }
