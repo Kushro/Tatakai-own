@@ -80,6 +80,7 @@ import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MangaReaderArgs
 import app.tatakai.next.model.MatureContentMode
 import app.tatakai.next.model.Media
+import app.tatakai.next.ui.labels.genreLabel
 import app.tatakai.next.ui.media.displayTitle
 import app.tatakai.next.ui.state.screenInsets
 import app.tatakai.next.ui.state.userMessage
@@ -242,9 +243,9 @@ private fun SearchHeader(
             )
             FilterDropdown(
                 label = stringResource(R.string.manga_filter_genre),
-                value = filters.genre,
+                value = filters.genre?.let { genreLabel(it) },
                 options = listOf<String?>(null) + genres,
-                optionLabel = { it ?: stringResource(R.string.manga_filter_any) },
+                optionLabel = { it?.let { g -> genreLabel(g) } ?: stringResource(R.string.manga_filter_any) },
                 onSelect = { v -> onFilters { it.copy(genre = v) } },
             )
             val thisYear = remember { LocalDate.now().year }
@@ -436,7 +437,7 @@ private fun HomeContent(
             item(key = "genres") {
                 SectionHeader(stringResource(R.string.manga_row_genres))
                 FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    home.genres.forEach { g -> SuggestionChip(onClick = { onGenre(g) }, label = { Text(g) }) }
+                    home.genres.forEach { g -> SuggestionChip(onClick = { onGenre(g) }, label = { Text(genreLabel(g)) }) }
                 }
             }
         }
@@ -490,7 +491,7 @@ private fun HeroSlide(media: Media, title: String, onClick: () -> Unit) {
         Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
             media.genres.take(3).takeIf { it.isNotEmpty() }?.let {
-                Text(it.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
+                Text(it.map { g -> genreLabel(g) }.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
             }
             Button(onClick = onClick, modifier = Modifier.padding(top = 8.dp)) { Text(stringResource(R.string.manga_hero_open)) }
         }

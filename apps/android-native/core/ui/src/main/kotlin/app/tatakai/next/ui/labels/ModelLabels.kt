@@ -133,3 +133,64 @@ fun genreLabelRes(genre: String): Int? = when (genre.trim().lowercase().replace(
 /** BUG-072: [genreLabelRes] in the UI language, or the genre as AniList sends it. */
 @androidx.compose.runtime.Composable
 fun genreLabel(genre: String): String = genreLabelRes(genre)?.let { androidx.compose.ui.res.stringResource(it) } ?: genre
+
+/** BUG-098: AniList `MediaSource` ("LIGHT_NOVEL", "OTHER"…) as a string resource; same words as Details (desktop `details.source.*`). */
+fun mediaSourceLabelRes(source: String): Int = when (source.trim().uppercase()) {
+    "ORIGINAL" -> R.string.media_source_original
+    "MANGA" -> R.string.media_source_manga
+    "LIGHT_NOVEL" -> R.string.media_source_light_novel
+    "NOVEL" -> R.string.media_source_novel
+    "WEB_NOVEL" -> R.string.media_source_web_novel
+    "VISUAL_NOVEL" -> R.string.media_source_visual_novel
+    "VIDEO_GAME", "GAME" -> R.string.media_source_game
+    "WEB_MANGA" -> R.string.media_source_web_manga
+    "ANIME" -> R.string.media_source_anime
+    "DOUJINSHI" -> R.string.media_source_doujinshi
+    "LIVE_ACTION" -> R.string.media_source_live_action
+    "COMIC" -> R.string.media_source_comic
+    "MULTIMEDIA_PROJECT" -> R.string.media_source_multimedia
+    "PICTURE_BOOK" -> R.string.media_source_picture_book
+    else -> R.string.media_source_other
+}
+
+/** BUG-098: AniList `CharacterRole` (MAIN / SUPPORTING / BACKGROUND); null for an unknown value (shown as it comes). */
+fun characterRoleLabelRes(role: String): Int? = when (role.trim().uppercase()) {
+    "MAIN" -> R.string.character_role_main
+    "SUPPORTING" -> R.string.character_role_supporting
+    "BACKGROUND" -> R.string.character_role_background
+    else -> null
+}
+
+/**
+ * BUG-098: an AniList staff role of a manga ("Story", "Art", "Story & Art", "Original Story"…). AniList adds details in parentheses
+ * ("Story (ch 1-20)"): only the part before them is translated, the rest is kept. null = no translation (shown as it comes).
+ */
+fun staffRoleLabelRes(role: String): Int? = when (role.substringBefore('(').trim().lowercase()) {
+    "story & art", "story and art" -> R.string.staff_role_story_art
+    "story" -> R.string.staff_role_story
+    "art" -> R.string.staff_role_art
+    "original story" -> R.string.staff_role_original_story
+    "original creator" -> R.string.staff_role_original_creator
+    "character design" -> R.string.staff_role_character_design
+    "illustration" -> R.string.staff_role_illustration
+    "assistant" -> R.string.staff_role_assistant
+    "translator" -> R.string.staff_role_translator
+    "lettering" -> R.string.staff_role_lettering
+    "editing", "editor" -> R.string.staff_role_editing
+    else -> null
+}
+
+@androidx.compose.runtime.Composable
+fun mediaSourceLabel(source: String): String = androidx.compose.ui.res.stringResource(mediaSourceLabelRes(source))
+
+@androidx.compose.runtime.Composable
+fun characterRoleLabel(role: String): String =
+    characterRoleLabelRes(role)?.let { androidx.compose.ui.res.stringResource(it) } ?: role.lowercase().replaceFirstChar(Char::uppercase)
+
+@androidx.compose.runtime.Composable
+fun staffRoleLabel(role: String): String {
+    val res = staffRoleLabelRes(role) ?: return role
+    val rest = role.substring(role.indexOf('(').takeIf { it >= 0 } ?: role.length).trim()
+    val base = androidx.compose.ui.res.stringResource(res)
+    return if (rest.isEmpty()) base else "$base $rest"
+}

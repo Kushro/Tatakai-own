@@ -102,7 +102,11 @@ import app.tatakai.next.model.MatureContentMode
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.ReadEntry
+import app.tatakai.next.ui.labels.characterRoleLabel
+import app.tatakai.next.ui.labels.genreLabel
+import app.tatakai.next.ui.labels.mediaSourceLabel
 import app.tatakai.next.ui.labels.readLabelRes
+import app.tatakai.next.ui.labels.staffRoleLabel
 import app.tatakai.next.ui.media.MediaCover
 import app.tatakai.next.ui.media.alternativeTitle
 import app.tatakai.next.ui.media.displayTitle
@@ -287,7 +291,7 @@ private fun DetailsBody(
                 var spoilers by rememberSaveable { mutableStateOf(false) }
                 SectionHeader(stringResource(R.string.manga_tags))
                 FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    media.genres.forEach { g -> AssistChip(onClick = { onOpenGenre(g) }, label = { Text(g) }) }
+                    media.genres.forEach { g -> AssistChip(onClick = { onOpenGenre(g) }, label = { Text(genreLabel(g)) }) }
                     info.tags.filter { spoilers || !it.isSpoiler }.forEach { t ->
                         SuggestionChip(onClick = {}, label = { Text(t.rank?.let { r -> "${t.name} $r%" } ?: t.name) })
                     }
@@ -342,7 +346,7 @@ private fun DetailsBody(
                         Column(Modifier.width(88.dp)) {
                             MediaCover(url = c.character.image, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.large)
                             Text(c.character.name, style = MaterialTheme.typography.labelMedium, maxLines = 2, modifier = Modifier.padding(top = 4.dp))
-                            c.role?.let { Text(it.lowercase().replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            c.role?.let { Text(characterRoleLabel(it), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                     }
                 }
@@ -482,7 +486,7 @@ private fun Facts(info: MangaInfo, ui: MangaDetailsUi) {
                 Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             }
         }
-        Fact(stringResource(R.string.manga_fact_authors), info.authors.joinToString(", ") { a -> a.role?.let { "${a.staff.name} ($it)" } ?: a.staff.name })
+        Fact(stringResource(R.string.manga_fact_authors), info.authors.map { a -> a.staff.name to a.role?.let { staffRoleLabel(it) } }.joinToString(", ") { (name, role) -> role?.let { "$name ($it)" } ?: name })
         Fact(stringResource(R.string.manga_fact_chapters), (info.chapters ?: d?.chapters ?: mu?.latestChapter)?.toString())
         Fact(stringResource(R.string.manga_fact_volumes), (info.volumes ?: d?.volumes)?.toString())
         Fact(stringResource(R.string.manga_fact_status), anilistStatusLabel(info.status))
@@ -493,7 +497,7 @@ private fun Facts(info: MangaInfo, ui: MangaDetailsUi) {
         Fact(stringResource(R.string.manga_fact_start), info.startDate)
         Fact(stringResource(R.string.manga_fact_end), info.endDate)
         Fact(stringResource(R.string.manga_fact_origin), originLabel(info.origin))
-        Fact(stringResource(R.string.manga_fact_source), info.source?.lowercase()?.replace('_', ' ')?.replaceFirstChar(Char::uppercase))
+        Fact(stringResource(R.string.manga_fact_source), info.source?.let { mediaSourceLabel(it) })
         // Scores (checklist manga.details: puntuaciones).
         Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             info.media.score?.let { ScoreBox(stringResource(R.string.manga_score_anilist), "$it%") }

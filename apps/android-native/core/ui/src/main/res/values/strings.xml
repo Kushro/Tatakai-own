@@ -126,4 +126,34 @@
     <string name="genre_supernatural">Supernatural</string>
     <string name="genre_thriller">Thriller</string>
     <string name="genre_hentai">Hentai</string>
+    <!-- BUG-098: AniList enums of manga (source, character and staff roles) -->
+    <string name="media_source_original">Original</string>
+    <string name="media_source_manga">Manga</string>
+    <string name="media_source_light_novel">Light novel</string>
+    <string name="media_source_novel">Novel</string>
+    <string name="media_source_web_novel">Web novel</string>
+    <string name="media_source_visual_novel">Visual novel</string>
+    <string name="media_source_game">Video game</string>
+    <string name="media_source_web_manga">Web manga</string>
+    <string name="media_source_anime">Anime</string>
+    <string name="media_source_doujinshi">Doujinshi</string>
+    <string name="media_source_live_action">Live action</string>
+    <string name="media_source_comic">Comic</string>
+    <string name="media_source_multimedia">Multimedia project</string>
+    <string name="media_source_picture_book">Picture book</string>
+    <string name="media_source_other">Other</string>
+    <string name="character_role_main">Main</string>
+    <string name="character_role_supporting">Supporting</string>
+    <string name="character_role_background">Background</string>
+    <string name="staff_role_story_art">Story &amp; art</string>
+    <string name="staff_role_story">Story</string>
+    <string name="staff_role_art">Art</string>
+    <string name="staff_role_original_story">Original story</string>
+    <string name="staff_role_original_creator">Original creator</string>
+    <string name="staff_role_character_design">Character design</string>
+    <string name="staff_role_illustration">Illustration</string>
+    <string name="staff_role_assistant">Assistant</string>
+    <string name="staff_role_translator">Translation</string>
+    <string name="staff_role_lettering">Lettering</string>
+    <string name="staff_role_editing">Editing</string>
 </resources>

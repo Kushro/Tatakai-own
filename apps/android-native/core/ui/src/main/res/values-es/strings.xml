@@ -125,4 +125,34 @@
     <string name="genre_supernatural">Sobrenatural</string>
     <string name="genre_thriller">Suspense</string>
     <string name="genre_hentai">Hentai</string>
+    <!-- BUG-098: AniList enums of manga (source, character and staff roles) -->
+    <string name="media_source_original">Original</string>
+    <string name="media_source_manga">Manga</string>
+    <string name="media_source_light_novel">Novela ligera</string>
+    <string name="media_source_novel">Novela</string>
+    <string name="media_source_web_novel">Novela web</string>
+    <string name="media_source_visual_novel">Novela visual</string>
+    <string name="media_source_game">Videojuego</string>
+    <string name="media_source_web_manga">Manga web</string>
+    <string name="media_source_anime">Anime</string>
+    <string name="media_source_doujinshi">Doujinshi</string>
+    <string name="media_source_live_action">Acción real</string>
+    <string name="media_source_comic">Cómic</string>
+    <string name="media_source_multimedia">Proyecto multimedia</string>
+    <string name="media_source_picture_book">Libro ilustrado</string>
+    <string name="media_source_other">Otra</string>
+    <string name="character_role_main">Principal</string>
+    <string name="character_role_supporting">Secundario</string>
+    <string name="character_role_background">De fondo</string>
+    <string name="staff_role_story_art">Guion y dibujo</string>
+    <string name="staff_role_story">Guion</string>
+    <string name="staff_role_art">Dibujo</string>
+    <string name="staff_role_original_story">Historia original</string>
+    <string name="staff_role_original_creator">Creador original</string>
+    <string name="staff_role_character_design">Diseño de personajes</string>
+    <string name="staff_role_illustration">Ilustración</string>
+    <string name="staff_role_assistant">Asistente</string>
+    <string name="staff_role_translator">Traducción</string>
+    <string name="staff_role_lettering">Rotulación</string>
+    <string name="staff_role_editing">Edición</string>
 </resources>
