@@ -503,24 +503,28 @@ private fun ZoomBox(
         }
         val currentScale by androidx.compose.runtime.rememberUpdatedState(scale)
         val currentOffset by androidx.compose.runtime.rememberUpdatedState(offset)
+        val currentOnTap by androidx.compose.runtime.rememberUpdatedState(onTap)
+        val currentOnTransform by androidx.compose.runtime.rememberUpdatedState(onTransform)
+        // BUG-113: the gesture handlers restart when the box changes size (rotation), so a tap is measured against the current
+        // width, not the portrait one (in landscape the centre used to count as the right third and turned the page).
         Box(
             Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
+                .pointerInput(widthPx, heightPx) {
                     detectTapGestures(
                         onDoubleTap = { pos ->
                             if (currentScale > 1f) {
-                                onTransform(1f, Offset.Zero)
+                                currentOnTransform(1f, Offset.Zero)
                             } else {
                                 val s = 2.5f
-                                val center = Offset(widthPx / 2f, heightPx / 2f)
-                                onTransform(s, clamp(s, (center - pos) * (s - 1f)))
+                                val center = Offset(size.width / 2f, size.height / 2f)
+                                currentOnTransform(s, clamp(s, (center - pos) * (s - 1f)))
                             }
                         },
-                        onTap = { pos -> onTap(pos.x / widthPx) },
+                        onTap = { pos -> currentOnTap(pos.x / size.width.coerceAtLeast(1)) },
                     )
                 }
-                .pointerInput(Unit) {
+                .pointerInput(widthPx, heightPx, ctrlWheel) {
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
@@ -528,7 +532,7 @@ private fun ZoomBox(
                                 if (ctrlWheel && event.keyboardModifiers.isCtrlPressed) {
                                     val dy = event.changes.firstOrNull()?.scrollDelta?.y ?: 0f
                                     val s = (currentScale * if (dy < 0) 1.1f else 0.9f).coerceIn(1f, 5f)
-                                    onTransform(s, if (s == 1f) Offset.Zero else clamp(s, currentOffset))
+                                    currentOnTransform(s, if (s == 1f) Offset.Zero else clamp(s, currentOffset))
                                     event.changes.forEach { it.consume() }
                                 }
                                 continue
@@ -539,7 +543,7 @@ private fun ZoomBox(
                                 val pan = event.calculatePan()
                                 val s = (currentScale * zoom).coerceIn(1f, 5f)
                                 val o = if (s == 1f) Offset.Zero else clamp(s, currentOffset + pan)
-                                if (s != currentScale || o != currentOffset) onTransform(s, o)
+                                if (s != currentScale || o != currentOffset) currentOnTransform(s, o)
                                 event.changes.forEach { if (it.positionChanged()) it.consume() }
                             }
                         }
@@ -889,6 +893,13 @@ private fun BottomChrome(
         Column(Modifier.navigationBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp)) {
             if (total > 1) {
                 var drag by remember(ui.page, total) { mutableFloatStateOf(ui.page.toFloat()) }
+                // BUG-112: right-to-left paged reading lays the whole row out RTL (the slider starts at the right, with the current page
+                // next to that start and the total at the far left) instead of mirroring only the slider with scaleX = -1.
+                val rtl = reader.mode == ReaderMode.PAGED && reader.direction == ReaderDirection.RTL
+                val outer = androidx.compose.ui.platform.LocalLayoutDirection.current
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.ui.platform.LocalLayoutDirection provides if (rtl) androidx.compose.ui.unit.LayoutDirection.Rtl else outer,
+                ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${drag.toInt() + 1}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
                     Slider(
@@ -896,9 +907,10 @@ private fun BottomChrome(
                         onValueChange = { drag = it },
                         onValueChangeFinished = { onJump(drag.toInt()) },
                         valueRange = 0f..(total - 1).toFloat(),
-                        modifier = Modifier.weight(1f).graphicsLayer { if (reader.mode == ReaderMode.PAGED && reader.direction == ReaderDirection.RTL) scaleX = -1f },
+                        modifier = Modifier.weight(1f),
                     )
                     Text("$total", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
+                }
                 }
             } else if (total == 0) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(8.dp))
