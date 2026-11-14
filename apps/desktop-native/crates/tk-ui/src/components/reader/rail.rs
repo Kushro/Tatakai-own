@@ -8,10 +8,16 @@ use super::page_src;
 use crate::backend::PageVm;
 use crate::i18n::tf;
 
+/// `rtl` (paged reading right to left, BUG-122): page 1 sits at the right end and the strip scrolls leftwards, the
+/// same way the pages turn.
 #[component]
-pub fn PageRail(pages: Vec<PageVm>, current: usize, on_jump: EventHandler<usize>) -> Element {
+pub fn PageRail(pages: Vec<PageVm>, current: usize, on_jump: EventHandler<usize>, #[props(default)] rtl: bool) -> Element {
     rsx! {
-        nav { class: "tk-reader__rail", "data-rail": "{pages.len()}", "aria-label": tf("manga.reader.rail", &[("n", &pages.len().to_string())]),
+        nav {
+            class: "tk-reader__rail",
+            dir: if rtl { "rtl" } else { "ltr" },
+            "data-rail": "{pages.len()}",
+            "aria-label": tf("manga.reader.rail", &[("n", &pages.len().to_string())]),
             for (i , p) in pages.iter().enumerate() {
                 button {
                     key: "{i}",

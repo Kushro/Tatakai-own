@@ -90,6 +90,11 @@ enum ReaderMsg {
 
 /// What a key press does: the bound action, with the arrow-style page turns mirrored in RTL paged modes (the
 /// key bound to "next page" turns leftwards, like the tap zones).
+/// BUG-122: the thumbnail strip follows the reading direction in the paged modes (scroll modes read top-down).
+fn rail_rtl(prefs: &MangaReaderPrefs) -> bool {
+    matches!(prefs.mode, ReaderModeVm::Paged | ReaderModeVm::DoublePage) && prefs.direction == ReaderDirectionVm::Rtl
+}
+
 pub fn resolve_key(prefs: &MangaReaderPrefs, key: &str) -> Option<ReaderActionVm> {
     let token = key_token(key)?;
     let action = prefs.action_for(&token)?;
@@ -823,7 +828,7 @@ fn ReaderView(media_id: String, chapter: ChapterRefVm) -> Element {
             main { class: "tk-reader__stage", {stage} }
             if chrome_on && total > 1 {
                 footer { class: "tk-reader__bottom",
-                    PageRail { pages: page_list.clone(), current: cur, on_jump: move |i: usize| jump.call(i) }
+                    PageRail { pages: page_list.clone(), current: cur, on_jump: move |i: usize| jump.call(i), rtl: rail_rtl(&p) }
                 }
             }
             if p.show_progress_bar && total > 0 {
@@ -873,6 +878,16 @@ mod tests {
 
     fn pages(n: usize) -> Vec<PageVm> {
         (0..n).map(|i| PageVm { index: i as u32, url: format!("u{i}"), headers: Vec::new(), width: Some(800), height: Some(1200) }).collect()
+    }
+
+    #[test]
+    fn the_thumbnail_strip_follows_the_reading_direction() {
+        // BUG-122: right to left in the paged modes only.
+        let rtl = MangaReaderPrefs::default();
+        assert!(rail_rtl(&rtl));
+        assert!(rail_rtl(&MangaReaderPrefs { mode: ReaderModeVm::DoublePage, ..rtl.clone() }));
+        assert!(!rail_rtl(&MangaReaderPrefs { mode: ReaderModeVm::Webtoon, ..rtl.clone() }));
+        assert!(!rail_rtl(&MangaReaderPrefs { direction: ReaderDirectionVm::Ltr, ..rtl }));
     }
 
     #[test]
