@@ -110,7 +110,9 @@ pub(super) fn report(backend: &BackendRef, id: &str, episode: u32, st: &PlayerSt
         return;
     }
     let (backend, id, pos, dur) = (backend.clone(), id.to_owned(), st.progress_secs(), st.duration_secs());
-    spawn(async move {
+    // `spawn_forever`: the last report is sent while the screen unmounts ("Back", another episode); a task of the
+    // player's own scope is cancelled with it and the final position was never saved (BUG-034).
+    dioxus::core::spawn_forever(async move {
         if let Err(e) = backend.record_progress(&id, episode, pos, dur).await {
             tracing::warn!(detail = %e.detail, "recording progress failed");
         }

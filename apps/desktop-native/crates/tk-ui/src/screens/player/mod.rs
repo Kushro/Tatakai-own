@@ -786,7 +786,12 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         let pip_win = pip_win.clone();
         let external = external.clone();
         let (backend, tslot) = (backend.clone(), tslot.clone());
+        let id = id.clone();
         move || {
+            // Whatever closes the screen (window, sidebar, Link), the last position is saved (BUG-034).
+            if let Ok(st) = pstate.try_peek() {
+                report(&backend, &id, episode, &st);
+            }
             // The preset did not crash the player while it was open (BUG-033 guard).
             disarm_preset_guard();
             // An external session never outlives its screen.
