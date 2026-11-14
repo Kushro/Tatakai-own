@@ -50,6 +50,17 @@ pub fn map_candidates(ext_id: &str, ext_name: &str, body: &Value) -> Vec<SourceC
     let mut out: Vec<SourceCandidate> = Vec::new();
     for s in list {
         let Some(mut c) = map_one(ext_id, ext_name, s) else { continue };
+        // The same release from two indexes (SubsPlease's feed and nyaa): one row, with the counts the other knew
+        // (BUG-030: SubsPlease's feed has no seeders).
+        if let Some(t) = &c.torrent
+            && let Some(prev) = out.iter_mut().find_map(|o| o.torrent.as_mut().filter(|p| p.info_hash == t.info_hash))
+        {
+            prev.seeders = prev.seeders.max(t.seeders);
+            prev.leechers = prev.leechers.max(t.leechers);
+            prev.size_bytes = prev.size_bytes.or(t.size_bytes);
+            prev.magnet = prev.magnet.take().or_else(|| t.magnet.clone());
+            continue;
+        }
         if taken(&out, c.kind, &c.label) {
             let q = c.quality.label();
             let with_q = format!("{} {q}", c.label);
@@ -495,5 +506,20 @@ mod tests {
         assert_eq!(c[0].torrent.as_ref().unwrap().size_bytes, Some(1_395_864_371));
         // BUG-030: SubsPlease's feed reports no seeders: unknown, not 0.
         assert_eq!(c[0].torrent.as_ref().unwrap().seeders, None);
+    }
+
+    #[test]
+    fn the_same_release_from_two_indexes_is_one_row_with_the_known_counts() {
+        let magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=%5BSubsPlease%5D%20Show%20-%2006%20%281080p%29.mkv";
+        let body = json!({ "sources": [
+            { "source": "subplease", "sourceType": "torrent", "torrentTitle": "Show - 06", "url": magnet },
+            { "source": "nyaa", "sourceType": "torrent", "torrentTitle": "[SubsPlease] Show - 06 (1080p) [AB].mkv",
+              "url": magnet, "seeders": 212, "leechers": 7, "fileSize": "1.3 GiB" },
+        ] });
+        let c = map_candidates("toko", "Toko", &body);
+        assert_eq!(c.len(), 1);
+        let t = c[0].torrent.as_ref().unwrap();
+        assert_eq!((t.seeders, t.leechers), (Some(212), 7));
+        assert!(t.size_bytes.is_some());
     }
 }
