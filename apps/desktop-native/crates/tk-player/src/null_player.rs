@@ -53,6 +53,10 @@ impl Player {
     }
     pub fn stop(&self) {}
 
+    pub fn supports_preset(&self, _preset: ShaderPreset) -> bool {
+        true
+    }
+
     pub fn set_shader_preset(&self, preset: ShaderPreset) -> Result<(), PlayerError> {
         if let Ok(mut p) = self.preset.lock() {
             *p = preset;

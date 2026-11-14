@@ -192,8 +192,18 @@ impl Player {
         let _ = self.mpv.command("stop", &[]);
     }
 
+    /// Whether this player's renderer can run `preset` (BUG-033). Linux embeds through the libmpv render API, which
+    /// is mpv's `gpu` renderer: presets that need `gpu-next` abort the process there (also through the enhanced
+    /// build's own `Ani4Kv2` mode, which loads the same shader).
+    pub fn supports_preset(&self, preset: ShaderPreset) -> bool {
+        !(cfg!(target_os = "linux") && preset.needs_gpu_next())
+    }
+
     /// Switch the upscaling preset live. The shader files must exist; on error the current preset stays.
     pub fn set_shader_preset(&self, preset: ShaderPreset) -> Result<(), PlayerError> {
+        if !self.supports_preset(preset) {
+            return Err(PlayerError::PresetUnsupported(preset.id()));
+        }
         if !self.presets_apply {
             // Enhanced engine: the build switches shaders itself (ours would stack on top of its profiles), so the
             // menu drives the build's own modes (its input.conf: CTRL+1..8 `script-message anime4k-mode …`).

@@ -139,6 +139,8 @@
   "player.discord.paused_small": "Paused",
   "player.shaders_fetch_failed": "Upscaling shaders are missing and could not be downloaded: {detail}",
   "player.shaders_fetching": "Downloading the upscaling shaders (about 1 MB, verified)…",
+  "player.preset_unsupported": "{preset} does not work in the Linux Integrated player (it closes the app): the preset was turned off. Use it with frame generation or the external mpv.",
+  "player.preset_crashed": "The player closed with {preset} last time: that preset was turned off. You can pick another one under Enhance.",
   "player.anime4k_hq": "Anime4K high quality",
   "player.anime4k_hq_hint": "VL",
   "player.deband": "Debanding",

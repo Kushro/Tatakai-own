@@ -69,8 +69,8 @@ use crate::shortcuts::Shortcut;
 
 use self::episodes::EpisodeSheet;
 use self::flow::{
-    ExternalSlot, Flow, button_index, choose_preset, dispatch, legacy_sources, no_player_text, remember_pick, report,
-    report_source,
+    ExternalSlot, Flow, button_index, choose_preset, disarm_preset_guard, dispatch, legacy_sources, no_player_text,
+    preset_guard_tick, remember_pick, report, report_source, take_crashed_preset,
 };
 use self::torrent::{SEEK_MARKS_EVERY, TorrentSession, TorrentSlot, end_torrent, take_batch_next, torrent_line};
 
@@ -439,10 +439,27 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 if v.adjusted() {
                     let _ = p.set_image_adjust(v.brightness, v.contrast, v.saturation, v.gamma);
                 }
-                let initial = settings.preset();
+                let mut initial = settings.preset();
+                // BUG-033: the last run died while this preset had not rendered yet (libmpv aborts the process on
+                // some shaders): do not apply it again, turn it off for good and say why.
+                if let Some(bad) = take_crashed_preset(&backend.data_dir_display())
+                    && bad == initial
+                {
+                    tracing::warn!(preset = bad.id(), "the previous run crashed with this preset; turning it off");
+                    initial = ShaderPreset::Off;
+                    let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(ShaderPreset::Off));
+                    ui.commit_settings(&backend, s);
+                    notice.set(Some(tf("player.preset_crashed", &[("preset", &t(&format!("preset.{}", bad.id())))])));
+                }
                 // Our presets are an Embedded-only feature: mpv-anime-build brings its own shaders.
                 if initial != ShaderPreset::Off && !*enhanced.peek() {
-                    choose_preset(&backend, p.clone(), initial, notice, || {});
+                    let saver = backend.clone();
+                    // A saved preset this renderer refuses (BUG-033) is reset in the settings, so it is not tried
+                    // again on every episode.
+                    choose_preset(&backend, p.clone(), initial, notice, || {}, move || {
+                        let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(ShaderPreset::Off));
+                        ui.commit_settings(&saver, s);
+                    });
                 }
                 // Manual mode without a pick: `to_resolve` is None, so this returns without network.
                 spawn(ctx.clone().drive(None));
@@ -464,6 +481,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                             // mpv reports per frame; the UI needs a few updates per second.
                             if (pos - last_pos).abs() >= 0.25 {
                                 last_pos = pos;
+                                preset_guard_tick(pos);
                                 dispatch(&mut pstate, PlayerAction::Position(pos));
                                 ctx.track_fraction(pstate.peek().fraction());
                                 // A single-file torrent preloads the next episode's best torrent at 80 % (a batch
@@ -758,6 +776,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         let external = external.clone();
         let (backend, tslot) = (backend.clone(), tslot.clone());
         move || {
+            // The preset did not crash the player while it was open (BUG-033 guard).
+            disarm_preset_guard();
             // An external session never outlives its screen.
             external.set(None);
             // Leaving the player ends its torrent session (after-watch policy), unless the torrent was handed on.
@@ -838,7 +858,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                             preset.set(next);
                             let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(next));
                             ui.commit_settings(&saver, s);
-                        });
+                        }, move || preset.set(ShaderPreset::Off));
                     }
                 }
                 // Wave A (worker e): the rest of the rebindable player actions (docs/redesign/15 section 4).
@@ -1485,7 +1505,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                                 preset.set(next);
                                 let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(next));
                                 ui.commit_settings(&saver, s);
-                            });
+                            }, move || preset.set(ShaderPreset::Off));
                         }
                     }
                 },

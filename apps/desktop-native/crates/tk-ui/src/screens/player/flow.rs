@@ -134,17 +134,27 @@ pub(super) fn remember_pick(backend: &BackendRef, id: &str, episode: u32, source
 }
 
 /// Applies `next`; when its shader files are missing (development build, fresh Linux install) downloads them once
-/// through `Backend::fetch_shaders` and tries again. `on_active` runs when the preset is finally active.
+/// through `Backend::fetch_shaders` and tries again. `on_active` runs when the preset is finally active (callers
+/// persist the choice there, so a preset that is refused or never renders is never saved). `on_refused` runs when
+/// the renderer cannot take the preset (BUG-033): the player falls back to Off and says why.
 pub(super) fn choose_preset(
     backend: &BackendRef,
     p: Arc<Player>,
     next: ShaderPreset,
     mut notice: Signal<Option<String>>,
     on_active: impl FnOnce() + 'static,
+    on_refused: impl FnOnce() + 'static,
 ) {
+    if !p.supports_preset(next) {
+        refuse_preset(&p, next, &mut notice);
+        on_refused();
+        return;
+    }
+    let data_dir = backend.data_dir_display();
     match p.set_shader_preset(next) {
         Ok(()) => {
             notice.set(None);
+            arm_preset_guard(&data_dir, next);
             on_active();
         }
         Err(PlayerError::ShadersMissing(_) | PlayerError::NoShadersDir) => {
@@ -154,6 +164,7 @@ pub(super) fn choose_preset(
                 match backend.fetch_shaders().await {
                     Ok(_) => {
                         if apply_preset(&p, next, &mut notice) {
+                            arm_preset_guard(&data_dir, next);
                             on_active();
                         }
                     }
@@ -161,8 +172,20 @@ pub(super) fn choose_preset(
                 }
             });
         }
+        Err(PlayerError::PresetUnsupported(_)) => {
+            refuse_preset(&p, next, &mut notice);
+            on_refused();
+        }
         Err(e) => tracing::warn!(error = %e, "changing the shader preset failed"),
     }
+}
+
+/// BUG-033: the renderer refused `preset`; go back to no preset and explain it.
+fn refuse_preset(p: &Player, preset: ShaderPreset, notice: &mut Signal<Option<String>>) {
+    tracing::warn!(preset = preset.id(), "preset not supported by the embedded renderer; falling back to Off");
+    let _ = p.set_shader_preset(ShaderPreset::Off);
+    disarm_preset_guard();
+    notice.set(Some(tf("player.preset_unsupported", &[("preset", &t(&format!("preset.{}", preset.id())))])));
 }
 
 /// Returns whether the preset is now active.
@@ -181,6 +204,73 @@ pub(super) fn apply_preset(p: &Player, preset: ShaderPreset, notice: &mut Signal
             false
         }
     }
+}
+
+// --- BUG-033 crash guard ---------------------------------------------------------------------------------------
+// A shader that kills mpv takes the whole app with it (libmpv is in-process), and a saved preset would crash every
+// later playback. While a preset has not yet rendered a few seconds of video, `<data>/preset-guard` holds its id;
+// the next player start finds the file, turns the preset off and says so.
+
+const GUARD_FILE: &str = "preset-guard";
+/// Seconds of playback a preset must survive before it counts as safe.
+const GUARD_SAFE_SECS: f64 = 5.0;
+
+/// (guard file, first playback position seen after arming).
+static PRESET_GUARD: std::sync::Mutex<Option<(PathBuf, Option<f64>)>> = std::sync::Mutex::new(None);
+
+fn guard_path(data_dir: &str) -> Option<PathBuf> {
+    (!data_dir.trim().is_empty()).then(|| std::path::Path::new(data_dir).join(GUARD_FILE))
+}
+
+pub(super) fn arm_preset_guard(data_dir: &str, preset: ShaderPreset) {
+    if preset == ShaderPreset::Off {
+        disarm_preset_guard();
+        return;
+    }
+    let Some(path) = guard_path(data_dir) else { return };
+    if let Err(e) = std::fs::write(&path, preset.id()) {
+        tracing::warn!(error = %e, "writing the preset guard failed");
+        return;
+    }
+    if let Ok(mut g) = PRESET_GUARD.lock() {
+        *g = Some((path, None));
+    }
+}
+
+/// The preset is gone or proved safe: forget the guard.
+pub(super) fn disarm_preset_guard() {
+    if let Ok(mut g) = PRESET_GUARD.lock()
+        && let Some((path, _)) = g.take()
+    {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Called with every playback position: once the armed preset rendered [`GUARD_SAFE_SECS`], the guard is removed.
+pub(super) fn preset_guard_tick(pos: f64) {
+    let safe = {
+        let Ok(mut g) = PRESET_GUARD.lock() else { return };
+        let Some((_, start)) = g.as_mut() else { return };
+        match *start {
+            // A seek backwards restarts the count.
+            Some(s) if pos >= s => pos - s >= GUARD_SAFE_SECS,
+            _ => {
+                *start = Some(pos);
+                false
+            }
+        }
+    };
+    if safe {
+        disarm_preset_guard();
+    }
+}
+
+/// The preset the previous run was trying when it died, if any (the guard file is consumed).
+pub(super) fn take_crashed_preset(data_dir: &str) -> Option<ShaderPreset> {
+    let path = guard_path(data_dir)?;
+    let id = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    ShaderPreset::from_id(id.trim())
 }
 
 /// Old `Backend::playback` streams as flow sources (index i = `vm.streams[i]`).
@@ -621,5 +711,37 @@ impl Flow {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod preset_guard_tests {
+    use super::*;
+
+    #[test]
+    fn a_crash_before_the_preset_renders_is_remembered_and_a_survivor_is_forgotten() {
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().to_string_lossy().into_owned();
+        // Armed and the process "dies": the next start finds the preset once.
+        arm_preset_guard(&data, ShaderPreset::ArtCnn);
+        if let Ok(mut g) = PRESET_GUARD.lock() {
+            *g = None; // what a restart leaves: only the file
+        }
+        assert_eq!(take_crashed_preset(&data), Some(ShaderPreset::ArtCnn));
+        assert_eq!(take_crashed_preset(&data), None);
+        // Armed, then plays GUARD_SAFE_SECS: the file is gone.
+        arm_preset_guard(&data, ShaderPreset::Fsr);
+        preset_guard_tick(100.0);
+        preset_guard_tick(102.0);
+        assert!(dir.path().join(GUARD_FILE).is_file(), "2 s is not enough");
+        preset_guard_tick(90.0); // seek back restarts the count
+        preset_guard_tick(94.0);
+        assert!(dir.path().join(GUARD_FILE).is_file());
+        preset_guard_tick(95.5);
+        assert!(!dir.path().join(GUARD_FILE).exists());
+        assert_eq!(take_crashed_preset(&data), None);
+        // No data dir: nothing is written, nothing panics.
+        arm_preset_guard("", ShaderPreset::Fsr);
+        assert_eq!(take_crashed_preset(""), None);
     }
 }

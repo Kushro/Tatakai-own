@@ -139,6 +139,8 @@
   "player.discord.paused_small": "En pausa",
   "player.shaders_fetch_failed": "Faltan los shaders de escalado y no se pudieron descargar: {detail}",
   "player.shaders_fetching": "Descargando los shaders de escalado (cerca de 1 MB, verificados)…",
+  "player.preset_unsupported": "{preset} no funciona en el reproductor Integrado de Linux (cierra la app): se quitó el preajuste. Úsalo con la generación de cuadros o el mpv externo.",
+  "player.preset_crashed": "La última vez el reproductor se cerró con {preset}: se desactivó ese preajuste. Puedes elegir otro en Mejorar.",
   "player.anime4k_hq": "Anime4K alta calidad",
   "player.anime4k_hq_hint": "VL",
   "player.deband": "Quitar bandas",

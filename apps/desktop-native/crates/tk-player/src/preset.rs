@@ -101,6 +101,14 @@ impl ShaderPreset {
         matches!(self, Self::Anime4kA | Self::Anime4kAA | Self::Anime4kB | Self::Anime4kC | Self::Anime4kBB | Self::Anime4kCA)
     }
 
+    /// Whether the preset needs mpv's libplacebo renderer (`vo=gpu-next`). The embedded Linux player renders through
+    /// the libmpv render API, which is mpv's older `gpu` renderer: `Ani4Kv2_ArtCNN_C4F32_i2` binds more textures per
+    /// pass than that renderer's fixed array and mpv aborts the whole process (`video.c` `copy_image` assertion,
+    /// BUG-033), so the preset must never reach it.
+    pub fn needs_gpu_next(self) -> bool {
+        matches!(self, Self::ArtCnn)
+    }
+
     /// Shader files, in application order, relative to the shaders directory.
     pub fn shader_files(self, quality: Anime4kQuality) -> Vec<String> {
         // Big (first) and small (second) networks of the chain: VL/M on High, M/S on Fast.
@@ -242,6 +250,12 @@ mod tests {
         let dir = std::env::temp_dir().join("tk-player-no-such-shader-dir");
         assert_eq!(ShaderPreset::Fsr.missing_files(&dir, F), vec!["FSR.glsl".to_owned()]);
         assert!(ShaderPreset::Off.missing_files(&dir, F).is_empty());
+    }
+
+    #[test]
+    fn only_artcnn_needs_gpu_next() {
+        let needing: Vec<_> = ShaderPreset::ALL.into_iter().filter(|p| p.needs_gpu_next()).collect();
+        assert_eq!(needing, [ShaderPreset::ArtCnn]);
     }
 
     #[test]

@@ -13,6 +13,10 @@ pub enum PlayerError {
     ShadersMissing(String),
     #[error("no shaders directory configured")]
     NoShadersDir,
+    /// The preset's shaders crash this renderer (BUG-033: ArtCNN aborts libmpv's `gpu` renderer in
+    /// `copy_image`); it is refused before mpv ever sees it.
+    #[error("the {0} preset is not supported by this video renderer")]
+    PresetUnsupported(&'static str),
     #[error("the player is unavailable in this build")]
     Unavailable,
     /// External mode: no mpv executable at the configured path nor on PATH.
