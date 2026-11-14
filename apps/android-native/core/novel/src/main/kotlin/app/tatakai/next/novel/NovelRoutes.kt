@@ -42,16 +42,21 @@ object NovelRoutes {
     }
 
     /** One source per provider that has chapters ("Toko · Wuxiaworld"), in the order the extension answered. */
-    fun sources(ref: CustomSourceRef, mediaKey: String, chapters: List<NovelChapter>): List<NovelSourceSummary> =
-        chapters.groupBy { it.sourceId }.map { (sourceId, list) ->
+    fun sources(ref: CustomSourceRef, mediaKey: String, chapters: List<NovelChapter>): List<NovelSourceSummary> {
+        val groups = chapters.groupBy { it.sourceId }.toList()
+        val translators = groups.map { (_, list) -> list.mapNotNull { it.translator?.trim()?.takeIf(String::isNotEmpty) }.distinct().singleOrNull() }
+        // BUG-123: "Toko · Atsu Novel" (no instance id); two of them become "… · Red" / "… · Red 2" (or "#2").
+        val names = MangaRoutes.distinctNames(groups.map { (sourceId, _) -> MangaRoutes.sourceName(ref.extensionName, providerOf(sourceId)) }, translators)
+        return groups.mapIndexed { i, (sourceId, list) ->
             NovelSourceSummary(
                 extensionId = ref.extensionId,
-                extensionName = MangaRoutes.sourceName(ref.extensionName, providerOf(sourceId)),
+                extensionName = names[i],
                 sourceId = sourceId,
                 itemId = mediaKey,
                 languages = list.mapNotNull { it.lang }.distinct().sorted(),
                 chapterCount = list.size,
-                translator = list.mapNotNull { it.translator }.distinct().singleOrNull(),
+                translator = translators[i],
             )
         }
+    }
 }

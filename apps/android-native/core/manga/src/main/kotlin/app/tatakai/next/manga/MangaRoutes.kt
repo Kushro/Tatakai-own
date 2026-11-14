@@ -45,16 +45,43 @@ object MangaRoutes {
         mediaKey: String,
         chapters: List<MangaChapter>,
         reliability: (sourceKey: String) -> Float?,
-    ): List<MangaChapterSource> = chapters.groupBy { it.sourceId }.map { (sourceId, list) ->
-        MangaChapterSource(
-            extensionId = ref.extensionId,
-            extensionName = sourceName(ref.extensionName, providerOf(sourceId)),
-            sourceId = sourceId,
-            itemId = mediaKey,
-            languages = ChapterLists.languages(list),
-            chapterCount = list.size,
-            reliability = reliability(sourceKey(ref.extensionId, sourceId)) ?: INITIAL_RELIABILITY,
+    ): List<MangaChapterSource> {
+        val groups = chapters.groupBy { it.sourceId }.toList()
+        val names = distinctNames(
+            groups.map { (sourceId, _) -> sourceName(ref.extensionName, providerOf(sourceId)) },
+            groups.map { (_, list) -> list.mapNotNull { it.group?.trim()?.takeIf(String::isNotEmpty) }.distinct().singleOrNull() },
         )
+        return groups.mapIndexed { i, (sourceId, list) ->
+            MangaChapterSource(
+                extensionId = ref.extensionId,
+                extensionName = names[i],
+                sourceId = sourceId,
+                itemId = mediaKey,
+                languages = ChapterLists.languages(list),
+                chapterCount = list.size,
+                reliability = reliability(sourceKey(ref.extensionId, sourceId)) ?: INITIAL_RELIABILITY,
+            )
+        }
+    }
+
+    /**
+     * BUG-123: two providers of one extension can share a name once the instance id is gone ("Toko · Atsu Novel" twice): they get
+     * their only group/translator ("Toko · Atsu Novel · Red") or, without one, a number ("Toko · Atsu Novel #2").
+     */
+    fun distinctNames(names: List<String>, extras: List<String?>): List<String> {
+        val counts = names.groupingBy { it }.eachCount()
+        val withExtra = names.mapIndexed { i, n ->
+            val extra = extras.getOrNull(i)
+            if (counts.getValue(n) > 1 && extra != null) "$n · $extra" else n
+        }
+        val seen = HashMap<String, Int>()
+        val again = withExtra.groupingBy { it }.eachCount()
+        return withExtra.map { n ->
+            if (again.getValue(n) < 2) n else {
+                val k = seen.merge(n, 1, Int::plus)!!
+                if (k == 1) n else "$n #$k"
+            }
+        }
     }
 
     /** "Toko · MangaDex", "Toko · eidos · MangaDex" (the PC's copy), like the anime sources. */
@@ -63,9 +90,12 @@ object MangaRoutes {
         return if (label.equals(extensionName, ignoreCase = true)) extensionName else "$extensionName · $label"
     }
 
-    /** Display name of an inner provider id (`mangadex` -> MangaDex); unknown ids are capitalized. */
+    /**
+     * Display name of an inner provider id (`mangadex` -> MangaDex); unknown ids are capitalized. BUG-123: Toko names some providers
+     * `atsu@<instance id>`: the instance id is not part of the name ("Atsu"), as on the desktop (BUG-119).
+     */
     fun providerLabel(provider: String): String {
-        val id = provider.trim()
+        val id = provider.trim().substringBefore('@').trim()
         KNOWN[id.lowercase(Locale.ROOT)]?.let { return it }
         return id.split('-', '_', ' ').filter { it.isNotEmpty() }
             .joinToString(" ") { part -> part.replaceFirstChar { c -> c.titlecase(Locale.ROOT) } }
@@ -80,6 +110,7 @@ object MangaRoutes {
         "weebcentral" to "Weeb Central",
         "nelomanga" to "NeloManga",
         "atsu" to "Atsu",
+        "atsu-novel" to "Atsu Novel",
         "webtoons" to "Webtoons",
         "demonicscans" to "Demonic Scans",
         "toongod" to "ToonGod",

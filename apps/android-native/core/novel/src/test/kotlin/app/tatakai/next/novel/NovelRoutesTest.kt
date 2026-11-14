@@ -42,4 +42,19 @@ class NovelRoutesTest {
         )
         assertEquals(listOf("Overlord"), NovelRoutes.searchTitles("Overlord", null, "Overlord", null, emptyList()))
     }
+
+    /** BUG-123: "Toko · Atsu Novel@cmt4…" twice → "Toko · Atsu Novel · Red" / "… · Red 2" (the group tells them apart). */
+    @Test
+    fun twoAtsuNovelSourcesAreNamedByTheirGroup() {
+        val toko = CustomSourceRef("tatakai.extension.toko", "Toko", NOVEL_ROUTE_SOURCE, "novel", "Toko")
+        val chapters = NovelRoutes.chapters(
+            toko.extensionId, "85470",
+            listOf(
+                MangaRouteChapter("atsu-novel@cmt4ng1ye0001j7odsjhaatbz", "x:1", number = 1.0, lang = "en", group = "Red"),
+                MangaRouteChapter("atsu-novel@cmt4ssu9w0000csodgkdy427f", "y:1", number = 1.0, lang = "en", group = "Red 2"),
+            ),
+        )
+        val sources = NovelRoutes.sources(toko, "85470", chapters)
+        assertEquals(listOf("Toko · Atsu Novel · Red", "Toko · Atsu Novel · Red 2"), sources.map { it.extensionName })
+    }
 }

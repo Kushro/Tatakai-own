@@ -36,4 +36,24 @@ class MangaRoutesTest {
         assertEquals("Toko · eidos · Weeb Central", MangaRoutes.sourceName("Toko · eidos", "weebcentral"))
         assertEquals("Atsu Comix", MangaRoutes.providerLabel("atsu-comix"))
     }
+
+    /** BUG-123: Toko's `atsu@<instance id>` is "Toko · Atsu" (desktop BUG-119), and two providers never share one name. */
+    @Test
+    fun providerNamesDropTheInstanceIdAndStayDistinct() {
+        assertEquals("Atsu", MangaRoutes.providerLabel("atsu@cmgzlk0s6cqkzm1911f0j0u41"))
+        assertEquals("Atsu Novel", MangaRoutes.providerLabel("atsu-novel@cmt4ng1ye0001j7odsjhaatbz"))
+        assertEquals("Atsu Novel", MangaRoutes.providerLabel("Atsu Novel@cmt4ssu9w0000csodgkdy427f"))
+        val chapters = MangaRoutes.chapters(
+            toko.extensionId, "105778",
+            listOf(
+                MangaRouteChapter("atsu@cmgzlk0s6", "a:1", number = 1.0, lang = "en"),
+                MangaRouteChapter("atsu@zzz9", "b:1", number = 1.0, lang = "en"),
+                MangaRouteChapter("mangadex", "c:1", number = 1.0, lang = "en"),
+            ),
+        )
+        val names = MangaRoutes.sources(toko, "105778", chapters) { null }.map { it.extensionName }
+        assertEquals(listOf("Toko · Atsu", "Toko · Atsu #2", "Toko · MangaDex"), names)
+        assertTrue(names.none { '@' in it })
+        assertEquals(listOf("A · Red", "A · Red 2", "B"), MangaRoutes.distinctNames(listOf("A", "A", "B"), listOf("Red", "Red 2", null)))
+    }
 }
