@@ -65,6 +65,7 @@ pub const ROUTES: &[(&str, &str)] = &[
     ("GET", "/extensions"),
     ("POST", "/extensions"),
     ("DELETE", "/extensions/{id}"),
+    ("GET", "/extensions/{id}/package"),
     ("GET", "/repositories"),
     ("POST", "/repositories"),
     ("GET", "/sources"),
@@ -501,10 +502,74 @@ async fn list_extensions(State(st): State<AppState>, headers: HeaderMap) -> Resu
                 "priority": m.as_ref().and_then(|m| m.priority).unwrap_or(0.0),
                 "capabilities": m.as_ref().map(|m| m.capabilities.clone()).unwrap_or_default(),
                 "languages": [], "hasPreferences": false, "runtime": "interpreter", "sources": sources,
+                // BUG-055: lets the phone tell whether its copy is the PC's (additive column)
+                "bundleSha256": bundle_sha256(&st, &e.id),
             })
         })
         .collect();
     Ok(ok(rows))
+}
+
+/// `manifest.json` and `bundle.js` of the installed extension `id`, byte for byte (BUG-055). `None` = not installed
+/// (`id` must be one of the installed ids: never a path from the request) or unreadable / over the `.kai` limits.
+fn installed_files(st: &AppState, id: &str) -> Option<(Vec<u8>, Vec<u8>)> {
+    if !st.ext.list().iter().any(|e| e.id == id) {
+        return None;
+    }
+    let dir = st.ext.root().join(id);
+    let read = |name: &str, max: u64| {
+        let path = dir.join(name);
+        (std::fs::metadata(&path).ok()?.len() <= max).then(|| std::fs::read(&path).ok()).flatten()
+    };
+    Some((read("manifest.json", 1024 * 1024)?, read("bundle.js", tk_ext::package::MAX_BUNDLE_BYTES)?))
+}
+
+fn sha256_hex(data: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// SHA-256 (hex) of the installed `bundle.js` of `id`, for the `bundleSha256` column of `GET /extensions`.
+fn bundle_sha256(st: &AppState, id: &str) -> Option<String> {
+    let path = st.ext.root().join(id).join("bundle.js");
+    (std::fs::metadata(&path).ok()?.len() <= tk_ext::package::MAX_BUNDLE_BYTES).then(|| std::fs::read(&path).ok().map(|b| sha256_hex(&b))).flatten()
+}
+
+/// A `.kai` (ZIP) with exactly `manifest.json` and `bundle.js`.
+fn kai_zip(manifest: &[u8], bundle: &[u8]) -> std::io::Result<Vec<u8>> {
+    use std::io::Write;
+    let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for (name, data) in [("manifest.json", manifest), ("bundle.js", bundle)] {
+        w.start_file(name, opts).map_err(std::io::Error::other)?;
+        w.write_all(data)?;
+    }
+    Ok(w.finish().map_err(std::io::Error::other)?.into_inner())
+}
+
+/// `GET /extensions/{id}/package` viewer (BUG-055): the installed extension as a `.kai`, so a phone without
+/// repositories can update from the PC. `X-Tatakai-Bundle-Sha256` = SHA-256 of its `bundle.js`.
+async fn extension_package(State(st): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> Result<Response, Failure> {
+    authorize(&st, &headers, false)?;
+    let st2 = st.clone();
+    let id2 = id.clone();
+    let files = tokio::task::spawn_blocking(move || installed_files(&st2, &id2)).await.map_err(|_| Failure::from(ApiError::Internal))?;
+    let (manifest, bundle) = files.ok_or_else(|| Failure::new(StatusCode::NOT_FOUND, "extension_not_found"))?;
+    let sha = sha256_hex(&bundle);
+    let zip = kai_zip(&manifest, &bundle).map_err(|_| Failure::from(ApiError::Internal))?;
+    st.log("extension_package", Some("/extensions"), Some(id.clone()), None, None, None);
+    let mut r = Response::new(Body::from(zip));
+    let h = r.headers_mut();
+    h.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/zip"));
+    // `id` is an installed id (validated at install time); quoted anyway
+    let disposition = format!("attachment; filename=\"{}.kai\"", id.replace(['"', '\\', '\r', '\n'], "_"));
+    if let Ok(v) = HeaderValue::from_str(&disposition) {
+        h.insert(header::CONTENT_DISPOSITION, v);
+    }
+    if let Ok(v) = HeaderValue::from_str(&sha) {
+        h.insert("x-tatakai-bundle-sha256", v);
+    }
+    Ok(r)
 }
 
 async fn install_extension(State(st): State<AppState>, headers: HeaderMap, body: Bytes) -> Result<Response, Failure> {
@@ -1145,6 +1210,7 @@ pub fn router(state: AppState) -> Router {
         .route(&p("/settings"), get(get_settings).post(post_settings))
         .route(&p("/extensions"), get(list_extensions).post(install_extension))
         .route(&p("/extensions/{id}"), delete(remove_extension))
+        .route(&p("/extensions/{id}/package"), get(extension_package))
         .route(&p("/repositories"), get(list_repositories).post(add_repository))
         .route(&p("/sources"), get(sources))
         .route(&p("/invoke"), post(invoke))
@@ -1174,7 +1240,7 @@ mod tests {
             assert!(seen.insert(*r), "duplicate route {r:?}");
         }
         assert!(super::ROUTES.contains(&("POST", "/invoke")));
-        assert_eq!(super::ROUTES.len(), 28);
+        assert_eq!(super::ROUTES.len(), 29);
     }
 
     #[test]

@@ -7682,6 +7682,7 @@ dependencies = [
  "tracing",
  "url",
  "uuid 1.29.0",
+ "zip",
 ]
 
 [[package]]
