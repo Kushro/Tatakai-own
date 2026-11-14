@@ -388,7 +388,8 @@ pub fn TrackShowButton(media_id: String) -> Element {
                 label: if tracked { t("home.track.following") } else { t("home.track.follow") },
                 variant: if tracked { ButtonVariant::Tonal } else { ButtonVariant::Outlined },
                 size: ButtonSize::Md,
-                icon: if tracked { "check".to_string() } else { "calendar".to_string() },
+                // Same as Android (FIX-A2): a bell, since following means airing reminders; the bookmark is the list.
+                icon: if tracked { "bell-active".to_string() } else { "bell-plus".to_string() },
                 disabled: busy() || loading,
                 onclick,
             }

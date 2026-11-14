@@ -67,6 +67,9 @@ fn glyph(name: &str) -> Option<(&'static str, bool)> {
         "external" => ("M14 4h6v6M20 4l-9 9M18 14v6H4V6h6", false),
         "clock" => ("M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2", false),
         "calendar" => ("M4 6h16v14H4zM4 10h16M8 3v4M16 3v4", false),
+        // Material NotificationAdd / NotificationsActive: "Follow" (airing reminders), as on Android (BUG-064).
+        "bell-plus" => ("M5 17v-5a6 6 0 0 1 9-5.2M19 12v5l1.5 1.5h-17L5 17M10 21a2 2 0 0 0 4 0M18 2v6M15 5h6", false),
+        "bell-active" => ("M6 17v-5a6 6 0 0 1 12 0v5l1.5 1.5h-15L6 17M10 21a2 2 0 0 0 4 0M3 9a9 9 0 0 1 3-6M21 9a9 9 0 0 0-3-6", false),
         "bookmark" => ("M6 3h12v18l-6-4-6 4z", false),
         "bookmark-filled" => ("M6 3h12v18l-6-4-6 4z", true),
         "grid" => ("M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z", false),
@@ -142,6 +145,7 @@ mod tests {
         }
         assert!(glyph("magnet").is_some());
         assert!(glyph("hub").is_some());
+        assert!(glyph("bell-plus").is_some() && glyph("bell-active").is_some());
         for n in ["minus", "heart", "heart-filled", "bookmark-filled"] {
             assert!(glyph(n).is_some(), "{n}");
         }

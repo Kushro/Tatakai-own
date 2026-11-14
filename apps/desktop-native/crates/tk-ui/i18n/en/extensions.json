@@ -60,7 +60,7 @@
   "extserver.sources.empty": "This server offers no sources yet.",
   "extserver.sources.disabled": "Disabled on the server",
   "extserver.sources.unavailable": "Unavailable",
-  "extserver.kind.watch": "Watch",
+  "extserver.kind.watch": "Anime",
   "extserver.kind.read": "Manga",
   "extserver.kind.novel": "Novels",
   "extserver.remove.title": "Remove this server?",
