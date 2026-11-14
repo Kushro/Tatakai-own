@@ -63,7 +63,7 @@ internal object HlsPrefetch {
     private fun isLocalPath(url: String): Boolean = url.startsWith("/") || url.startsWith("file://")
 
     /** What a filtered master and its nested playlists, keys and segments need (the PC's proxy is http, CDNs are https). */
-    const val LOCAL_MASTER_PROTOCOLS = "file,http,https,tcp,tls,crypto,data"
+    const val LOCAL_MASTER_PROTOCOLS = "file,http,https,tcp,tls,crypto,data,httpproxy"
 
     private const val FETCH_TIMEOUT_S = 8L
 }

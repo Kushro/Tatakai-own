@@ -13,8 +13,8 @@ class HlsPrefetchOptionsTest {
     fun theFilteredLocalMasterIsOpenedWithTheNetworkProtocolsAllowed() {
         // BUG-080: FFmpeg's default for a local master is "file,crypto,data" and it refused the master's http playlists.
         val local = "/data/user/0/app.tatakai.next/cache/mpv-hls/master-123.m3u8"
-        assertEquals("protocol_whitelist=[file,http,https,tcp,tls,crypto,data]", HlsPrefetch.lavfOptions(local, pcUrl))
-        assertEquals("protocol_whitelist=[file,http,https,tcp,tls,crypto,data]", HlsPrefetch.lavfOptions("file://$local", pcUrl))
+        assertEquals("protocol_whitelist=[file,http,https,tcp,tls,crypto,data,httpproxy]", HlsPrefetch.lavfOptions(local, pcUrl))
+        assertEquals("protocol_whitelist=[file,http,https,tcp,tls,crypto,data,httpproxy]", HlsPrefetch.lavfOptions("file://$local", pcUrl))
     }
 
     @Test
