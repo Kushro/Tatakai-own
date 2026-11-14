@@ -517,6 +517,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 {
                     tracing::warn!(preset = bad.id(), "the previous run crashed with this preset; turning it off");
                     initial = ShaderPreset::Off;
+                    preset.set(ShaderPreset::Off);
                     let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(ShaderPreset::Off));
                     ui.commit_settings(&backend, s);
                     notice.set(Some(tf("player.preset_crashed", &[("preset", &t(&format!("preset.{}", bad.id())))])));
@@ -527,6 +528,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     // A saved preset this renderer refuses (BUG-033) is reset in the settings, so it is not tried
                     // again on every episode.
                     choose_preset(&backend, p.clone(), initial, notice, || {}, move || {
+                        // BUG-050: the header pill follows the preset that actually runs (none).
+                        preset.set(ShaderPreset::Off);
                         let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(ShaderPreset::Off));
                         ui.commit_settings(&saver, s);
                     });
