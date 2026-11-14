@@ -1,7 +1,7 @@
 // Tatakai native extension host - bundle loader and route dispatcher (routes.v1.json). Evaluated after prelude.js.
 (function (G) {
   'use strict';
-  const state = { instance: null, manifest: null, cache: new Map(), result: null, preferences: Object.freeze({}) };
+  const state = { instance: null, manifest: null, cache: new Map(), result: null, mark: null, preferences: Object.freeze({}) };
 
   // Wave B (ext.preferences): values the user set in Extensions > Preferences, as strings ("true"/"false" for
   // toggles). Set by the host right before the bundle loads; a change rebuilds the runtime.
@@ -230,6 +230,7 @@
   // kind: 'route' | 'method'; payload: JSON ({route params} object, or args array for 'method')
   G.__tk_dispatch = function (kind, name, payloadJson) {
     state.result = null;
+    state.mark = G.__tk_mark();
     let p;
     try {
       p = Promise.resolve().then(() => {
@@ -252,7 +253,9 @@
       let env;
       try { env = JSON.stringify(state.result); } catch (e) { env = JSON.stringify({ ok: false, status: 502, message: 'result is not JSON serialisable' }); }
       state.result = null;
-      return JSON.stringify({ done: true, envelope: env });
+      const abandoned = state.mark ? G.__tk_abandon(state.mark) : 0;
+      state.mark = null;
+      return JSON.stringify({ done: true, envelope: env, abandoned });
     }
     return JSON.stringify({ done: false, timer: G.__tk_next_timer(), fetches: G.__tk_pending_fetches(), browsers: G.__tk_pending_browser() });
   };

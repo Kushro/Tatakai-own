@@ -1277,6 +1277,9 @@ impl Backend for LiveBackend {
     async fn manga_home(&self) -> UiResult<ReadHomeVm> {
         manga::home(self).await
     }
+    async fn manga_followed_updates(&self) -> UiResult<Vec<MediaVm>> {
+        manga::followed_updates(self).await
+    }
     async fn manga_search(&self, q: &SearchQueryVm) -> UiResult<SearchPageVm> {
         manga::search(self, q).await
     }

@@ -210,6 +210,7 @@ fn Discover(on_genre: EventHandler<String>) -> Element {
         None => rsx! {
             section { class: "tk-section", "aria-busy": "true",
                 div { class: "tk-skel tk-skel--hero", "aria-hidden": "true" }
+                SlowHint {}
             }
             section { class: "tk-section", "aria-busy": "true", SkeletonRow { count: 8 } }
             section { class: "tk-section", "aria-busy": "true", SkeletonRow { count: 8 } }
@@ -239,6 +240,7 @@ fn DiscoverContent(vm: ReadHomeVm, on_retry: EventHandler<()>, on_genre: EventHa
         .unwrap_or_default();
     let hero_key = hero.iter().map(|m| m.id.as_str()).collect::<Vec<_>>().join(",");
     let rows: Vec<SectionVm> = vm.sections.iter().skip(usize::from(!hero.is_empty())).cloned().collect();
+    let split = usize::from(hero.is_empty()).min(rows.len());
     let nothing = hero.is_empty() && vm.continue_reading.is_empty() && rows.iter().all(|s| matches!(&s.items, Ok(i) if i.is_empty()));
     if nothing {
         return rsx! {
@@ -278,7 +280,12 @@ fn DiscoverContent(vm: ReadHomeVm, on_retry: EventHandler<()>, on_genre: EventHa
                 }
             }
         }
-        for s in rows {
+        for s in rows[..split].iter().cloned() {
+            FeedRow { key: "{s.title_key}", section: s.clone(), on_retry }
+        }
+        // The trending row stays first (the hero takes it); followed updates come right after it.
+        FollowedUpdates {}
+        for s in rows[split..].iter().cloned() {
             FeedRow { key: "{s.title_key}", section: s.clone(), on_retry }
         }
         section { class: "tk-section", "data-genres": "{GENRES.len()}",
@@ -353,6 +360,78 @@ fn FeedRow(section: SectionVm, on_retry: EventHandler<()>) -> Element {
                 if id == "updates" {
                     span { class: "tk-muted tk-manga__hint", {t("manga.feed.updates_hint")} }
                 }
+            }
+            {body}
+        }
+    }
+}
+
+/// Seconds of skeleton before [`SlowHint`] says the screen is still loading, and before it says it takes long.
+const SLOW_HINT_SECS: [u64; 2] = [6, 20];
+
+/// Text of [`SlowHint`] after `elapsed` seconds of loading (`None`: nothing yet). Pure.
+fn slow_hint_key(elapsed: u64) -> Option<&'static str> {
+    if elapsed >= SLOW_HINT_SECS[1] {
+        Some("manga.home.still_loading_slow")
+    } else if elapsed >= SLOW_HINT_SECS[0] {
+        Some("manga.home.still_loading")
+    } else {
+        None
+    }
+}
+
+/// BUG-121: a skeleton that lasts says so ("Sigue cargando…", then that the catalogs are slow); a failure replaces
+/// it with `ErrorState` and its reason.
+#[component]
+fn SlowHint() -> Element {
+    let mut elapsed = use_signal(|| 0_u64);
+    use_future(move || async move {
+        for secs in SLOW_HINT_SECS {
+            let wait = secs.saturating_sub(*elapsed.peek());
+            tokio::time::sleep(Duration::from_secs(wait)).await;
+            elapsed.set(secs);
+        }
+    });
+    let Some(key) = slow_hint_key(elapsed()) else { return rsx! {} };
+    rsx! {
+        p { class: "tk-muted tk-manga__slow", role: "status", "aria-live": "polite", "data-slow": "{elapsed}", {t(key)} }
+    }
+}
+
+/// "New chapters from your manga" (`manga.home.followed-updates`), loaded on its own (BUG-121): it asks every
+/// provider of every followed title, so the rest of Discover no longer waits for it. Hidden when nothing is new.
+#[component]
+fn FollowedUpdates() -> Element {
+    let services = use_context::<Services>();
+    let backend = services.backend.clone();
+    let mut updates = use_resource(move || {
+        let backend = backend.clone();
+        async move { backend.manga_followed_updates().await }
+    });
+    let body = match &*updates.read() {
+        None => rsx! {
+            p { class: "tk-muted tk-manga__slow", role: "status", "aria-live": "polite", {t("manga.feed.updates_loading")} }
+            SkeletonRow { count: 4 }
+        },
+        Some(Ok(list)) if list.is_empty() => return rsx! {},
+        Some(Err(e)) if e.kind == crate::model::ErrorKind::NotWired => return rsx! {},
+        Some(Err(e)) => rsx! {
+            ErrorState { error: e.clone(), compact: true, on_retry: move |_| updates.restart() }
+        },
+        Some(Ok(list)) => rsx! {
+            div { class: "tk-row",
+                for m in list.clone() {
+                    MangaCardItem { key: "{m.id}", media: m.clone(), sub: m.subtitle.clone() }
+                }
+            }
+        },
+    };
+    let busy = updates.read().is_none();
+    rsx! {
+        section { class: "tk-section", "data-row": "updates", "aria-busy": "{busy}",
+            div { class: "tk-section__head",
+                h2 { class: "tk-section__title", {t("manga.feed.updates")} }
+                span { class: "tk-muted tk-manga__hint", {t("manga.feed.updates_hint")} }
             }
             {body}
         }
@@ -675,6 +754,11 @@ mod tests {
         assert_eq!(g.genres, vec!["Drama".to_owned()]);
         assert!(g.toggled_genre("Drama").genres.is_empty());
         assert_eq!(feed_id("manga.feed.updates"), "updates");
+        // BUG-121: a lasting skeleton says it is still loading, then that it takes long.
+        assert_eq!(slow_hint_key(0), None);
+        assert_eq!(slow_hint_key(5), None);
+        assert_eq!(slow_hint_key(6), Some("manga.home.still_loading"));
+        assert_eq!(slow_hint_key(25), Some("manga.home.still_loading_slow"));
         assert!(current_year() >= 2024);
     }
 }

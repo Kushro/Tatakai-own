@@ -6,6 +6,7 @@
 .tk-manga__search { flex: 1 1 280px; max-width: 520px; }
 .tk-manga__genres { flex-wrap: wrap; }
 .tk-manga__hint { font-size: var(--md-sys-typescale-body-small-size); }
+.tk-manga__slow { margin: 8px 0 0; font-size: var(--md-sys-typescale-body-medium-size); }
 .tk-manga__count { margin: 0 0 var(--tk-space-8); }
 .tk-manga-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--tk-space-16); }
 .tk-manga-grid .tk-card { width: auto; }

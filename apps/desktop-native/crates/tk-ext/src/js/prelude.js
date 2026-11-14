@@ -753,12 +753,27 @@
   });
   G.__tk_browser_done = (seq, json) => {
     const p = browserPending.get(seq);
-    if (!p) return;
+    if (!p) return false;
     browserPending.delete(seq);
     const r = JSON.parse(json);
     if (r.ok) p.resolve(r.value === undefined ? null : r.value); else p.reject(new Error(r.error));
+    return true;
   };
   G.__tk_pending_browser = () => browserPending.size;
+
+  // ---- end of a call (BUG-121): work the bundle abandoned (providers it gave up on) stops here --------------------
+  // __tk_mark is taken when a call starts; once its answer is known, __tk_abandon drops the timers, fetches and
+  // browser operations started since then. Their promises never settle, so the abandoned code stays parked (and is
+  // collected) instead of running inside the next calls of this single-threaded runtime. Timers set while loading
+  // the bundle (before any call) are kept.
+  G.__tk_mark = () => ({ timer: timerSeq, fetch: fetchSeq, browser: browserSeq });
+  G.__tk_abandon = (m) => {
+    let dropped = 0;
+    for (const id of [...timers.keys()]) if (id > m.timer) { timers.delete(id); dropped++; }
+    for (const id of [...pending.keys()]) if (id > m.fetch) { pending.delete(id); dropped++; }
+    for (const seq of [...browserPending.keys()]) if (seq > m.browser) { browserPending.delete(seq); dropped++; }
+    return dropped;
+  };
   G.__tk_browser_runtime = function () {
     if (typeof G.__host_browser_start !== 'function') return null;
     let domains;

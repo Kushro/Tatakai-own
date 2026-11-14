@@ -71,6 +71,8 @@ const ENRICH_TIMEOUT: Duration = Duration::from_secs(8);
 const PUSH_BUDGET: Duration = Duration::from_secs(4);
 /// Titles the followed-updates row checks.
 const FOLLOWED_LIMIT: usize = 8;
+/// How long "New chapters from your manga" waits for the followed titles' providers (BUG-121).
+const FOLLOWED_BUDGET: Duration = Duration::from_secs(30);
 /// A queued list op that keeps failing for a non-network reason is dropped after this many attempts.
 const MAX_ATTEMPTS: u32 = 5;
 /// Cards per home row / search page.
@@ -427,27 +429,12 @@ pub async fn home(b: &LiveBackend) -> UiResult<ReadHomeVm> {
         .collect();
     ensure_pulled(b).await;
     let continue_reading = with_list_items(b, ReadKindVm::Manga, continue_reading, 20);
-    let rows = home_rows();
-    let mut sections = Vec::with_capacity(rows.len() + 1);
-    let followed = followed_updates(b);
-    let (updates, mut feeds) = tokio::join!(followed, async {
-        let mut out = Vec::new();
-        for (id, q) in rows {
-            out.push(home_row(b, id, q).await);
-        }
-        out
-    });
-    // The trending row stays first (the hero takes it); followed updates come right after it.
-    if !feeds.is_empty() {
-        sections.push(feeds.remove(0));
+    // BUG-121: "New chapters from your manga" is `followed_updates` (its own call): it asks every provider of every
+    // followed title, and Discover stayed ~70 s in skeleton waiting for it.
+    let mut sections = Vec::new();
+    for (id, q) in home_rows() {
+        sections.push(home_row(b, id, q).await);
     }
-    if matches!(&updates, Ok(items) if !items.is_empty()) {
-        sections.push(SectionVm {
-            title_key: "manga.feed.updates".into(),
-            items: updates,
-        });
-    }
-    sections.extend(feeds);
     Ok(ReadHomeVm {
         continue_reading,
         sections,
@@ -456,8 +443,9 @@ pub async fn home(b: &LiveBackend) -> UiResult<ReadHomeVm> {
 
 /// New chapters of the titles being read (`manga.home.followed-updates`): read-list entries in Reading /
 /// Rereading / Paused plus the titles of "Continue reading", newest first; a title shows when its providers list
-/// chapters above the last one read. Cards carry `+<new> - <latest>` as subtitle.
-async fn followed_updates(b: &LiveBackend) -> Result<Vec<MediaVm>, UiError> {
+/// chapters above the last one read. Cards carry `+<new> - <latest>` as subtitle. Answers within
+/// `FOLLOWED_BUDGET` with the titles checked by then (BUG-121); the chapter lists fetched later stay cached.
+pub async fn followed_updates(b: &LiveBackend) -> Result<Vec<MediaVm>, UiError> {
     let kind = ReadKindVm::Manga.id();
     let mut cands: Vec<(String, Option<String>, Option<String>, f32)> = Vec::new();
     for e in b.store.read_list_entries(kind, None).map_err(other)? {
@@ -519,9 +507,18 @@ async fn followed_updates(b: &LiveBackend) -> Result<Vec<MediaVm>, UiError> {
         });
     }
     let mut out = Vec::new();
-    while let Some(r) = set.join_next().await {
-        if let Ok(Some(m)) = r {
-            out.push(m);
+    let deadline = tokio::time::Instant::now() + FOLLOWED_BUDGET;
+    loop {
+        match tokio::time::timeout_at(deadline, set.join_next()).await {
+            Ok(Some(Ok(Some(m)))) => out.push(m),
+            Ok(Some(_)) => {}
+            Ok(None) => break,
+            Err(_) => {
+                tracing::info!(pending = set.len(), found = out.len(), "followed manga updates: answering with the titles checked so far");
+                // Still running: their chapter fetches finish in the background and fill the chapter cache.
+                set.detach_all();
+                break;
+            }
         }
     }
     Ok(out)

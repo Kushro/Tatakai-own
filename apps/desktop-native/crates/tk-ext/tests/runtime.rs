@@ -251,6 +251,39 @@ async fn fetch_to_private_addresses_is_rejected_even_when_permitted() {
     }
 }
 
+/// BUG-121: work a call leaves running (a provider the bundle gave up on) is dropped once its answer is known; it
+/// no longer runs inside the next calls of the single JS thread.
+#[tokio::test]
+async fn work_left_running_by_a_call_is_dropped_when_it_answers() {
+    let bundle = r#"module.exports = class {
+      constructor() { this.late = 0; }
+      quick() { setTimeout(() => { this.late++; }, 30); return 'ok'; }
+      async wait() { await new Promise((r) => setTimeout(r, 150)); return this.late; }
+    };"#;
+    let c = install("left", &[], bundle, |h| h);
+    assert_eq!(run(&c, "left", "quick", json!([])).await.unwrap(), "ok");
+    // Before: the 30 ms timer of `quick` fired during `wait`, which saw 1.
+    assert_eq!(run(&c, "left", "wait", json!([])).await.unwrap(), 0);
+}
+
+/// BUG-121: a queued call whose caller already gave up (timeout) is not run; the calls behind it start sooner.
+#[tokio::test]
+async fn queued_calls_nobody_waits_for_are_skipped() {
+    let bundle = r#"module.exports = class {
+      constructor() { this.started = 0; }
+      async slow() { this.started++; await new Promise((r) => setTimeout(r, 300)); return 'done'; }
+      count() { return this.started; }
+    };"#;
+    let c = install("queue", &[], bundle, |h| h);
+    let calls = (0..3).map(|_| tokio::time::timeout(Duration::from_millis(50), run(&c, "queue", "slow", json!([]))));
+    for r in futures_util::future::join_all(calls).await {
+        assert!(r.is_err(), "every caller timed out");
+    }
+    let t0 = std::time::Instant::now();
+    assert_eq!(run(&c, "queue", "count", json!([])).await.unwrap(), 1, "only the call already running was run");
+    assert!(t0.elapsed() < Duration::from_millis(600), "count waited only for the running call: {:?}", t0.elapsed());
+}
+
 fn anime() -> tk_core::Media {
     tk_core::Media {
         media_ref: tk_core::MediaRef::anilist(1),

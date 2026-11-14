@@ -2086,6 +2086,11 @@ pub trait Backend: Send + Sync + 'static {
     async fn manga_home(&self) -> UiResult<ReadHomeVm> {
         Err(UiError::not_wired("manga_home"))
     }
+    /// New chapters of the titles being read (`manga.home.followed-updates`; cards carry `+<new> - <latest>` as
+    /// subtitle), loaded apart from `manga_home` (BUG-121: they ask every provider of every followed title).
+    async fn manga_followed_updates(&self) -> UiResult<Vec<MediaVm>> {
+        Err(UiError::not_wired("manga_followed_updates"))
+    }
     /// Filtered manga search (`MediaKind::Manga` on AniList, MangaDex / MangaUpdates as fallbacks).
     async fn manga_search(&self, _q: &SearchQueryVm) -> UiResult<SearchPageVm> {
         Err(UiError::not_wired("manga_search"))

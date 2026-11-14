@@ -182,6 +182,12 @@ fn worker_main(cfg: WorkerConfig, handle: tokio::runtime::Handle, rx: mpsc::Rece
     let mut js: Option<Js> = None;
 
     while let Ok(Cmd::Call { kind, name, payload, reply }) = rx.recv() {
+        // BUG-121: the caller already gave up (its own timeout, a closed screen): running the call anyway would only
+        // delay the calls queued behind it on this single JS thread.
+        if reply.is_closed() {
+            tracing::debug!(extension = %cfg.id, call = %name, "skipping an extension call nobody waits for any more");
+            continue;
+        }
         // stale completions from a previous call; a browser opened for it that JS never saw is closed
         while let Ok(ev) = ev_rx.try_recv() {
             if let Event::Browser { created: Some(id), .. } = ev {
@@ -194,11 +200,13 @@ fn worker_main(cfg: WorkerConfig, handle: tokio::runtime::Handle, rx: mpsc::Rece
                 js = Some(build(&cfg, &handle, &ev_tx, &deadline, &owned, start)?);
             }
             let state = js.as_ref().ok_or_else(|| ExtError::Runtime("no runtime".into()))?;
-            run_call(state, &ev_rx, &deadline, start, kind, &name, &payload)
+            let orphan = |id: String| close_owned(&cfg, &handle, &owned, Some(id));
+            run_call(state, &ev_rx, &deadline, start, kind, &name, &payload, &orphan)
         })();
+        // Browsers opened for this call that the bundle left open (a provider it gave up on) die with the call.
+        close_owned(&cfg, &handle, &owned, None);
         if matches!(result, Err(ExtError::Timeout | ExtError::OutOfMemory | ExtError::Runtime(_))) {
             js = None; // discard; rebuilt on the next call
-            close_owned(&cfg, &handle, &owned, None); // its browser handles died with it
         }
         deadline.store(u64::MAX, Ordering::SeqCst);
         let _ = reply.send(result);
@@ -314,6 +322,9 @@ struct Status {
     fetches: u32,
     #[serde(default)]
     browsers: u32,
+    /// Timers / fetches / browser operations of the call dropped when its answer was known (BUG-121).
+    #[serde(default)]
+    abandoned: u32,
 }
 
 #[derive(Deserialize)]
@@ -327,6 +338,7 @@ struct Envelope {
     message: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_call(
     js: &Js,
     ev_rx: &mpsc::Receiver<Event>,
@@ -335,6 +347,7 @@ fn run_call(
     kind: CallKind,
     name: &str,
     payload: &str,
+    orphan_browser: &dyn Fn(String),
 ) -> Result<String, ExtError> {
     let kind_str = match kind {
         CallKind::Route => "route",
@@ -353,6 +366,9 @@ fn run_call(
         })?;
         let status: Status = serde_json::from_str(&status_json).map_err(|e| ExtError::Runtime(e.to_string()))?;
         if status.done {
+            if status.abandoned > 0 {
+                tracing::debug!(call = %name, abandoned = status.abandoned, "extension answered; dropped the work it left running");
+            }
             let env: Envelope = serde_json::from_str(status.envelope.as_deref().unwrap_or("{}")).map_err(|e| ExtError::Runtime(e.to_string()))?;
             return if env.ok {
                 Ok(env.value.to_string())
@@ -387,7 +403,14 @@ fn run_call(
         }
         match ev_rx.recv_timeout(wait) {
             Ok(Event::Fetch { id, result }) => deliver_fetch(js, id, result)?,
-            Ok(Event::Browser { seq, result, .. }) => deliver_browser(js, seq, result)?,
+            Ok(Event::Browser { seq, result, created }) => {
+                // A browser opened for an operation the bundle no longer waits for (abandoned): close it.
+                if !deliver_browser(js, seq, result)?
+                    && let Some(id) = created
+                {
+                    orphan_browser(id);
+                }
+            }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return Err(ExtError::Runtime("event channel closed".into())),
         }
@@ -414,14 +437,15 @@ fn deliver_fetch(js: &Js, id: u64, result: Result<FetchOut, String>) -> Result<(
     })
 }
 
-fn deliver_browser(js: &Js, seq: u64, result: Result<serde_json::Value, String>) -> Result<(), ExtError> {
+/// Whether JS still waited for that operation.
+fn deliver_browser(js: &Js, seq: u64, result: Result<serde_json::Value, String>) -> Result<bool, ExtError> {
     let msg = match result {
         Ok(value) => json!({ "ok": true, "value": value }),
         Err(error) => json!({ "ok": false, "error": error }),
     };
-    js.ctx.with(|ctx| -> Result<(), ExtError> {
+    js.ctx.with(|ctx| -> Result<bool, ExtError> {
         let f: Function = ctx.globals().get("__tk_browser_done").map_err(|e| describe(&ctx, e))?;
-        f.call::<_, ()>((seq as f64, msg.to_string())).map_err(|e| describe(&ctx, e))
+        f.call::<_, Option<bool>>((seq as f64, msg.to_string())).map(|r| r.unwrap_or(false)).map_err(|e| describe(&ctx, e))
     })
 }
 
