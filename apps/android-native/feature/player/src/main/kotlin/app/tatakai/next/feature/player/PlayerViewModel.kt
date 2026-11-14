@@ -244,6 +244,8 @@ enum class RemoteFailure {
 
 data class PlayerUiState(
     val phase: PlayerPhase = PlayerPhase.LOADING,
+    /** BUG-082 parity: with NO_SOURCES, whether some extension (or the PC's server) was asked: "no sources found" vs "install one". */
+    val sourcesAsked: Boolean = false,
     val engine: PlayerEngine = PlayerEngine.MEDIA3,
     val session: PlayerSession? = null,
     val poster: String? = null,
@@ -604,7 +606,8 @@ class PlayerViewModel(
     private fun startFlow(sources: List<RankedSource>) {
         _state.update { it.copy(sources = sources, canPickSource = sources.isNotEmpty()) }
         if (sources.isEmpty()) {
-            _state.update { it.copy(phase = PlayerPhase.NO_SOURCES) }
+            val asked = extensions.installed.value.any { it.enabled }
+            _state.update { it.copy(phase = PlayerPhase.NO_SOURCES, sourcesAsked = asked) }
             return
         }
         flow = SourceFlow(sources, settings.sourcePrefs.mode, pickConfirmed = args.sourceConfirmed && args.sourceKey != null)

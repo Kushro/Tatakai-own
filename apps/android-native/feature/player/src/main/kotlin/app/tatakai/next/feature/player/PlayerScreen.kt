@@ -290,8 +290,9 @@ private fun StatusBody(
         PlayerPhase.NO_SOURCES -> Centered {
             EmptyState(
                 icon = Icons.Rounded.Extension,
-                title = stringResource(R.string.player_no_sources_title),
-                message = stringResource(R.string.player_no_sources),
+                // BUG-082 parity with the PC: installed extensions that returned nothing are not "install an extension".
+                title = stringResource(if (state.sourcesAsked) R.string.player_no_sources_found_title else R.string.player_no_sources_title),
+                message = stringResource(if (state.sourcesAsked) R.string.player_no_sources_found else R.string.player_no_sources),
                 actionLabel = stringResource(R.string.player_go_extensions),
                 onAction = onOpenExtensions,
             )

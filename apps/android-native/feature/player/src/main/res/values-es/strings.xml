@@ -283,4 +283,7 @@
     <string name="player_settings_shortcut_reserved">Esa tecla es del sistema</string>
     <string name="player_settings_shortcut_clash">Ya la usa: %1$s</string>
     <string name="src_tag_debrid_cached">En caché · %1$s</string>
+    <!-- BUG-082 parity (PC text) -->
+    <string name="player_no_sources_found_title">No se encontraron fuentes</string>
+    <string name="player_no_sources_found">Las extensiones instaladas no devolvieron ninguna fuente para este episodio. Revisa tu conexión y reintenta, o prueba más tarde.</string>
 </resources>
