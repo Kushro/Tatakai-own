@@ -128,6 +128,30 @@ pub fn build_mode_command(preset: crate::ShaderPreset) -> Option<&'static [&'sta
     })
 }
 
+/// `toggle-anime-fidelity` of mpv-anime-build (a toggle, per resolution tier).
+const TOGGLE_FIDELITY: &[&str] = &["script-message", "toggle-anime-fidelity"];
+
+/// Commands that switch mpv-anime-build to `preset`, given the build's Fidelity state for the current resolution
+/// (`fidelity`, from its `anime-state-broadcast`; `None` = not heard yet). The build refuses `anime4k-mode` while
+/// Fidelity (FSRCNNX) is on ("Locked: Switch to Anime4K Mode to use.", BUG-032), so an Anime4K mode first leaves
+/// Fidelity; and Fidelity is only toggled when it is off, so choosing it twice does not turn it off again.
+pub fn build_mode_steps(preset: crate::ShaderPreset, fidelity: Option<bool>) -> Option<Vec<&'static [&'static str]>> {
+    use crate::ShaderPreset as P;
+    let cmd = build_mode_command(preset)?;
+    Some(match preset {
+        P::Fidelity if fidelity == Some(true) => Vec::new(),
+        P::Fidelity | P::Off => vec![cmd],
+        _ if fidelity == Some(true) => vec![TOGGLE_FIDELITY, cmd],
+        _ => vec![cmd],
+    })
+}
+
+/// The Fidelity state in one `anime-state-broadcast` JSON of mpv-anime-build (`anime_fidelity`); partial
+/// broadcasts without it give `None`.
+pub fn broadcast_fidelity(json: &str) -> Option<bool> {
+    serde_json::from_str::<serde_json::Value>(json).ok()?.get("anime_fidelity")?.as_bool()
+}
+
 #[cfg(test)]
 mod build_mode_tests {
     use super::build_mode_command;
@@ -145,6 +169,22 @@ mod build_mode_tests {
         assert_eq!(build_mode_command(ShaderPreset::Anime4kCA), Some(&["script-message", "anime4k-mode", "CA"][..]));
         assert_eq!(build_mode_command(ShaderPreset::Off).map(|a| a[0]), Some("change-list"));
         assert_eq!(build_mode_command(ShaderPreset::Cas), None);
+    }
+
+    #[test]
+    fn anime4k_leaves_fidelity_first_and_fidelity_is_not_toggled_off() {
+        use super::{broadcast_fidelity, build_mode_steps};
+        let a = build_mode_steps(ShaderPreset::Anime4kA, Some(true)).unwrap();
+        assert_eq!(a, vec![&["script-message", "toggle-anime-fidelity"][..], &["script-message", "anime4k-mode", "A"][..]]);
+        assert_eq!(build_mode_steps(ShaderPreset::Anime4kA, Some(false)).unwrap().len(), 1);
+        assert_eq!(build_mode_steps(ShaderPreset::Anime4kA, None).unwrap().len(), 1);
+        assert!(build_mode_steps(ShaderPreset::Fidelity, Some(true)).unwrap().is_empty());
+        assert_eq!(build_mode_steps(ShaderPreset::Fidelity, Some(false)).unwrap().len(), 1);
+        assert_eq!(build_mode_steps(ShaderPreset::Off, Some(true)).unwrap().len(), 1);
+        assert_eq!(build_mode_steps(ShaderPreset::Cas, Some(true)), None);
+        assert_eq!(broadcast_fidelity(r#"{"anime_fidelity":true,"anime4k_allowed":false}"#), Some(true));
+        assert_eq!(broadcast_fidelity(r#"{"hdr_display_mode":"auto"}"#), None);
+        assert_eq!(broadcast_fidelity("nope"), None);
     }
 }
 

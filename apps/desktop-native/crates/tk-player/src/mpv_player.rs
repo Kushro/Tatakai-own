@@ -3,7 +3,7 @@
 //! few properties the UI needs and pump events on a dedicated thread.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
@@ -58,6 +58,9 @@ pub struct Player {
     pending_subs: Arc<Mutex<Vec<SubtitleSource>>>,
     /// False in the mpv-anime-build engine: its own shader profiles own `glsl-shaders` (enhanced_conf.rs).
     presets_apply: bool,
+    /// mpv-anime-build's Fidelity state for the current resolution, from its `anime-state-broadcast`
+    /// (0 = not heard yet, 1 = off, 2 = on; BUG-032).
+    build_fidelity: Arc<AtomicU8>,
     stop: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
@@ -112,11 +115,12 @@ impl Player {
         let (tx, _) = broadcast::channel(256);
         let stop = Arc::new(AtomicBool::new(false));
         let pending_subs = Arc::new(Mutex::new(Vec::new()));
+        let build_fidelity = Arc::new(AtomicU8::new(0));
         let handle = {
-            let (mpv, tx, stop, subs) = (mpv.clone(), tx.clone(), stop.clone(), pending_subs.clone());
+            let (mpv, tx, stop, subs, fid) = (mpv.clone(), tx.clone(), stop.clone(), pending_subs.clone(), build_fidelity.clone());
             std::thread::Builder::new()
                 .name("mpv-events".into())
-                .spawn(move || run_events(mpv, ev, tx, stop, subs))
+                .spawn(move || run_events(mpv, ev, tx, stop, subs, fid))
                 .map_err(mpv_err)?
         };
         Ok(Self {
@@ -131,6 +135,7 @@ impl Player {
             shaders_dir: Mutex::new(None),
             pending_subs,
             presets_apply: crate::enhanced_conf::shader_presets_apply(&cfg.mode),
+            build_fidelity,
             stop,
             thread: Mutex::new(Some(handle)),
         })
@@ -207,16 +212,25 @@ impl Player {
         if !self.presets_apply {
             // Enhanced engine: the build switches shaders itself (ours would stack on top of its profiles), so the
             // menu drives the build's own modes (its input.conf: CTRL+1..8 `script-message anime4k-mode …`).
-            match crate::enhanced::build_mode_command(preset) {
+            let fidelity = match self.build_fidelity.load(Ordering::SeqCst) {
+                1 => Some(false),
+                2 => Some(true),
+                _ => None,
+            };
+            match crate::enhanced::build_mode_steps(preset, fidelity) {
                 // Off: clear the list directly (an empty argument does not survive the command string).
                 Some(_) if preset == ShaderPreset::Off => {
                     self.mpv.set_property("glsl-shaders", "").map_err(mpv_err)?;
                 }
-                Some(args) => {
-                    let mut it = args.iter();
-                    let name = it.next().copied().unwrap_or("script-message");
-                    let rest: Vec<&str> = it.copied().collect();
-                    self.mpv.command(name, &rest).map_err(mpv_err)?;
+                // In order: the build handles its script messages one after the other, so it leaves Fidelity
+                // before it gets the Anime4K mode.
+                Some(steps) => {
+                    for args in steps {
+                        let mut it = args.iter();
+                        let name = it.next().copied().unwrap_or("script-message");
+                        let rest: Vec<&str> = it.copied().collect();
+                        self.mpv.command(name, &rest).map_err(mpv_err)?;
+                    }
                 }
                 None => return Err(PlayerError::Mpv(format!("mpv-anime-build has no {} mode", preset.id()))),
             }
@@ -475,6 +489,7 @@ fn run_events(
     tx: broadcast::Sender<PlayerEvent>,
     stop: Arc<AtomicBool>,
     subs: Arc<Mutex<Vec<SubtitleSource>>>,
+    build_fidelity: Arc<AtomicU8>,
 ) {
     // Nobody listening is normal (no subscriber yet); ignore send errors.
     let send = |e: PlayerEvent| {
@@ -502,6 +517,14 @@ fn run_events(
             // 0 = MPV_END_FILE_REASON_EOF. Stop/quit/redirect are deliberate; errors arrive as `Err` below.
             Ok(Event::EndFile(reason)) if reason as i32 == 0 => send(PlayerEvent::Eof),
             Ok(Event::Shutdown) => break,
+            // mpv-anime-build broadcasts its state to every client (uosc and us): track Fidelity (BUG-032).
+            Ok(Event::ClientMessage(args)) => {
+                if let ["anime-state-broadcast", json, ..] = args.as_slice()
+                    && let Some(on) = crate::enhanced::broadcast_fidelity(json)
+                {
+                    build_fidelity.store(if on { 2 } else { 1 }, Ordering::SeqCst);
+                }
+            }
             Ok(_) => {}
             Err(e) => send(PlayerEvent::Error(e.to_string())),
         }
