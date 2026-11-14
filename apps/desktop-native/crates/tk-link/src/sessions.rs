@@ -386,6 +386,16 @@ impl Manager {
         // back-pressure holds it still.
         let needs_rate = profile.fg.lsfg().is_some();
         let info = if needs_rate || duration.is_none() { self.engine.source_info(&input_url).await } else { SourceInfo::default() };
+        // BUG-024: a link ffprobe cannot read (e.g. a full URL that answers 404) is refused here, so the phone says "the
+        // PC could not open this link" instead of playing a session that fails a minute later
+        if info.unreadable && matches!(source, SourceRequest::Url { .. } | SourceRequest::Torrent { .. }) {
+            tracing::warn!("Link session refused: the source cannot be read");
+            self.fetcher.unregister(&fetch_token);
+            if let Some(t) = &torrent_id {
+                self.host.torrent_session_ended(t);
+            }
+            return Err(ErrorCode::SourceUnavailable.into());
+        }
         let duration = duration.or(info.duration_secs);
         if duration.is_none() {
             tracing::info!("source duration unknown; the session uses a growing (EVENT) playlist");

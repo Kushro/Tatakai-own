@@ -632,3 +632,22 @@ async fn a_rewind_after_a_seek_is_served_from_ram_without_restarting() {
     assert_eq!(r.status(), 200);
     assert_eq!(engine.starts.lock().unwrap().as_slice(), [0, 40]);
 }
+
+/// BUG-024: a full URL that does not exist (the PC reaches the host but ffprobe cannot read it) is refused at creation
+/// with 503 `source_unavailable` ("La PC no pudo abrir este enlace…" on the phone), not a session that fails later.
+#[tokio::test]
+async fn a_source_the_probe_cannot_read_is_refused_at_creation() {
+    let engine = FakeEngine::new(10, 100, Duration::from_millis(1));
+    *engine.probe_unreadable.lock().unwrap() = true;
+    let mut h = harness(engine.clone(), quick_tuning(), lenient_default()).await;
+    let p = h.pair("Pixel").await;
+    let (port, _seen) = stub(|_| (404, vec![], b"not found".to_vec())).await;
+    let r = p.client.post(h.url("/v1/sessions")).json(&json!({ "source": { "kind": "url", "url": format!("http://127.0.0.1:{port}/master.m3u8c") } })).send().await.unwrap();
+    assert_eq!(r.status(), 503);
+    assert_eq!(json(r).await["error"]["code"], "source_unavailable");
+    assert!(engine.starts.lock().unwrap().is_empty(), "no engine run for a refused session");
+    // a readable source still opens
+    *engine.probe_unreadable.lock().unwrap() = false;
+    let r = p.client.post(h.url("/v1/sessions")).json(&json!({ "source": { "kind": "url", "url": format!("http://127.0.0.1:{port}/ep.mp4"), "container": "mp4" } })).send().await.unwrap();
+    assert_eq!(r.status(), 201);
+}

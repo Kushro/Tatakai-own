@@ -98,6 +98,9 @@ pub struct SourceInfo {
     pub rate: Option<FrameRate>,
     /// Container duration in seconds (`format.duration`), when known and sane (above 1 s, at most 24 h).
     pub duration_secs: Option<f64>,
+    /// BUG-024: `ffprobe` ran and could not read the source at all (it exited with an error: HTTP 4xx/5xx, no media).
+    /// A probe that is missing or timed out says nothing (`false`).
+    pub unreadable: bool,
 }
 
 /// The container duration in `ffprobe -print_format json` output (`format.duration`, a string in seconds).
@@ -117,7 +120,7 @@ pub fn parse_ffprobe_duration(stdout: &str) -> Option<f64> {
 
 /// Rate and duration of one `ffprobe` output.
 pub fn parse_ffprobe(stdout: &str) -> SourceInfo {
-    SourceInfo { rate: parse_ffprobe_rate(stdout), duration_secs: parse_ffprobe_duration(stdout) }
+    SourceInfo { rate: parse_ffprobe_rate(stdout), duration_secs: parse_ffprobe_duration(stdout), unreadable: false }
 }
 
 #[cfg(test)]

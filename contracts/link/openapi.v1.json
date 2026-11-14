@@ -261,7 +261,7 @@
           "sessions"
         ],
         "summary": "Create a transcoding session",
-        "description": "Body <= 4 KiB. One active session per device: creating another closes the previous one (its resources answer 410) and increments `generation`. `session_id` is opaque (not a credential).",
+        "description": "Body <= 4 KiB. One active session per device: creating another closes the previous one (its resources answer 410) and increments `generation`. `session_id` is opaque (not a credential). QA fixes 2026-11 (BUG-024): when the PC probes a url or torrent source (ffprobe) and the probe cannot read it (HTTP error, no streams), the session is not created: 503 source_unavailable.",
         "requestBody": {
           "required": true,
           "content": {

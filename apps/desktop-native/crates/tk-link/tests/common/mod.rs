@@ -95,6 +95,8 @@ pub struct FakeEngine {
     pub put_results: Arc<Mutex<Vec<(u32, u16)>>>,
     /// What the fake `ffprobe` says about the source duration (BUG-009 / BUG-023).
     pub probed_duration: Mutex<Option<f64>>,
+    /// BUG-024: the fake `ffprobe` cannot read the source.
+    pub probe_unreadable: Mutex<bool>,
 }
 
 impl FakeEngine {
@@ -107,6 +109,7 @@ impl FakeEngine {
             args: Arc::default(),
             put_results: Arc::default(),
             probed_duration: Mutex::new(None),
+            probe_unreadable: Mutex::new(false),
         })
     }
 }
@@ -161,7 +164,7 @@ impl Engine for FakeEngine {
     }
 
     async fn source_info(&self, _input_url: &str) -> tk_link::media::probe::SourceInfo {
-        tk_link::media::probe::SourceInfo { rate: None, duration_secs: *self.probed_duration.lock().unwrap() }
+        tk_link::media::probe::SourceInfo { rate: None, duration_secs: *self.probed_duration.lock().unwrap(), unreadable: *self.probe_unreadable.lock().unwrap() }
     }
 }
 

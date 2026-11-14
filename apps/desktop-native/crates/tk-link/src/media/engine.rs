@@ -66,7 +66,7 @@ pub trait Engine: Send + Sync {
     /// Frame rate and container duration of the loopback input in one probe (BUG-009 / BUG-023: sources without a
     /// known duration). The default only knows the rate.
     async fn source_info(&self, input_url: &str) -> SourceInfo {
-        SourceInfo { rate: self.source_rate(input_url).await, duration_secs: None }
+        SourceInfo { rate: self.source_rate(input_url).await, duration_secs: None, unreadable: false }
     }
 }
 
@@ -253,7 +253,12 @@ impl FfmpegEngine {
         cmd.creation_flags(0x0800_0000);
         super::job::die_with_parent(&mut cmd);
         let out = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await.ok()?.ok()?;
-        if !out.status.success() || out.stdout.len() > 256 * 1024 {
+        if !out.status.success() {
+            // BUG-024: FFmpeg would fail the same way (same binary, same input URL and protocol whitelist)
+            tracing::warn!("the source probe failed: the source cannot be read");
+            return Some(SourceInfo { unreadable: true, ..SourceInfo::default() });
+        }
+        if out.stdout.len() > 256 * 1024 {
             tracing::warn!("the source probe failed");
             return None;
         }
