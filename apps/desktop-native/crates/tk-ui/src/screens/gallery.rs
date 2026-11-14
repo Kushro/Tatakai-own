@@ -119,7 +119,7 @@ fn Gallery() -> Element {
                     h2 { class: "tk-panel__title", "Chip · Pill · Banner" }
                     div { class: "tk-chips",
                         Chip { label: t("src.web"), on: chip_on(), onclick: move |_| chip_on.toggle() }
-                        Chip { label: t("src.torrent"), icon: "download".to_string() }
+                        Chip { label: t("src.torrent"), icon: "hub".to_string() }
                         Chip { label: t("common.copy"), kind: ChipKind::Assist, icon: "copy".to_string() }
                         Chip { label: "1080p".to_string(), on: true, on_dismiss: move |_| chip_on.set(false), dismiss_label: t("common.remove") }
                         InfoChip { text: "TV · 2024".to_string() }

@@ -86,6 +86,8 @@ fn glyph(name: &str) -> Option<(&'static str, bool)> {
         "logout" => ("M10 4H4v16h6M14 8l4 4-4 4M18 12H9", false),
         "tablet" => ("M5 3h14v18H5zM11 18h2", false),
         // wave 3 (torrent client rail destination)
+        // Material "hub" (P2P nodes): the torrent type icon on both apps (BUG-054).
+        "hub" => ("M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6zM12 9V6M9.4 13.5l-3.2 2M14.6 13.5l3.2 2M12 2a2 2 0 1 0 0 4a2 2 0 1 0 0-4zM4.5 15.5a2 2 0 1 0 0 4a2 2 0 1 0 0-4zM19.5 15.5a2 2 0 1 0 0 4a2 2 0 1 0 0-4z", false),
         "magnet" => ("M5 4h4v7a3 3 0 0 0 6 0V4h4v7a7 7 0 0 1-14 0zM5 8h4M15 8h4", false),
         // parity wave A (worker g: list widgets)
         "minus" => ("M5 12h14", false),
@@ -139,6 +141,7 @@ mod tests {
             assert!(glyph(n).is_some(), "{n}");
         }
         assert!(glyph("magnet").is_some());
+        assert!(glyph("hub").is_some());
         for n in ["minus", "heart", "heart-filled", "bookmark-filled"] {
             assert!(glyph(n).is_some(), "{n}");
         }

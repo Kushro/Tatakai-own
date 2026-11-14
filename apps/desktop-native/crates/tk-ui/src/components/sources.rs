@@ -348,7 +348,7 @@ pub fn SourceRow(
     let icon = match source.kind {
         SourceKindVm::Web => "language",
         // BUG-054: the type icon is not an action; the download arrow is only the "Download for later" button.
-        SourceKindVm::Torrent => "magnet",
+        SourceKindVm::Torrent => "hub",
     };
     let name = format!("{} · {}", source.ext_name, source.label);
     let kind_text = t(&format!("src.{kind}"));
