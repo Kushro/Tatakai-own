@@ -80,13 +80,22 @@ fn label_or(key: &str, raw: &str) -> String {
 }
 
 /// BUG-118: an author as `Name (role in the app's language)`.
+/// BUG-129: a person with several roles (`Story / Original Creator`) gets each one worded; a role we do not
+/// translate stays as AniList sends it.
 pub(crate) fn author_label(author: &str) -> String {
     let (name, role) = crate::model::manga::split_author(author);
     let Some(role) = role else { return author.to_owned() };
-    let Some(key) = crate::model::manga::staff_role_key(role) else { return author.to_owned() };
+    let roles: Vec<String> = role.split(" / ").map(role_label).collect();
+    format!("{name} ({})", roles.join(" / "))
+}
+
+/// One AniList staff role in the app's language (`Translator (English)` -> "Traducción (English)").
+fn role_label(role: &str) -> String {
+    let role = role.trim();
+    let Some(key) = crate::model::manga::staff_role_key(role) else { return role.to_owned() };
     let rest = role.find('(').map(|i| role[i..].trim()).unwrap_or("");
     let base = t(key);
-    if rest.is_empty() { format!("{name} ({base})") } else { format!("{name} ({base} {rest})") }
+    if rest.is_empty() { base } else { format!("{base} {rest}") }
 }
 
 /// BUG-118: an AniList ranking in the app's language ("#97 mejor valorado de todos los tiempos").
@@ -1091,6 +1100,12 @@ mod tests {
         assert_eq!(author_label("Tatsuki Fujimoto (Story & Art)"), format!("Tatsuki Fujimoto ({})", t("manga.role.story_art")));
         assert_eq!(author_label("A (Story (ch 1-20))"), format!("A ({} (ch 1-20))", t("manga.role.story")));
         assert_eq!(author_label("B (Touch-up Art)"), "B (Touch-up Art)");
+        assert_eq!(
+            author_label("Rifujin na Magonote (Story / Original Creator)"),
+            format!("Rifujin na Magonote ({} / {})", t("manga.role.story"), t("manga.role.original_creator"))
+        );
+        assert_eq!(author_label("C (Story / Touch-up Art)"), format!("C ({} / Touch-up Art)", t("manga.role.story")));
+        assert_eq!(author_label("Kevin Frane (Translator (English: vol 1))"), format!("Kevin Frane ({} (English: vol 1))", t("manga.role.translator")));
         assert_eq!(crate::i18n::lookup(crate::i18n::Lang::Es, "manga.role.story_art"), "Guion y dibujo");
     }
 

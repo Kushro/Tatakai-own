@@ -201,24 +201,7 @@ pub fn map_novel(m: &Value) -> NovelInfo {
             titles.push(t.to_owned());
         }
     }
-    let authors = m["staff"]["edges"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|e| {
-            let role = e["role"].as_str().unwrap_or_default().to_ascii_lowercase();
-            role.contains("story")
-                || role.contains("original")
-                || role.contains("author")
-                || role.contains("art")
-        })
-        .filter_map(|e| e["node"]["name"]["full"].as_str().map(str::to_owned))
-        .fold(Vec::new(), |mut acc: Vec<String>, n| {
-            if !acc.contains(&n) {
-                acc.push(n);
-            }
-            acc
-        });
+    let authors = staff_authors(m);
     NovelInfo {
         media,
         format: m["format"].as_str().map(str::to_owned),
@@ -229,6 +212,32 @@ pub fn map_novel(m: &Value) -> NovelInfo {
         adult: m["isAdult"].as_bool().unwrap_or(false),
         titles,
     }
+}
+
+/// BUG-129: every staff edge as `Name (Role)` (the format of the manga page, `author_label` words the role), in
+/// AniList order, one entry per person with its roles joined by " / ". Same people as Android (`BUG-114`): story,
+/// illustration, translation... A staff edge without a role keeps the bare name.
+fn staff_authors(m: &Value) -> Vec<String> {
+    let mut out: Vec<(String, Vec<String>)> = Vec::new();
+    for e in m["staff"]["edges"].as_array().into_iter().flatten() {
+        let Some(name) = e["node"]["name"]["full"].as_str().map(str::trim).filter(|n| !n.is_empty()) else { continue };
+        let role = e["role"].as_str().map(str::trim).filter(|r| !r.is_empty()).map(str::to_owned);
+        let i = match out.iter().position(|(n, _)| n == name) {
+            Some(i) => i,
+            None => {
+                out.push((name.to_owned(), Vec::new()));
+                out.len() - 1
+            }
+        };
+        if let Some(r) = role
+            && !out[i].1.contains(&r)
+        {
+            out[i].1.push(r);
+        }
+    }
+    out.into_iter()
+        .map(|(n, roles)| if roles.is_empty() { n } else { format!("{n} ({})", roles.join(" / ")) })
+        .collect()
 }
 
 /// `{ data: { Page } }` -> page. A body with errors and no data is an error.
@@ -362,6 +371,28 @@ mod tests {
     }
 
     #[test]
+    fn novel_staff_keeps_every_role_once_per_person() {
+        let m = json!({ "staff": { "edges": [
+            { "role": "Story", "node": { "name": { "full": "Rifujin na Magonote" } } },
+            { "role": "Illustration", "node": { "name": { "full": "Shirotaka" } } },
+            { "role": "Original Creator", "node": { "name": { "full": "Rifujin na Magonote" } } },
+            { "role": "Story", "node": { "name": { "full": "Rifujin na Magonote" } } },
+            { "role": "Translator (English: vol 1)", "node": { "name": { "full": "Kevin Frane" } } },
+            { "role": "", "node": { "name": { "full": "Nobody" } } },
+            { "role": "Story", "node": { "name": { "full": "" } } }
+        ]}});
+        assert_eq!(
+            staff_authors(&m),
+            vec![
+                "Rifujin na Magonote (Story / Original Creator)",
+                "Shirotaka (Illustration)",
+                "Kevin Frane (Translator (English: vol 1))",
+                "Nobody",
+            ]
+        );
+    }
+
+    #[test]
     fn maps_a_novel() {
         let m = json!({
             "id": 85737, "idMal": 21479, "type": "MANGA", "format": "NOVEL", "status": "RELEASING", "chapters": null, "volumes": 16,
@@ -381,7 +412,7 @@ mod tests {
         assert_eq!(n.volumes, Some(16));
         assert_eq!(n.chapters, None);
         assert_eq!(n.titles, vec!["Overlord", "オーバーロード", "Overlord LN"]);
-        assert_eq!(n.authors, vec!["Kugane Maruyama"]);
+        assert_eq!(n.authors, vec!["Kugane Maruyama (Story)", "so-bin (Illustration)", "Someone (Translator (English))"]);
         assert_eq!(n.country.as_deref(), Some("JP"));
         let page = map_page(&json!({ "data": { "Page": { "pageInfo": { "total": 3, "currentPage": 1, "hasNextPage": true }, "media": [m, { "id": 0 }] } } })).unwrap();
         assert_eq!(page.items.len(), 1);
