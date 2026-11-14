@@ -156,11 +156,12 @@
     <string name="manga_row_popular">Popular</string>
     <string name="manga_row_top_rated">Top rated</string>
     <string name="manga_row_trending">Trending</string>
-    <string name="manga_score_anilist">AniList</string>
+    <string name="manga_score_anilist">AniList score</string>
     <string name="manga_score_favourites">Favourites</string>
-    <string name="manga_score_mangaupdates">MangaUpdates</string>
-    <string name="manga_score_mean">Mean</string>
+    <string name="manga_score_mangaupdates">MangaUpdates score</string>
+    <string name="manga_score_mean">Mean score</string>
     <string name="manga_score_popularity">Members</string>
+    <string name="manga_score_percent">%1$d%%</string>
     <string name="manga_search_clear">Clear search</string>
     <string name="manga_search_empty">Nothing found</string>
     <string name="manga_search_empty_message">Try another title or fewer filters.</string>

@@ -44,4 +44,16 @@ class FormattersTest {
         kotlin.test.assertEquals("ayer", midSentence("Ayer", java.util.Locale.forLanguageTag("es")))
         kotlin.test.assertEquals("3 hours ago", midSentence("3 hours ago", java.util.Locale.ENGLISH))
     }
+
+    /** BUG-126: "337460 Miembros" without separators; the language decides, not the country (the moto g51 is es-US). */
+    @Test
+    fun countsUseTheLanguagesThousandsSeparator() {
+        assertEquals("337.460", formatCount(337_460, Locale.forLanguageTag("es")))
+        assertEquals("337.460", formatCount(337_460, Locale.forLanguageTag("es-US")))
+        assertEquals("48,381", formatCount(48_381, Locale.forLanguageTag("en-US")))
+        assertEquals("1.234.567", formatCount(1_234_567, Locale.forLanguageTag("es")))
+        assertEquals("999", formatCount(999, Locale.forLanguageTag("es")))
+        assertEquals("8,1", formatDecimal1(8.1, Locale.forLanguageTag("es-US")))
+        assertEquals("8.1", formatDecimal1(8.1, Locale.ENGLISH))
+    }
 }

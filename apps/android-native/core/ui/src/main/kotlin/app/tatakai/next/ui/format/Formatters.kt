@@ -40,6 +40,17 @@ fun formatRate(bytesPerSec: Long, locale: Locale = Locale.getDefault()): String 
     return String.format(locale, if (v >= 100) "%.0f %s/s" else "%.1f %s/s", v, UNITS[u])
 }
 
+/**
+ * BUG-126: a count with the UI language's thousands separator ("337.460" in Spanish, "337,460" in English). Only the language
+ * decides (an es-US phone still reads "337.460", like "1,38 GB" above).
+ */
+fun formatCount(n: Long, locale: Locale = Locale.getDefault()): String =
+    java.text.NumberFormat.getIntegerInstance(Locale.forLanguageTag(locale.language.ifEmpty { "en" })).format(n)
+
+/** One decimal with the UI language's separator ("8,1" in Spanish). */
+fun formatDecimal1(v: Double, locale: Locale = Locale.getDefault()): String =
+    String.format(Locale.forLanguageTag(locale.language.ifEmpty { "en" }), "%.1f", v)
+
 /** "1:23:45" or "23:45". Negative -> "0:00". */
 fun formatDuration(totalSecs: Long): String {
     val s = totalSecs.coerceAtLeast(0)

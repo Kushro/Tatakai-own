@@ -104,6 +104,8 @@ import app.tatakai.next.model.MatureContentMode
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.ReadEntry
+import app.tatakai.next.ui.format.formatCount
+import app.tatakai.next.ui.format.formatDecimal1
 import app.tatakai.next.ui.labels.characterRoleLabel
 import app.tatakai.next.ui.labels.genreLabel
 import app.tatakai.next.ui.labels.mediaSourceLabel
@@ -500,13 +502,18 @@ private fun Facts(info: MangaInfo, ui: MangaDetailsUi) {
         Fact(stringResource(R.string.manga_fact_end), info.endDate)
         Fact(stringResource(R.string.manga_fact_origin), originLabel(info.origin))
         Fact(stringResource(R.string.manga_fact_source), info.source?.let { mediaSourceLabel(it) })
-        // Scores (checklist manga.details: puntuaciones).
-        Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            info.media.score?.let { ScoreBox(stringResource(R.string.manga_score_anilist), "$it%") }
-            info.meanScore?.let { ScoreBox(stringResource(R.string.manga_score_mean), "$it%") }
-            mu?.rating?.let { ScoreBox(stringResource(R.string.manga_score_mangaupdates), "%.1f".format(Locale.ROOT, it / 10.0)) }
-            info.popularity?.let { ScoreBox(stringResource(R.string.manga_score_popularity), it.toString()) }
-            info.favourites?.let { ScoreBox(stringResource(R.string.manga_score_favourites), it.toString()) }
+        // Scores (checklist manga.details: puntuaciones). BUG-126: they wrap instead of squeezing the last box ("48 / 38 / 1 / Fav"),
+        // with clear labels and the language's thousands separator ("337.460 miembros").
+        FlowRow(
+            Modifier.padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            info.media.score?.let { ScoreBox(stringResource(R.string.manga_score_anilist), stringResource(R.string.manga_score_percent, it)) }
+            info.meanScore?.let { ScoreBox(stringResource(R.string.manga_score_mean), stringResource(R.string.manga_score_percent, it)) }
+            mu?.rating?.let { ScoreBox(stringResource(R.string.manga_score_mangaupdates), formatDecimal1(it / 10.0)) }
+            info.popularity?.let { ScoreBox(stringResource(R.string.manga_score_popularity), formatCount(it.toLong())) }
+            info.favourites?.let { ScoreBox(stringResource(R.string.manga_score_favourites), formatCount(it.toLong())) }
         }
         if (info.rankings.isNotEmpty()) {
             FlowRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { info.rankings.take(4).forEach { Pill(rankingLabel(it)) } }
@@ -517,8 +524,8 @@ private fun Facts(info: MangaInfo, ui: MangaDetailsUi) {
 @Composable
 private fun ScoreBox(label: String, value: String) {
     Column(Modifier.background(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.shapes.medium).padding(horizontal = 10.dp, vertical = 6.dp)) {
-        Text(value, style = MaterialTheme.typography.titleMedium)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        Text(value, style = MaterialTheme.typography.titleMedium, maxLines = 1, softWrap = false)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false)
     }
 }
 

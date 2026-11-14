@@ -156,11 +156,12 @@
     <string name="manga_row_popular">Populares</string>
     <string name="manga_row_top_rated">Mejor valorados</string>
     <string name="manga_row_trending">Tendencias</string>
-    <string name="manga_score_anilist">AniList</string>
+    <string name="manga_score_anilist">Nota en AniList</string>
     <string name="manga_score_favourites">Favoritos</string>
-    <string name="manga_score_mangaupdates">MangaUpdates</string>
-    <string name="manga_score_mean">Media</string>
+    <string name="manga_score_mangaupdates">Nota en MangaUpdates</string>
+    <string name="manga_score_mean">Nota media</string>
     <string name="manga_score_popularity">Miembros</string>
+    <string name="manga_score_percent">%1$d %%</string>
     <string name="manga_search_clear">Borrar búsqueda</string>
     <string name="manga_search_empty">No se encontró nada</string>
     <string name="manga_search_empty_message">Prueba otro título o menos filtros.</string>
