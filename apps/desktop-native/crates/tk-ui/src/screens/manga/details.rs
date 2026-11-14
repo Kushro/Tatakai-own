@@ -581,7 +581,6 @@ fn ChaptersPanel(media_id: String, providers: Vec<ChapterProviderVm>, on_refresh
     let mut clearing = use_signal(|| false);
 
     let best = best_provider(&providers, &prefs.preferred_lang, prefs.preferred_source.as_deref());
-    let failed: Vec<&ChapterProviderVm> = providers.iter().filter(|p| p.error.is_some()).collect();
     let any = providers.iter().any(|p| !p.chapters.is_empty());
     // A provider chosen earlier that vanished falls back to the merged view.
     let sel = {
@@ -620,10 +619,13 @@ fn ChaptersPanel(media_id: String, providers: Vec<ChapterProviderVm>, on_refresh
                 for (i , p) in providers.iter().enumerate() {
                     {
                         let key = p.ext_id.clone();
-                        let label = match &p.lang {
-                            Some(l) => format!("{} · {} · {}", p.ext_name, l.to_uppercase(), p.chapters.len()),
-                            None => format!("{} · {}", p.ext_name, p.chapters.len()),
+                        // BUG-119: an empty source says why ("Toko · sin resultados" / "tiempo agotado" / "falló").
+                        let label = match (crate::model::manga::source_problem_key(p), &p.lang) {
+                            (Some(why), _) => format!("{} · {}", p.ext_name, t(why)),
+                            (None, Some(l)) => format!("{} · {} · {}", p.ext_name, l.to_uppercase(), p.chapters.len()),
+                            (None, None) => format!("{} · {}", p.ext_name, p.chapters.len()),
                         };
+                        let detail = p.error.as_ref().map(|e| e.detail.clone()).unwrap_or_default();
                         let pick = key.clone();
                         let is_best = best == Some(i);
                         let error = p.error.is_some();
@@ -634,6 +636,7 @@ fn ChaptersPanel(media_id: String, providers: Vec<ChapterProviderVm>, on_refresh
                                 "data-provider": "{key}",
                                 "data-best": "{is_best}",
                                 "data-provider-error": "{error}",
+                                title: "{detail}",
                                 Chip {
                                     label,
                                     icon: if is_best { "star".to_string() } else if error { "warning".to_string() } else { String::new() },
@@ -642,16 +645,6 @@ fn ChaptersPanel(media_id: String, providers: Vec<ChapterProviderVm>, on_refresh
                                     onclick: move |_| selected.set(pick.clone()),
                                 }
                             }
-                        }
-                    }
-                }
-            }
-            if !failed.is_empty() {
-                ul { class: "tk-manga__provider-errors",
-                    for p in failed {
-                        li { key: "{p.ext_id}", class: "tk-muted", "data-provider-failed": "{p.ext_id}",
-                            Icon { name: "warning".to_string(), size: 16 }
-                            {tf("manga.chapters.provider_failed", &[("name", &p.ext_name), ("detail", &p.error.as_ref().map(|e| e.detail.clone()).unwrap_or_default())])}
                         }
                     }
                 }

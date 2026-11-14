@@ -1116,8 +1116,22 @@ fn provider_name(ext_name: &str, list: &ChapterList) -> String {
     } else if list.provider == list.ext_id || list.provider.is_empty() {
         ext_name.to_owned()
     } else {
-        format!("{ext_name} - {}", list.provider)
+        // BUG-119: "Toko · Atsu", not the provider's raw id ("Toko - atsu@cmgzlk0s6…").
+        format!("{ext_name} · {}", provider_label(&list.provider))
     }
+}
+
+/// A provider id as a name: the part before `@` (an internal instance id), words capitalised. Pure.
+fn provider_label(provider: &str) -> String {
+    let base = provider.split('@').next().unwrap_or(provider);
+    base.split(['-', '_', ' '])
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut c = w.chars();
+            c.next().map(|f| f.to_uppercase().chain(c).collect::<String>()).unwrap_or_default()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub async fn chapters(b: &LiveBackend, id: &str, refresh: bool) -> UiResult<Vec<ChapterProviderVm>> {
@@ -2110,7 +2124,12 @@ mod tests {
             chapters: Vec::new(),
         };
         assert_eq!(provider_key(&list), "toko/comick");
-        assert_eq!(provider_name("Toko", &list), "Toko - comick");
+        assert_eq!(provider_name("Toko", &list), "Toko · Comick");
+        // BUG-119: no internal instance id, readable words.
+        let atsu = ChapterList { provider: "atsu@cmgzlk0s6cqkzm1911f0j0u41".into(), ..list.clone() };
+        assert_eq!(provider_name("Toko", &atsu), "Toko · Atsu");
+        assert_eq!(provider_label("shademanga"), "Shademanga");
+        assert_eq!(provider_label("manga-plus_es"), "Manga Plus Es");
         let own = ChapterList {
             provider: "toko".into(),
             ..list

@@ -568,6 +568,21 @@ pub fn staff_role_key(role: &str) -> Option<&'static str> {
     })
 }
 
+/// BUG-119: why a source has no chapters, as an i18n key (`None`: it has chapters). Same three words as Android
+/// (`SourceProblem`): it answered without the title, it timed out, or it failed.
+pub fn source_problem_key(p: &ChapterProviderVm) -> Option<&'static str> {
+    if !p.chapters.is_empty() {
+        return None;
+    }
+    Some(match &p.error {
+        None => "manga.chapters.problem.not_found",
+        Some(e) if e.detail.to_ascii_lowercase().contains("timeout") || e.detail.to_ascii_lowercase().contains("timed out") => {
+            "manga.chapters.problem.timeout"
+        }
+        Some(_) => "manga.chapters.problem.failed",
+    })
+}
+
 /// `"Name (Role)"` (AniList staff as the backend sends it) -> `(name, role)`. Pure.
 pub fn split_author(author: &str) -> (&str, Option<&str>) {
     match author.find(" (") {
@@ -816,6 +831,35 @@ pub fn read_fraction(p: &ReadProgressVm) -> f64 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn an_empty_source_says_why() {
+        // BUG-119
+        let p = |chapters: usize, error: Option<&str>| ChapterProviderVm {
+            ext_id: "toko".into(),
+            ext_name: "Toko".into(),
+            lang: None,
+            chapters: (0..chapters)
+                .map(|i| ChapterVm {
+                    reference: ChapterRefVm { ext_id: "toko".into(), chapter_id: i.to_string() },
+                    number: i as f32,
+                    volume: None,
+                    title: None,
+                    lang: None,
+                    group: None,
+                    published_unix: None,
+                    pages: None,
+                    read: 0.0,
+                    downloaded: false,
+                })
+                .collect(),
+            error: error.map(|d| crate::model::UiError::new(crate::model::ErrorKind::Other, d)),
+        };
+        assert_eq!(source_problem_key(&p(3, None)), None);
+        assert_eq!(source_problem_key(&p(0, None)), Some("manga.chapters.problem.not_found"));
+        assert_eq!(source_problem_key(&p(0, Some("timeout"))), Some("manga.chapters.problem.timeout"));
+        assert_eq!(source_problem_key(&p(0, Some("JS error: boom"))), Some("manga.chapters.problem.failed"));
+    }
 
     #[test]
     fn rankings_and_staff_roles_are_worded_by_the_app() {
