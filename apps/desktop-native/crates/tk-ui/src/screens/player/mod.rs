@@ -70,7 +70,7 @@ use crate::shortcuts::Shortcut;
 use self::episodes::EpisodeSheet;
 use self::flow::{
     ExternalSlot, Flow, button_index, choose_preset, disarm_preset_guard, dispatch, legacy_sources, no_player_text,
-    preset_guard_tick, remember_pick, report, report_source, take_crashed_preset,
+    EPISODE_SWITCH, preset_guard_tick, remember_pick, report, report_source, take_crashed_preset,
 };
 use self::torrent::{SEEK_MARKS_EVERY, TorrentSession, TorrentSlot, end_torrent, take_batch_next, torrent_line};
 
@@ -151,12 +151,21 @@ fn delay_label(secs: f64) -> String {
 }
 
 
-/// Route component. Keys the screen by episode so "next episode" remounts it (fresh hooks and flow).
+/// Route component. Keys the screen by episode so another episode remounts it (fresh hooks, flow and sources).
+/// BUG-028: dioxus only compares keys inside a list (a lone keyed root is diffed in place and keeps its hooks, so the
+/// episode list showed the previous episode's sources), hence the one-item iterator.
 #[component]
 pub fn PlayerPage(id: String, episode: u32) -> Element {
+    let screen = screen_key(&id, episode);
     rsx! {
-        PlayerScreen { key: "{id}-{episode}", id: id.clone(), episode }
+        for key in std::iter::once(screen) {
+            PlayerScreen { key: "{key}", id: id.clone(), episode }
+        }
     }
+}
+
+fn screen_key(id: &str, episode: u32) -> String {
+    format!("{id}-{episode}")
 }
 
 #[component]
@@ -179,7 +188,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let flash = use_signal(|| None::<(String, u64)>);
     let mut player = use_signal(|| None::<Arc<Player>>);
     let mut preset = use_signal(|| ui.settings.peek().preset());
-    let mut fullscreen = use_signal(|| false);
+    // An episode switch in fullscreen stays in fullscreen (the screen is remounted, BUG-028).
+    let mut fullscreen = use_signal(|| flow::CARRY_FULLSCREEN.with(|c| c.replace(false)));
     let mut clock = use_signal(now_ms);
     let mut picker_open = use_signal(|| false);
     // Wave A, worker d: the subtitle sheet (style, delay, secondary, external file, translation).
@@ -256,6 +266,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         reuse,
         files_hint,
         picker_open,
+        fullscreen,
         source_prefs: ui.settings.peek().sources.clone(),
     };
 
@@ -792,7 +803,10 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 p.stop();
             }
             set_pip(&win, false, &pip_win);
-            win.set_fullscreen(false);
+            // Leaving the player exits fullscreen; switching episodes keeps it.
+            if EPISODE_SWITCH.with(|s| s.take()) != Some(true) {
+                win.set_fullscreen(false);
+            }
             // Leaving the player: back to "browsing" (the shell's route presence then refines it, e.g. a details
             // page sends "viewing").
             let state = if ui.settings.peek().flow.discord_presence { PresenceVm::Browsing } else { PresenceVm::Clear };
@@ -1836,5 +1850,55 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 on_close: move |_| picker_open.set(false),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod remount_tests {
+    use std::cell::Cell;
+
+    use dioxus::prelude::*;
+
+    thread_local! {
+        static MOUNTS: Cell<u32> = const { Cell::new(0) };
+        static EPISODE: Cell<u32> = const { Cell::new(1) };
+    }
+
+    #[component]
+    fn Screen(episode: u32) -> Element {
+        use_hook(|| MOUNTS.with(|m| m.set(m.get() + 1)));
+        rsx! { "{episode}" }
+    }
+
+    #[component]
+    fn Page(episode: u32) -> Element {
+        rsx! {
+            for key in std::iter::once(super::screen_key("x", episode)) {
+                Screen { key: "{key}", episode }
+            }
+        }
+    }
+
+    fn root() -> Element {
+        let episode = EPISODE.with(Cell::get);
+        rsx! { Page { episode } }
+    }
+
+    /// BUG-028: another episode must remount the screen (fresh hooks and sources), not re-render the old one.
+    #[test]
+    fn another_episode_remounts_the_screen() {
+        MOUNTS.with(|m| m.set(0));
+        EPISODE.with(|e| e.set(1));
+        let mut dom = VirtualDom::new(root);
+        dom.rebuild_in_place();
+        assert_eq!(MOUNTS.with(Cell::get), 1);
+        EPISODE.with(|e| e.set(5));
+        dom.mark_dirty(ScopeId::APP);
+        dom.render_immediate_to_vec();
+        assert_eq!(MOUNTS.with(Cell::get), 2, "episode 5 got a fresh screen");
+        // Same episode again: no remount.
+        dom.mark_dirty(ScopeId::APP);
+        dom.render_immediate_to_vec();
+        assert_eq!(MOUNTS.with(Cell::get), 2);
     }
 }

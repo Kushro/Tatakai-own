@@ -30,6 +30,13 @@ use crate::player_state::{FlowState, MAX_LEGACY_STREAMS, Phase, is_info_hash};
 
 use super::torrent::{BATCH_NEXT, BatchNext, NO_FILE_NOTICE_EXTRA_MS, TorrentSession, TorrentSlot};
 
+thread_local! {
+    /// Set by an episode switch for the screen being left: `Some(fullscreen)` keeps the window as it is.
+    pub(super) static EPISODE_SWITCH: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+    /// Read once by the next screen: start in fullscreen.
+    pub(super) static CARRY_FULLSCREEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 pub(super) fn dispatch(sig: &mut Signal<PlayerState>, action: PlayerAction) {
     let next = reduce_player(&sig.peek(), action);
     sig.set(next);
@@ -340,6 +347,8 @@ pub(super) struct Flow {
     /// A torrent whose files had no match for this episode (the error screen offers its Files page).
     pub(super) files_hint: Signal<Option<String>>,
     pub(super) picker_open: Signal<bool>,
+    /// The window is in fullscreen (carried to the next episode's screen, [`EPISODE_SWITCH`]).
+    pub(super) fullscreen: Signal<bool>,
     /// `Settings::sources` at boot: a remembered pick that no longer meets them is ignored (audit bug
     /// `sources.remembered-vs-prefs`, `FlowState::new`).
     pub(super) source_prefs: SourcePrefsVm,
@@ -491,6 +500,15 @@ impl Flow {
         }
     }
 
+    /// Another episode replaces this screen (remounted, BUG-028): keep the window's fullscreen across it.
+    fn switch_episode(&self, episode: u32) {
+        let fullscreen = *self.fullscreen.peek();
+        EPISODE_SWITCH.with(|s| s.set(Some(fullscreen)));
+        CARRY_FULLSCREEN.with(|c| c.set(fullscreen));
+        // Replace, not push: "Back" leaves the player instead of walking through every episode watched.
+        self.nav.replace(Route::PlayerPage { id: self.id.clone(), episode });
+    }
+
     /// "Next episode": a batch torrent is handed to the next screen (same torrent, its next file); otherwise the
     /// next screen resolves sources as usual and this torrent ends when this screen goes away.
     pub(super) fn go_next(&self) {
@@ -502,7 +520,7 @@ impl Flow {
             });
             self.tslot.handed_over.set(true);
         }
-        self.nav.push(Route::PlayerPage { id: self.id.clone(), episode: self.episode + 1 });
+        self.switch_episode(self.episode + 1);
     }
 
     /// "Previous episode" (button, `J`): episode N-1 with its best source. Nothing before episode 1.
@@ -519,7 +537,7 @@ impl Flow {
             return;
         }
         report(&self.backend, &self.id, self.episode, &self.pstate.peek());
-        self.nav.push(Route::PlayerPage { id: self.id.clone(), episode });
+        self.switch_episode(episode);
     }
 
     /// Records a failure of `attempt`; the caller (or the `drive` loop) resolves the next one.
