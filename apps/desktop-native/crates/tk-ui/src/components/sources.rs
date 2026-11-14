@@ -54,18 +54,87 @@ pub fn format_size(bytes: u64) -> String {
     crate::model::downloads::format_bytes(bytes)
 }
 
-/// `es, en` -> `ES · EN`; empty -> "none".
-fn langs(list: &[String]) -> String {
-    if list.is_empty() {
-        t("src.none")
+/// Track languages shown before "+N" (BUG-065: 13 raw track names took 4 lines).
+const LANGS_SHOWN: usize = 6;
+
+/// A track language as a short code (BUG-065): codes stay (`es-419` -> `ES-419`), track names become ISO 639
+/// (`ENGLISH (CR ENGLISH)` -> `EN`, `PORTUGUESE (CR PORTUGUESE(BRAZIL))` -> `PT-BR`,
+/// `CHINESE (CR CHINESE(TRADITIONAL))` -> `ZH-HANT`). Unknown names stay as they are, upper-cased.
+pub fn lang_code(raw: &str) -> String {
+    let s = raw.trim();
+    let is_code = |c: &str| {
+        let mut parts = c.split(['-', '_']);
+        let head = parts.next().unwrap_or("");
+        (2..=3).contains(&head.len())
+            && head.chars().all(|ch| ch.is_ascii_alphabetic())
+            && parts.all(|p| (2..=4).contains(&p.len()) && p.chars().all(|ch| ch.is_ascii_alphanumeric()))
+    };
+    if is_code(s) {
+        return s.replace('_', "-").to_uppercase();
+    }
+    let lower = s.to_lowercase();
+    let name = lower.split('(').next().unwrap_or("").trim();
+    const NAMES: [(&str, &str); 24] = [
+        ("english", "en"), ("spanish", "es"), ("español", "es"), ("castilian", "es"), ("portuguese", "pt"),
+        ("french", "fr"), ("german", "de"), ("italian", "it"), ("russian", "ru"), ("arabic", "ar"), ("japanese", "ja"),
+        ("chinese", "zh"), ("korean", "ko"), ("hindi", "hi"), ("indonesian", "id"), ("thai", "th"), ("vietnamese", "vi"),
+        ("turkish", "tr"), ("polish", "pl"), ("malay", "ms"), ("dutch", "nl"), ("swedish", "sv"), ("ukrainian", "uk"),
+        ("hebrew", "he"),
+    ];
+    let Some(code) = NAMES.iter().find(|(n, _)| name == *n || name.starts_with(&format!("{n} "))).map(|(_, c)| *c) else {
+        return s.to_uppercase();
+    };
+    let region = if lower.contains("brazil") {
+        Some("BR")
+    } else if lower.contains("latin") || lower.contains("latino") || lower.contains("419") {
+        Some("419")
+    } else if code == "es" && (lower.contains("spain") || lower.contains("castilian") || lower.contains("europe")) {
+        Some("ES")
+    } else if code == "pt" && lower.contains("portugal") {
+        Some("PT")
+    } else if lower.contains("traditional") {
+        Some("HANT")
+    } else if lower.contains("simplified") {
+        Some("HANS")
     } else {
-        list.iter().map(|l| l.to_uppercase()).collect::<Vec<_>>().join(" · ")
+        None
+    };
+    match region {
+        Some(r) => format!("{}-{r}", code.to_uppercase()),
+        None => code.to_uppercase(),
+    }
+}
+
+/// `es, en` -> `ES · EN`; empty -> "none". Track names become short codes without repeats, `first` (the preferred
+/// language, may be empty) goes first and a long list ends in "+N" (BUG-065).
+fn langs(list: &[String], first: &str) -> String {
+    if list.is_empty() {
+        return t("src.none");
+    }
+    let mut codes: Vec<String> = Vec::new();
+    for l in list {
+        let c = lang_code(l);
+        if !c.is_empty() && !codes.contains(&c) {
+            codes.push(c);
+        }
+    }
+    let first = first.trim().to_uppercase();
+    if !first.is_empty() {
+        // Stable: the preferred language (and its regional variants) moves to the front.
+        codes.sort_by_key(|c| !(c == &first || c.starts_with(&format!("{first}-"))));
+    }
+    if codes.len() > LANGS_SHOWN {
+        let rest = codes.len() - (LANGS_SHOWN - 1);
+        codes.truncate(LANGS_SHOWN - 1);
+        format!("{} +{rest}", codes.join(" · "))
+    } else {
+        codes.join(" · ")
     }
 }
 
 /// Key/value metadata of a row (web: server, quality, latency, subs, dub; torrent: group, quality, size,
 /// seeders, leechers, subs, dub).
-fn row_meta(s: &SourceVm) -> Vec<(String, String)> {
+fn row_meta(s: &SourceVm, sub_lang: &str, dub_lang: &str) -> Vec<(String, String)> {
     let quality = [s.quality.as_str(), s.container.as_deref().unwrap_or("")].join(" ").trim().to_owned();
     let mut out = Vec::new();
     match s.kind {
@@ -92,18 +161,18 @@ fn row_meta(s: &SourceVm) -> Vec<(String, String)> {
             }
         }
     }
-    out.push((t("src.subs"), subs_text(s)));
-    out.push((t("src.dubs"), langs(&s.dubs)));
+    out.push((t("src.subs"), subs_text(s, sub_lang)));
+    out.push((t("src.dubs"), langs(&s.dubs, dub_lang)));
     out
 }
 
 /// BUG-004: torrent indexes do not list subtitle tracks (they are inside the file), so an empty list is not "none":
 /// "Multi-sub" releases say several, the rest "not listed". Web sources list theirs.
-fn subs_text(s: &SourceVm) -> String {
+fn subs_text(s: &SourceVm, sub_lang: &str) -> String {
     match s.kind {
         SourceKindVm::Torrent if s.subs.is_empty() && s.tags.multi_sub => t("src.subs_multi"),
         SourceKindVm::Torrent if s.subs.is_empty() => t("src.subs_unlisted"),
-        _ => langs(&s.subs),
+        _ => langs(&s.subs, sub_lang),
     }
 }
 
@@ -265,7 +334,14 @@ impl FilterOptions {
 
 /// One source (radio row). `on_pick` receives `source.id`. Disabled when the extension is off.
 #[component]
-pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>) -> Element {
+pub fn SourceRow(
+    source: SourceVm,
+    selected: bool,
+    on_pick: EventHandler<String>,
+    /// Preferred subtitle / audio languages (`SourcePrefsVm`): listed first in the row (BUG-065).
+    #[props(default)] sub_lang: String,
+    #[props(default)] dub_lang: String,
+) -> Element {
     let id = source.id.clone();
     let kind = source.kind.id();
     let disabled = !source.ext_enabled;
@@ -277,7 +353,7 @@ pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>
     let name = format!("{} · {}", source.ext_name, source.label);
     let kind_text = t(&format!("src.{kind}"));
     let off_text = tf("src.ext_off", &[("name", &source.ext_name)]);
-    let meta = row_meta(&source);
+    let meta = row_meta(&source, &sub_lang, &dub_lang);
     let chips = tag_chips(&source);
     // Wave B: where the row comes from (j: `server:<id>` / `stremio:<id>` / extension id) and whether it is an embed
     // page the sniffer resolves (k, `sources.embed-sniffer.ranking`).
@@ -622,6 +698,8 @@ pub fn SourcePicker(
                                 SourceRow {
                                     source: s.clone(),
                                     selected: s.picked || (!any_picked && s.recommended),
+                                    sub_lang: prefs.sub_lang.clone(),
+                                    dub_lang: prefs.dub_lang.clone(),
                                     on_pick: move |id: String| on_pick.call(id),
                                 }
                                 if let Some(handler) = on_download.filter(|_| s.kind == SourceKindVm::Torrent && s.ext_enabled) {
@@ -771,6 +849,21 @@ mod tests {
     use crate::backend::ReleaseTagsVm;
 
     #[test]
+    fn track_names_become_short_codes_with_the_preferred_first() {
+        assert_eq!(lang_code("ENGLISH (CR ENGLISH)"), "EN");
+        assert_eq!(lang_code("PORTUGUESE (CR PORTUGUESE(BRAZIL))"), "PT-BR");
+        assert_eq!(lang_code("CHINESE (CR CHINESE(TRADITIONAL))"), "ZH-HANT");
+        assert_eq!(lang_code("Spanish (Latin America)"), "ES-419");
+        assert_eq!(lang_code("es-419"), "ES-419");
+        assert_eq!(lang_code("ja"), "JA");
+        assert_eq!(lang_code("Klingon"), "KLINGON");
+        let v = |l: &[&str]| l.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(langs(&v(&["ENGLISH (CR ENGLISH)", "en", "SPANISH (CR SPANISH(LATIN AMERICA))"]), "es"), "ES-419 · EN");
+        let many = v(&["en", "es", "pt-BR", "fr", "de", "it", "ru", "ar"]);
+        assert_eq!(langs(&many, "ar"), "AR · EN · ES · PT-BR · FR +3");
+    }
+
+    #[test]
     fn manual_picker_lists_the_earlier_pick_first() {
         let mut a = vm("A", SourceKindVm::Web, "1080p", 0.9, ReleaseTagsVm::default());
         a.score = 2.0;
@@ -814,14 +907,14 @@ mod tests {
     fn torrent_subs_are_never_claimed_to_be_none() {
         // BUG-004: "Multi-sub" torrents said "Subs: none".
         let multi = vm("Erai-raws", SourceKindVm::Torrent, "1080p", 0.8, ReleaseTagsVm { multi_sub: true, ..ReleaseTagsVm::default() });
-        assert_eq!(subs_text(&multi), t("src.subs_multi"));
+        assert_eq!(subs_text(&multi, ""), t("src.subs_multi"));
         let plain = vm("Judas", SourceKindVm::Torrent, "1080p", 0.8, ReleaseTagsVm::default());
-        assert_eq!(subs_text(&plain), t("src.subs_unlisted"));
+        assert_eq!(subs_text(&plain, ""), t("src.subs_unlisted"));
         let web = vm("Alpha", SourceKindVm::Web, "1080p", 0.8, ReleaseTagsVm::default());
-        assert_eq!(subs_text(&web), t("src.none"));
+        assert_eq!(subs_text(&web, ""), t("src.none"));
         let mut listed = plain.clone();
         listed.subs = vec!["es".into()];
-        assert_eq!(subs_text(&listed), "ES");
+        assert_eq!(subs_text(&listed, ""), "ES");
     }
 
     fn sample() -> Vec<SourceVm> {
