@@ -49,6 +49,8 @@ const STREMIO_MANIFEST_DETAIL: &str = "stremio_manifest";
 
 /// A pairing link waiting for its confirmation (set by [`use_pending_server_link_watch`] or the page itself).
 static PENDING_LINK: GlobalSignal<Option<String>> = Signal::global(|| None);
+/// Bumped after an install: every card refetches its detail (version, "Updated …"; BUG-049).
+static DETAIL_REV: GlobalSignal<u64> = Signal::global(|| 0);
 /// The updates sheet opens by itself once per run.
 static UPDATES_SHOWN: AtomicBool = AtomicBool::new(false);
 
@@ -331,6 +333,7 @@ pub fn ExtensionsPage() -> Element {
                 InstallPanel {
                     on_installed: move |_| {
                         install_open.set(false);
+                        *DETAIL_REV.write() += 1;
                         list.restart();
                         updates.restart();
                     },
@@ -354,7 +357,7 @@ pub fn ExtensionsPage() -> Element {
         },
         ExtTab::Servers => rsx! { ServersPanel {} },
         ExtTab::Stremio => rsx! { StremioPanel {} },
-        ExtTab::Repos => rsx! { ReposPanel { on_installed: move |_| { list.restart(); updates.restart(); } } },
+        ExtTab::Repos => rsx! { ReposPanel { on_installed: move |_| { *DETAIL_REV.write() += 1; list.restart(); updates.restart(); } } },
         ExtTab::Providers => rsx! { ProvidersPanel {} },
     };
 
@@ -412,6 +415,7 @@ pub fn ExtensionsPage() -> Element {
                 UpdatesSheet {
                     on_close: move |_| show_updates.set(false),
                     on_changed: move |_| {
+                        *DETAIL_REV.write() += 1;
                         list.restart();
                         updates.restart();
                     },
@@ -653,6 +657,8 @@ fn ExtensionRow(
     let mut detail = use_resource({
         let (backend, id) = (services.backend.clone(), ext.id.clone());
         move || {
+            // Subscribes: an install elsewhere on the screen refetches this card (BUG-049).
+            let _ = DETAIL_REV();
             let (backend, id) = (backend.clone(), id.clone());
             async move { backend.extension_detail(&id).await }
         }
