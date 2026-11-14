@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -79,6 +80,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -673,26 +676,49 @@ private fun ForgetButton(onForget: () -> Unit) {
 private fun EnhancePanel(state: LinkUiState, onStart: (String) -> Unit) {
     var url by rememberSaveable { mutableStateOf("") }
     Panel(icon = Icons.Outlined.Cast, title = stringResource(R.string.linked_enhance_title)) {
+        val canStart = !state.startingSession && url.isNotBlank() && state.capabilities is LoadState.Ok
+        val problem = state.enhanceProblem?.let { enhanceProblemText(it) }
+        // BUG-024: a URL keyboard without auto-capitalisation or correction, and "Go" on the keyboard (the button can sit under it)
         OutlinedTextField(
             value = url,
             onValueChange = { url = it },
             label = { Text(stringResource(R.string.linked_enhance_url)) },
-            supportingText = { Text(stringResource(R.string.linked_enhance_hint)) },
+            supportingText = { Text(problem ?: stringResource(R.string.linked_enhance_hint)) },
+            isError = state.enhanceProblem == EnhanceProblem.INVALID_URL,
             singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.None,
+                autoCorrectEnabled = false,
+                keyboardType = KeyboardType.Uri,
+                imeAction = ImeAction.Go,
+            ),
+            keyboardActions = KeyboardActions(onGo = { if (canStart) onStart(url) }),
             modifier = Modifier.fillMaxWidth(),
         )
+        if (state.enhanceProblem != null && state.enhanceProblem != EnhanceProblem.INVALID_URL) {
+            Text(problem.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
         state.sessionError?.let {
             Text(it.userMessage(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
         Button(
             onClick = { onStart(url) },
-            enabled = !state.startingSession && url.isNotBlank() && state.capabilities is LoadState.Ok,
+            enabled = canStart,
         ) {
             if (state.startingSession) LoadingIndicator(Modifier.padding(end = 8.dp).size(20.dp))
             Text(stringResource(if (state.startingSession) R.string.linked_enhance_starting else R.string.linked_enhance_start))
         }
     }
 }
+
+@Composable
+private fun enhanceProblemText(p: EnhanceProblem): String = stringResource(
+    when (p) {
+        EnhanceProblem.INVALID_URL -> R.string.linked_enhance_invalid
+        EnhanceProblem.REJECTED -> R.string.linked_enhance_rejected
+        EnhanceProblem.TIMEOUT -> R.string.linked_enhance_timeout
+    },
+)
 
 // ---------------------------------------------------------------- PC extension server entry (docs/redesign/13 §3.10)
 

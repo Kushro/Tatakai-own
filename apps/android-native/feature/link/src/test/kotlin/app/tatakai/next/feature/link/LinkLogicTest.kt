@@ -6,6 +6,8 @@ import app.tatakai.next.model.LinkHandoff
 import app.tatakai.next.model.MediaRef
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.test.assertNull
 
 /** parity wave B (worker r): hand-off args, clock text and the discovered-PC list of the Linked screen. */
@@ -18,6 +20,18 @@ class LinkLogicTest {
         assertEquals(3, args.episode)
         assertEquals(MediaRef(anilistId = 21), LinkLogic.refOf("21"))
         assertNull(LinkLogic.refOf("ext:a:b:c"))
+    }
+
+    @Test fun enhanceUrlsMustBeCompleteHttpLinks() {
+        // BUG-024
+        assertTrue(LinkLogic.enhanceUrlValid("https://cdn.example.com/hls/master.m3u8"))
+        assertTrue(LinkLogic.enhanceUrlValid("  http://192.168.1.10:8080/a.mp4 "))
+        for (bad in listOf("Master.m3u8", "cdn.example.com/master.m3u8", "ftp://h/x.m3u8", "https://", "https://cdn.example.com/a b.m3u8", "Https//x")) {
+            assertFalse(LinkLogic.enhanceUrlValid(bad), bad)
+        }
+        assertTrue(LinkLogic.enhanceRejected(app.tatakai.next.link.LinkApiError.SourceUnavailable))
+        assertTrue(LinkLogic.enhanceRejected(app.tatakai.next.link.LinkApiError.UrlSourceDenied))
+        assertFalse(LinkLogic.enhanceRejected(null))
     }
 
     @Test fun clockText() {

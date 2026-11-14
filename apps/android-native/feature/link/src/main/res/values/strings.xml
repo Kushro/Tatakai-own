@@ -49,6 +49,9 @@
     <string name="linked_enhance_hint">The PC fetches and enhances this stream.</string>
     <string name="linked_enhance_start">Start session</string>
     <string name="linked_enhance_starting">Starting…</string>
+    <string name="linked_enhance_invalid">Paste a complete http:// or https:// link (for example, the stream\'s .m3u8).</string>
+    <string name="linked_enhance_rejected">The PC could not open this link. Check that it is the stream\'s .m3u8 or .mp4 and try again.</string>
+    <string name="linked_enhance_timeout">The PC did not answer in time. Check the link or try again.</string>
 
     <!-- parity wave B (16 §3.11, worker r): remote control, Continuar en la PC, mDNS discovery, Enviar a dispositivo. -->
     <string name="linked_continue_done">The PC is opening the episode where you left it</string>

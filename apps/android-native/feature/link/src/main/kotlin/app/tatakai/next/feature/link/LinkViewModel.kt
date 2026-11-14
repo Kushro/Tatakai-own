@@ -2,7 +2,10 @@ package app.tatakai.next.feature.link
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.tatakai.next.link.LinkApiError
 import app.tatakai.next.link.LinkDiscoveryAccess
+import app.tatakai.next.link.LinkError
+import app.tatakai.next.link.linkErrorOrNull
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.DiscoveredPc
 import app.tatakai.next.model.HistoryEntry
@@ -31,6 +34,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 data class LinkUiState(
     val link: LinkState = LinkState.Unpaired,
@@ -42,6 +46,8 @@ data class LinkUiState(
     val pairError: AppError? = null,
     val startingSession: Boolean = false,
     val sessionError: AppError? = null,
+    /** BUG-024: why "Enhance a stream" did not start, in words (null: none, or [sessionError] explains it). */
+    val enhanceProblem: EnhanceProblem? = null,
     // --- android wave (12 §3.13): "Dispositivo enlazado" ---
     /** The paired PC as persisted by the Link client (fingerprint, last seen, preferred profile); null = unpaired. */
     val device: LinkedDevice? = null,
@@ -57,6 +63,16 @@ data class LinkUiState(
     /** PC -> phone "Enviar a dispositivo" waiting for "Reproducir aquí". */
     val pendingHandoff: LinkHandoff? = null,
 )
+
+/** BUG-024: "Enhance a stream" problems the screen explains itself. */
+enum class EnhanceProblem {
+    /** Not a complete http(s) link. */
+    INVALID_URL,
+    /** The PC could not open that link (not a stream, blocked, unreachable). */
+    REJECTED,
+    /** The PC did not answer in time. */
+    TIMEOUT,
+}
 
 sealed interface LinkEvent {
     data class NavigateToPlayer(val args: PlayerArgs) : LinkEvent
@@ -219,10 +235,20 @@ class LinkViewModel(
     fun startSession(url: String) {
         val trimmed = url.trim()
         if (trimmed.isEmpty() || _state.value.startingSession) return
-        _state.update { it.copy(startingSession = true, sessionError = null) }
+        if (!LinkLogic.enhanceUrlValid(trimmed)) {
+            _state.update { it.copy(sessionError = null, enhanceProblem = EnhanceProblem.INVALID_URL) }
+            return
+        }
+        _state.update { it.copy(startingSession = true, sessionError = null, enhanceProblem = null) }
         viewModelScope.launch {
             val profile = _state.value.selectedProfile
-            val result = runCatchingApp { link.startSession(LinkSource.Url(trimmed), profile).getOrThrow() }
+            val result = withTimeoutOrNull(ENHANCE_TIMEOUT_MS) {
+                runCatching { link.startSession(LinkSource.Url(trimmed), profile).getOrThrow() }
+            }
+            if (result == null) {
+                _state.update { it.copy(startingSession = false, enhanceProblem = EnhanceProblem.TIMEOUT) }
+                return@launch
+            }
             result.onSuccess { session ->
                 _state.update { it.copy(startingSession = false) }
                 _events.trySend(
@@ -231,7 +257,12 @@ class LinkViewModel(
                     ),
                 )
             }.onFailure { e ->
-                _state.update { it.copy(startingSession = false, sessionError = e.toAppError()) }
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                val rejected = LinkLogic.enhanceRejected((e.linkErrorOrNull() as? LinkError.Api)?.error)
+                _state.update {
+                    if (rejected) it.copy(startingSession = false, enhanceProblem = EnhanceProblem.REJECTED)
+                    else it.copy(startingSession = false, sessionError = e.toAppError())
+                }
             }
         }
     }
@@ -242,12 +273,26 @@ class LinkViewModel(
 
     private companion object {
         const val REMOTE_POLL_MS = 2_000L
+        /** The PC checks the link (and probes HLS) before it answers; past this the screen says it did not answer. */
+        const val ENHANCE_TIMEOUT_MS = 60_000L
         val PAIRING_TEXT = Regex("^(tatakai-link:v1\\?.+|[0-9A-Z]{10})$", RegexOption.IGNORE_CASE)
     }
 }
 
 /** Pure helpers of the Linked screen (JVM-tested). */
 internal object LinkLogic {
+    /** BUG-024: a complete http(s) link with a host and no spaces ("Master.m3u8" alone, or a typo'd scheme, is not). */
+    fun enhanceUrlValid(url: String): Boolean {
+        val u = url.trim()
+        if (u.any { it.isWhitespace() }) return false
+        val uri = runCatching { java.net.URI(u) }.getOrNull() ?: return false
+        return uri.scheme?.lowercase() in setOf("http", "https") && !uri.host.isNullOrBlank()
+    }
+
+    /** BUG-024: Link answers that mean "the PC could not use that link" (as opposed to the PC being unreachable). */
+    fun enhanceRejected(error: LinkApiError?): Boolean =
+        error == LinkApiError.RequestInvalid || error == LinkApiError.SourceUnavailable || error == LinkApiError.UrlSourceDenied
+
     /** Player args of a PC -> phone hand-off: the Link session, from the PC's position. */
     fun handoffArgs(h: LinkHandoff): PlayerArgs = PlayerArgs(
         media = h.animeId?.let(::refOf) ?: MediaRef(),
