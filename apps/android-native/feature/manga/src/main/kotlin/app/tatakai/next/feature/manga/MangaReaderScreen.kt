@@ -81,6 +81,8 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.platform.LocalConfiguration
+import android.content.res.Configuration
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -214,6 +216,16 @@ fun MangaReaderScreen(
         window.attributes = window.attributes.also { it.screenBrightness = if (reader.brightness >= 0f) reader.brightness.coerceIn(0.02f, 1f) else -1f }
     }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+
+    // BUG-127: in landscape the bars take about half of the height. They hide when the phone turns to landscape and on every page
+    // turn there (the centre tap still brings them back); portrait keeps them until the centre tap.
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    LaunchedEffect(landscape) { if (ReaderChrome.hideOnRotate(landscape)) chrome = false }
+    var lastPage by remember { mutableIntStateOf(ui.page) }
+    LaunchedEffect(ui.page) {
+        if (ReaderChrome.hideOnPageTurn(landscape, lastPage, ui.page)) chrome = false
+        lastPage = ui.page
+    }
 
     // Cache warming: eager = whole chapter, lazy = the next N pages; and the next chapter once prefetched at 70 %.
     val pages = ui.pages
@@ -383,6 +395,7 @@ fun MangaReaderScreen(
             BottomChrome(
                 ui = ui,
                 reader = reader,
+                compact = landscape,
                 hasPrevious = vm.hasPrevious,
                 hasNext = vm.hasNext,
                 autoScroll = autoScroll,
@@ -837,7 +850,8 @@ private fun TopChrome(
     onOpenSettings: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f), modifier = Modifier.fillMaxWidth()) {
+    // Opaque, like the novel reader (BUG-124): the page does not show through the bar.
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.statusBarsPadding().padding(horizontal = 4.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back)) }
             Column(Modifier.weight(1f)) {
@@ -879,6 +893,7 @@ private fun TopChrome(
 private fun BottomChrome(
     ui: MangaReaderUi,
     reader: ReaderSettings,
+    compact: Boolean,
     hasPrevious: Boolean,
     hasNext: Boolean,
     autoScroll: Boolean,
@@ -889,48 +904,83 @@ private fun BottomChrome(
     onRail: () -> Unit,
 ) {
     val total = ui.pages.size
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.94f), modifier = Modifier.fillMaxWidth()) {
+    // BUG-112: right-to-left paged reading lays the slider row out RTL (the slider starts at the right, with the current page next to
+    // that start and the total at the far left) instead of mirroring only the slider with scaleX = -1.
+    val rtl = reader.mode == ReaderMode.PAGED && reader.direction == ReaderDirection.RTL
+    val outer = androidx.compose.ui.platform.LocalLayoutDirection.current
+    val sliderRow: @Composable (Modifier) -> Unit = { mod ->
+        var drag by remember(ui.page, total) { mutableFloatStateOf(ui.page.toFloat()) }
+        androidx.compose.runtime.CompositionLocalProvider(
+            androidx.compose.ui.platform.LocalLayoutDirection provides if (rtl) androidx.compose.ui.unit.LayoutDirection.Rtl else outer,
+        ) {
+            Row(mod, verticalAlignment = Alignment.CenterVertically) {
+                Text("${drag.toInt() + 1}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
+                Slider(
+                    value = drag,
+                    onValueChange = { drag = it },
+                    onValueChangeFinished = { onJump(drag.toInt()) },
+                    valueRange = 0f..(total - 1).toFloat(),
+                    modifier = Modifier.weight(1f),
+                )
+                Text("$total", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
+            }
+        }
+    }
+    val previous: @Composable () -> Unit = {
+        IconButton(onClick = onPrevious, enabled = hasPrevious) { Icon(Icons.Outlined.SkipPrevious, contentDescription = stringResource(R.string.manga_reader_previous_chapter)) }
+    }
+    val next: @Composable () -> Unit = {
+        IconButton(onClick = onNext, enabled = hasNext) { Icon(Icons.Outlined.SkipNext, contentDescription = stringResource(R.string.manga_reader_next_chapter)) }
+    }
+    val tools: @Composable () -> Unit = {
+        IconButton(onClick = onRail) { Icon(Icons.Outlined.ViewCarousel, contentDescription = stringResource(R.string.manga_reader_pages)) }
+        if (reader.mode != ReaderMode.PAGED && reader.autoScrollSpeed > 0) {
+            IconButton(onClick = onAutoScroll) {
+                Icon(if (autoScroll) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, contentDescription = stringResource(R.string.manga_reader_auto_scroll))
+            }
+        }
+    }
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+        if (compact) {
+            // BUG-127: landscape: one row (chapter buttons, pages, slider with "N … M"), half the height of the portrait bar.
+            Row(Modifier.navigationBarsPadding().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                previous()
+                tools()
+                when {
+                    total > 1 -> sliderRow(Modifier.weight(1f))
+                    total == 0 -> LinearProgressIndicator(Modifier.weight(1f).padding(8.dp))
+                    else -> Text(stringResource(R.string.manga_reader_page_of, 1, 1), style = MaterialTheme.typography.labelLarge, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+                }
+                next()
+            }
+            return@Surface
+        }
         Column(Modifier.navigationBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp)) {
             if (total > 1) {
-                var drag by remember(ui.page, total) { mutableFloatStateOf(ui.page.toFloat()) }
-                // BUG-112: right-to-left paged reading lays the whole row out RTL (the slider starts at the right, with the current page
-                // next to that start and the total at the far left) instead of mirroring only the slider with scaleX = -1.
-                val rtl = reader.mode == ReaderMode.PAGED && reader.direction == ReaderDirection.RTL
-                val outer = androidx.compose.ui.platform.LocalLayoutDirection.current
-                androidx.compose.runtime.CompositionLocalProvider(
-                    androidx.compose.ui.platform.LocalLayoutDirection provides if (rtl) androidx.compose.ui.unit.LayoutDirection.Rtl else outer,
-                ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("${drag.toInt() + 1}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
-                    Slider(
-                        value = drag,
-                        onValueChange = { drag = it },
-                        onValueChangeFinished = { onJump(drag.toInt()) },
-                        valueRange = 0f..(total - 1).toFloat(),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text("$total", style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
-                }
-                }
+                sliderRow(Modifier)
             } else if (total == 0) {
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(8.dp))
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onPrevious, enabled = hasPrevious) { Icon(Icons.Outlined.SkipPrevious, contentDescription = stringResource(R.string.manga_reader_previous_chapter)) }
-                IconButton(onClick = onRail) { Icon(Icons.Outlined.ViewCarousel, contentDescription = stringResource(R.string.manga_reader_pages)) }
-                if (reader.mode != ReaderMode.PAGED && reader.autoScrollSpeed > 0) {
-                    IconButton(onClick = onAutoScroll) {
-                        Icon(if (autoScroll) Icons.Outlined.Pause else Icons.Outlined.PlayArrow, contentDescription = stringResource(R.string.manga_reader_auto_scroll))
-                    }
-                }
+                previous()
+                tools()
                 Text(
                     if (total > 0) stringResource(R.string.manga_reader_page_of, ui.page + 1, total) else "",
                     style = MaterialTheme.typography.labelLarge,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onNext, enabled = hasNext) { Icon(Icons.Outlined.SkipNext, contentDescription = stringResource(R.string.manga_reader_next_chapter)) }
+                next()
             }
         }
     }
+}
+
+/** BUG-127: when the reader hides its bars by itself. Pure (unit-tested). */
+internal object ReaderChrome {
+    /** Turning to landscape hides them (they would cover about half of the page). */
+    fun hideOnRotate(landscape: Boolean): Boolean = landscape
+
+    /** A page turn in landscape hides them; the first page shown (or the same page) does not. */
+    fun hideOnPageTurn(landscape: Boolean, previousPage: Int, page: Int): Boolean = landscape && previousPage != page
 }
