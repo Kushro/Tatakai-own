@@ -134,6 +134,13 @@ mod build_mode_tests {
     use crate::ShaderPreset;
 
     #[test]
+    fn in_enhanced_build_matches_the_build_modes() {
+        for p in ShaderPreset::ALL {
+            assert_eq!(p.in_enhanced_build(), build_mode_command(p).is_some(), "{p:?}");
+        }
+    }
+
+    #[test]
     fn anime4k_modes_map_to_the_build_bindings() {
         assert_eq!(build_mode_command(ShaderPreset::Anime4kCA), Some(&["script-message", "anime4k-mode", "CA"][..]));
         assert_eq!(build_mode_command(ShaderPreset::Off).map(|a| a[0]), Some("change-list"));

@@ -31,7 +31,11 @@ pub fn PlayerSection(commit_saved: Callback<SettingsAction>) -> Element {
     prefer_options.extend(SourceKindVm::ALL.iter().map(|k| (k.id().to_owned(), t(&format!("src.{}", k.id())))));
     rsx! {
         PlayerEngineRows { on_action: commit_saved }
-        SettingRow { label: t("settings.player.preset"), hint: t("settings.player.preset_hint_embedded"), stack: true,
+        // BUG-032: the saved preset is the Integrated engine's; say so where it does not apply.
+        SettingRow { label: t("settings.player.preset"), hint: match s.player_mode {
+                PlayerModeVm::EmbeddedEnhanced => t("settings.player.preset_hint_enhanced"),
+                _ => t("settings.player.preset_hint_embedded"),
+            }, stack: true,
             Segmented {
                 options: ShaderPreset::ALL
                     .iter()

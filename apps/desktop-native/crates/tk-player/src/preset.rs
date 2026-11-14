@@ -109,6 +109,12 @@ impl ShaderPreset {
         matches!(self, Self::ArtCnn)
     }
 
+    /// Whether mpv-anime-build (the "Integrado mejorado" engine) has an equivalent mode for this preset (its
+    /// input.conf `anime4k-mode` / fidelity bindings); FSR, NVScaler and CAS have none.
+    pub fn in_enhanced_build(self) -> bool {
+        !matches!(self, Self::Fsr | Self::NvScaler | Self::Cas)
+    }
+
     /// Shader files, in application order, relative to the shaders directory.
     pub fn shader_files(self, quality: Anime4kQuality) -> Vec<String> {
         // Big (first) and small (second) networks of the chain: VL/M on High, M/S on Fast.

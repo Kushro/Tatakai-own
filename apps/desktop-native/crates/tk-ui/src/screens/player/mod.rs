@@ -47,7 +47,7 @@ use tk_player::{Anime4kQuality, EngineMode, KeyAction, Player, PlayerEvent, Rect
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::{Route, Services, Ui};
-use crate::backend::{DetailsVm, PlaybackVm, PresenceVm, SourceKindVm, SourceVm, TorrentStateVm, TorrentStatsVm};
+use crate::backend::{BackendRef, DetailsVm, PlaybackVm, PresenceVm, SourceKindVm, SourceVm, TorrentStateVm, TorrentStatsVm};
 use crate::components::player_controls::{NextEpisodeCard, ShortcutHelp, track_label};
 use crate::components::{
     Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, PlayerControls, SourcePicker,
@@ -164,6 +164,39 @@ pub fn PlayerPage(id: String, episode: u32) -> Element {
     }
 }
 
+/// A preset picked in the player (menu or Ctrl+n). Integrated engine: our chain, saved as the default once active.
+/// Enhanced engine (BUG-032): the build's own mode for it, for this playback only (the saved preset is the integrated
+/// engine's and the build starts with its own profile).
+#[allow(clippy::too_many_arguments)]
+fn pick_preset(
+    backend: &BackendRef,
+    p: Arc<Player>,
+    next: ShaderPreset,
+    notice: Signal<Option<String>>,
+    mut preset: Signal<ShaderPreset>,
+    mut build_picked: Signal<bool>,
+    enhanced: bool,
+    ui: Ui,
+) {
+    let saver = backend.clone();
+    choose_preset(
+        backend,
+        p,
+        next,
+        notice,
+        move || {
+            preset.set(next);
+            if enhanced {
+                build_picked.set(true);
+            } else {
+                let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(next));
+                ui.commit_settings(&saver, s);
+            }
+        },
+        move || preset.set(ShaderPreset::Off),
+    );
+}
+
 fn screen_key(id: &str, episode: u32) -> String {
     format!("{id}-{episode}")
 }
@@ -189,6 +222,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let mut player = use_signal(|| None::<Arc<Player>>);
     let mut preset = use_signal(|| ui.settings.peek().preset());
     // An episode switch in fullscreen stays in fullscreen (the screen is remounted, BUG-028).
+    // Enhanced engine: a mode of the build was picked in this screen (until then its start-up profile runs).
+    let build_picked = use_signal(|| false);
     let mut fullscreen = use_signal(|| flow::CARRY_FULLSCREEN.with(|c| c.replace(false)));
     let mut clock = use_signal(now_ms);
     let mut picker_open = use_signal(|| false);
@@ -848,7 +883,11 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
             if *uosc.peek() && !matches!(evt.action, Shortcut::Fullscreen | Shortcut::Escape) {
                 return;
             }
-            if *enhanced.peek() && matches!(evt.action, Shortcut::Preset(_)) {
+            // Enhanced engine: Ctrl+n switches the build's own modes, when it has one for that preset (BUG-032).
+            if *enhanced.peek()
+                && let Shortcut::Preset(n) = evt.action
+                && !ShaderPreset::from_shortcut(n).is_some_and(ShaderPreset::in_enhanced_build)
+            {
                 return;
             }
             let Some(p) = player.peek().clone() else { return };
@@ -883,13 +922,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 }
                 Shortcut::Preset(n) => {
                     if let Some(next) = ShaderPreset::from_shortcut(n) {
-                        let saver = backend.clone();
-                        let mut preset = preset;
-                        choose_preset(&backend, p.clone(), next, notice, move || {
-                            preset.set(next);
-                            let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(next));
-                            ui.commit_settings(&saver, s);
-                        }, move || preset.set(ShaderPreset::Off));
+                        pick_preset(&backend, p.clone(), next, notice, preset, build_picked, *enhanced.peek(), ui);
                     }
                 }
                 // Wave A (worker e): the rest of the rebindable player actions (docs/redesign/15 section 4).
@@ -1438,7 +1471,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 episode,
                 visible,
                 preset: preset(),
-                presets: !enhanced(),
+                presets: true,
+                build_modes: enhanced(),
+                build_default: enhanced() && !build_picked(),
                 phase: fs.phase,
                 resolving_label,
                 source_label,
@@ -1530,13 +1565,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     let backend = backend.clone();
                     move |next: ShaderPreset| {
                         if let Some(p) = player.peek().clone() {
-                            let saver = backend.clone();
-                            let mut preset = preset;
-                            choose_preset(&backend, p, next, notice, move || {
-                                preset.set(next);
-                                let s = reduce_settings(&ui.settings.peek(), SettingsAction::SetPreset(next));
-                                ui.commit_settings(&saver, s);
-                            }, move || preset.set(ShaderPreset::Off));
+                            pick_preset(&backend, p, next, notice, preset, build_picked, *enhanced.peek(), ui);
                         }
                     }
                 },

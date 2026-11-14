@@ -60,6 +60,11 @@ pub fn PlayerControls(
     preset: ShaderPreset,
     /// Our upscaling presets apply (false in the enhanced mode: mpv-anime-build brings its own shaders).
     #[props(default = true)] presets: bool,
+    /// Enhanced engine (BUG-032): the menu switches mpv-anime-build's own modes (only the presets it has, no chain
+    /// size / deband items).
+    #[props(default)] build_modes: bool,
+    /// Enhanced engine before any pick: the build's own start-up profile is active (nothing checked).
+    #[props(default)] build_default: bool,
     #[props(default)] phase: Phase,
     /// "Looking for a source · Toko" while resolving.
     #[props(default)] resolving_label: String,
@@ -183,7 +188,7 @@ pub fn PlayerControls(
     let mute_icon = if state.muted || state.volume == 0 { "mute" } else { "volume" };
     let seek_label = t("player.seek");
     let volume_label = t("player.volume");
-    let preset_text = t(&format!("preset.{}", preset.id()));
+    let preset_text = if build_default { t("player.build_profile") } else { t(&format!("preset.{}", preset.id())) };
     let marks = markers.bar_marks(state.duration);
     // "Skip intro" (and recap / ending) while the playhead is inside a known mark.
     let skip = (phase == Phase::Playing).then(|| markers.skip_at(state.position)).flatten().map(|(kind, _)| match kind {
@@ -248,7 +253,7 @@ pub fn PlayerControls(
                                 }
                             }
                         }
-                        if presets && preset != ShaderPreset::Off {
+                        if presets && (build_default || preset != ShaderPreset::Off) {
                             Pill { text: preset_text, tone: Tone::Primary, plain: true }
                         }
                     }
@@ -578,23 +583,32 @@ pub fn PlayerControls(
                                 IconButton {
                                     icon: "enhance".to_string(),
                                     label: t("player.enhance"),
-                                    toggled: preset != ShaderPreset::Off,
+                                    toggled: build_default || preset != ShaderPreset::Off,
                                     onclick: move |_| preset_open.toggle(),
                                 }
                             },
-                            for (i , p) in ShaderPreset::ALL.into_iter().enumerate() {
+                            if build_modes {
+                                MenuItem {
+                                    label: t("player.build_modes"),
+                                    hint: t("player.build_modes_hint"),
+                                    disabled: true,
+                                    on_select: move |_| {},
+                                }
+                            }
+                            for (i , p) in ShaderPreset::ALL.into_iter().enumerate().filter(|(_, p)| !build_modes || p.in_enhanced_build()) {
                                 MenuItem {
                                     key: "{p.id()}",
                                     label: t(&format!("preset.{}", p.id())),
                                     hint: if i < 9 { format!("Ctrl+{}", i + 1) } else { String::new() },
-                                    checked: Some(p == preset),
+                                    checked: Some(!build_default && p == preset),
                                     on_select: move |_| {
                                         preset_open.set(false);
                                         on_preset.call(p);
                                     },
                                 }
                             }
-                            // docs/redesign/18: Anime4K chain size and debanding, live.
+                            // docs/redesign/18: Anime4K chain size and debanding, live (our chains only).
+                            if !build_modes {
                             MenuSeparator {}
                             MenuItem {
                                 label: t("player.anime4k_hq"),
@@ -615,6 +629,7 @@ pub fn PlayerControls(
                                     preset_open.set(false);
                                     on_deband.call(!deband);
                                 },
+                            }
                             }
                         }
                     }
