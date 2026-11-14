@@ -107,3 +107,14 @@ fun LinkError.toAppException(): AppException {
     }
     return AppException(app, LinkException(this))
 }
+
+/** The [LinkError] behind a failure of a Link call (wrapped by [toAppException] as the cause chain); null for anything else. */
+fun Throwable.linkErrorOrNull(): LinkError? {
+    var t: Throwable? = this
+    var depth = 0
+    while (t != null && depth++ < 8) {
+        if (t is LinkException) return t.error
+        t = t.cause
+    }
+    return null
+}

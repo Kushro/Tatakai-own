@@ -217,6 +217,41 @@ pub struct SafeResponse {
     pub final_url: Url,
 }
 
+/// One exact local endpoint the caller trusts (BUG-023): a literal IP + port + path prefix, e.g. this PC's own extension
+/// server media proxy `http://192.168.1.43:8099/api/server/v1/media/`. A URL that matches one skips the scheme, port,
+/// host-filter and private-address checks; nothing else is opened (another port, path or address of the same LAN is
+/// still refused, and a redirect out of it is validated as usual).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrustedOrigin {
+    pub addr: SocketAddr,
+    /// Must start and end with `/`; matched against the URL path (no `..` segments: `Url` normalises them).
+    pub path_prefix: String,
+}
+
+impl TrustedOrigin {
+    pub fn new(addr: SocketAddr, path_prefix: impl Into<String>) -> Self {
+        Self { addr, path_prefix: path_prefix.into() }
+    }
+
+    /// Whether `u` is exactly this endpoint (literal IP host, same port, path under the prefix, no credentials).
+    pub fn matches(&self, u: &Url) -> bool {
+        if !matches!(u.scheme(), "http" | "https") || !u.username().is_empty() || u.password().is_some() {
+            return false;
+        }
+        let ip = match u.host() {
+            Some(url::Host::Ipv4(v)) => IpAddr::V4(v),
+            Some(url::Host::Ipv6(v)) => IpAddr::V6(v),
+            _ => return false,
+        };
+        ip == self.addr.ip()
+            && u.port_or_known_default() == Some(self.addr.port())
+            && self.path_prefix.starts_with('/')
+            && self.path_prefix.ends_with('/')
+            && u.path().starts_with(&self.path_prefix)
+            && !u.path().split('/').any(|seg| seg == ".." || seg.eq_ignore_ascii_case("%2e%2e"))
+    }
+}
+
 /// Extra per-host gate (e.g. an extension's `network:domain:*` permissions), checked on every hop.
 pub type HostFilter = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
@@ -276,15 +311,17 @@ pub struct SafeHttp {
     host_filter: Option<HostFilter>,
     /// Explicit route slot; `None` = the process-wide one when `policy.route_outbound`.
     outbound: Option<OutboundSlot>,
+    /// Exact local endpoints allowed despite the policy ([`TrustedOrigin`]).
+    trusted: Arc<[TrustedOrigin]>,
 }
 
 impl SafeHttp {
     pub fn new(policy: Policy) -> Self {
-        Self { resolver: Arc::new(SystemResolver), policy, host_filter: None, outbound: None }
+        Self { resolver: Arc::new(SystemResolver), policy, host_filter: None, outbound: None, trusted: Arc::new([]) }
     }
 
     pub fn with_resolver(policy: Policy, resolver: Arc<dyn Resolver>) -> Self {
-        Self { resolver, policy, host_filter: None, outbound: None }
+        Self { resolver, policy, host_filter: None, outbound: None, trusted: Arc::new([]) }
     }
 
     /// Read the [`Outbound`] route from `slot` instead of the process-wide one (tests, embedders).
@@ -313,8 +350,22 @@ impl SafeHttp {
         &self.policy
     }
 
+    /// Also allow these exact endpoints ([`TrustedOrigin`]), replacing any set before.
+    pub fn with_trusted_origins(mut self, trusted: Vec<TrustedOrigin>) -> Self {
+        self.trusted = trusted.into();
+        self
+    }
+
+    /// Whether `u` is one of the trusted endpoints.
+    pub fn is_trusted(&self, u: &Url) -> bool {
+        self.trusted.iter().any(|t| t.matches(u))
+    }
+
     /// Scheme / port / host-form checks that need no DNS.
     pub fn check_url(&self, u: &Url) -> Result<(), NetError> {
+        if self.is_trusted(u) {
+            return Ok(());
+        }
         match u.scheme() {
             "https" => {}
             "http" if self.policy.allow_http => {}
@@ -341,6 +392,9 @@ impl SafeHttp {
 
     /// Resolve and validate. Every returned address is safe to connect to.
     pub async fn resolve_validated(&self, u: &Url) -> Result<Vec<SocketAddr>, NetError> {
+        if let Some(t) = self.trusted.iter().find(|t| t.matches(u)) {
+            return Ok(vec![t.addr]);
+        }
         self.check_url(u)?;
         let port = u.port_or_known_default().ok_or(NetError::Port)?;
         let ips: Vec<IpAddr> = match u.host() {
@@ -802,5 +856,28 @@ mod tests {
         assert!(matches!(read_capped(resp.response, 999).await, Err(NetError::TooLarge)));
         let resp = http.send(SafeRequest::get(u(&format!("http://127.0.0.1:{port}/")), vec![])).await.unwrap();
         assert_eq!(read_capped(resp.response, 1000).await.unwrap().len(), 1000);
+    }
+
+    #[tokio::test]
+    async fn a_trusted_origin_opens_only_that_endpoint() {
+        let (port, _) = stub(|_| ok("media")).await;
+        let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+        let http = SafeHttp::with_resolver(Policy::link_source(false), Arc::new(MapResolver(HashMap::new())))
+            .with_host_filter(Arc::new(|_: &str| false))
+            .with_trusted_origins(vec![TrustedOrigin::new(addr, "/api/server/v1/media/")]);
+        let resp = http.send(SafeRequest::get(u(&format!("http://127.0.0.1:{port}/api/server/v1/media/t1/a.m3u8")), vec![])).await.unwrap();
+        assert_eq!(read_capped(resp.response, 100).await.unwrap(), Bytes::from_static(b"media"));
+        // same address, other path / port / address: still refused
+        for bad in [
+            format!("http://127.0.0.1:{port}/api/server/v1/status"),
+            format!("http://127.0.0.1:{port}/api/server/v1/media/../status"),
+            format!("http://127.0.0.1:{}/api/server/v1/media/t1/a.m3u8", port.wrapping_add(1).max(1)),
+            format!("http://127.0.0.2:{port}/api/server/v1/media/t1/a.m3u8"),
+            format!("http://user@127.0.0.1:{port}/api/server/v1/media/t1/a.m3u8"),
+        ] {
+            assert!(http.resolve_validated(&u(&bad)).await.is_err(), "{bad} must stay blocked");
+        }
+        let plain = SafeHttp::with_resolver(Policy::link_source(false), Arc::new(MapResolver(HashMap::new())));
+        assert!(plain.resolve_validated(&u(&format!("http://127.0.0.1:{port}/api/server/v1/media/t1/a.m3u8"))).await.is_err());
     }
 }

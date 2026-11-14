@@ -80,6 +80,22 @@ struct AppLinkHost {
     remote: tokio::sync::mpsc::UnboundedSender<RemoteCommandVm>,
     /// Wave B (worker k): the PC player as last reported, for `GET /v1/player`.
     player: SharedPlayer,
+    /// `ui-settings.json`, read for the extension server's port and switch (BUG-023 trusted origins).
+    settings_file: PathBuf,
+}
+
+/// Path prefix of the extension server's media proxy (`tk_server::API_PREFIX` + `/media/`).
+const MEDIA_PROXY_PREFIX: &str = "/api/server/v1/media/";
+
+/// BUG-023: the media proxy of this PC's own extension server on each of `ips` (+ loopback) and `port`. Pure.
+fn own_media_origins(ips: &[std::net::Ipv4Addr], port: u16) -> Vec<tk_core::net::TrustedOrigin> {
+    let mut all: Vec<std::net::Ipv4Addr> = ips.iter().copied().filter(|ip| !ip.is_unspecified()).collect();
+    all.push(std::net::Ipv4Addr::LOCALHOST);
+    all.sort_unstable();
+    all.dedup();
+    all.into_iter()
+        .map(|ip| tk_core::net::TrustedOrigin::new(std::net::SocketAddr::new(ip.into(), port), MEDIA_PROXY_PREFIX))
+        .collect()
 }
 
 impl LinkHost for AppLinkHost {
@@ -114,6 +130,15 @@ impl LinkHost for AppLinkHost {
     }
     fn player_state(&self) -> Option<PlayerState> {
         current_player(&self.player)
+    }
+    fn trusted_media_origins(&self) -> Vec<tk_core::net::TrustedOrigin> {
+        let prefs = crate::settings_store::load(&self.settings_file).server;
+        if !prefs.enabled || !prefs.proxy_enabled {
+            return Vec::new();
+        }
+        let mut ips = tk_link::detect_lan_ips();
+        ips.extend(tk_server::lan_ips());
+        own_media_origins(&ips, prefs.port)
     }
 }
 
@@ -438,6 +463,8 @@ impl LinkService {
             store: self.store.clone(),
             remote: self.remote.clone(),
             player: self.player.clone(),
+            // `<data>/link` -> `<data>/ui-settings.json` (`AppPaths::ui_settings_file`)
+            settings_file: self.dir.parent().map_or_else(|| self.dir.join("ui-settings.json"), |root| root.join("ui-settings.json")),
         });
         match tk_link::start(cfg, host).await {
             Ok(h) => {
@@ -652,6 +679,19 @@ mod tests {
         assert!(session_source("http://127.0.0.1:8099/api/server/v1/media/x/a.m3u8", &[]).is_none());
         assert!(session_source("file:///home/a.mkv", &[]).is_none());
         assert!(session_source("not a url", &[]).is_none());
+    }
+
+    #[test]
+    fn own_media_origins_cover_the_lan_ips_and_loopback_only_on_the_server_port() {
+        let o = own_media_origins(&["192.168.1.43".parse().unwrap(), "192.168.1.43".parse().unwrap()], 8099);
+        assert_eq!(o.len(), 2);
+        let ok = reqwest::Url::parse("http://192.168.1.43:8099/api/server/v1/media/abc/index.m3u8").unwrap();
+        assert!(o.iter().any(|t| t.matches(&ok)));
+        let lo = reqwest::Url::parse("http://127.0.0.1:8099/api/server/v1/media/abc/x.ts").unwrap();
+        assert!(o.iter().any(|t| t.matches(&lo)));
+        for bad in ["http://192.168.1.43:8098/api/server/v1/media/abc/x.ts", "http://192.168.1.43:8099/api/server/v1/devices", "http://192.168.1.44:8099/api/server/v1/media/a/x.ts"] {
+            assert!(!o.iter().any(|t| t.matches(&reqwest::Url::parse(bad).unwrap())), "{bad}");
+        }
     }
 
     #[test]

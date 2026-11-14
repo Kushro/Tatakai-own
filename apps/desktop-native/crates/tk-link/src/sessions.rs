@@ -376,7 +376,8 @@ impl Manager {
                     None => target.path().to_ascii_lowercase().ends_with(".m3u8"),
                 };
                 let perms = extension_id.as_deref().and_then(|id| self.host.extension_permissions(id));
-                let token = self.fetcher.register(SourceSpec { url: target.clone(), headers, extension_permissions: perms });
+                let trusted = self.host.trusted_media_origins();
+                let token = self.fetcher.register(SourceSpec { url: target.clone(), headers, extension_permissions: perms, trusted });
                 let result = async {
                     self.fetcher.validate(&token, &target).await?;
                     if hls { self.fetcher.probe_hls(&token, &target).await } else { Ok(None) }

@@ -40,6 +40,15 @@
     <string name="details_send_online">Connected</string>
     <string name="details_send_offline">Not answering</string>
     <string name="details_send_unpaired">No PC paired yet</string>
+    <string name="details_send_sending">Sending…</string>
+    <string name="details_send_denied">The PC cannot open this source. Pick another web source in the panel and send again.</string>
+    <string name="details_send_unavailable">The PC could not load any web source of this episode. Try another source or later.</string>
+    <string name="details_send_profile">The chosen enhancement profile is not available on the PC. Pick another one in You → Linked device.</string>
+    <string name="details_send_pc_offline">The PC is not answering. Check that Tatakai is open on the PC and that both are on the same network.</string>
+    <string name="details_send_not_paired">This phone is no longer paired with the PC. Pair it again in You → Linked device.</string>
+    <string name="details_send_timeout">The sources of this episode took too long to load. Try again.</string>
+    <string name="details_send_other">Sent %1$s because the chosen source could not be sent.</string>
+    <string name="details_send_other_torrent">Sent %1$s because the chosen source is a torrent.</string>
     <string name="details_send_pair">Pair a PC</string>
     <string name="details_cancel">Cancel</string>
     <string name="details_download">Download</string>

@@ -18,7 +18,7 @@ fn b64(u: &str) -> String {
 }
 
 fn spec(url: &str) -> SourceSpec {
-    SourceSpec { url: Url::parse(url).unwrap(), headers: vec![], extension_permissions: None }
+    SourceSpec { url: Url::parse(url).unwrap(), headers: vec![], extension_permissions: None, trusted: vec![] }
 }
 
 async fn strict() -> Fetcher {
@@ -71,7 +71,7 @@ async fn dns_rebinding_public_then_private_is_rejected() {
     let policy = Policy { allow_loopback: true, allowed_ports: None, ..Policy::link_source(true) };
     let f = Fetcher::start(SafeHttp::with_resolver(policy, Arc::new(Rebind(AtomicUsize::new(0))))).await.unwrap();
     let url = Url::parse(&format!("http://rebind.test:{port}/list.m3u8")).unwrap();
-    let token = f.register(SourceSpec { url: url.clone(), headers: vec![], extension_permissions: None });
+    let token = f.register(SourceSpec { url: url.clone(), headers: vec![], extension_permissions: None, trusted: vec![] });
     // first resolution (validation): permitted
     f.validate(&token, &url).await.unwrap();
     // the connection is not trusted to a later resolution: the next lookup answers 10.9.9.9 and is refused, nothing is fetched
@@ -125,6 +125,7 @@ async fn cookie_goes_only_to_the_initial_origin_and_is_stripped_on_cross_origin_
         url: Url::parse(&top).unwrap(),
         headers: vec![("cookie".into(), "sid=SECRET".into()), ("referer".into(), "https://ref.example/".into()), ("user-agent".into(), "UA/1".into())],
         extension_permissions: None,
+        trusted: vec![],
     });
     let (status, body) = fetch_via(&f, &f.entry_url(&token, &Url::parse(&top).unwrap(), true)).await;
     assert_eq!(status, 200);
@@ -180,12 +181,12 @@ async fn extension_permissions_intersect_with_the_generic_policy() {
     let f = Fetcher::start(lenient_http(Arc::new(MapResolver(m)))).await.unwrap();
     let url = Url::parse(&format!("http://127.0.0.1:{port}/list.m3u8")).unwrap();
     // generic policy only: other.test is fine
-    let t1 = f.register(SourceSpec { url: url.clone(), headers: vec![], extension_permissions: None });
+    let t1 = f.register(SourceSpec { url: url.clone(), headers: vec![], extension_permissions: None, trusted: vec![] });
     assert!(f.probe_hls(&t1, &url).await.is_ok());
     // extension installed with a narrower network:domain list: other.test is outside it
-    let t2 = f.register(SourceSpec { url: url.clone(), headers: vec![], extension_permissions: Some(vec!["network:domain:127.0.0.1".into()]) });
+    let t2 = f.register(SourceSpec { url: url.clone(), headers: vec![], extension_permissions: Some(vec!["network:domain:127.0.0.1".into()]), trusted: vec![] });
     assert_eq!(f.probe_hls(&t2, &url).await, Err(FetchError::Denied));
-    let t3 = f.register(SourceSpec { url: url.clone(), headers: vec![], extension_permissions: Some(vec!["network:domain:127.0.0.1".into(), "network:domain:other.test".into()]) });
+    let t3 = f.register(SourceSpec { url: url.clone(), headers: vec![], extension_permissions: Some(vec!["network:domain:127.0.0.1".into(), "network:domain:other.test".into()]), trusted: vec![] });
     assert!(f.probe_hls(&t3, &url).await.is_ok());
 }
 
@@ -230,4 +231,27 @@ async fn entry_urls_are_loopback_only_and_unknown_tokens_are_404() {
     // POST is not served
     let r = no_proxy_client().post(&e).send().await.unwrap();
     assert_eq!(r.status(), 405);
+}
+
+/// BUG-023: the PC's own extension-server media proxy (a private LAN address on a non-standard port, plain http) is
+/// reachable as a trusted origin, playlist and segments alike; the rest of that address stays refused.
+#[tokio::test]
+async fn the_own_extension_server_media_proxy_is_a_trusted_origin() {
+    let (port, seen) = stub(|req| {
+        if req.contains("/api/server/v1/media/t1/") { text(200, &media_playlist(2)) } else { text(200, "nope") }
+    })
+    .await;
+    let f = strict().await;
+    let addr: std::net::SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
+    let trusted = vec![tk_core::net::TrustedOrigin::new(addr, "/api/server/v1/media/")];
+    let url = Url::parse(&format!("http://127.0.0.1:{port}/api/server/v1/media/t1/index.m3u8")).unwrap();
+    let token = f.register(SourceSpec { url: url.clone(), headers: vec![], extension_permissions: Some(vec!["network:domain:cdn.example".into()]), trusted: trusted.clone() });
+    f.validate(&token, &url).await.unwrap();
+    assert_eq!(f.probe_hls(&token, &url).await, Ok(Some(4.0)));
+    let (status, _) = fetch_via(&f, &format!("http://{}/u/{token}/s/{}.ts", f.addr(), b64(&format!("http://127.0.0.1:{port}/api/server/v1/media/t1/seg0.ts")))).await;
+    assert_eq!(status, 200);
+    let other = Url::parse(&format!("http://127.0.0.1:{port}/api/server/v1/devices")).unwrap();
+    let t2 = f.register(SourceSpec { url: other.clone(), headers: vec![], extension_permissions: None, trusted });
+    assert_eq!(f.validate(&t2, &other).await, Err(FetchError::Denied));
+    assert!(seen.lock().unwrap().iter().all(|r| r.contains("/api/server/v1/media/")));
 }

@@ -86,6 +86,8 @@ pub struct SourceSpec {
     pub headers: Vec<(String, String)>,
     /// `network:domain:*` permissions of the extension, when the PC has it installed.
     pub extension_permissions: Option<Vec<String>>,
+    /// Exact local endpoints this source may reach ([`crate::LinkHost::trusted_media_origins`]).
+    pub trusted: Vec<tk_core::net::TrustedOrigin>,
 }
 
 pub struct Fetcher {
@@ -164,6 +166,9 @@ impl Fetcher {
         let mut http = self.http.clone();
         if let Some(perms) = spec.extension_permissions {
             http = http.with_host_filter(Arc::new(move |h: &str| host_matches_permissions(h, &perms)));
+        }
+        if !spec.trusted.is_empty() {
+            http = http.with_trusted_origins(spec.trusted);
         }
         let t = Arc::new(Token {
             http,
@@ -283,6 +288,7 @@ fn map_uri(t: &Token, prefix: &str, depth: u8, u: &Url, kind: UriKind) -> Result
             _ => None,
         }
         && !t.http.ip_allowed(ip)
+        && !t.http.is_trusted(u)
     {
         return Err(RewriteError::Denied);
     }

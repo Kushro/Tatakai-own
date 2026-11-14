@@ -1,6 +1,9 @@
 package app.tatakai.next.feature.details
 
 import app.tatakai.next.feature.player.sources.rankForThisDevice
+import app.tatakai.next.link.LinkApiError
+import app.tatakai.next.link.LinkError
+import app.tatakai.next.link.linkErrorOrNull
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.tatakai.next.model.AppError
@@ -51,11 +54,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Source summary panel of Details (sources.js `summary`): the ranked candidates of [episode] (the episode Watch / Continue plays). */
 data class SourcePanel(
     val episode: Int,
     val sources: LoadState<List<RankedSource>> = LoadState.Loading,
+    /** BUG-011 / BUG-019: [sources] is a partial list and more extensions / servers are still answering. */
+    val loadingMore: Boolean = false,
 )
 
 /** The source picker is open for [episode]; [playOnPick] = opened from the split button ▾ (picking starts playback). */
@@ -167,13 +173,58 @@ sealed interface DetailsEvent {
     /** "Descargar" without any usable torrent candidate. */
     data object NoTorrentSource : DetailsEvent
 
-    data class SendFailed(val cause: AppError) : DetailsEvent
+    data class SendFailed(val cause: AppError, val reason: SendFailReason = SendFailReason.OTHER) : DetailsEvent
+
+    /** BUG-009/023: the session started with [label] instead of the chosen source ([chosenWasTorrent]: it was a torrent). */
+    data class SentOther(val label: String, val chosenWasTorrent: Boolean) : DetailsEvent
 
     /** "Enviar a dispositivo" needs a web stream (the PC fetches a URL). */
     data object NoWebSource : DetailsEvent
 
     /** "Marcar como visto / no visto" could not update the list. */
     data class ListUpdateFailed(val cause: AppError) : DetailsEvent
+}
+
+/** Resolving the web sources for "Enviar a dispositivo" gives up after this long (BUG-023: no more silent minutes). */
+internal const val SEND_RESOLVE_TIMEOUT_MS = 60_000L
+
+/** Web sources tried in turn when the PC refuses or cannot open one. */
+internal const val MAX_SEND_ATTEMPTS = 3
+
+/** Why "Enviar a dispositivo" failed, for a message without technical codes (BUG-023). */
+enum class SendFailReason(val sourceSpecific: Boolean) {
+    /** The PC's policy refused the source URL (`url_source_denied`). */
+    SOURCE_DENIED(true),
+
+    /** The PC could not read the source (`source_unavailable`). */
+    SOURCE_UNAVAILABLE(true),
+
+    /** The chosen enhancement profile is not available on the PC (`profile_unavailable`). */
+    PROFILE_UNAVAILABLE(false),
+
+    /** The PC did not answer. */
+    OFFLINE(false),
+
+    /** This phone is no longer paired / was revoked. */
+    NOT_PAIRED(false),
+
+    /** Resolving the sources took longer than [SEND_RESOLVE_TIMEOUT_MS]. */
+    RESOLVE_TIMEOUT(false),
+    OTHER(false),
+}
+
+/** [SendFailReason] of a failed `startSession`. Pure. */
+fun sendFailReason(e: Throwable): SendFailReason = when (val le = e.linkErrorOrNull()) {
+    is LinkError.Api -> when (le.error) {
+        LinkApiError.UrlSourceDenied -> SendFailReason.SOURCE_DENIED
+        LinkApiError.SourceUnavailable, LinkApiError.ExtensionUnavailable -> SendFailReason.SOURCE_UNAVAILABLE
+        LinkApiError.ProfileUnavailable -> SendFailReason.PROFILE_UNAVAILABLE
+        LinkApiError.DeviceNotAuthorized, LinkApiError.ClientCertificateRequired -> SendFailReason.NOT_PAIRED
+        else -> SendFailReason.OTHER
+    }
+    is LinkError.Transport.Refused, is LinkError.Transport.Timeout -> SendFailReason.OFFLINE
+    is LinkError.Transport.Tls.Revoked, is LinkError.Transport.Tls.Expired, is LinkError.NotPaired -> SendFailReason.NOT_PAIRED
+    else -> if (e.toAppError() == AppError.Offline) SendFailReason.OFFLINE else SendFailReason.OTHER
 }
 
 /** Last watched episode if unfinished, else the one after it (bounded by [total]); 1 when nothing was watched. */
@@ -302,21 +353,28 @@ class DetailsViewModel(
         panelJob?.cancel()
         _state.update { it.copy(panel = SourcePanel(episode), selectedKey = null) }
         panelJob = viewModelScope.launch {
-            val result = runCatchingApp { rankForThisDevice(extensions.resolveCandidates(media, episode)) }
-            _state.update { s ->
+            // BUG-011 / BUG-019: the panel (and its picker) fills in as extensions and linked servers answer.
+            var last: List<RankedSource>? = null
+            fun publish(sources: LoadState<List<RankedSource>>, more: Boolean) = _state.update { s ->
                 if (s.panel?.episode != episode) return@update s
-                val sources = result.getOrNull()
+                val list = (sources as? LoadState.Ok)?.value
                 s.copy(
-                    panel = SourcePanel(
-                        episode = episode,
-                        sources = result.fold(
-                            onSuccess = { LoadState.Ok(it) },
-                            onFailure = { e -> LoadState.Err(e.toAppError()) },
-                        ),
-                    ),
-                    selectedKey = sources?.firstOrNull { it.picked }?.key,
+                    panel = SourcePanel(episode = episode, sources = sources, loadingMore = more),
+                    // The user's choice in the picker survives the updates; otherwise the remembered pick.
+                    selectedKey = s.selectedKey?.takeIf { k -> list?.any { it.key == k } == true } ?: list?.firstOrNull { it.picked }?.key,
                 )
             }
+            val result = runCatchingApp {
+                extensions.candidatesFlow(media, episode).collect { partial ->
+                    val ranked = rankForThisDevice(partial)
+                    last = ranked
+                    if (ranked.isNotEmpty()) publish(LoadState.Ok(ranked), more = true)
+                }
+            }
+            publish(
+                result.fold(onSuccess = { LoadState.Ok(last.orEmpty()) }, onFailure = { e -> last?.let { LoadState.Ok(it) } ?: LoadState.Err(e.toAppError()) }),
+                more = false,
+            )
         }
     }
 
@@ -460,29 +518,61 @@ class DetailsViewModel(
 
     // ---- send to device (Tatakai Link) ----
 
-    /** Starts a Link session on the paired PC with a web stream of [DetailsUiState.continueEpisode] and opens the player on it. */
+    /**
+     * Starts a Link session on the paired PC with a web stream of [DetailsUiState.continueEpisode] and opens the player on it.
+     * BUG-023: [DetailsUiState.sending] drives a visible "Enviando…" state; resolving is bounded by [SEND_RESOLVE_TIMEOUT_MS];
+     * when the PC refuses or cannot open one web source the next ones are tried ([MAX_SEND_ATTEMPTS]); a failure always ends in
+     * [DetailsEvent.SendFailed] with a [SendFailReason], and a source other than the chosen one is announced ([DetailsEvent.SentOther]).
+     */
     fun sendToDevice() {
         val media = mediaOrNull ?: return
         if (_state.value.sending) return
         val episode = _state.value.continueEpisode
         _state.update { it.copy(sending = true) }
         viewModelScope.launch {
-            val stream = runCatchingApp { webStreamFor(media, episode) }.getOrNull()
-            if (stream == null) {
+            try {
+                val resolved = withTimeoutOrNull(SEND_RESOLVE_TIMEOUT_MS) { runCatchingApp { webStreamsFor(media, episode) } }
+                if (resolved == null) {
+                    _events.trySend(DetailsEvent.SendFailed(AppError.Unknown("timeout"), SendFailReason.RESOLVE_TIMEOUT))
+                    return@launch
+                }
+                val streams = resolved.getOrDefault(emptyList())
+                if (streams.isEmpty()) {
+                    _events.trySend(DetailsEvent.NoWebSource)
+                    return@launch
+                }
+                var lastError: Throwable? = null
+                for ((index, sendable) in streams.take(MAX_SEND_ATTEMPTS).withIndex()) {
+                    val result = runCatchingApp {
+                        link.startSession(LinkSource.Url(sendable.stream.url, sendable.stream.headers), profileId = null).getOrThrow()
+                    }
+                    val session = result.getOrNull()
+                    if (session != null) {
+                        if (index > 0 || !sendable.chosen) {
+                            val chosen = _state.value.selectedKey?.let { k -> _state.value.panelSources.firstOrNull { it.key == k } }
+                            if (chosen != null && chosen.key != sendable.key) {
+                                _events.trySend(DetailsEvent.SentOther(sendable.label, chosen.candidate.kind == SourceKind.TORRENT))
+                            }
+                        }
+                        emitPlayer(episode, sourceKey = null, remoteSessionId = session.sessionId, preferLocal = false)
+                        return@launch
+                    }
+                    val e = result.exceptionOrNull()
+                    lastError = e
+                    if (e == null || !sendFailReason(e).sourceSpecific) break
+                }
+                val e = lastError ?: return@launch
+                _events.trySend(DetailsEvent.SendFailed(e.toAppError(), sendFailReason(e)))
+            } finally {
                 _state.update { it.copy(sending = false) }
-                _events.trySend(DetailsEvent.NoWebSource)
-                return@launch
             }
-            val result = runCatchingApp {
-                link.startSession(LinkSource.Url(stream.url, stream.headers), profileId = null).getOrThrow()
-            }
-            _state.update { it.copy(sending = false) }
-            result.onSuccess { session -> emitPlayer(episode, sourceKey = null, remoteSessionId = session.sessionId, preferLocal = false) }
-                .onFailure { e -> _events.trySend(DetailsEvent.SendFailed(e.toAppError())) }
         }
     }
 
-    private suspend fun webStreamFor(media: Media, episode: Int): StreamSource? {
+    /** One web stream "Enviar a dispositivo" can offer the PC, in order of preference. */
+    private data class Sendable(val stream: StreamSource, val key: String?, val label: String, val chosen: Boolean)
+
+    private suspend fun webStreamsFor(media: Media, episode: Int): List<Sendable> {
         val s = _state.value
         val panel = s.panel
         val candidates = if (panel != null && panel.episode == episode && panel.sources is LoadState.Ok) {
@@ -492,11 +582,14 @@ class DetailsViewModel(
         }
         val preferred = candidates.firstOrNull { it.key == s.selectedKey && it.candidate.kind == SourceKind.WEB }
         val fromCandidates = (listOfNotNull(preferred) + candidates)
-            .asSequence()
+            .distinctBy { it.key }
             .filter { it.candidate.kind == SourceKind.WEB && it.extEnabled }
-            .mapNotNull { runCatching { it.candidate.toStream() }.getOrNull() }
-            .firstOrNull()
-        return fromCandidates ?: extensions.resolveStreams(media, episode).firstOrNull()
+            .mapNotNull { r ->
+                runCatching { r.candidate.toStream() }.getOrNull()
+                    ?.let { Sendable(it, r.key, "${r.candidate.extName} · ${r.candidate.label}", chosen = r.key == s.selectedKey) }
+            }
+        if (fromCandidates.isNotEmpty()) return fromCandidates
+        return extensions.resolveStreams(media, episode).map { Sendable(it, key = null, label = it.provider, chosen = false) }
     }
 
     // ---- parity wave A: details extras (15 §5 o.2) ----

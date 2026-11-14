@@ -1,6 +1,9 @@
 package app.tatakai.next.feature.details
 
 import app.cash.turbine.test
+import app.tatakai.next.link.LinkApiError
+import app.tatakai.next.link.LinkError
+import app.tatakai.next.link.toAppException
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.Container
@@ -367,13 +370,53 @@ class DetailsViewModelTest {
         val vm = vm(link = link)
         vm.events.test {
             vm.sendToDevice()
-            assertEquals(DetailsEvent.SendFailed(AppError.Offline), awaitItem())
+            assertEquals(DetailsEvent.SendFailed(AppError.Offline, SendFailReason.OFFLINE), awaitItem())
         }
         val noWeb = vm(link = link, extensions = FakeExtensions({ listOf(torrent()) }))
         noWeb.events.test {
             noWeb.sendToDevice()
             assertEquals(DetailsEvent.NoWebSource, awaitItem())
         }
+    }
+
+    @Test
+    fun `a source the PC refuses is skipped for the next web source and the reason is kept`() = runTest {
+        val denied = LinkError.Api(LinkApiError.UrlSourceDenied).toAppException()
+        val otherUrl = "https://cdn.other/b.m3u8"
+        val second = web.copy(
+            candidate = web.candidate.copy(label = "Beta", web = WebInfo(url = otherUrl, headers = emptyMap())),
+            recommended = false,
+        )
+        val tried = mutableListOf<String>()
+        lateinit var link: FakeLink
+        link = FakeLink(LinkState.Paired(pc, true)) {
+            tried += assertIs<LinkSource.Url>(link.lastSource).url
+            if (tried.size == 1) Result.failure(denied) else Result.success(session)
+        }
+        val vm = vm(link = link, extensions = FakeExtensions({ listOf(web, second) }))
+        vm.events.test {
+            vm.sendToDevice()
+            assertIs<DetailsEvent.NavigateToPlayer>(awaitItem())
+        }
+        assertEquals(listOf(webUrl, otherUrl), tried)
+
+        val alwaysDenied = FakeLink(LinkState.Paired(pc, true)) { Result.failure(denied) }
+        val vm2 = vm(link = alwaysDenied, extensions = FakeExtensions({ listOf(web) }))
+        vm2.events.test {
+            vm2.sendToDevice()
+            assertEquals(SendFailReason.SOURCE_DENIED, assertIs<DetailsEvent.SendFailed>(awaitItem()).reason)
+        }
+        assertEquals(false, vm2.state.value.sending)
+    }
+
+    @Test
+    fun `send failure reasons come from the Link error code`() {
+        assertEquals(SendFailReason.SOURCE_UNAVAILABLE, sendFailReason(LinkError.Api(LinkApiError.SourceUnavailable).toAppException()))
+        assertEquals(SendFailReason.PROFILE_UNAVAILABLE, sendFailReason(LinkError.Api(LinkApiError.ProfileUnavailable).toAppException()))
+        assertEquals(SendFailReason.OFFLINE, sendFailReason(LinkError.Transport.Refused.toAppException()))
+        assertEquals(SendFailReason.NOT_PAIRED, sendFailReason(LinkError.Transport.Tls.Revoked.toAppException()))
+        assertEquals(SendFailReason.OFFLINE, sendFailReason(AppException(AppError.Offline)))
+        assertEquals(SendFailReason.OTHER, sendFailReason(IllegalStateException("x")))
     }
 
     @Test

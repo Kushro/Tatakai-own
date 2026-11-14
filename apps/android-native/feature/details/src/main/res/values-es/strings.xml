@@ -40,6 +40,15 @@
     <string name="details_send_online">Conectada</string>
     <string name="details_send_offline">No responde</string>
     <string name="details_send_unpaired">Todavía no hay una PC emparejada</string>
+    <string name="details_send_sending">Enviando…</string>
+    <string name="details_send_denied">La PC no puede abrir esta fuente. Elige otra fuente web en el panel y vuelve a enviar.</string>
+    <string name="details_send_unavailable">La PC no pudo cargar ninguna fuente web de este episodio. Prueba con otra fuente o más tarde.</string>
+    <string name="details_send_profile">El perfil de mejora elegido no está disponible en la PC. Elige otro en Tú → Dispositivo enlazado.</string>
+    <string name="details_send_pc_offline">La PC no responde. Revisa que Tatakai esté abierto en la PC y que ambos estén en la misma red.</string>
+    <string name="details_send_not_paired">Este teléfono ya no está emparejado con la PC. Vuelve a emparejarlo en Tú → Dispositivo enlazado.</string>
+    <string name="details_send_timeout">Las fuentes de este episodio tardaron demasiado en cargar. Vuelve a intentarlo.</string>
+    <string name="details_send_other">Se envió %1$s porque la fuente elegida no se pudo enviar.</string>
+    <string name="details_send_other_torrent">Se envió %1$s porque la fuente elegida es un torrent.</string>
     <string name="details_send_pair">Emparejar una PC</string>
     <string name="details_cancel">Cancelar</string>
     <string name="details_download">Descargar</string>

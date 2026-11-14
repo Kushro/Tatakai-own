@@ -100,6 +100,13 @@ pub trait LinkHost: Send + Sync + 'static {
     fn player_state(&self) -> Option<control::PlayerState> {
         None
     }
+    /// BUG-023: exact local endpoints a `url` source may reach although they are private addresses, i.e. this PC's
+    /// own extension-server media proxy (`http://<lan ip>:<port>/api/server/v1/media/`). Phones linked to that
+    /// server receive its URLs as sources; they already reach them directly, so letting the PC read them opens
+    /// nothing new. Default: none.
+    fn trusted_media_origins(&self) -> Vec<tk_core::net::TrustedOrigin> {
+        Vec::new()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

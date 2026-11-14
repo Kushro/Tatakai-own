@@ -53,6 +53,7 @@ import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.TravelExplore
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -247,8 +248,16 @@ private fun Header(media: Media, state: DetailsUiState, actions: DetailsActions)
             WatchSplitButton(state, actions)
             ListButton(media = media)
             OutlinedButton(onClick = actions.onSendToDevice, enabled = !state.sending) {
-                Icon(Icons.Outlined.Cast, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text(stringResource(R.string.details_send_device), modifier = Modifier.padding(start = 6.dp))
+                // BUG-023: a visible "Enviando…" while the sources resolve and the PC opens the session
+                if (state.sending) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Outlined.Cast, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+                Text(
+                    stringResource(if (state.sending) R.string.details_send_sending else R.string.details_send_device),
+                    modifier = Modifier.padding(start = 6.dp),
+                )
             }
             DownloadMenuButton(state, actions, icon = Icons.Outlined.Download, outlined = true)
             details?.trailer?.let { trailer ->
@@ -504,7 +513,8 @@ internal fun SendToDevicePanel(state: DetailsUiState, actions: DetailsActions, m
                     )
                 }
                 Button(onClick = actions.onSendToDevice, enabled = !state.sending) {
-                    Text(stringResource(R.string.details_send_action))
+                    if (state.sending) CircularProgressIndicator(Modifier.size(16.dp).padding(end = 4.dp), strokeWidth = 2.dp)
+                    Text(stringResource(if (state.sending) R.string.details_send_sending else R.string.details_send_action))
                 }
             }
         }

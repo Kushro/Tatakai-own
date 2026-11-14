@@ -159,8 +159,12 @@ fun DetailsScreen(
                     resources.getString(R.string.details_download_failed, event.cause.describe(resources)),
                 )
                 DetailsEvent.NoTorrentSource -> snackbar.show(resources.getString(R.string.details_download_none))
-                is DetailsEvent.SendFailed -> snackbar.show(
-                    resources.getString(R.string.details_send_failed, event.cause.describe(resources)),
+                is DetailsEvent.SendFailed -> snackbar.show(sendFailedMessage(resources, event))
+                is DetailsEvent.SentOther -> snackbar.show(
+                    resources.getString(
+                        if (event.chosenWasTorrent) R.string.details_send_other_torrent else R.string.details_send_other,
+                        event.label,
+                    ),
                 )
                 DetailsEvent.NoWebSource -> snackbar.show(resources.getString(R.string.details_send_no_web))
                 is DetailsEvent.ListUpdateFailed -> snackbar.show(
@@ -219,7 +223,7 @@ fun DetailsScreen(
             val panel = state.panel?.takeIf { it.episode == request.episode }
             SourcePickerSheet(
                 sources = (panel?.sources as? LoadState.Ok)?.value.orEmpty(),
-                loading = panel == null || panel.sources is LoadState.Loading,
+                loading = panel == null || panel.sources is LoadState.Loading || panel.loadingMore,
                 error = (panel?.sources as? LoadState.Err)?.cause,
                 mode = state.mode,
                 onPick = viewModel::onPick,
@@ -388,6 +392,17 @@ private fun SendToDeviceDialog(
         confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.details_send_action)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.details_cancel)) } },
     )
+}
+
+/** BUG-023: the "Enviar a dispositivo" failure in words, never a raw code. */
+internal fun sendFailedMessage(resources: Resources, event: DetailsEvent.SendFailed): String = when (event.reason) {
+    SendFailReason.SOURCE_DENIED -> resources.getString(R.string.details_send_denied)
+    SendFailReason.SOURCE_UNAVAILABLE -> resources.getString(R.string.details_send_unavailable)
+    SendFailReason.PROFILE_UNAVAILABLE -> resources.getString(R.string.details_send_profile)
+    SendFailReason.OFFLINE -> resources.getString(R.string.details_send_pc_offline)
+    SendFailReason.NOT_PAIRED -> resources.getString(R.string.details_send_not_paired)
+    SendFailReason.RESOLVE_TIMEOUT -> resources.getString(R.string.details_send_timeout)
+    SendFailReason.OTHER -> resources.getString(R.string.details_send_failed, event.cause.describe(resources))
 }
 
 /** Non-composable twin of `AppError.userMessage()` for snackbars raised from events. */

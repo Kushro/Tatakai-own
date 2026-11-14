@@ -9,6 +9,8 @@ dependencies {
     implementation(projects.feature.library)
     // parity wave A (15 §5 o.2, worker o): BackHandler of the in-place related-title stack.
     implementation(libs.androidx.activity.compose)
+    // BUG-023: the exact Link error of "Enviar a dispositivo" (url_source_denied, source_unavailable…) for a clear message.
+    implementation(projects.core.link)
 }
 
 dependencies {
