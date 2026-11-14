@@ -17,7 +17,7 @@ use tk_link::discovery::Announcer;
 use tk_link::media::capabilities::Sustain;
 use tk_link::sessions::{CreateRequest, SourceRequest};
 use tk_link::{Device, LinkConfig, LinkError, LinkHandle, LinkHost, Vendor};
-use tk_ui::backend::{Anime4kNoteVm, Backend, DeviceVm, LinkCapsVm, LinkStatusVm, PresenceVm, RemoteCommandVm, SendOutcomeVm, SendToDeviceVm, UiResult};
+use tk_ui::backend::{Anime4kNoteVm, Backend, DeviceVm, LinkCapsVm, LinkStatusVm, PresenceVm, RemoteCommandVm, SendOutcomeVm, SendProgress, SendToDeviceVm, UiResult};
 use tk_ui::model::{ErrorKind, Pairing, UiError};
 
 use super::LiveBackend;
@@ -274,7 +274,13 @@ pub fn torrent_failure_forced(value: Option<&str>) -> bool {
 /// (`Backend::playback`, the same sources the PC player would use), start a Link session owned by the phone at
 /// `position_secs` (`tk-link::sessions`, the path the phone itself uses with `POST /v1/sessions`) and queue the
 /// `handoff` event its `GET /v1/events` long-poll delivers ("La PC te envió <título>" -> "Reproducir aquí").
+///
+/// BUG-107: the steps go to `req.progress` ("Preparando la fuente…" -> "Iniciando la sesión…") and a "Cancelar" while
+/// the source is being resolved stops it before anything is created. The chosen torrent is tried before the web
+/// streams are resolved (that resolution, every extension, was the 25 s the PC showed nothing even when the torrent
+/// went); they are only resolved when the torrent is refused or there is none.
 pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<SendOutcomeVm> {
+    let progress = &req.progress;
     let h = b.link.ensure().await?;
     let device = h
         .devices()
@@ -283,60 +289,91 @@ pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<S
         .ok_or_else(|| UiError::new(ErrorKind::Auth, format!("device {} is not paired", req.device_id)))?;
     // BUG-009: the episode's chosen torrent (or the top-ranked source when it is a torrent) goes first, streamed by
     // this PC's engine; the web streams follow.
-    let mut sources: Vec<SourceRequest> = torrent_choice(b, &req.media_id, req.episode)
-        .await
-        .map(|uri| SourceRequest::Torrent { uri, media_id: req.media_id.clone(), episode: req.episode })
-        .into_iter()
-        .collect();
-    let torrent_first = !sources.is_empty();
-    let playback = match <LiveBackend as Backend>::playback(b, &req.media_id, req.episode).await {
-        Ok(p) => Some(p),
+    let torrent = unless_cancelled(progress, torrent_choice(b, &req.media_id, req.episode)).await?;
+    let torrent_first = torrent.is_some();
+    let mut last: Option<UiError> = None;
+    if let Some(uri) = torrent {
+        let title = unless_cancelled(progress, b.media(&req.media_id)).await?.map(|(_, m)| m.title).unwrap_or_default();
+        let source = SourceRequest::Torrent { uri, media_id: req.media_id.clone(), episode: req.episode };
+        match start_and_hand_off(&h, &device.id, req, source, &title).await? {
+            Ok(()) => return Ok(send_outcome(0, true, "")),
+            Err(e) => last = Some(e),
+        }
+        tracing::info!("send to device: the torrent could not be opened, sending a web stream instead");
+        progress.back_to_preparing();
+    }
+    let playback = match unless_cancelled(progress, <LiveBackend as Backend>::playback(b, &req.media_id, req.episode)).await? {
+        Ok(p) => p,
         Err(e) if torrent_first => {
-            tracing::debug!(detail = %e.detail, "send to device: no web stream, torrent only");
-            None
+            tracing::debug!(detail = %e.detail, "send to device: no web stream after the torrent");
+            return Err(last.unwrap_or(e));
         }
         Err(e) => return Err(e),
     };
     // names for the "sent another source" notice (plan §9.1 / §11.4): the torrent is the chosen source, never named
-    let mut names: Vec<String> = vec![String::new(); sources.len()];
-    for s in playback.iter().flat_map(|p| p.streams.iter()) {
-        if let Some(src) = session_source(&s.url, &s.headers) {
-            sources.push(src);
-            names.push(stream_name(&s.provider, s.quality.as_deref()));
+    let offset = usize::from(torrent_first);
+    let streams = playback.streams.iter().filter_map(|s| session_source(&s.url, &s.headers).map(|src| (src, stream_name(&s.provider, s.quality.as_deref()))));
+    for (i, (source, name)) in streams.enumerate() {
+        match start_and_hand_off(&h, &device.id, req, source, &playback.title).await? {
+            Ok(()) => return Ok(send_outcome(i + offset, torrent_first, &name)),
+            Err(e) => last = Some(e),
         }
-    }
-    let title = match &playback {
-        Some(p) => p.title.clone(),
-        None => b.media(&req.media_id).await.map(|(_, m)| m.title).unwrap_or_default(),
-    };
-    let mut last: Option<UiError> = None;
-    for (index, (source, name)) in sources.into_iter().zip(names).enumerate() {
-        if index == 1 && torrent_first {
-            tracing::info!("send to device: the torrent could not be opened, sending a web stream instead");
-        }
-        let create = CreateRequest { source, profile: None, audio_track: 0, start_secs: f64::from(req.position_secs) };
-        match h.create_session_for(&device.id, create).await {
-            Ok(created) => {
-                let event = PhoneEvent::Handoff {
-                    session_id: created.session_id,
-                    media_id: Some(req.media_id.clone()),
-                    episode: Some(req.episode),
-                    position_secs: req.position_secs,
-                    title: Some(title.clone()).filter(|t| !t.is_empty()),
-                };
-                if !h.push_event(&device.id, event) {
-                    return Err(UiError::new(ErrorKind::Auth, format!("device {} is not paired", device.id)));
-                }
-                tracing::info!(device = %device.id, media = %req.media_id, episode = req.episode, "sent to device");
-                return Ok(send_outcome(index, torrent_first, &name));
-            }
-            Err(e) => {
-                tracing::debug!(error = ?e.0, "send to device: session refused, trying the next stream");
-                last = Some(link_api_err(e));
-            }
-        }
+        progress.back_to_preparing();
     }
     Err(last.unwrap_or_else(|| UiError::new(ErrorKind::NoSource, "no stream of this episode can be sent to the phone")))
+}
+
+/// BUG-107: the error of a send the user cancelled (the UI already knows and shows nothing).
+fn send_cancelled() -> UiError {
+    UiError::new(ErrorKind::Other, "send to device: cancelled")
+}
+
+/// BUG-107: `fut`, unless the user presses "Cancelar" first (then `Err(cancelled)` and `fut` is dropped: these steps
+/// only read, nothing is left half-made).
+async fn unless_cancelled<T>(progress: &SendProgress, fut: impl std::future::Future<Output = T>) -> UiResult<T> {
+    if progress.is_cancelled() {
+        return Err(send_cancelled());
+    }
+    tokio::select! {
+        biased;
+        () = progress.cancelled() => Err(send_cancelled()),
+        out = fut => Ok(out),
+    }
+}
+
+/// One attempt of [`send_to_device`]: start the session for `device_id` with `source` and queue the handoff. The outer
+/// `Err` ends the send (cancelled, device revoked); the inner one is this source refused (try the next).
+async fn start_and_hand_off(
+    h: &LinkHandle,
+    device_id: &str,
+    req: &SendToDeviceVm,
+    source: SourceRequest,
+    title: &str,
+) -> UiResult<Result<(), UiError>> {
+    if !req.progress.begin_session() {
+        return Err(send_cancelled());
+    }
+    let create = CreateRequest { source, profile: None, audio_track: 0, start_secs: f64::from(req.position_secs) };
+    match h.create_session_for(device_id, create).await {
+        Ok(created) => {
+            let event = PhoneEvent::Handoff {
+                session_id: created.session_id,
+                media_id: Some(req.media_id.clone()),
+                episode: Some(req.episode),
+                position_secs: req.position_secs,
+                title: Some(title.to_owned()).filter(|t| !t.is_empty()),
+            };
+            if !h.push_event(device_id, event) {
+                return Err(UiError::new(ErrorKind::Auth, format!("device {device_id} is not paired")));
+            }
+            tracing::info!(device = %device_id, media = %req.media_id, episode = req.episode, "sent to device");
+            Ok(Ok(()))
+        }
+        Err(e) => {
+            tracing::debug!(error = ?e.0, "send to device: session refused, trying the next stream");
+            Ok(Err(link_api_err(e)))
+        }
+    }
 }
 
 /// A web stream as the user knows it: "anizone · 1080p" (provider, then quality). Pure.
@@ -752,6 +789,28 @@ fn anime4k_note(vulkan: bool, dir: &std::path::Path, profiles: &[tk_link::media:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_cancel_drops_the_slow_resolution() {
+        // BUG-107: "Cancelar" while the extensions are still resolving ends the send right away, and nothing after it
+        let p = SendProgress::new();
+        let slow = unless_cancelled(&p, async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            1
+        });
+        let cancel = async {
+            tokio::task::yield_now().await;
+            assert!(p.cancel());
+        };
+        let (out, ()) = tokio::time::timeout(Duration::from_secs(2), async { tokio::join!(slow, cancel) }).await.expect("not waited out");
+        assert!(out.is_err());
+        // a cancelled send does not even start the next step, nor a session
+        assert!(unless_cancelled(&p, async { 2 }).await.is_err());
+        assert!(!p.begin_session());
+        // not cancelled: the step's value comes through
+        let q = SendProgress::new();
+        assert_eq!(unless_cancelled(&q, async { 3 }).await.ok(), Some(3));
+    }
 
     #[test]
     fn the_qa_hook_refuses_torrents_only_when_asked() {

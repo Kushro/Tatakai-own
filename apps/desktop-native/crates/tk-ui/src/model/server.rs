@@ -273,6 +273,116 @@ pub struct SendToDeviceVm {
     pub media_id: String,
     pub episode: u32,
     pub position_secs: u32,
+    /// BUG-107: the backend reports its steps here while it runs and honours the user's "Cancelar".
+    pub progress: SendProgress,
+}
+
+/// BUG-107: what `Backend::send_to_device` is doing right now (it took 25-28 s with no sign on screen).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SendStep {
+    /// Choosing and resolving the source (the chosen torrent, else the web streams of the extensions). Cancellable.
+    #[default]
+    Preparing,
+    /// Starting the Link session on this PC (the torrent engine or the stream probe). Too late to cancel.
+    Starting,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SendState {
+    step: SendStep,
+    cancelled: bool,
+}
+
+/// BUG-107: the shared progress / cancel switch of one "Enviar a dispositivo". The UI reads [`SendProgress::step`]
+/// (or waits on [`SendProgress::changed`]) and calls [`SendProgress::cancel`]; the backend calls
+/// [`SendProgress::begin_session`] before it creates anything, so a cancel never leaves a half-made session behind.
+#[derive(Debug, Clone)]
+pub struct SendProgress(std::sync::Arc<tokio::sync::watch::Sender<SendState>>);
+
+impl Default for SendProgress {
+    fn default() -> Self {
+        Self(std::sync::Arc::new(tokio::sync::watch::Sender::new(SendState::default())))
+    }
+}
+
+impl PartialEq for SendProgress {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for SendProgress {}
+
+impl SendProgress {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn step(&self) -> SendStep {
+        self.0.borrow().step
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.borrow().cancelled
+    }
+
+    /// Whether "Cancelar" still means something (nothing was created on the PC yet).
+    pub fn can_cancel(&self) -> bool {
+        let s = *self.0.borrow();
+        s.step == SendStep::Preparing && !s.cancelled
+    }
+
+    /// The user's "Cancelar": `true` when it took effect (still [`SendStep::Preparing`]); after that the send finishes.
+    pub fn cancel(&self) -> bool {
+        self.0.send_if_modified(|s| {
+            if s.step == SendStep::Preparing && !s.cancelled {
+                s.cancelled = true;
+                true
+            } else {
+                false
+            }
+        })
+    }
+
+    /// Backend: about to create the session. `false` = the user cancelled first (stop without creating anything).
+    pub fn begin_session(&self) -> bool {
+        let mut go = false;
+        self.0.send_if_modified(|s| {
+            go = !s.cancelled;
+            if go && s.step != SendStep::Starting {
+                s.step = SendStep::Starting;
+                return true;
+            }
+            false
+        });
+        go
+    }
+
+    /// Backend: the session was refused (the chosen torrent could not be opened); back to resolving the web streams.
+    pub fn back_to_preparing(&self) {
+        self.0.send_if_modified(|s| {
+            let changed = s.step != SendStep::Preparing;
+            s.step = SendStep::Preparing;
+            changed
+        });
+    }
+
+    /// Resolves when the user cancels (never otherwise): race it against the slow resolution steps.
+    pub async fn cancelled(&self) {
+        let mut rx = self.0.subscribe();
+        // the sender lives as long as `self`, so `wait_for` only ends when the flag is set
+        if rx.wait_for(|s| s.cancelled).await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+
+    /// Resolves at the next step change or cancel (for the "Enviando…" note).
+    pub async fn changed(&self) {
+        let mut rx = self.0.subscribe();
+        if rx.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
 }
 
 /// What `Backend::send_to_device` sent (decision plan §9.1 / §11.4: say when another source went instead).
@@ -287,6 +397,41 @@ pub struct SendOutcomeVm {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_send_can_be_cancelled_only_before_its_session_starts() {
+        // BUG-107
+        let p = SendProgress::new();
+        assert_eq!(p.step(), SendStep::Preparing);
+        assert!(p.can_cancel());
+        assert!(p.begin_session(), "nobody cancelled: go on");
+        assert_eq!(p.step(), SendStep::Starting);
+        assert!(!p.can_cancel());
+        assert!(!p.cancel(), "the session is being made: too late");
+        assert!(!p.is_cancelled());
+        // the torrent was refused: resolving the web streams can be cancelled again
+        p.back_to_preparing();
+        assert!(p.cancel());
+        assert!(p.is_cancelled());
+        assert!(!p.begin_session(), "cancelled: nothing gets created");
+        assert!(!p.cancel(), "only once");
+        // clones share the switch; two sends do not
+        let q = SendProgress::new();
+        assert_eq!(p.clone(), p);
+        assert_ne!(p, q);
+    }
+
+    #[tokio::test]
+    async fn cancelled_wakes_up_on_cancel() {
+        let p = SendProgress::new();
+        let waiter = tokio::spawn({
+            let p = p.clone();
+            async move { p.cancelled().await }
+        });
+        tokio::task::yield_now().await;
+        assert!(p.cancel());
+        tokio::time::timeout(std::time::Duration::from_secs(1), waiter).await.expect("woke up").expect("joined");
+    }
 
     #[test]
     fn defaults_are_sanitized() {

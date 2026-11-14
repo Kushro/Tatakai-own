@@ -14,7 +14,8 @@ use dioxus::prelude::*;
 
 use crate::app::{Route, Services, Ui};
 use crate::backend::{
-    AiringVm, DetailsExtraVm, DetailsVm, DeviceVm, EpisodeVm, LinkStatusVm, MediaFactsVm, SendOutcomeVm, SendToDeviceVm, SourceVm, TrailerVm,
+    AiringVm, DetailsExtraVm, DetailsVm, DeviceVm, EpisodeVm, LinkStatusVm, MediaFactsVm, SendOutcomeVm, SendProgress, SendStep, SendToDeviceVm, SourceVm,
+    TrailerVm,
 };
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
@@ -368,6 +369,15 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
     let mut send_error = use_signal(|| None::<UiError>);
     // plan §9.1 / §11.4: "Se envió X porque…" when another source than the chosen one went to the phone
     let mut send_notice = use_signal(|| None::<String>);
+    // BUG-107: the send in flight ("Enviando a moto g51… · Preparando la fuente…" + Cancelar); it took 25-28 s unseen
+    let mut sending = use_signal(|| None::<Sending>);
+    let cancel_send = use_callback(move |_: ()| {
+        let Some(s) = sending.peek().clone() else { return };
+        if s.progress.cancel() {
+            sending.set(None);
+            snackbar.show(t("details.send_cancelled"));
+        }
+    });
 
     // The ▾ of the split button and "See all sources" open the same picker with a fresh list.
     let open_picker = use_callback({
@@ -429,6 +439,9 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
     let ask_send = use_callback({
         let backend = backend.clone();
         move |device: Option<String>| {
+            if sending.peek().is_some() {
+                return;
+            }
             let target = match &*link.read() {
                 Some(Ok(st)) => pick_device(&st.devices, device.as_deref()),
                 _ => None,
@@ -732,7 +745,10 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
             div { class: "tk-list",
                 for d in st.devices.iter().take(SIDE_DEVICES).cloned() {
                     {
-                        let kind = if d.online {
+                        let this_busy = sending().as_ref().is_some_and(|s| s.device_id == d.id);
+                        let kind = if this_busy {
+                            t("details.sending")
+                        } else if d.online {
                             t("link.online")
                         } else if let Some(ts) = d.last_seen_unix {
                             tf("link.last_seen", &[("when", &rel_time(now, ts))])
@@ -747,6 +763,8 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                                 class: "tk-drel",
                                 r#type: "button",
                                 "data-online": "{d.online}",
+                                disabled: sending().is_some(),
+                                "aria-busy": "{this_busy}",
                                 onclick: move |_| ask_send.call(Some(dev_id.clone())),
                                 span { class: "tk-drel__ico", Icon { name: icon.to_string(), size: 20 } }
                                 span { class: "tk-drel__text",
@@ -767,7 +785,14 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
             let ep = tf("details.episode", &[("n", &watch_ep.to_string())]);
             // Wave B (worker k, `link.send-to-device`): `Backend::send_to_device` over Tatakai Link.
             let send_backend = backend.clone();
-            let send_req = SendToDeviceVm { device_id: d.id.clone(), media_id: id.clone(), episode: watch_ep, position_secs: v.resume_secs };
+            let send_req = SendToDeviceVm {
+                device_id: d.id.clone(),
+                media_id: id.clone(),
+                episode: watch_ep,
+                position_secs: v.resume_secs,
+                progress: SendProgress::default(),
+            };
+            let device_name = d.name.clone();
             rsx! {
                 ConfirmDialog {
                     title: t("details.send_device"),
@@ -779,16 +804,48 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                     on_confirm: move |_| {
                         send_target.set(None);
                         let backend = send_backend.clone();
-                        let req = send_req.clone();
+                        // BUG-107: a fresh progress per send; the card and a snackbar say so right away
+                        let progress = SendProgress::new();
+                        let req = SendToDeviceVm { progress: progress.clone(), ..send_req.clone() };
+                        let device = device_name.clone();
                         send_notice.set(None);
-                        spawn(async move {
-                            match backend.send_to_device(&req).await {
-                                Ok(outcome) => {
-                                    send_error.set(None);
-                                    if let Some(text) = send_outcome_text(&outcome) {
-                                        snackbar.show(text.clone());
-                                        send_notice.set(Some(text));
+                        send_error.set(None);
+                        sending.set(Some(Sending {
+                            progress: progress.clone(),
+                            device_id: req.device_id.clone(),
+                            device: device.clone(),
+                            step: SendStep::Preparing,
+                        }));
+                        snackbar.show_action(tf("details.sending_to", &[("device", &device)]), t("common.cancel"), cancel_send);
+                        let watcher = spawn({
+                            let progress = progress.clone();
+                            async move {
+                                loop {
+                                    progress.changed().await;
+                                    let step = progress.step();
+                                    let mut w = sending.write();
+                                    match w.as_mut() {
+                                        Some(s) if s.progress == progress => s.step = step,
+                                        _ => break,
                                     }
+                                }
+                            }
+                        });
+                        spawn(async move {
+                            let result = backend.send_to_device(&req).await;
+                            watcher.cancel();
+                            if sending.peek().as_ref().is_some_and(|s| s.progress == progress) {
+                                sending.set(None);
+                            }
+                            if progress.is_cancelled() {
+                                return;
+                            }
+                            match result {
+                                Ok(outcome) => {
+                                    let text = send_outcome_text(&outcome)
+                                        .unwrap_or_else(|| tf("details.send_done", &[("device", &device)]));
+                                    snackbar.show(text.clone());
+                                    send_notice.set(Some(text));
                                 }
                                 Err(e) => send_error.set(Some(e)),
                             }
@@ -897,6 +954,22 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                     section { class: "tk-panel tk-details__send",
                         h3 { class: "tk-panel__title", Icon { name: "link".to_string(), size: 20 } {t("details.send_device")} }
                         {devices_body}
+                        if let Some(s) = sending() {
+                            div { class: "tk-details__sending", role: "status", "aria-live": "polite",
+                                LoadingIndicator { small: true }
+                                span { class: "tk-details__sending-text",
+                                    span { class: "tk-details__sending-title", {tf("details.sending_to", &[("device", &s.device)])} }
+                                    span { class: "tk-muted", {send_step_text(s.step)} }
+                                }
+                                Button {
+                                    label: t("common.cancel"),
+                                    variant: ButtonVariant::Text,
+                                    size: ButtonSize::Sm,
+                                    disabled: !s.progress.can_cancel(),
+                                    onclick: move |_| cancel_send.call(()),
+                                }
+                            }
+                        }
                         if let Some(err) = send_error() {
                             ErrorState { error: err.clone(), compact: true, retry: false }
                         }
@@ -1397,6 +1470,23 @@ fn DetailsEpisodeRow(
 
 /// Plan §9.1 / §11.4: the notice after "Enviar a dispositivo" when another source than the chosen one went (never a
 /// technical id: the source is named as the lists name it). `None` = the chosen source was sent.
+/// BUG-107: a "Enviar a dispositivo" in flight.
+#[derive(Debug, Clone, PartialEq)]
+struct Sending {
+    progress: SendProgress,
+    device_id: String,
+    device: String,
+    step: SendStep,
+}
+
+/// BUG-107: the step line under "Enviando a <device>…".
+pub(crate) fn send_step_text(step: SendStep) -> String {
+    t(match step {
+        SendStep::Preparing => "details.send_step_preparing",
+        SendStep::Starting => "details.send_step_starting",
+    })
+}
+
 pub(crate) fn send_outcome_text(o: &SendOutcomeVm) -> Option<String> {
     let name = o.sent_instead.as_deref()?.trim();
     let source = if name.is_empty() { t("details.send_other_source") } else { name.to_owned() };

@@ -33,7 +33,7 @@ pub use crate::model::novel::{
     KittenStatusVm, NovelContentVm, NovelDetailsVm, TtsClipVm, TtsProviderVm, TtsRequestVm, TtsSpeakVm, TtsVoiceVm,
 };
 pub use crate::model::server::{
-    FlareSolverrVm, ProxyStatusVm, RemoteCommandVm, SendOutcomeVm, SendToDeviceVm, ServerDeviceVm, ServerLogPageVm, ServerLogVm,
+    FlareSolverrVm, ProxyStatusVm, RemoteCommandVm, SendOutcomeVm, SendProgress, SendStep, SendToDeviceVm, ServerDeviceVm, ServerLogPageVm, ServerLogVm,
     ServerPairingVm, ServerStatusVm, SniffRequestVm, SniffResultVm,
 };
 pub use crate::model::social::{

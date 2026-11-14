@@ -160,3 +160,10 @@ button.tk-drelated__row:hover { background: var(--md-sys-color-surface-container
 /* Episode without its own thumbnail: series artwork, dimmed, with the number centred. */
 .tk-dep__thumb[data-fallback="true"] img { filter: brightness(0.45) saturate(0.8); }
 .tk-dep__badge { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--tk-font-display); font-size: var(--md-sys-typescale-title-large-size); font-weight: var(--md-sys-typescale-title-large-weight-emphasized); color: #fff; text-shadow: 0 1px 3px rgb(0 0 0 / 0.6); }
+/* BUG-107: the send in flight under the device rows */
+.tk-details__sending { display: flex; align-items: center; gap: var(--tk-space-12); padding: var(--tk-space-8); border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-high); }
+.tk-details__sending > .tk-loading { flex: none; }
+.tk-details__sending-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tk-details__sending-title { font-size: var(--md-sys-typescale-title-small-size); font-weight: var(--md-sys-typescale-title-small-weight-emphasized); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-drel:disabled { opacity: .6; cursor: default; }
+.tk-drel:disabled:hover { background: transparent; }
