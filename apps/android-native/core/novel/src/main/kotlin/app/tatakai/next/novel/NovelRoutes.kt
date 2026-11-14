@@ -20,6 +20,13 @@ object NovelRoutes {
 
     fun providerOf(sourceId: String): String = sourceId.removePrefix(SOURCE_PREFIX)
 
+    /**
+     * BUG-100: the titles sent to the extensions, in the desktop order (`tk_core::novel::anilist`): English, romaji, the title shown,
+     * native, then synonyms. Toko searches its English catalogues with only the first two, so the English one goes first.
+     */
+    fun searchTitles(shown: String, english: String?, romaji: String?, native: String?, synonyms: List<String>): List<String> =
+        (listOfNotNull(english, romaji, shown, native) + synonyms.take(3)).map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
     fun chapters(extensionId: String, mediaKey: String, answer: List<MangaRouteChapter>): List<NovelChapter> = answer.map { c ->
         NovelChapter(
             id = c.key,

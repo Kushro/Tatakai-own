@@ -27,6 +27,7 @@ import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MangaRouteQuery
+import app.tatakai.next.model.SourceProblem
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.NOVEL_ROUTE_SOURCE
 import app.tatakai.next.model.MediaSearchQuery
@@ -196,11 +197,21 @@ class NovelRepositoryImpl(
             // BUG-100: Toko reads novels through `novel/chapters` (no `novel` custom source): one source per inner provider.
             val routeJobs = routes.map { route ->
                 async {
-                    val list = withTimeoutOrNull(ROUTE_TIMEOUT_MS) {
-                        runCatching { routeChapters(route.extensionId, key, titles, refresh = false, ref = ref) }.getOrNull()
-                    }.orEmpty()
+                    val answer = withTimeoutOrNull(ROUTE_TIMEOUT_MS) {
+                        runCatching { routeChapters(route.extensionId, key, titles, refresh = false, ref = ref) }
+                    }
+                    // BUG-100: an empty card says why (not found / no answer in time / failed) instead of only "no encontró".
+                    val problem = when {
+                        answer == null -> SourceProblem.TIMEOUT
+                        answer.isFailure -> answer.exceptionOrNull().let { e ->
+                            if (e is CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException) throw e
+                            SourceProblem.of(e)
+                        }
+                        else -> SourceProblem.NOT_FOUND
+                    }
+                    val list = answer?.getOrNull().orEmpty()
                     NovelRoutes.sources(route, key, list).ifEmpty {
-                        listOf(NovelSourceSummary(route.extensionId, route.extensionName, NOVEL_ROUTE_SOURCE, null, emptyList(), 0))
+                        listOf(NovelSourceSummary(route.extensionId, route.extensionName, NOVEL_ROUTE_SOURCE, null, emptyList(), 0, problem = problem))
                     }
                 }
             }
@@ -525,8 +536,8 @@ class NovelRepositoryImpl(
 
     private suspend fun titlesOf(ref: MediaRef, title: String): List<String> {
         val info = runCatching { info(ref) }.getOrNull()
-        return (listOf(title) + listOfNotNull(info?.media?.titles?.get("romaji"), info?.media?.titles?.get("english")) + info?.synonyms.orEmpty().take(3))
-            .filter { it.isNotBlank() }.distinct()
+        val t = info?.media?.titles.orEmpty()
+        return NovelRoutes.searchTitles(title, t["english"], t["romaji"], t["native"], info?.synonyms.orEmpty())
     }
 
     private suspend fun matchFor(key: String, find: suspend () -> String?): String? {

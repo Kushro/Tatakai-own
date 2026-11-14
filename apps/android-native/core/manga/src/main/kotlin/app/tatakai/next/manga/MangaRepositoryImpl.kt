@@ -169,7 +169,10 @@ class MangaRepositoryImpl(
     private val chapterMemo = HashMap<String, CachedChapters>()
 
     /** BUG-097/099: `<ext>|<mediaKey>` -> when a route-based extension last found nothing (asked again after [ROUTE_MISS_TTL_MS]). */
-    private val routeMisses = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val routeMisses = java.util.concurrent.ConcurrentHashMap<String, RouteMiss>()
+
+    /** BUG-099: when a route-based extension last gave nothing for a title, and why (the card shows it). */
+    private data class RouteMiss(val atMs: Long, val problem: app.tatakai.next.model.SourceProblem)
     private val memoLock = Mutex()
     private var genresCache: List<String>? = null
     private var downloadJob: Job? = null
@@ -335,15 +338,29 @@ class MangaRepositoryImpl(
                     val routeJobs = routes.map { route ->
                         async {
                             val missKey = "${route.extensionId}|$key"
-                            val recentMiss = routeMisses[missKey]?.let { clock() - it < ROUTE_MISS_TTL_MS } == true
-                            val list = if (recentMiss) {
+                            val miss = routeMisses[missKey]?.takeIf { clock() - it.atMs < ROUTE_MISS_TTL_MS }
+                            var problem = miss?.problem
+                            val list = if (miss != null) {
                                 emptyList()
                             } else {
-                                withTimeoutOrNull(ROUTE_TIMEOUT_MS) {
-                                    runCatching { routeChapters(route.extensionId, key, route, titles, refresh = false, ref = ref) }.getOrNull()
-                                }.orEmpty()
+                                val answer = withTimeoutOrNull(ROUTE_TIMEOUT_MS) {
+                                    runCatching { routeChapters(route.extensionId, key, route, titles, refresh = false, ref = ref) }
+                                }
+                                when {
+                                    answer == null -> emptyList<MangaChapter>().also { problem = app.tatakai.next.model.SourceProblem.TIMEOUT }
+                                    answer.isFailure -> {
+                                        val e = answer.exceptionOrNull()
+                                        if (e is kotlinx.coroutines.CancellationException && e !is kotlinx.coroutines.TimeoutCancellationException) throw e
+                                        emptyList<MangaChapter>().also { problem = app.tatakai.next.model.SourceProblem.of(e) }
+                                    }
+                                    else -> answer.getOrThrow().also { if (it.isEmpty()) problem = app.tatakai.next.model.SourceProblem.NOT_FOUND }
+                                }
                             }
-                            if (list.isNotEmpty()) routeMisses.remove(missKey) else if (!recentMiss) routeMisses[missKey] = clock()
+                            if (list.isNotEmpty()) {
+                                routeMisses.remove(missKey)
+                            } else if (miss == null) {
+                                routeMisses[missKey] = RouteMiss(clock(), problem ?: app.tatakai.next.model.SourceProblem.NOT_FOUND)
+                            }
                             MangaRoutes.sources(route, key, list) { rel[it] }.ifEmpty {
                                 listOf(
                                     MangaChapterSource(
@@ -354,6 +371,7 @@ class MangaRepositoryImpl(
                                         languages = emptyList(),
                                         chapterCount = 0,
                                         reliability = rel[sourceKey(route.extensionId, MANGA_ROUTE_SOURCE)] ?: app.tatakai.next.model.INITIAL_RELIABILITY,
+                                        problem = problem ?: app.tatakai.next.model.SourceProblem.NOT_FOUND,
                                     ),
                                 )
                             }

@@ -879,9 +879,17 @@
   g.__tk_call = async function (method, argsJson, collect) {
     var inst = g.__tk_instance, fn = inst && inst[method];
     if (typeof fn !== 'function') throw new Error('__TK_NOT_IMPLEMENTED__' + method);
-    var args = JSON.parse(argsJson), chunks = [];
+    var args = JSON.parse(argsJson), chunks = [], out = null;
     if (collect) args.push(function (c) { try { chunks.push(JSON.parse(JSON.stringify(c === undefined ? null : c))); } catch (e) { /* ignore */ } });
-    var r = await fn.apply(inst, args);
-    return JSON.stringify({ result: r === undefined ? null : r, chunks: chunks });
+    try {
+      var r = await fn.apply(inst, args);
+      out = JSON.stringify({ result: r === undefined ? null : r, chunks: chunks });
+      return out;
+    } finally {
+      // BUG-099/100: the answer is known. Drop the timers the bundle left behind (a provider it gave up on) and tell the host, so
+      // the fetches, sleeps and browser operations still running for this call stop holding the evaluation (desktop parity).
+      timers = Object.create(null);
+      if (typeof g.__host_settled === 'function') g.__host_settled(out);
+    }
   };
 })(globalThis);

@@ -225,6 +225,10 @@
     <string name="manga_source_auto_hint">Best source by language and reliability.</string>
     <string name="manga_source_settings">Sources and languages</string>
     <string name="manga_source_unmatched">This source did not find the title.</string>
+    <!-- BUG-099: why a source card has no chapter (instead of a bare "· 0") -->
+    <string name="manga_source_problem_not_found">no results</string>
+    <string name="manga_source_problem_timeout">timed out</string>
+    <string name="manga_source_problem_failed">failed</string>
     <string name="manga_status_cancelled">Cancelled</string>
     <string name="manga_status_finished">Finished</string>
     <string name="manga_status_hiatus">Hiatus</string>

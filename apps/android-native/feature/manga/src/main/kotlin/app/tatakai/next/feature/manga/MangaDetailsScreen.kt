@@ -97,6 +97,7 @@ import app.tatakai.next.model.ListStatus
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MangaChapter
 import app.tatakai.next.model.MangaChapterSource
+import app.tatakai.next.model.SourceProblem
 import app.tatakai.next.model.MangaReaderArgs
 import app.tatakai.next.model.MatureContentMode
 import app.tatakai.next.model.Media
@@ -620,10 +621,26 @@ private fun LazyListScope.chaptersSection(
 @Composable
 private fun sourceChipLabel(s: MangaChapterSource): String = buildString {
     append(s.extensionName)
+    // BUG-099: a source without chapters says why, not a bare "· 0".
+    val problem = s.problem
+    if (problem != null) {
+        append(" · ").append(sourceProblemLabel(problem))
+        return@buildString
+    }
     s.chapterCount?.let { append(" · ").append(it) }
     if (s.languages.isNotEmpty()) append(" · ").append(s.languages.take(3).joinToString("/").uppercase())
     append(" · ").append((s.reliability * 100).toInt()).append('%')
 }
+
+/** BUG-099: "sin resultados" / "tiempo agotado" / "falló" (same words in the reader's source list). */
+@Composable
+internal fun sourceProblemLabel(p: SourceProblem): String = stringResource(
+    when (p) {
+        SourceProblem.NOT_FOUND -> R.string.manga_source_problem_not_found
+        SourceProblem.TIMEOUT -> R.string.manga_source_problem_timeout
+        SourceProblem.FAILED -> R.string.manga_source_problem_failed
+    },
+)
 
 @Composable
 private fun ChapterToolbar(ui: MangaDetailsUi, vm: MangaDetailsViewModel) {

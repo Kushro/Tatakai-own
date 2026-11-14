@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -111,12 +112,30 @@ internal class QuickJsSession(
     private val html = HtmlRegistry()
     private val random = SecureRandom()
     @Volatile private var pendingArgs: String = "[]"
+    /** BUG-099/100: host jobs of a call stop waiting once its result is known (see [HostCallGate]); cancelled with the session. */
+    private val hostJobs = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val gate = HostCallGate(hostJobs)
+    /** The result JSON the prelude handed to `__host_settled` for the current call (kept if the evaluation fails afterwards). */
+    @Volatile private var settledResult: String? = null
 
     fun bind() {
         qjs.function("__host_log") { a -> host.log(a[0].toString(), a[1].toString()); null }
         qjs.function("__host_args") { _ -> pendingArgs }
-        qjs.asyncFunction("__host_sleep") { a -> delay(((a[0] as Number).toLong()).coerceIn(0, 15_000)); null }
-        qjs.asyncFunction("__host_fetch") { a -> fetchJson(a[0].toString()) }
+        // A sleep or a fetch still running when the call settles returns at once (the JS side already dropped its timers).
+        qjs.asyncFunction("__host_sleep") { a ->
+            val ms = ((a[0] as Number).toLong()).coerceIn(0, 15_000)
+            gate.run(Unit) { delay(ms) }
+            null
+        }
+        qjs.asyncFunction("__host_fetch") { a ->
+            val request = a[0].toString()
+            gate.run(ABANDONED_FETCH) { fetchJson(request) }
+        }
+        qjs.function("__host_settled") { a ->
+            settledResult = a.getOrNull(0) as? String
+            gate.settle()
+            null
+        }
         qjs.function("__host_hash") { a -> b64(digest(a[0].toString()).digest(unb64(a[1].toString()))) }
         qjs.function("__host_hmac") { a ->
             val algo = macName(a[0].toString())
@@ -133,7 +152,11 @@ internal class QuickJsSession(
         // op: new | navigate | evaluate | cookies | close; resolves to the JSON envelope {"ok":true,"value":..} / {"ok":false,"error":".."}
         browser?.let { bridge ->
             qjs.asyncFunction("__host_browser") { a ->
-                bridge.call(a.getOrNull(0)?.toString().orEmpty(), a.getOrNull(1)?.toString().orEmpty(), a.getOrNull(2)?.toString().orEmpty())
+                val op = a.getOrNull(0)?.toString().orEmpty()
+                val id = a.getOrNull(1)?.toString().orEmpty()
+                val arg = a.getOrNull(2)?.toString().orEmpty()
+                // A late `close` still closes; any other operation of a settled call is dropped (the browser auto-closes).
+                if (op == "close") bridge.call(op, id, arg) else gate.run(ABANDONED_BROWSER) { bridge.call(op, id, arg) }
             }
         }
     }
@@ -176,6 +199,8 @@ internal class QuickJsSession(
             pendingArgs = JsonArray(args).toString()
             html.clear()
             softTimedOut = false
+            settledResult = null
+            gate.begin()
             browser?.openedBrowser = false
             val text: String? = try {
                 if (browser == null) {
@@ -204,15 +229,19 @@ internal class QuickJsSession(
                 }
             } catch (e: TimeoutCancellationException) {
                 runCatching { qjs.interruptEvaluation() }
-                throw ExtError.Timeout()
+                settledResult ?: throw ExtError.Timeout()
             } catch (e: QuickJsInterruptedException) {
-                throw ExtError.Timeout()
+                settledResult ?: throw ExtError.Timeout()
             } catch (e: CancellationException) {
-                if (softTimedOut) throw ExtError.Timeout()
-                throw e
+                if (softTimedOut) settledResult ?: throw ExtError.Timeout() else throw e
             } catch (e: Exception) {
-                if (softTimedOut) throw ExtError.Timeout()
-                throw mapFailure(e, "Extension call failed")
+                // The bundle's answer already arrived: a late failure of an abandoned job does not take it away.
+                settledResult ?: run {
+                    if (softTimedOut) throw ExtError.Timeout()
+                    throw mapFailure(e, "Extension call failed")
+                }
+            } finally {
+                gate.settle()
             }
             runCatching { qjs.evaluate<Any?>("__tk_reset_timers()", "reset.js") }
             val parsed = Json.parseToJsonElement(text ?: "{\"result\":null,\"chunks\":[]}") as JsonObject
@@ -232,6 +261,8 @@ internal class QuickJsSession(
     }
 
     override fun close() {
+        gate.settle()
+        hostJobs.cancel()
         runCatching { qjs.close() }
         // Browsers this runtime still owns die with it (desktop runtime.rs close_owned); fire and forget.
         browser?.takeIf { it.openCount > 0 }?.let { bridge -> CLOSER.launch { bridge.closeAll() } }
@@ -250,6 +281,9 @@ internal class QuickJsSession(
 
     companion object {
         private val METHOD = Regex("[A-Za-z_$][A-Za-z0-9_$]*")
+        /** What a fetch / browser operation still running when its call settled resolves to (the bundle no longer reads it). */
+        const val ABANDONED_FETCH = "{\"error\":\"Extension call already answered\"}"
+        const val ABANDONED_BROWSER = "{\"ok\":false,\"error\":\"Extension call already answered\"}"
         private val CLOSER = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     }
 }

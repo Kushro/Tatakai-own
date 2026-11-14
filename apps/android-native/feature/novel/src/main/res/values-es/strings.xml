@@ -124,6 +124,8 @@
     <string name="novel_sort_trending">Tendencia</string>
     <string name="novel_source_unchecked">Sin comprobar</string>
     <string name="novel_source_unmatched">Esta fuente no encontró el título.</string>
+    <string name="novel_source_problem_timeout">No respondió a tiempo.</string>
+    <string name="novel_source_problem_failed">Falló al buscar el título.</string>
     <string name="novel_status_cancelled">Cancelada</string>
     <string name="novel_status_finished">Finalizada</string>
     <string name="novel_status_hiatus">En pausa</string>

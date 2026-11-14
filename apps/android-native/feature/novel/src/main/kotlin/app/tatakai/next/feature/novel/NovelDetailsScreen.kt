@@ -81,6 +81,7 @@ import app.tatakai.next.designsystem.components.Pill
 import app.tatakai.next.designsystem.components.SectionCard
 import app.tatakai.next.designsystem.components.rememberAfterDelay
 import app.tatakai.next.manga.ChapterText
+import app.tatakai.next.model.SourceProblem
 import app.tatakai.next.model.ListProgress
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.NovelChapter
@@ -338,7 +339,11 @@ private fun SourceRow(s: NovelSourceSummary, selected: Boolean, onClick: () -> U
         supportingContent = {
             Text(
                 when {
-                    s.itemId == null -> stringResource(R.string.novel_source_unmatched)
+                    s.itemId == null -> when (s.problem) {
+                        SourceProblem.TIMEOUT -> stringResource(R.string.novel_source_problem_timeout)
+                        SourceProblem.FAILED -> stringResource(R.string.novel_source_problem_failed)
+                        else -> stringResource(R.string.novel_source_unmatched)
+                    }
                     else -> listOfNotNull(
                         s.chapterCount?.let { stringResource(R.string.novel_chapter_count, it) } ?: stringResource(R.string.novel_source_unchecked),
                         s.languages.joinToString("/").uppercase().ifBlank { null },

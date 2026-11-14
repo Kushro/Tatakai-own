@@ -26,7 +26,34 @@ data class MangaChapterSource(
     val chapterCount: Int?,
     /** 0..1 moving average of successful page loads (private store of :core:manga). */
     val reliability: Float = INITIAL_RELIABILITY,
+    /** BUG-099: why a route-based extension listed no chapter (shown instead of a silent "0"); null = it found the title. */
+    val problem: SourceProblem? = null,
 )
+
+/**
+ * BUG-099/100: why an extension gave no chapter for a title, so the card says it ("sin resultados", "tiempo de espera") instead of a
+ * bare "Toko · 0" (desktop: "Toko · 0 · Toko falló: timeout").
+ */
+enum class SourceProblem {
+    /** The extension answered: it does not have the title. */
+    NOT_FOUND,
+    /** No answer in time. */
+    TIMEOUT,
+    /** The extension failed (error, disabled, network). */
+    FAILED,
+    ;
+
+    companion object {
+        /** The problem behind a failed chapters call: a timeout ([AppError.Extension] "timeout" or a timeout exception) or any failure. */
+        fun of(error: Throwable?): SourceProblem {
+            val e = (error as? AppException)?.error
+            val msg = (e as? AppError.Extension)?.msg ?: error?.message.orEmpty()
+            return if (msg.contains("timeout", ignoreCase = true) || msg.contains("timed out", ignoreCase = true) ||
+                error?.javaClass?.simpleName?.contains("Timeout") == true
+            ) TIMEOUT else FAILED
+        }
+    }
+}
 
 /** One chapter as listed by one extension (`custom/info` entries of kind `read`). [id] is unique within (extensionId, sourceId). */
 @Serializable

@@ -27,4 +27,19 @@ class NovelRoutesTest {
         assertEquals("WW", sources[0].translator)
         assertEquals("wuxiaworld:2", chapters[2].id)
     }
+
+    @Test
+    fun englishTitleGoesFirstLikeTheDesktop() {
+        assertEquals(
+            listOf("Mushoku Tensei: Jobless Reincarnation", "Mushoku Tensei: Isekai Ittara Honki Dasu", "無職転生", "Mushoku"),
+            NovelRoutes.searchTitles(
+                shown = "Mushoku Tensei: Isekai Ittara Honki Dasu",
+                english = "Mushoku Tensei: Jobless Reincarnation",
+                romaji = "Mushoku Tensei: Isekai Ittara Honki Dasu",
+                native = "無職転生",
+                synonyms = listOf("Mushoku", " "),
+            ),
+        )
+        assertEquals(listOf("Overlord"), NovelRoutes.searchTitles("Overlord", null, "Overlord", null, emptyList()))
+    }
 }

@@ -443,7 +443,7 @@ fun MangaReaderScreen(
                     alts.value.forEach { s ->
                         ListItem(
                             headlineContent = { Text(s.extensionName, color = if (s.key == ui.source?.key) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) },
-                            supportingContent = { Text(listOfNotNull(s.chapterCount?.toString(), s.languages.joinToString("/").uppercase().ifBlank { null }, "${(s.reliability * 100).toInt()}%").joinToString(" · ")) },
+                            supportingContent = { Text(s.problem?.let { sourceProblemLabel(it) } ?: listOfNotNull(s.chapterCount?.toString(), s.languages.joinToString("/").uppercase().ifBlank { null }, "${(s.reliability * 100).toInt()}%").joinToString(" · ")) },
                             modifier = Modifier.clickable(enabled = s.key != ui.source?.key) { sheet = null; vm.switchSource(s) },
                         )
                     }

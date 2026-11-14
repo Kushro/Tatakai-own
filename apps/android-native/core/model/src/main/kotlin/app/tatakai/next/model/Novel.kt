@@ -22,6 +22,8 @@ data class NovelSourceSummary(
     /** Filled by "Comprobar todas" (`NovelRepository.checkSources`); null = not checked yet. */
     val chapterCount: Int?,
     val translator: String? = null,
+    /** BUG-100: why a route-based extension listed no chapter; null = found (or not asked yet). */
+    val problem: SourceProblem? = null,
 )
 
 @Serializable

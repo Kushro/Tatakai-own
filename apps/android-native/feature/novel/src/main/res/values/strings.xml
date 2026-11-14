@@ -124,6 +124,8 @@
     <string name="novel_sort_trending">Trending</string>
     <string name="novel_source_unchecked">Not checked yet</string>
     <string name="novel_source_unmatched">This source did not find the title.</string>
+    <string name="novel_source_problem_timeout">Did not answer in time.</string>
+    <string name="novel_source_problem_failed">Failed while looking for the title.</string>
     <string name="novel_status_cancelled">Cancelled</string>
     <string name="novel_status_finished">Finished</string>
     <string name="novel_status_hiatus">Hiatus</string>
