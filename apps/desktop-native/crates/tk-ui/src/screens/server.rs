@@ -31,6 +31,12 @@ pub const LOG_LINES: usize = 200;
 /// How often the log and the status refresh while the page is open.
 const POLL_SECS: u64 = 3;
 
+/// BUG-091: the device a pairing code opened at `opened_unix` paired (a re-paired phone keeps its row with a new
+/// `created_unix`, BUG-057). Pure.
+pub fn newly_paired(devices: &[ServerDeviceVm], opened_unix: i64) -> Option<&ServerDeviceVm> {
+    devices.iter().filter(|d| !d.current && d.created_unix >= opened_unix).max_by_key(|d| d.created_unix)
+}
+
 /// Append a log page to what is shown: a cursor lower than the one we had means the server restarted (new log),
 /// so the list starts over; at most [`LOG_LINES`] newest lines are kept. Pure.
 pub fn merge_logs(mut shown: Vec<ServerLogVm>, shown_cursor: u64, page: Vec<ServerLogVm>, cursor: u64) -> Vec<ServerLogVm> {
@@ -139,6 +145,20 @@ pub fn ServerPage() -> Element {
                         Err(e) => log_error.set(Some(e)),
                     }
                     log_loaded.set(true);
+                    // BUG-091: while a code is shown, watch for the phone that uses it: the list (and the status pill)
+                    // update at once and the code closes (it works once), instead of waiting for the slow refresh
+                    let opened = pairing.peek().as_ref().map(|(_, at)| *at);
+                    if let Some(opened) = opened {
+                        if let Ok(list) = backend.server_devices().await {
+                            if let Some(d) = newly_paired(&list, opened) {
+                                let label = d.label.clone();
+                                pairing.set(None);
+                                snack.show(tf("server.devices.paired_now", &[("name", &label)]));
+                                devices.restart();
+                                status.restart();
+                            }
+                        }
+                    }
                     tokio::time::sleep(Duration::from_secs(POLL_SECS)).await;
                     tick += 1;
                     if tick % 4 == 0 {
@@ -688,6 +708,19 @@ mod tests {
 
     fn line(id: u64) -> ServerLogVm {
         ServerLogVm { id, at_unix: 0, event: "request".into(), route: None, name: None, count: None, duration_ms: None, error: None }
+    }
+
+    fn device(id: &str, created_unix: i64) -> ServerDeviceVm {
+        ServerDeviceVm { id: id.into(), label: format!("Phone {id}"), role: "viewer".into(), created_unix, last_seen_unix: None, current: false }
+    }
+
+    #[test]
+    fn a_code_is_used_by_the_device_paired_after_it_opened() {
+        let list = vec![device("old", 100), device("tablet", 150)];
+        assert!(newly_paired(&list, 200).is_none(), "nothing paired since the code opened");
+        // BUG-057 + BUG-091: the same phone paired again keeps its row with a new date
+        let list = vec![device("old", 100), device("g51", 205), device("tablet", 150)];
+        assert_eq!(newly_paired(&list, 200).map(|d| d.id.as_str()), Some("g51"));
     }
 
     #[test]

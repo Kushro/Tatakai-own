@@ -42,6 +42,7 @@
   "server.devices.revoke_title": "Revoke this device?",
   "server.devices.revoke_body": "{name} loses access to this server immediately and must pair again.",
   "server.devices.revoked": "{name} was revoked",
+  "server.devices.paired_now": "{name} was paired",
   "server.password": "Viewer password",
   "server.password.hint": "With a password, a phone can also connect by typing the server address and this password instead of a pairing code.",
   "server.password.is_set": "A viewer password is set.",

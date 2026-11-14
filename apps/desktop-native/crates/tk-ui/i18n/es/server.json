@@ -42,6 +42,7 @@
   "server.devices.revoke_title": "¿Revocar este dispositivo?",
   "server.devices.revoke_body": "{name} pierde el acceso a este servidor al instante y tendrá que emparejarse otra vez.",
   "server.devices.revoked": "Se revocó {name}",
+  "server.devices.paired_now": "Se emparejó {name}",
   "server.password": "Contraseña de visor",
   "server.password.hint": "Con contraseña, un teléfono también puede conectarse escribiendo la dirección del servidor y esta contraseña en lugar de un código.",
   "server.password.is_set": "Hay una contraseña de visor configurada.",
