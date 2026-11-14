@@ -130,7 +130,7 @@
   "details.ep_search.none.title": "Ningún episodio coincide",
   "details.ep_search.none.body": "Prueba con otro número o parte del título.",
   "details.view": "Vista de episodios",
-  "details.view.thumbnails": "Miniaturas",
+  "details.view.thumbnails": "Con miniaturas",
   "details.view.compact": "Compacta",
   "details.unaired": "Aún no emitido",
   "details.unaired_on": "Se emite el {d}",

@@ -130,7 +130,7 @@
   "details.ep_search.none.title": "No episode matches",
   "details.ep_search.none.body": "Try another number or part of the title.",
   "details.view": "Episode view",
-  "details.view.thumbnails": "Thumbnails",
+  "details.view.thumbnails": "With thumbnails",
   "details.view.compact": "Compact",
   "details.unaired": "Not yet aired",
   "details.unaired_on": "Airs {d}",
