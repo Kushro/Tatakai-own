@@ -283,6 +283,7 @@ class LinkRepositoryImpl(
         val wire = when (source) {
             is LinkSource.Library -> SessionSource.Library(source.itemId)
             is LinkSource.Url -> SessionSource.Url(source.url, source.headers)
+            is LinkSource.Torrent -> SessionSource.Torrent(source.uri, source.mediaId, source.episode)
         }
         // android wave: the profile chosen on the Linked screen applies when the caller has no explicit one
         create(c, wire, profileId ?: _linkedDevice.value?.preferredProfile, startSecs = null)

@@ -37,7 +37,7 @@
     <string name="details_send_unreachable">The PC is not answering right now, so the session may fail.</string>
     <string name="details_send_action">Send</string>
     <string name="details_send_failed">Could not send to the PC: %1$s</string>
-    <string name="details_send_no_web">Sending needs a web source for this episode.</string>
+    <string name="details_send_no_web">There is no source of this episode to send to the PC.</string>
     <string name="details_send_online">Connected</string>
     <string name="details_send_offline">Not answering</string>
     <string name="details_send_unpaired">No PC paired yet</string>
@@ -49,7 +49,7 @@
     <string name="details_send_not_paired">This phone is no longer paired with the PC. Pair it again in You → Linked device.</string>
     <string name="details_send_timeout">The sources of this episode took too long to load. Try again.</string>
     <string name="details_send_other">Sent %1$s because the chosen source could not be sent.</string>
-    <string name="details_send_other_torrent">Sent %1$s because the chosen source is a torrent.</string>
+    <string name="details_send_other_torrent">Sent %1$s because the PC could not open the chosen torrent.</string>
     <string name="details_send_pair">Pair a PC</string>
     <string name="details_cancel">Cancel</string>
     <string name="details_download">Download</string>

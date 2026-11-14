@@ -12,6 +12,7 @@ import kotlinx.serialization.json.put
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.TimeUnit
 
 @Serializable
 data class OutputDto(val width: Int, val height: Int)
@@ -78,6 +79,9 @@ sealed interface SessionSource {
 
     /** Additive v1 extension (BUG-008 / BUG-022 / BUG-038): the source of an earlier session of this phone, open or closed. */
     data class Session(val sessionId: String) : SessionSource
+
+    /** Additive v1 extension (BUG-009): a torrent the PC streams from its own engine. */
+    data class Torrent(val uri: String, val mediaId: String, val episode: Int) : SessionSource
 }
 
 /**
@@ -104,7 +108,13 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
             if (startSecs != null) put("start_secs", startSecs)
         }.toString().toByteArray(Charsets.UTF_8)
         val request = LinkHttp.request(url("v1/sessions")).post(body.toRequestBody(LinkHttp.JSON_TYPE)).build()
-        return LinkHttp.exchange(client, request, MAX_JSON) { _, b ->
+        // BUG-009: the PC waits up to 75 s for a magnet's metadata before it answers
+        val http = if (source is SessionSource.Torrent) {
+            client.newBuilder().readTimeout(TORRENT_CREATE_SECS, TimeUnit.SECONDS).callTimeout(TORRENT_CREATE_SECS + 5, TimeUnit.SECONDS).build()
+        } else {
+            client
+        }
+        return LinkHttp.exchange(http, request, MAX_JSON) { _, b ->
             LinkHttp.json.decodeFromString(SessionCreatedDto.serializer(), b.decodeToString()).also {
                 require(SESSION_ID.matches(it.sessionId) && it.playbackPath.startsWith("/v1/sessions/") && ".." !in it.playbackPath)
             }
@@ -192,6 +202,12 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
     private fun sourceJson(source: SessionSource): JsonObject = when (source) {
         is SessionSource.Library -> buildJsonObject { put("kind", "library"); put("item_id", source.itemId) }
         is SessionSource.Session -> buildJsonObject { put("kind", "session"); put("session_id", source.sessionId) }
+        is SessionSource.Torrent -> buildJsonObject {
+            put("kind", "torrent")
+            put("uri", source.uri)
+            put("media_id", source.mediaId)
+            put("episode", source.episode)
+        }
         is SessionSource.Url -> buildJsonObject {
             put("kind", "url")
             put("url", source.url)
@@ -202,6 +218,8 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
     }
 
     companion object {
+        /** BUG-009: read / call timeout of a `torrent` session create (the PC waits up to 75 s for metadata). */
+        const val TORRENT_CREATE_SECS = 90L
         private const val MAX_JSON = 256L * 1024
         private const val MAX_LIBRARY = 8L * 1024 * 1024
         private const val MAX_HISTORY = 2L * 1024 * 1024

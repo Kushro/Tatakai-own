@@ -37,7 +37,7 @@
     <string name="details_send_unreachable">La PC no responde ahora mismo, así que la sesión puede fallar.</string>
     <string name="details_send_action">Enviar</string>
     <string name="details_send_failed">No se pudo enviar a la PC: %1$s</string>
-    <string name="details_send_no_web">Para enviar hace falta una fuente web de este episodio.</string>
+    <string name="details_send_no_web">No hay fuentes de este episodio para enviar a la PC.</string>
     <string name="details_send_online">Conectada</string>
     <string name="details_send_offline">No responde</string>
     <string name="details_send_unpaired">Todavía no hay una PC emparejada</string>
@@ -49,7 +49,7 @@
     <string name="details_send_not_paired">Este teléfono ya no está emparejado con la PC. Vuelve a emparejarlo en Tú → Dispositivo enlazado.</string>
     <string name="details_send_timeout">Las fuentes de este episodio tardaron demasiado en cargar. Vuelve a intentarlo.</string>
     <string name="details_send_other">Se envió %1$s porque la fuente elegida no se pudo enviar.</string>
-    <string name="details_send_other_torrent">Se envió %1$s porque la fuente elegida es un torrent.</string>
+    <string name="details_send_other_torrent">Se envió %1$s porque la PC no pudo abrir el torrent elegido.</string>
     <string name="details_send_pair">Emparejar una PC</string>
     <string name="details_cancel">Cancelar</string>
     <string name="details_download">Descargar</string>

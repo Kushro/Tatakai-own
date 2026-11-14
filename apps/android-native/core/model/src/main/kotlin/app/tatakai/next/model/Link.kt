@@ -31,6 +31,12 @@ sealed interface LinkSource {
 
     /** An external stream resolved by an extension on the phone; the PC fetches it with SSRF guards. */
     data class Url(val url: String, val headers: Map<String, String> = emptyMap()) : LinkSource
+
+    /**
+     * BUG-009: a torrent the PC adds to its own engine and transcodes ([uri] = magnet or info-hash; [mediaId] = AniList id and
+     * [episode] pick the file of a pack). Needs a PC with the Link `torrent` source (older PCs answer request_invalid).
+     */
+    data class Torrent(val uri: String, val mediaId: String, val episode: Int) : LinkSource
 }
 
 data class RemoteSession(

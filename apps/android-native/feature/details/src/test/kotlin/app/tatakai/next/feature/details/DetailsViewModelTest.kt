@@ -372,7 +372,14 @@ class DetailsViewModelTest {
             vm.sendToDevice()
             assertEquals(DetailsEvent.SendFailed(AppError.Offline, SendFailReason.OFFLINE), awaitItem())
         }
-        val noWeb = vm(link = link, extensions = FakeExtensions({ listOf(torrent()) }))
+        // BUG-009: a torrent alone is now sendable (the PC streams it); nothing at all is "no source"
+        val torrentOnly = vm(link = link, extensions = FakeExtensions({ listOf(torrent()) }))
+        torrentOnly.events.test {
+            torrentOnly.sendToDevice()
+            assertEquals(DetailsEvent.SendFailed(AppError.Offline, SendFailReason.OFFLINE), awaitItem())
+        }
+        assertIs<LinkSource.Torrent>(link.lastSource)
+        val noWeb = vm(link = link, extensions = FakeExtensions({ emptyList() }, { emptyList() }))
         noWeb.events.test {
             noWeb.sendToDevice()
             assertEquals(DetailsEvent.NoWebSource, awaitItem())
@@ -407,6 +414,27 @@ class DetailsViewModelTest {
             assertEquals(SendFailReason.SOURCE_DENIED, assertIs<DetailsEvent.SendFailed>(awaitItem()).reason)
         }
         assertEquals(false, vm2.state.value.sending)
+    }
+
+    @Test
+    fun `a chosen torrent is sent first for the PC to stream, then the web sources`() = runTest {
+        val sent = mutableListOf<LinkSource>()
+        lateinit var link: FakeLink
+        link = FakeLink(LinkState.Paired(pc, true)) {
+            sent += link.lastSource!!
+            if (sent.size == 1) Result.failure(LinkError.Api(LinkApiError.RequestInvalid).toAppException()) else Result.success(session)
+        }
+        val vm = vm(link = link, extensions = FakeExtensions({ listOf(web, torrent(picked = true)) }))
+        vm.events.test {
+            vm.sendToDevice()
+            val other = assertIs<DetailsEvent.SentOther>(awaitItem())
+            assertTrue(other.chosenWasTorrent)
+            assertIs<DetailsEvent.NavigateToPlayer>(awaitItem())
+        }
+        val first = assertIs<LinkSource.Torrent>(sent[0])
+        assertEquals("magnet:?xt=urn:btih:$hash", first.uri)
+        assertEquals("7", first.mediaId)
+        assertEquals(webUrl, assertIs<LinkSource.Url>(sent[1]).url)
     }
 
     @Test

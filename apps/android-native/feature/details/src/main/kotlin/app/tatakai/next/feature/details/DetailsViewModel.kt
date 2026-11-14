@@ -543,9 +543,7 @@ class DetailsViewModel(
                 }
                 var lastError: Throwable? = null
                 for ((index, sendable) in streams.take(MAX_SEND_ATTEMPTS).withIndex()) {
-                    val result = runCatchingApp {
-                        link.startSession(LinkSource.Url(sendable.stream.url, sendable.stream.headers), profileId = null).getOrThrow()
-                    }
+                    val result = runCatchingApp { link.startSession(sendable.source, profileId = null).getOrThrow() }
                     val session = result.getOrNull()
                     if (session != null) {
                         if (index > 0 || !sendable.chosen) {
@@ -559,7 +557,8 @@ class DetailsViewModel(
                     }
                     val e = result.exceptionOrNull()
                     lastError = e
-                    if (e == null || !sendFailReason(e).sourceSpecific) break
+                    // a torrent the PC cannot open (older PC, no peers, no file) falls back to the web sources
+                    if (e == null || !(sendable.source is LinkSource.Torrent || sendFailReason(e).sourceSpecific)) break
                 }
                 val e = lastError ?: return@launch
                 _events.trySend(DetailsEvent.SendFailed(e.toAppError(), sendFailReason(e)))
@@ -569,8 +568,8 @@ class DetailsViewModel(
         }
     }
 
-    /** One web stream "Enviar a dispositivo" can offer the PC, in order of preference. */
-    private data class Sendable(val stream: StreamSource, val key: String?, val label: String, val chosen: Boolean)
+    /** One source "Enviar a dispositivo" can offer the PC, in order of preference (BUG-009: a torrent the PC streams itself). */
+    private data class Sendable(val source: LinkSource, val key: String?, val label: String, val chosen: Boolean)
 
     private suspend fun webStreamsFor(media: Media, episode: Int): List<Sendable> {
         val s = _state.value
@@ -580,16 +579,31 @@ class DetailsViewModel(
         } else {
             runCatchingApp { extensions.resolveCandidates(media, episode) }.getOrDefault(emptyList())
         }
+        val torrent = sendableTorrent(candidates, s.selectedKey, media.ref.anilistId, episode)
         val preferred = candidates.firstOrNull { it.key == s.selectedKey && it.candidate.kind == SourceKind.WEB }
-        val fromCandidates = (listOfNotNull(preferred) + candidates)
+        val webs = (listOfNotNull(preferred) + candidates)
             .distinctBy { it.key }
             .filter { it.candidate.kind == SourceKind.WEB && it.extEnabled }
             .mapNotNull { r ->
-                runCatching { r.candidate.toStream() }.getOrNull()
-                    ?.let { Sendable(it, r.key, "${r.candidate.extName} · ${r.candidate.label}", chosen = r.key == s.selectedKey) }
+                runCatching { r.candidate.toStream() }.getOrNull()?.let {
+                    Sendable(LinkSource.Url(it.url, it.headers), r.key, "${r.candidate.extName} · ${r.candidate.label}", chosen = r.key == s.selectedKey)
+                }
             }
-        if (fromCandidates.isNotEmpty()) return fromCandidates
-        return extensions.resolveStreams(media, episode).map { Sendable(it, key = null, label = it.provider, chosen = false) }
+            .ifEmpty { extensions.resolveStreams(media, episode).map { Sendable(LinkSource.Url(it.url, it.headers), key = null, label = it.provider, chosen = false) } }
+        return listOfNotNull(torrent) + webs
+    }
+
+    /**
+     * BUG-009: the torrent to send first: the chosen source when it is a torrent, else the top-ranked one when it is a torrent
+     * (the order the player uses). Needs the AniList id (the PC's title id). Null = web sources only.
+     */
+    private fun sendableTorrent(candidates: List<RankedSource>, selectedKey: String?, anilistId: Int?, episode: Int): Sendable? {
+        val id = anilistId ?: return null
+        val pick = candidates.firstOrNull { it.key == selectedKey }
+            ?: candidates.firstOrNull { it.extEnabled }
+        val r = pick?.takeIf { it.candidate.kind == SourceKind.TORRENT && it.extEnabled } ?: return null
+        val uri = r.candidate.torrentUri() ?: return null
+        return Sendable(LinkSource.Torrent(uri, id.toString(), episode), r.key, "${r.candidate.extName} · ${r.candidate.label}", chosen = r.key == selectedKey)
     }
 
     // ---- parity wave A: details extras (15 §5 o.2) ----
