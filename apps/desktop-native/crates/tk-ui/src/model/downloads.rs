@@ -447,8 +447,13 @@ pub fn parse_episode_ranges(text: &str, max: Option<u32>) -> Vec<u32> {
     out
 }
 
-/// `1.38 GB` style (SI units, three significant digits).
+/// `1.38 GB` style (SI units, three significant digits), with the UI language's decimal separator ("1,38 GB" in
+/// Spanish). The one byte formatter of the app (BUG-074): the source picker, the player and the torrent screens use it.
 pub fn format_bytes(bytes: u64) -> String {
+    crate::i18n::decimal(&format_bytes_dot(bytes))
+}
+
+fn format_bytes_dot(bytes: u64) -> String {
     const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
     let mut value = bytes as f64;
     let mut unit = 0;
@@ -621,6 +626,8 @@ mod tests {
     fn formatting() {
         assert_eq!(format_bytes(512), "512 B");
         assert_eq!(format_bytes(1_380_000_000), "1.38 GB");
+        assert_eq!(crate::i18n::decimal_for(crate::i18n::Lang::Es, &format_bytes_dot(1_500_000_000)), "1,50 GB");
+        assert_eq!(format_bytes_dot(512), "512 B");
         assert_eq!(format_eta(3725), "1h 02m");
         assert_eq!(format_eta(45), "45s");
         assert_eq!(format_percent(0.42), "42%");

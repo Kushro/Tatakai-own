@@ -48,10 +48,10 @@ fn reliability_key(r: f32) -> &'static str {
     }
 }
 
-/// `1_450_000_000` -> `1.4 GB`, `350_000_000` -> `350 MB` (decimal units, like torrent indexes).
+/// `1_450_000_000` -> `1.45 GB`, `350_000_000` -> `350 MB` (decimal units, like torrent indexes; the app's one
+/// byte formatter, with the UI language's decimal separator: BUG-074).
 pub fn format_size(bytes: u64) -> String {
-    let gb = bytes as f64 / 1e9;
-    if gb >= 1.0 { format!("{gb:.1} GB") } else { format!("{:.0} MB", bytes as f64 / 1e6) }
+    crate::model::downloads::format_bytes(bytes)
 }
 
 /// `es, en` -> `ES · EN`; empty -> "none".
@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn sizes_use_decimal_units() {
-        assert_eq!(format_size(1_450_000_000), "1.4 GB");
+        assert_eq!(format_size(1_450_000_000), "1.45 GB");
         assert_eq!(format_size(350_000_000), "350 MB");
     }
 

@@ -164,6 +164,20 @@ pub fn lang() -> Lang {
     if CURRENT.load(Ordering::Relaxed) == Lang::Es as u8 { Lang::Es } else { Lang::En }
 }
 
+/// A number formatted with `.` as the decimal point, in the decimal separator of `lang` ("1.5 GB" -> "1,5 GB" in
+/// Spanish; BUG-074).
+pub fn decimal_for(lang: Lang, s: &str) -> String {
+    match lang {
+        Lang::Es => s.replace('.', ","),
+        Lang::En => s.to_owned(),
+    }
+}
+
+/// [`decimal_for`] in the current language.
+pub fn decimal(s: &str) -> String {
+    decimal_for(lang(), s)
+}
+
 /// Look up `key` in the current language; falls back to English, then to the key itself.
 pub fn t(key: &str) -> String {
     if in_runtime() {

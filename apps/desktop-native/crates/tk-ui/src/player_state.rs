@@ -467,25 +467,9 @@ pub fn format_rate(bps: u64) -> String {
     format!("{}/s", format_bytes(bps))
 }
 
-/// `13.8 GB`, `512 KB`, `4.20 MB`, `12 B`.
+/// `13.8 GB`, `512 KB`, `4.20 MB`, `12 B` ([`crate::model::downloads::format_bytes`], localized decimals).
 pub fn format_bytes(n: u64) -> String {
-    const UNITS: [&str; 5] = ["KB", "MB", "GB", "TB", "PB"];
-    if n < 1000 {
-        return format!("{n} B");
-    }
-    let mut v = n as f64 / 1000.0;
-    let mut unit = 0;
-    while v >= 1000.0 && unit + 1 < UNITS.len() {
-        v /= 1000.0;
-        unit += 1;
-    }
-    if v >= 100.0 {
-        format!("{v:.0} {}", UNITS[unit])
-    } else if v >= 10.0 {
-        format!("{v:.1} {}", UNITS[unit])
-    } else {
-        format!("{v:.2} {}", UNITS[unit])
-    }
+    crate::model::downloads::format_bytes(n)
 }
 
 /// A torrent id / v1 info-hash: 40 hex characters.

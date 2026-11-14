@@ -138,24 +138,9 @@ fn parse_media(text: &str) -> Result<Option<String>, ()> {
     if text.chars().all(|c| c.is_ascii_digit()) && text.len() <= 9 { Ok(Some(text.to_owned())) } else { Err(()) }
 }
 
-/// `1.38 GB` style (SI units, three significant digits).
+/// `1.38 GB` style ([`crate::model::downloads::format_bytes`], localized decimals; BUG-074).
 pub(super) fn format_bytes(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= 1000.0 && unit < UNITS.len() - 1 {
-        value /= 1000.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{bytes} B")
-    } else if value >= 100.0 {
-        format!("{value:.0} {}", UNITS[unit])
-    } else if value >= 10.0 {
-        format!("{value:.1} {}", UNITS[unit])
-    } else {
-        format!("{value:.2} {}", UNITS[unit])
-    }
+    crate::model::downloads::format_bytes(bytes)
 }
 
 /// `4.20 MB/s`.
