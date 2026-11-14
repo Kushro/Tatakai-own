@@ -295,7 +295,19 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 if use_fg {
                     // The dedicated lsfg-vk config is a throwaway file: the runtime dir (or temp) is enough.
                     let lsfg_dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("tatakai-next");
-                    let mut fg = tk_player::FrameGen::new(fg_mult, settings.video.lsfg_dll.clone().map(PathBuf::from), lsfg_dir);
+                    // BUG-036: more generated frames than the monitor can show are dropped (x4 on 60 Hz lost ~9 frames a
+                    // second): cap the multiplier to the refresh rate of the app's monitor and say so.
+                    let refresh = platform::embed_target().refresh_hz();
+                    let fitted = tk_player::frame_gen_multiplier_for(fg_mult, refresh);
+                    if fitted < fg_mult {
+                        let hz = refresh.map(|h| format!("{:.0}", h)).unwrap_or_default();
+                        tracing::info!(requested = fg_mult, fitted, hz = %hz, "frame generation multiplier capped to the refresh rate");
+                        notice.set(Some(tf(
+                            "player.frame_gen_capped",
+                            &[("requested", &fg_mult.to_string()), ("fitted", &fitted.to_string()), ("hz", &hz)],
+                        )));
+                    }
+                    let mut fg = tk_player::FrameGen::new(fitted, settings.video.lsfg_dll.clone().map(PathBuf::from), lsfg_dir);
                     // Frame generation pulled an integrated-player user into mpv: carry their preset, deband and image
                     // there. A user who chose the external mpv keeps their own mpv config untouched.
                     if settings.player_mode != PlayerModeVm::External {

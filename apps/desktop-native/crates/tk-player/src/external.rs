@@ -312,16 +312,46 @@ pub struct FrameGen {
     /// The app's own enhancements (`--glsl-shaders=…`, deband, image) when frame generation pulled an integrated-player
     /// user into this mpv; empty when the user chose the external mpv (their config rules).
     pub enhancements: Vec<String>,
+    /// Frame generation pulled an integrated-player user into this mpv: the app owns its configuration (no user
+    /// `mpv.conf`, even with no preset at all, BUG-035). False when the user chose the external mpv.
+    pub app_config: bool,
+}
+
+/// Frame rate frame generation assumes for the source before playback (anime: 23.976 fps).
+pub const FRAME_GEN_SOURCE_FPS: f64 = 23.976;
+
+/// The multiplier the display can actually show (BUG-036): `requested` × the source frame rate must fit the refresh
+/// rate (×4 = 96 fps on a 60 Hz monitor drops ~a third of the frames), never below ×2 (frame generation is on) nor
+/// above `requested`. An unknown refresh rate keeps `requested`.
+pub fn frame_gen_multiplier_for(requested: u8, refresh_hz: Option<f64>) -> u8 {
+    let requested = requested.clamp(2, 4);
+    match refresh_hz.filter(|hz| hz.is_finite() && *hz > 1.0) {
+        Some(hz) => {
+            let fits = (hz / FRAME_GEN_SOURCE_FPS + 0.01).floor();
+            requested.min(fits.clamp(2.0, 4.0) as u8)
+        }
+        None => requested,
+    }
 }
 
 impl FrameGen {
     pub fn new(multiplier: u8, dll: Option<PathBuf>, config_dir: PathBuf) -> Self {
-        Self { multiplier: multiplier.clamp(2, 4), dll, flow_scale: 0.85, performance: false, config_dir, enhancements: Vec::new() }
+        Self {
+            multiplier: multiplier.clamp(2, 4),
+            dll,
+            flow_scale: 0.85,
+            performance: false,
+            config_dir,
+            enhancements: Vec::new(),
+            app_config: false,
+        }
     }
 
-    /// Adds mpv options carrying the app's enhancements ([`enhancement_args`]).
+    /// Integrated-player user: the app owns this mpv's configuration and adds its enhancements ([`enhancement_args`],
+    /// possibly none: preset Off means no shaders, not the user's `mpv.conf`).
     pub fn with_enhancements(mut self, args: Vec<String>) -> Self {
         self.enhancements = args;
+        self.app_config = true;
         self
     }
 
@@ -329,12 +359,14 @@ impl FrameGen {
     pub fn mpv_args(&self) -> Vec<String> {
         let mut v: Vec<String> =
             vec!["--vo=gpu-next".into(), "--gpu-api=vulkan".into(), "--video-sync=audio".into(), "--interpolation=no".into()];
-        if !self.enhancements.is_empty() {
+        if self.app_config || !self.enhancements.is_empty() {
             // The app's preset must win: a user's mpv config can re-set `glsl-shaders` at runtime (auto-profiles,
-            // scripts), so this mpv runs without it (mpv pre-parses `--no-config` wherever it appears). Hardware
-            // decoding keeps the GPU free for the shaders and lsfg-vk.
+            // scripts), so this mpv runs without it (mpv pre-parses `--no-config` wherever it appears), also with the
+            // preset Off (BUG-035). Hardware decoding keeps the GPU free for the shaders and lsfg-vk. Without a config
+            // nothing bounds the window: a 1080p video opened larger than a 1080p screen (BUG-037).
             v.insert(0, "--no-config".into());
             v.push("--hwdec=auto-safe".into());
+            v.push("--autofit-larger=90%x90%".into());
         }
         v.extend(self.enhancements.iter().cloned());
         v
@@ -755,6 +787,32 @@ mod tests {
     #[test]
     fn endpoints_are_unique() {
         assert_ne!(new_endpoint(), new_endpoint());
+    }
+
+    #[test]
+    fn frame_gen_for_an_integrated_user_never_loads_their_config() {
+        // BUG-035: preset Off (no enhancement args at all) still runs without the user's mpv.conf.
+        let off = FrameGen::new(4, None, PathBuf::from("/tmp/x")).with_enhancements(Vec::new()).mpv_args();
+        assert_eq!(off[0], "--no-config");
+        // BUG-037: and the window never opens larger than the screen.
+        assert!(off.contains(&"--autofit-larger=90%x90%".to_owned()));
+        // An external-mpv user keeps their config (and its own window size rules).
+        let own = FrameGen::new(4, None, PathBuf::from("/tmp/x")).mpv_args();
+        assert!(!own.iter().any(|a| a == "--no-config" || a.starts_with("--autofit")));
+    }
+
+    #[test]
+    fn frame_gen_multiplier_fits_the_refresh_rate() {
+        // BUG-036: 24 fps x4 = 96 fps cannot show on 60 Hz.
+        assert_eq!(frame_gen_multiplier_for(4, Some(60.0)), 2);
+        assert_eq!(frame_gen_multiplier_for(3, Some(59.94)), 2);
+        assert_eq!(frame_gen_multiplier_for(4, Some(75.0)), 3);
+        assert_eq!(frame_gen_multiplier_for(4, Some(120.0)), 4);
+        assert_eq!(frame_gen_multiplier_for(4, Some(143.98)), 4);
+        assert_eq!(frame_gen_multiplier_for(2, Some(144.0)), 2, "never above the choice");
+        assert_eq!(frame_gen_multiplier_for(4, Some(30.0)), 2, "never below x2");
+        assert_eq!(frame_gen_multiplier_for(4, None), 4, "unknown refresh keeps the choice");
+        assert_eq!(frame_gen_multiplier_for(4, Some(0.0)), 4);
     }
 
     #[test]

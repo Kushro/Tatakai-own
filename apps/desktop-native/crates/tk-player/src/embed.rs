@@ -64,6 +64,22 @@ impl EmbedTarget {
     }
 }
 
+impl EmbedTarget {
+    /// Refresh rate (Hz) of the monitor the app window is on, when the platform reports it (frame generation caps its
+    /// multiplier with it, BUG-036). Linux: GDK's monitor of the toplevel window; elsewhere `None` for now.
+    pub fn refresh_hz(&self) -> Option<f64> {
+        #[cfg(target_os = "linux")]
+        if let Inner::Gtk(b) = &self.inner {
+            use gtk::prelude::*;
+            let window = b.toplevel()?.window()?;
+            let monitor = window.display().monitor_at_window(&window)?;
+            let mhz = monitor.refresh_rate();
+            return (mhz > 0).then(|| f64::from(mhz) / 1000.0);
+        }
+        None
+    }
+}
+
 impl fmt::Debug for EmbedTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = match &self.inner {
