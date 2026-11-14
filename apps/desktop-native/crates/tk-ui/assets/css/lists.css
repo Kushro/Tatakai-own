@@ -10,7 +10,10 @@
 .tk-listbtn__hint { margin: 0; padding: var(--tk-space-4) var(--tk-space-12); max-width: 280px; font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); }
 .tk-listbtn__pending { display: inline-flex; color: var(--md-sys-color-tertiary); }
 .tk-fav { display: inline-flex; }
-.tk-fav[data-favorite="true"] .tk-iconbtn { color: var(--md-sys-color-error); }
+/* BUG-076: the active heart is the filled glyph in `error` on no container (it was pink on the primary container,
+   barely visible); the shape alone says "on". */
+.tk-fav[data-favorite="true"] .tk-iconbtn, .tk-fav[data-favorite="true"] .tk-iconbtn[data-toggled="true"] { color: var(--md-sys-color-error); background: transparent; }
+.tk-fav[data-favorite="true"] .tk-iconbtn[data-toggled="true"]:hover:not(:disabled) { background: var(--tk-hover); }
 .tk-charfav { display: flex; flex-direction: column; align-items: flex-start; gap: var(--tk-space-4); }
 .tk-charfav__hint { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-4); font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); }
 

@@ -159,7 +159,8 @@ pub fn ListButton(
         Some(e) => t(&status_key(e.status)),
         None => t("lists.add"),
     };
-    let icon = if current.is_some() { "check" } else { "bookmark" }.to_string();
+    // BUG-064: "in a list" is a filled bookmark; the check means "watched" / "picked source" on the same screen.
+    let icon = if current.is_some() { "bookmark-filled" } else { "bookmark" }.to_string();
 
     // A failed load: the button retries instead of opening the menu.
     if let Some(err) = failed {

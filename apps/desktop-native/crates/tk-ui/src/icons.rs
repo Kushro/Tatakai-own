@@ -68,6 +68,7 @@ fn glyph(name: &str) -> Option<(&'static str, bool)> {
         "clock" => ("M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2", false),
         "calendar" => ("M4 6h16v14H4zM4 10h16M8 3v4M16 3v4", false),
         "bookmark" => ("M6 3h12v18l-6-4-6 4z", false),
+        "bookmark-filled" => ("M6 3h12v18l-6-4-6 4z", true),
         "grid" => ("M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z", false),
         // Manga (open book) and Novels (closed book): their own glyphs, not `grid` / `bookmark` (UX review #15).
         "book_open" => ("M3 5h6a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H3zM21 5h-6a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h7z", false),
@@ -138,7 +139,7 @@ mod tests {
             assert!(glyph(n).is_some(), "{n}");
         }
         assert!(glyph("magnet").is_some());
-        for n in ["minus", "heart", "heart-filled"] {
+        for n in ["minus", "heart", "heart-filled", "bookmark-filled"] {
             assert!(glyph(n).is_some(), "{n}");
         }
         assert!(glyph("nope").is_none());
