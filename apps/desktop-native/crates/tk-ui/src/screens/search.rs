@@ -14,7 +14,7 @@ use dioxus::prelude::*;
 use crate::app::{Route, Services, Ui};
 use crate::backend::{BackendRef, MediaVm, SearchPageVm, SearchQueryVm, SearchSortVm, UiResult};
 use crate::components::{
-    Button, ButtonSize, ButtonVariant, Chip, ChipKind, EmptyState, ErrorState, IconButton, IconButtonSize, Kbd,
+    Button, ButtonSize, ButtonVariant, Chip, ChipKind, DisclosureSummary, EmptyState, ErrorState, IconButton, IconButtonSize, Kbd,
     LoadingIndicator, MediaCard, MediaCover, Pill, Sheet, SkeletonGrid, Switch, TextField, Tone, use_uncontrolled_input,
 };
 use crate::i18n::{lang, lookup, t, tf, tn};
@@ -1369,7 +1369,7 @@ fn FilterSheet(value: SearchFilters, on_apply: EventHandler<SearchFilters>, on_c
                                     div { class: "tk-filters__tags",
                                         for (category , list) in groups {
                                             details { key: "{category}", class: "tk-filters__tagcat", open,
-                                                summary { "{category} · {list.len()}" }
+                                                DisclosureSummary { label: format!("{category} · {}", list.len()) }
                                                 div { class: "tk-chips",
                                                     for tag in list.into_iter().take(limit) {
                                                         {

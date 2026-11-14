@@ -24,7 +24,7 @@ const DEFAULT_UA: &str =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
 fn mpv_err(e: impl std::fmt::Display) -> PlayerError {
-    PlayerError::Mpv(e.to_string())
+    PlayerError::Mpv(crate::types::readable_mpv_error(&e.to_string()))
 }
 
 /// libmpv refuses to start (`mpv_create` returns NULL) unless LC_NUMERIC is "C". GTK, which WebKitGTK pulls in
@@ -550,7 +550,7 @@ fn run_events(
                 }
             }
             Ok(_) => {}
-            Err(e) => send(PlayerEvent::Error(e.to_string())),
+            Err(e) => send(PlayerEvent::Error(crate::types::readable_mpv_error(&e.to_string()))),
         }
     }
 }

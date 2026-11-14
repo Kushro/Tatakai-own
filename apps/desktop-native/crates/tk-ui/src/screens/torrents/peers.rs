@@ -9,7 +9,7 @@ use super::layout::common::{
 };
 use crate::app::Ui;
 use crate::backend::TorrentPeerVm;
-use crate::components::{EmptyState, ErrorState, SkeletonLines};
+use crate::components::{DisclosureSummary, EmptyState, ErrorState, SkeletonLines};
 use crate::i18n::{t, tf};
 use crate::model::ErrorKind;
 
@@ -181,7 +181,7 @@ pub fn TorrentPeersPage() -> Element {
         section { class: "tk-tpage tk-tpeers",
             {content}
             details { class: "tk-tpeers__legend",
-                summary { {t("torrent.peers.legend")} }
+                DisclosureSummary { label: t("torrent.peers.legend") }
                 dl {
                     for c in FLAG_LETTERS {
                         div { key: "{c}", class: "tk-tpeers__legend-row",

@@ -61,7 +61,7 @@ pub fn ErrorState(
                 }
                 if !error.detail.is_empty() {
                     details { class: "tk-state__details",
-                        summary { "{summary}" }
+                        DisclosureSummary { label: summary }
                         code { "{error.detail}" }
                     }
                 }
@@ -112,6 +112,18 @@ pub fn SkeletonLines(#[props(default = vec![80, 60, 40])] widths: Vec<u8>) -> El
             for (i , w) in widths.into_iter().enumerate() {
                 div { key: "{i}", class: "tk-skel tk-skel--line", style: "width:{w}%" }
             }
+        }
+    }
+}
+
+/// The `<summary>` of a `<details>`: the label after a chevron icon that turns when open. The native disclosure
+/// marker is hidden (`.tk-summary`): WebKitGTK draws it (U+25B6) as a color emoji (BUG-103).
+#[component]
+pub fn DisclosureSummary(label: String) -> Element {
+    rsx! {
+        summary { class: "tk-summary",
+            span { class: "tk-summary__chevron", Icon { name: "chevron-right".to_string(), size: 16 } }
+            "{label}"
         }
     }
 }

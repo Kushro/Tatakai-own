@@ -101,6 +101,59 @@ pub struct TrackInfo {
     pub selected: bool,
 }
 
+/// libmpv2 prints its errors as `Debug` (`Raw(-13)`, `Loadfile { error: Raw(-13) }`): each raw code becomes mpv's
+/// own description, keeping the number (`loading failed: the stream could not be opened (mpv -13)`, BUG-103). Pure.
+pub fn readable_mpv_error(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find("Raw(") {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at + 4..];
+        match tail.find(')').and_then(|end| tail[..end].trim().parse::<i32>().ok().map(|c| (end, c))) {
+            Some((end, code)) => {
+                match mpv_code_text(code) {
+                    Some(t) => out.push_str(&format!("{t} (mpv {code})")),
+                    None => out.push_str(&format!("mpv error {code}")),
+                }
+                rest = &tail[end + 1..];
+            }
+            None => {
+                out.push_str("Raw(");
+                rest = tail;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `mpv_error_string` of libmpv's `client.h` codes.
+fn mpv_code_text(code: i32) -> Option<&'static str> {
+    Some(match code {
+        -1 => "event queue full",
+        -2 => "memory allocation failed",
+        -3 => "core not initialized",
+        -4 => "invalid parameter",
+        -5 => "option not found",
+        -6 => "unsupported format for accessing option",
+        -7 => "error setting option",
+        -8 => "property not found",
+        -9 => "unsupported format for accessing property",
+        -10 => "property unavailable",
+        -11 => "error accessing property",
+        -12 => "error running command",
+        -13 => "loading failed: the stream could not be opened (network error or dead link)",
+        -14 => "audio output initialization failed",
+        -15 => "video output initialization failed",
+        -16 => "no audio or video data played",
+        -17 => "unrecognized file format",
+        -18 => "not supported",
+        -19 => "operation not implemented",
+        -20 => "unspecified error",
+        _ => return None,
+    })
+}
+
 /// Events emitted by the player (position in seconds).
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlayerEvent {
@@ -128,5 +181,18 @@ pub struct Rect {
 impl fmt::Display for Rect {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}x{}+{}+{}", self.w, self.h, self.x, self.y)
+    }
+}
+
+#[cfg(test)]
+mod readable_mpv_error_tests {
+    use super::readable_mpv_error;
+
+    #[test]
+    fn raw_codes_become_text() {
+        assert_eq!(readable_mpv_error("Raw(-13)"), "loading failed: the stream could not be opened (network error or dead link) (mpv -13)");
+        assert_eq!(readable_mpv_error("Loadfile { error: Raw(-17) }"), "Loadfile { error: unrecognized file format (mpv -17) }");
+        assert_eq!(readable_mpv_error("Raw(-99)"), "mpv error -99");
+        assert_eq!(readable_mpv_error("Raw(x) and InvalidUtf8"), "Raw(x) and InvalidUtf8");
     }
 }

@@ -445,6 +445,12 @@ button.tk-chip:hover:not(:disabled) { background: var(--tk-hover); }
 .tk-state__cause { color: var(--md-sys-color-on-surface); }
 .tk-state__details { font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); }
 .tk-state__details summary { cursor: pointer; font-weight: var(--md-sys-typescale-label-medium-weight-emphasized); }
+/* BUG-103: `DisclosureSummary`: no native disclosure marker (a color emoji in WebKitGTK); a chevron icon that turns. */
+summary.tk-summary { list-style: none; display: inline-flex; align-items: center; gap: var(--tk-space-4); cursor: pointer; }
+summary.tk-summary::-webkit-details-marker { display: none; }
+summary.tk-summary::marker { content: ""; }
+.tk-summary__chevron { display: inline-flex; transition: transform 150ms ease; }
+details[open] > summary.tk-summary > .tk-summary__chevron { transform: rotate(90deg); }
 .tk-state__details code {
   display: block; margin-top: 6px; padding: var(--tk-space-8) var(--tk-space-12); border-radius: var(--md-sys-shape-corner-small);
   background: var(--md-sys-color-surface-container-lowest); font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-body-small-size);

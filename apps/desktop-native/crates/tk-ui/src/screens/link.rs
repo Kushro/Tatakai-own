@@ -10,7 +10,7 @@ use crate::app::{Route, Services};
 use crate::backend::{Anime4kNoteVm, DeviceVm, LinkCapsVm, LinkStatusVm};
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
-    Banner, Button, ButtonSize, ButtonVariant, ConfirmDialog, EmptyState, ErrorState, IconButton, IconButtonSize, InfoChip,
+    Banner, Button, ButtonSize, ButtonVariant, ConfirmDialog, DisclosureSummary, EmptyState, ErrorState, IconButton, IconButtonSize, InfoChip,
     Pill, SkeletonLines, TextField, Tone, WavyProgress, use_snackbar,
 };
 use crate::i18n::{t, tf};
@@ -718,7 +718,7 @@ fn StatusCard(
                         span { "{cause}" }
                         if !err.detail.is_empty() {
                             details { class: "tk-link-status__details",
-                                summary { {t("state.error.detail")} }
+                                DisclosureSummary { label: t("state.error.detail") }
                                 code { "{err.detail}" }
                             }
                         }
