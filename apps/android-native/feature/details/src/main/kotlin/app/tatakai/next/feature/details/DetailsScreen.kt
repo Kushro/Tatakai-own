@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.onSizeChanged
@@ -32,7 +34,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.asPaddingValues
@@ -56,6 +57,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -334,23 +336,38 @@ internal fun DetailsContent(
                 DetailsBody(media, state, actions, listState, bottomPadding = toolbarHeight + 32.dp + navBottom)
             }
         }
-        // BUG-062 (UX-03): edge-to-edge without a backdrop let the content and the back arrow collide with the clock; once the list
-        // scrolls, the status bar gets the surface behind it.
+        // BUG-062 (UX-03) / BUG-108: once the list scrolls, an opaque top bar (status bar + back + title) replaces the floating back
+        // button: the 92 % veil let the tabs show under the clock and the round button sat on top of "Buscar episodio".
         AnimatedVisibility(scrolled, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .windowInsetsTopHeight(WindowInsets.statusBars)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
-            )
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier.statusBarsPadding().height(56.dp).padding(start = 4.dp, end = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = actions.onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back))
+                    }
+                    (state.media as? LoadState.Ok)?.value?.let { m ->
+                        Text(
+                            m.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
+                }
+            }
         }
-        // The back arrow has its own container, readable on a light banner and over moving content.
-        FilledTonalIconButton(
-            onClick = actions.onBack,
-            modifier = Modifier.statusBarsPadding().padding(4.dp),
-            colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.7f)),
-        ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back))
+        // The back arrow has its own container, readable on a light banner (only over the header, before scrolling).
+        AnimatedVisibility(!scrolled, enter = fadeIn(), exit = fadeOut()) {
+            FilledTonalIconButton(
+                onClick = actions.onBack,
+                modifier = Modifier.statusBarsPadding().padding(4.dp),
+                colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.7f)),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back))
+            }
         }
         val loaded = (state.media as? LoadState.Ok)?.value
         if (loaded != null && !state.adultGate) {
