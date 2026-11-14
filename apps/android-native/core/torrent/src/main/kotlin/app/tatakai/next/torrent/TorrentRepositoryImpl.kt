@@ -296,9 +296,13 @@ internal class TorrentRepositoryImpl(
     override suspend fun playbackEnded(torrentId: TorrentId, completed: Boolean) {
         val rt = runtimes[torrentId] ?: return
         rt.endJob?.cancel()
+        // BUG-021: the grace only keeps the torrent around (the next episode of a pack reuses it); it no longer counts as playing, so
+        // the run policy pauses it at once unless it is a kept / background download (it went on at full speed for 20 s and then
+        // deleted what it had just downloaded). Playing it again within the grace sets `playing` back and resumes it.
+        rt.playing = false
+        tickSafely()
         rt.endJob = scope.launch {
             delay(BATCH_GRACE_MS)
-            rt.playing = false
             val stored = labels[torrentId] ?: return@launch
             val handle = if (session.isRunning) session.find(torrentId) else null
             try {

@@ -74,6 +74,14 @@ class PoliciesTest {
     }
 
     @Test
+    fun `a watch-and-delete torrent stops downloading once the player closed`() {
+        // BUG-021: during the 20 s grace it is no longer playing; not kept and not a background download = paused.
+        val wifi = DeviceConditions(connected = true, metered = false)
+        assertFalse(shouldRun(facts(playing = false, persist = false, background = false), bgOn, wifi))
+        assertTrue(shouldRun(facts(playing = false, persist = true), bgOn, wifi), "a kept torrent goes on in the background")
+    }
+
+    @Test
     fun `background downloads follow wifiOnly and battery`() {
         val wifi = DeviceConditions(connected = true, metered = false)
         val cell = DeviceConditions(connected = true, metered = true)
