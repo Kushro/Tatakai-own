@@ -554,7 +554,7 @@ private fun AddonCard(addon: StremioAddon, busy: Boolean, hub: ExtensionsHubView
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                val label = stringResource(R.string.extensions_enabled)
+                val label = stringResource(R.string.extensions_use_named, addon.name) // BUG-110
                 Switch(checked = addon.enabled, onCheckedChange = { hub.setAddonEnabled(addon.id, it) }, modifier = Modifier.semantics { contentDescription = label })
             }
             if (addon.description.isNotBlank()) {

@@ -21,6 +21,8 @@
     <string name="extensions_remove_message">La extensión y sus datos se borran de este dispositivo.</string>
     <string name="extensions_removed">%1$s quitada</string>
     <string name="extensions_enabled">Activada</string>
+    <!-- BUG-110: switch label for TalkBack; the Switch itself announces on/off -->
+    <string name="extensions_use_named">Usar %1$s</string>
     <string name="extensions_now_enabled">%1$s activada</string>
     <string name="extensions_now_disabled">%1$s desactivada</string>
     <string name="extensions_permissions">Permisos</string>

@@ -444,7 +444,8 @@ private fun ExtensionCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                val enabledLabel = stringResource(R.string.extensions_enabled)
+                // BUG-110: a neutral label with the name; the switch's own state says "activado" / "desactivado".
+                val enabledLabel = stringResource(R.string.extensions_use_named, ext.name)
                 Switch(
                     checked = ext.enabled,
                     onCheckedChange = onToggle,
