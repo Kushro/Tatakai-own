@@ -126,3 +126,15 @@ fun peerFlagLetters(
  * instead of downloading ~15 s more at full speed before the grace deletes it. A new playback clears [playbackEnded].
  */
 fun countsAsStreaming(openStreams: Int, playbackEnded: Boolean): Boolean = openStreams > 0 && !playbackEnded
+
+/**
+ * BUG-021 (r3): when the grace of a closed player ends ([playbackEnded] still true: nothing played it again), the loopback streams it
+ * left open are closed before [afterWatchAction] runs. A read blocked on a piece of the now paused torrent never finished, so
+ * `openStreams > 0` kept the "Borrar después de ver" torrent paused for good instead of deleting it. Returns how many were closed.
+ */
+fun <T> closeLeftoverStreams(playbackEnded: Boolean, streams: Collection<T>, close: (T) -> Unit): Int {
+    if (!playbackEnded) return 0
+    val list = streams.toList()
+    list.forEach { runCatching { close(it) } }
+    return list.size
+}

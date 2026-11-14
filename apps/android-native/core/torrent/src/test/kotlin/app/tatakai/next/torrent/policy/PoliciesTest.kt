@@ -164,4 +164,29 @@ class PoliciesTest {
         assertFalse(countsAsStreaming(openStreams = 2, playbackEnded = true))
         assertFalse(countsAsStreaming(openStreams = 0, playbackEnded = false))
     }
+
+    @Test
+    fun theClosedPlayersLeftoverReadsAreClosedAtTheEndOfTheGraceSoTheTorrentIsDeleted() {
+        // BUG-021 (r3): ME6 Erai-raws stayed "En pausa · Se borrará después de verlo" for minutes: a loopback read blocked on a piece
+        // of the paused torrent kept openStreams at 1 and afterWatchAction answered null.
+        var open = 2
+        val streams = listOf("read-a", "read-b")
+        assertNull(afterWatchAction(persist = false, backgroundDownload = false, backgroundEnabled = false, complete = false, seed = false, openStreams = open))
+        assertEquals(2, closeLeftoverStreams(playbackEnded = true, streams = streams) { open-- })
+        assertEquals(0, open)
+        assertEquals(
+            AfterWatchAction.REMOVE_WITH_FILES,
+            afterWatchAction(persist = false, backgroundDownload = false, backgroundEnabled = false, complete = false, seed = false, openStreams = open),
+        )
+    }
+
+    @Test
+    fun aTorrentPlayedAgainWithinTheGraceKeepsItsStreams() {
+        var closed = 0
+        assertEquals(0, closeLeftoverStreams(playbackEnded = false, streams = listOf(1, 2)) { closed++ })
+        assertEquals(0, closed)
+        // a stream whose close fails does not stop the others
+        assertEquals(2, closeLeftoverStreams(playbackEnded = true, streams = listOf(1, 2)) { if (it == 1) error("gone") else closed++ })
+        assertEquals(1, closed)
+    }
 }

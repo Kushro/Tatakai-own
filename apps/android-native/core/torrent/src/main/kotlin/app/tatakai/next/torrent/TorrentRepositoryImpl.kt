@@ -57,6 +57,7 @@ import app.tatakai.next.torrent.policy.preloadTarget
 import app.tatakai.next.torrent.policy.DeviceConditions
 import app.tatakai.next.torrent.policy.RunFacts
 import app.tatakai.next.torrent.policy.afterWatchAction
+import app.tatakai.next.torrent.policy.closeLeftoverStreams
 import app.tatakai.next.torrent.policy.countsAsStreaming
 import app.tatakai.next.torrent.policy.backgroundAllowed
 import app.tatakai.next.torrent.policy.deadlineWindow
@@ -309,6 +310,14 @@ internal class TorrentRepositoryImpl(
         rt.endJob = scope.launch {
             delay(BATCH_GRACE_MS)
             val stored = labels[torrentId] ?: return@launch
+            // BUG-021 (r3): the closed player's reads (blocked on a piece of the paused torrent) would keep it "open" for good.
+            val closed = closeLeftoverStreams(rt.ended, rt.handles) { it.close() }
+            if (closed > 0) android.util.Log.i("torrent", "closed $closed leftover stream(s) of $torrentId after the grace")
+            var waited = 0L
+            while (rt.ended && rt.openStreams() > 0 && waited < LEFTOVER_WAIT_MS) {
+                delay(LEFTOVER_POLL_MS)
+                waited += LEFTOVER_POLL_MS
+            }
             val handle = if (session.isRunning) session.find(torrentId) else null
             try {
                 handle?.unsetFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
@@ -776,7 +785,7 @@ internal class TorrentRepositoryImpl(
         rt.streams.getOrPut(fileIndex) { AtomicInteger() }.incrementAndGet()
         _events.tryEmit(TorrentEvent.StreamOpened(infoHash, fileIndex))
         tickSafely()
-        return TorrentStream(infoHash, handle, file, rt)
+        return TorrentStream(infoHash, handle, file, rt).also { rt.handles += it }
     }
 
     private inner class TorrentStream(
@@ -850,6 +859,7 @@ internal class TorrentRepositoryImpl(
         override fun close() {
             if (closed) return
             closed = true
+            rt.handles -= this
             runCatching { raf?.close() }
             synchronized(pieceSignal) { pieceSignal.notifyAll() }
             rt.streams[file.index]?.decrementAndGet()
@@ -1471,6 +1481,9 @@ internal class TorrentRepositoryImpl(
         val preloaded: MutableSet<Int> = ConcurrentHashMap.newKeySet()
 
         fun openStreams(): Int = streams.values.sumOf { it.get().coerceAtLeast(0) }
+
+        /** BUG-021 (r3): the open loopback streams, closed when the grace of a closed player ends. */
+        val handles: MutableSet<StreamHandle> = ConcurrentHashMap.newKeySet()
     }
 
     /** Engine-side facts merged into [library]. */
@@ -1481,6 +1494,9 @@ internal class TorrentRepositoryImpl(
         private const val PROVIDER_NAME = "Torrent"
         private const val TICK_MS = 1_000L
         private const val BATCH_GRACE_MS = 20_000L
+        /** BUG-021 (r3): after closing the leftover streams, how long the grace waits for their counts to drop (a read in flight). */
+        private const val LEFTOVER_WAIT_MS = 10_000L
+        private const val LEFTOVER_POLL_MS = 1_000L
         private const val IDLE_SHUTDOWN_MS = 30_000L
         private const val STARTUP_DELAY_MS = 1_500L
         private const val METADATA_POLL_MS = 250L
