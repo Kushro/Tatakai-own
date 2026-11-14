@@ -524,20 +524,21 @@ private fun ContinueCard(entry: HistoryEntry, onClick: () -> Unit) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(entry.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 val left = entry.durationSec?.let { d -> ((d - entry.progressSec).coerceAtLeast(0) + 59) / 60 }
-                val sub = buildString {
-                    append(stringResource(R.string.home_continue_episode, entry.episode))
-                    if (left != null && !entry.completed) {
-                        append(" · ")
-                        append(stringResource(R.string.home_continue_left, left))
-                    }
-                }
-                Text(
-                    sub,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                // BUG-109: "Episodio N" and "Quedan M min" on their own lines: together they do not fit the ~150 dp text column of the
+                // card once the minutes have two digits ("Quedan 12 …").
+                val lines = listOfNotNull(
+                    stringResource(R.string.home_continue_episode, entry.episode),
+                    if (left != null && !entry.completed) stringResource(R.string.home_continue_left, left) else null,
                 )
+                lines.forEach { line ->
+                    Text(
+                        line,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
                 entry.progressFraction()?.takeIf { !entry.completed }?.let { p ->
                     LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
                 }
