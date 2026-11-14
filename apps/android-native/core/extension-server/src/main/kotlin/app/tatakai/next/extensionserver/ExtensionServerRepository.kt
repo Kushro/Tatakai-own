@@ -50,6 +50,10 @@ interface ExtensionServerRepository {
      * falling back to the extensions named by its `/sources` when the server keeps the list for its owner. Throws [ExtensionServerException].
      */
     suspend fun extensions(id: String): List<ServerExtension> = emptyList()
+
+    /** BUG-055: the `.kai` of [extensionId] installed on server [id] (unverified; see [verifyServerPackage]). Throws [ExtensionServerException]. */
+    suspend fun extensionPackage(id: String, extensionId: String): ServerPackage =
+        throw ExtensionServerException(ExtensionServerException.INCOMPATIBLE)
 }
 
 /**
@@ -91,7 +95,8 @@ class ExtensionServerRepositoryImpl(
     override suspend fun connectWithLink(link: PairingLink): ExtensionServerConnection = withContext(io) {
         HostGuard.require(link.server)
         val health = checkedHealth(link.server)
-        val token = client.pair(link.server, link.code, deviceLabel)
+        val previous = previousToken(health.serverId)
+        val token = client.pair(link.server, link.code, deviceLabel, previous)
         save(link.server, health, token)
     }
 
@@ -157,6 +162,19 @@ class ExtensionServerRepositoryImpl(
         }
     }
 
+    override suspend fun extensionPackage(id: String, extensionId: String): ServerPackage = withContext(io) {
+        ready.await()
+        val conn = _servers.value.firstOrNull { it.id == id } ?: throw ExtensionServerException(ExtensionServerException.INVALID_URL)
+        try {
+            client.extensionPackage(conn, extensionId).also { noteSuccess(conn) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            noteFailure(conn, e)
+            throw e
+        }
+    }
+
     // ---- used by ServerCandidateSource ------------------------------------------------------------------------------------------
 
     fun setStatus(id: String, status: ServerStatus) {
@@ -203,6 +221,13 @@ class ExtensionServerRepositoryImpl(
         if (health.protocolVersion != PROTOCOL_VERSION) throw ExtensionServerException(ExtensionServerException.INCOMPATIBLE)
         if (health.setupRequired || health.serverId.isNullOrBlank()) throw ExtensionServerException(ExtensionServerException.SETUP_REQUIRED)
         return health
+    }
+
+    /** BUG-057: this phone's token of the server [serverId] (same PC, any address), so re-linking replaces its entry there. */
+    private suspend fun previousToken(serverId: String?): String? {
+        if (serverId.isNullOrBlank()) return null
+        ready.await()
+        return _servers.value.firstOrNull { it.serverId == serverId && it.token.isNotBlank() }?.token
     }
 
     private suspend fun save(origin: String, health: ServerHealth, token: ServerToken): ExtensionServerConnection {

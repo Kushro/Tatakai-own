@@ -246,6 +246,32 @@ impl ServerState {
         self.issue("viewer", label).map(Some)
     }
 
+    /// BUG-057: [`Self::pair`] from a phone that already holds a token of this server (`previous`, its old bearer token):
+    /// once the code is accepted, the device of that token is replaced, so re-linking the same phone leaves one entry.
+    /// Only a viewer token is replaced (an owner token is never revoked this way); an unknown token changes nothing.
+    pub fn pair_replacing(&self, code: &str, label: &str, previous: Option<&str>) -> Result<Option<(DeviceRecord, String)>, StateError> {
+        let old = previous.and_then(|t| self.device_of_token(t)).filter(|d| d.role == "viewer");
+        let paired = self.pair(code, label)?;
+        if paired.is_some()
+            && let Some(old) = old
+            && let Err(e) = self.revoke(&old.id)
+        {
+            tracing::debug!(error = %e, "could not drop the replaced device");
+        }
+        Ok(paired)
+    }
+
+    /// The device of a bearer token without touching its `lastSeenAt`.
+    fn device_of_token(&self, token: &str) -> Option<DeviceRecord> {
+        if token.is_empty() || token.len() > 256 {
+            return None;
+        }
+        let hash = auth::token_hash(token);
+        let d = self.data.lock().ok()?;
+        let id = d.token_hashes.iter().find(|(_, h)| auth::secrets_equal(h, &hash)).map(|(id, _)| id.clone())?;
+        d.devices.iter().find(|x| x.id == id).cloned()
+    }
+
     /// Create a device token for `role` (`viewer` | `admin`); the raw token is returned once, only its hash is kept.
     pub fn issue(&self, role: &str, label: &str) -> Result<(DeviceRecord, String), StateError> {
         let label = sanitize_label(label);
@@ -564,6 +590,30 @@ mod tests {
         assert_eq!(s.live_pairings(), 1);
         assert!(s.pair(&format!("  {}  ", p.code), "x").unwrap().is_some());
         assert_eq!(s.live_pairings(), 0);
+    }
+
+    #[test]
+    fn re_pairing_with_the_old_token_replaces_the_device() {
+        let (_dir, s) = fresh();
+        let p = s.create_pairing("http://h:1");
+        let (first, old_token) = s.pair(&p.code, "Tatakai Next (moto g51 5G)").unwrap().unwrap();
+        // BUG-057: the same phone links again and presents its old token
+        let p = s.create_pairing("http://h:1");
+        let (second, new_token) = s.pair_replacing(&p.code, "Tatakai Next (moto g51 5G)", Some(&old_token)).unwrap().unwrap();
+        assert_ne!(first.id, second.id);
+        assert!(s.authenticate(&old_token).is_none(), "the old token is revoked");
+        assert!(s.authenticate(&new_token).is_some());
+        assert_eq!(s.devices().iter().filter(|d| d.label == "Tatakai Next (moto g51 5G)").count(), 1);
+        // a wrong code replaces nothing
+        assert!(s.pair_replacing("000000x", "x", Some(&new_token)).unwrap().is_none());
+        assert!(s.authenticate(&new_token).is_some());
+        // an unknown token: plain pairing; an owner token is never revoked this way
+        let p = s.create_pairing("http://h:1");
+        assert!(s.pair_replacing(&p.code, "Other", Some("not-a-token")).unwrap().is_some());
+        let (_, admin) = s.issue("admin", "Owner").unwrap();
+        let p = s.create_pairing("http://h:1");
+        assert!(s.pair_replacing(&p.code, "Phone", Some(&admin)).unwrap().is_some());
+        assert!(s.authenticate(&admin).is_some());
     }
 
     #[test]

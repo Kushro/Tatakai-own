@@ -335,7 +335,7 @@ async fn login(State(st): State<AppState>, headers: HeaderMap, body: Bytes) -> R
     Ok(token_answer(&dev, &token))
 }
 
-async fn pair(State(st): State<AppState>, body: Bytes) -> Result<Response, Failure> {
+async fn pair(State(st): State<AppState>, headers: HeaderMap, body: Bytes) -> Result<Response, Failure> {
     let input = parse_body(&body)?;
     if st.state.throttled("pair") {
         return Err(Failure::new(StatusCode::TOO_MANY_REQUESTS, "login_throttled"));
@@ -346,7 +346,8 @@ async fn pair(State(st): State<AppState>, body: Bytes) -> Result<Response, Failu
         _ => String::new(),
     };
     let label = input["label"].as_str().unwrap_or("Device");
-    match st.state.pair(&code, label).map_err(state_err)? {
+    // BUG-057: a phone that re-links sends its old token (Authorization: Bearer); its old entry is replaced
+    match st.state.pair_replacing(&code, label, bearer(&headers).as_deref()).map_err(state_err)? {
         Some((dev, token)) => {
             st.log("pairing", Some("/auth/pair"), Some(dev.label.clone()), None, None, None);
             Ok(token_answer(&dev, &token))

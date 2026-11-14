@@ -51,6 +51,13 @@ class ExtensionServerClientTest {
     }
 
     @Test
+    fun rePairingSendsTheOldTokenSoThePcReplacesTheEntry() = FakeServer { ok("""{"token":"t-3","role":"viewer","deviceId":"d-3"}""") }.use { s ->
+        // BUG-057
+        runBlocking { client.pair(s.origin, "abc-123", "Tatakai Next (Pixel)", previousToken = "t-old") }
+        assertEquals("Bearer t-old", s.take().headers["Authorization"])
+    }
+
+    @Test
     fun loginIsAViewerLogin() = FakeServer { ok("""{"token":"t-2","role":"viewer","deviceId":"d-2"}""") }.use { s ->
         runBlocking { client.login(s.origin, "pw", "phone") }
         val body = Json.parseToJsonElement(s.take().body!!.utf8()).jsonObject

@@ -44,9 +44,12 @@ class ExtensionServerClient(
 ) {
     suspend fun health(url: String): ServerHealth = call(url, "/health", token = null, body = null, ServerHealth.serializer())
 
-    /** `POST /auth/pair` with the one-time code of a [PairingLink]. */
-    suspend fun pair(url: String, code: String, label: String): ServerToken =
-        call(url, "/auth/pair", null, buildJsonObject { put("code", code); put("label", label) }, ServerToken.serializer())
+    /**
+     * `POST /auth/pair` with the one-time code of a [PairingLink]. [previousToken] = this phone's token of the same server, when it
+     * is linked already (BUG-057): the PC replaces that entry instead of listing the phone twice.
+     */
+    suspend fun pair(url: String, code: String, label: String, previousToken: String? = null): ServerToken =
+        call(url, "/auth/pair", previousToken, buildJsonObject { put("code", code); put("label", label) }, ServerToken.serializer())
 
     /** `POST /auth/login` as viewer. */
     suspend fun login(url: String, password: String, label: String): ServerToken =
@@ -66,6 +69,22 @@ class ExtensionServerClient(
     /** parity wave B (checklist server.api.extensions): the PC's extensions. A server that only lets the owner list them answers 403. */
     suspend fun extensions(conn: ExtensionServerConnection): List<ServerExtension> =
         call(conn.url, "/extensions", conn.token, null, ListSerializer(ServerExtension.serializer()))
+
+    /**
+     * BUG-055: the `.kai` of extension [extensionId] as installed on the PC (`GET /extensions/{id}/package`), with the server's SHA-256 of
+     * its `bundle.js` (`X-Tatakai-Bundle-Sha256`). Nothing is verified here: see [verifyServerPackage].
+     */
+    suspend fun extensionPackage(conn: ExtensionServerConnection, extensionId: String): ServerPackage {
+        if (!EXT_ID.matches(extensionId)) throw ExtensionServerException(ExtensionServerException.INVALID_URL)
+        val request = try {
+            build(conn.url, "/extensions/$extensionId/package", conn.token, null).newBuilder().header("Accept", "application/zip").build()
+        } catch (e: IllegalArgumentException) {
+            throw ExtensionServerException(ExtensionServerException.INVALID_URL, cause = e)
+        }
+        var sha: String? = null
+        val (_, bytes) = execute(request, MAX_PACKAGE_BYTES) { sha = it.header(BUNDLE_SHA_HEADER) }
+        return ServerPackage(bytes, sha?.trim()?.lowercase())
+    }
 
     suspend fun invoke(conn: ExtensionServerConnection, sourceId: String, op: String, args: JsonObject): JsonElement =
         call(
@@ -178,7 +197,11 @@ class ExtensionServerClient(
     }
 
     /** Runs [request] off the caller's thread; cancelling the coroutine cancels the call. Non-2xx -> [ExtensionServerException]. */
-    private suspend fun execute(request: Request): Pair<Int, ByteArray> = suspendCancellableCoroutine { continuation ->
+    private suspend fun execute(
+        request: Request,
+        max: Long = MAX_JSON_BYTES,
+        onHeaders: (Response) -> Unit = {},
+    ): Pair<Int, ByteArray> = suspendCancellableCoroutine { continuation ->
         val call = okHttp.newCall(request)
         continuation.invokeOnCancellation { call.cancel() }
         call.enqueue(
@@ -191,7 +214,8 @@ class ExtensionServerClient(
                     try {
                         response.use {
                             if (!it.isSuccessful) throw errorOf(it)
-                            continuation.resume(it.code to readBounded(it.body, MAX_JSON_BYTES))
+                            onHeaders(it)
+                            continuation.resume(it.code to readBounded(it.body, max))
                         }
                     } catch (e: ExtensionServerException) {
                         continuation.resumeWithException(e)
@@ -226,6 +250,10 @@ class ExtensionServerClient(
         const val NDJSON = "application/x-ndjson"
         const val MAX_JSON_BYTES = 8L * 1024 * 1024
         const val MAX_STREAM_BYTES = 8L * 1024 * 1024
+        /** A `.kai` is at most 32 MiB uncompressed (`KaiReader.MAX_TOTAL_BYTES`); compressed it is smaller. */
+        const val MAX_PACKAGE_BYTES = 32L * 1024 * 1024
+        const val BUNDLE_SHA_HEADER = "X-Tatakai-Bundle-Sha256"
+        private val EXT_ID = Regex("[A-Za-z0-9._-]{1,128}")
         private const val MAX_ERROR_BYTES = 16L * 1024
         private val JSON_TYPE = "application/json".toMediaType()
         private val CODE = Regex("[a-z0-9_]{1,64}")
