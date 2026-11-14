@@ -276,6 +276,16 @@ fun ExtensionsScreen(
             dismissButton = { TextButton(onClick = { pendingRemove = null }) { Text(stringResource(UiR.string.ui_close)) } },
         )
     }
+    state.downgrade?.let { d ->
+        // BUG-094: an older .kai over a newer installed copy.
+        AlertDialog(
+            onDismissRequest = viewModel::cancelDowngrade,
+            title = { Text(stringResource(R.string.extensions_downgrade_title, d.name)) },
+            text = { Text(stringResource(R.string.extensions_downgrade_message, d.newVersion, d.installedVersion)) },
+            confirmButton = { TextButton(onClick = viewModel::confirmDowngrade) { Text(stringResource(R.string.extensions_downgrade_confirm)) } },
+            dismissButton = { TextButton(onClick = viewModel::cancelDowngrade) { Text(stringResource(R.string.extensions_downgrade_cancel)) } },
+        )
+    }
     if (showUpdates) UpdatesSheet(hubState, hub, onDismiss = { showUpdates = false })
     if (showInstallUrl) {
         InstallUrlDialog(installing = state.installing, onInstall = viewModel::installFromUrl, onDismiss = { showInstallUrl = false })

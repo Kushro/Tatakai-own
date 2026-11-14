@@ -198,4 +198,9 @@
     <string name="extensions_server_err_other">La PC no pudo listar sus extensiones.</string>
     <!-- parity wave B closure (ext.custom-providers.continue): resuming a provider title from Continue watching -->
     <string name="extensions_provider_resuming">Abriendo el episodio…</string>
+    <!-- BUG-094 -->
+    <string name="extensions_downgrade_title">¿Instalar una versión más vieja de %1$s?</string>
+    <string name="extensions_downgrade_message">Vas a instalar la v%1$s sobre la v%2$s, que es más nueva. Puede faltar algo que la versión instalada ya tiene.</string>
+    <string name="extensions_downgrade_confirm">Instalar igual</string>
+    <string name="extensions_downgrade_cancel">Cancelar</string>
 </resources>

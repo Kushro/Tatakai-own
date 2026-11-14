@@ -35,6 +35,17 @@ sealed interface DetailState {
     data object Failed : DetailState
 }
 
+/** BUG-094: a picked `.kai` is older than the installed copy; installing it waits for the user's confirmation. */
+data class DowngradePrompt(val uri: String, val name: String, val newVersion: String, val installedVersion: String)
+
+/** BUG-094: the prompt for installing [pkg] over [installed], or null when it is not older (or not installed yet). */
+internal fun downgradePrompt(uri: String, pkg: app.tatakai.next.model.ExtensionPackageInfo?, installed: List<InstalledExtension>): DowngradePrompt? {
+    pkg ?: return null
+    val current = installed.firstOrNull { it.id == pkg.id } ?: return null
+    if (compareVersions(pkg.version, current.version) >= 0) return null
+    return DowngradePrompt(uri, current.name.ifBlank { pkg.name }, pkg.version, current.version)
+}
+
 data class ExtensionsUiState(
     val items: List<InstalledExtension> = emptyList(),
     val installing: Boolean = false,
@@ -44,6 +55,7 @@ data class ExtensionsUiState(
     val details: Map<String, DetailState> = emptyMap(),
     /** Rows whose collapsible log is open. */
     val expandedLogs: Set<String> = emptySet(),
+    val downgrade: DowngradePrompt? = null,
 )
 
 class ExtensionsViewModel(private val repo: ExtensionRepository) : ViewModel() {
@@ -67,6 +79,7 @@ class ExtensionsViewModel(private val repo: ExtensionRepository) : ViewModel() {
                 loading = items.isEmpty() && !s,
                 details = d.filterKeys { id -> items.any { it.id == id } },
                 expandedLogs = e,
+                downgrade = t.downgrade,
             )
         }.stateIn(
             viewModelScope,
@@ -93,6 +106,28 @@ class ExtensionsViewModel(private val repo: ExtensionRepository) : ViewModel() {
         if (transient.value.installing) return
         transient.value = Transient(installing = true)
         viewModelScope.launch {
+            // BUG-094: an older package over a newer installed copy asks first ("Vas a instalar v4.5.9 sobre v4.6.0").
+            downgradePrompt(uri, repo.peekPackage(uri), repo.installed.value)?.let { prompt ->
+                transient.value = Transient(downgrade = prompt)
+                return@launch
+            }
+            doInstall(uri)
+        }
+    }
+
+    /** BUG-094: "Instalar igual" of the downgrade prompt. */
+    fun confirmDowngrade() {
+        val prompt = transient.value.downgrade ?: return
+        transient.value = Transient(installing = true)
+        viewModelScope.launch { doInstall(prompt.uri) }
+    }
+
+    fun cancelDowngrade() {
+        if (transient.value.downgrade != null) transient.value = Transient()
+    }
+
+    private suspend fun doInstall(uri: String) {
+        run {
             val result = repo.installFromUri(uri)
             transient.value = Transient(
                 message = result.fold(
@@ -160,7 +195,7 @@ class ExtensionsViewModel(private val repo: ExtensionRepository) : ViewModel() {
         }
     }
 
-    private data class Transient(val installing: Boolean = false, val message: InstallMessage? = null)
+    private data class Transient(val installing: Boolean = false, val message: InstallMessage? = null, val downgrade: DowngradePrompt? = null)
 
     companion object {
         const val LOAD_GRACE_MS = 600L

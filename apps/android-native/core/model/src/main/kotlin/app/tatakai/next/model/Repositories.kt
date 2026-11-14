@@ -161,6 +161,9 @@ interface ExtensionRepository {
 
     /** BUG-055: installs a `.kai` held in memory (a package downloaded from the PC's extension server), like [installFromUri]. */
     suspend fun installFromBytes(bytes: ByteArray): Result<InstalledExtension> = Result.failure(NotImplementedError("installFromBytes"))
+
+    /** BUG-094: id, name and version of the `.kai` at [uri] without installing it (null = unreadable: [installFromUri] reports why). */
+    suspend fun peekPackage(uri: String): ExtensionPackageInfo? = null
     suspend fun setEnabled(id: String, enabled: Boolean)
     suspend fun remove(id: String)
     suspend fun resolveStreams(media: Media, episode: Int): List<StreamSource>

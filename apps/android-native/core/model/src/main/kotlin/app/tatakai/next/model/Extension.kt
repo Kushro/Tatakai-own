@@ -2,6 +2,9 @@ package app.tatakai.next.model
 
 enum class ExtensionCompat { FULL, PARTIAL, UNSUPPORTED }
 
+/** BUG-094: what a `.kai` package says it is, read before installing it ([ExtensionRepository.peekPackage]). */
+data class ExtensionPackageInfo(val id: String, val name: String, val version: String)
+
 data class InstalledExtension(
     val id: String,
     val name: String,

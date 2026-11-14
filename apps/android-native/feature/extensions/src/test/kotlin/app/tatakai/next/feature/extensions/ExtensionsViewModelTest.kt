@@ -55,6 +55,40 @@ class ExtensionsViewModelTest {
 
         val logLines = MutableStateFlow(listOf(ExtensionLogEntry(ExtLogLevel.OK, "install", "installed", 1L)))
         override fun logs(extensionId: String): Flow<List<ExtensionLogEntry>> = logLines
+
+        var peek: app.tatakai.next.model.ExtensionPackageInfo? = null
+        override suspend fun peekPackage(uri: String) = peek
+        var installs = 0
+    }
+
+    @Test
+    fun anOlderPackageAsksBeforeReplacingTheInstalledOne() = runTest {
+        // BUG-094: Toko 4.5.9 picked with 4.6.0 installed was installed without a word.
+        val repo = FakeRepo()
+        repo.installed.value = listOf(ext("tatakai.extension.toko").copy(name = "Toko", version = "4.6.0"))
+        repo.peek = app.tatakai.next.model.ExtensionPackageInfo("tatakai.extension.toko", "Toko", "4.5.9")
+        repo.installResult = { repo.installs++; Result.success(ext("tatakai.extension.toko").copy(name = "Toko", version = "4.5.9")) }
+        val vm = ExtensionsViewModel(repo)
+        vm.install("content://toko-4.5.9.kai")
+        assertEquals(DowngradePrompt("content://toko-4.5.9.kai", "Toko", "4.5.9", "4.6.0"), vm.state.first { it.downgrade != null }.downgrade)
+        assertEquals(0, repo.installs, "nothing installed before the confirmation")
+        vm.cancelDowngrade()
+        assertNull(vm.state.first { it.downgrade == null }.downgrade)
+        assertEquals(0, repo.installs)
+        vm.install("content://toko-4.5.9.kai")
+        vm.state.first { it.downgrade != null }
+        vm.confirmDowngrade()
+        assertIs<InstallMessage.Installed>(vm.state.first { it.message != null }.message)
+        assertEquals(1, repo.installs)
+    }
+
+    @Test
+    fun sameOrNewerVersionsAndNewExtensionsInstallStraightAway() {
+        val installed = listOf(ext("toko").copy(version = "4.6.0"))
+        assertNull(downgradePrompt("u", app.tatakai.next.model.ExtensionPackageInfo("toko", "Toko", "4.6.0"), installed))
+        assertNull(downgradePrompt("u", app.tatakai.next.model.ExtensionPackageInfo("toko", "Toko", "4.6.1"), installed))
+        assertNull(downgradePrompt("u", app.tatakai.next.model.ExtensionPackageInfo("other", "Other", "0.1"), installed))
+        assertNull(downgradePrompt("u", null, installed), "an unreadable package goes on to the install, which reports why")
     }
 
     @Test

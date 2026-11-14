@@ -214,6 +214,17 @@ class ExtensionRepositoryImpl(
         installBytes(bytes)
     }
 
+    override suspend fun peekPackage(uri: String): app.tatakai.next.model.ExtensionPackageInfo? = withContext(io) {
+        try {
+            val m = openUri(uri).use { KaiReader.read(it) }.manifest
+            app.tatakai.next.model.ExtensionPackageInfo(m.id, m.name, m.version)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     override suspend fun installFromBytes(bytes: ByteArray): Result<InstalledExtension> = withContext(io) {
         if (bytes.size > KaiReader.MAX_TOTAL_BYTES) {
             return@withContext Result.failure(AppException(AppError.Extension("", "Could not read the extension package")))
