@@ -177,14 +177,28 @@ impl LiveBackend {
         }
     }
 
+    /// BUG-002: a fallback provider (Kitsu while AniList is rate-limited) can lack the English title ("Temppal: Item
+    /// no Chikara" for Overgeared). The title this app already showed for that series (its playback history, written
+    /// from AniList data) fills the gap, so the title language setting still holds.
+    pub(crate) fn fill_known_title(&self, m: &mut Media) {
+        if m.source_provider == "anilist" || m.titles.contains_key("english") {
+            return;
+        }
+        let known = self.progress(&m.media_ref).into_iter().map(|e| e.title).find(|t| !t.trim().is_empty());
+        if let Some(t) = known.filter(|t| !m.titles.values().any(|v| v == t)) {
+            m.titles.insert("english".to_owned(), t);
+        }
+    }
+
     async fn media(&self, id: &str) -> UiResult<(MediaRef, Media)> {
         let r = media_ref(id).ok_or_else(|| UiError::new(ErrorKind::Other, format!("invalid id {id}")))?;
-        let media = self
+        let mut media = self
             .router
             .media(MediaKind::Anime, &r)
             .await
             .map_err(provider_err)?
             .ok_or_else(|| UiError::new(ErrorKind::Other, format!("{id} was not found")))?;
+        self.fill_known_title(&mut media);
         self.remember_title(id, &media.title, media.cover.as_deref());
         Ok((r, media))
     }
@@ -347,7 +361,8 @@ impl Backend for LiveBackend {
     }
 
     async fn search(&self, query: &str, page: u32) -> UiResult<Vec<MediaVm>> {
-        let p = self.router.search(MediaKind::Anime, query, page).await.map_err(provider_err)?;
+        let mut p = self.router.search(MediaKind::Anime, query, page).await.map_err(provider_err)?;
+        p.items.iter_mut().for_each(|m| self.fill_known_title(m));
         Ok(p.items.iter().map(to_vm).collect())
     }
 

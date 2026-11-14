@@ -316,7 +316,8 @@ pub async fn search_filtered(b: &LiveBackend, q: &SearchQueryVm) -> UiResult<Sea
         Ok(p) => Ok(result_vm(p)),
         Err(e) if vars.is_plain() && !vars.query.trim().is_empty() => {
             tracing::warn!(error = %e, "AniList search failed; falling back to the metadata router");
-            let p = b.router.search(MediaKind::Anime, &vars.query, vars.page).await.map_err(provider_err)?;
+            let mut p = b.router.search(MediaKind::Anime, &vars.query, vars.page).await.map_err(provider_err)?;
+            p.items.iter_mut().for_each(|m| b.fill_known_title(m));
             Ok(page_vm(&p, None))
         }
         Err(e) => Err(provider_err(e)),
