@@ -142,14 +142,26 @@
     if (opts.anilistId === 0 && opts.titles.length === 0) throw new HostError(400, 'anilistId or titles is required');
     const bypass = p && (String(p.refresh) === '1' || String(p.nocache) === '1');
     const key = route + ':' + JSON.stringify(opts);
-    const ttl = route === 'torrent' ? 1800000 : 600000;
     const hit = state.cache.get(key);
-    if (!bypass && hit && Date.now() - hit.at < ttl) return Object.assign({}, hit.value, { cached: true });
+    if (!bypass && hit && Date.now() - hit.at < hit.ttl) return Object.assign({}, hit.value, { cached: true });
     const value = route === 'stream' ? await collect('streamAll', 'single', opts)
       : route === 'torrent' ? await collect('torrentAll', 'batch', opts, 'torrent')
       : await collect('sourcesAll', 'batch', opts);
-    state.cache.set(key, { at: Date.now(), value });
+    const ttl = listingTtl(route, value);
+    if (ttl > 0) state.cache.set(key, { at: Date.now(), ttl, value });
+    else state.cache.delete(key);
     return value;
+  }
+
+  // BUG-102: how long a listing stays cached. An empty one is never kept (a network or proxy failure answered it, and
+  // "Retry" must ask again); one where some provider failed or timed out is kept only a few seconds (the next ask may
+  // bring that provider back); a complete one keeps the legacy TTL (stream 10 min, torrent 30 min).
+  const LISTING_TTL = { stream: 600000, torrent: 1800000, sources: 600000 };
+  const PARTIAL_TTL = 15000;
+  function listingTtl(route, value) {
+    if (!value || !(value.count > 0)) return 0;
+    const failed = asArray(value.providerStatus).some((d) => d && (d.status === 'error' || d.status === 'timeout'));
+    return failed ? PARTIAL_TTL : (LISTING_TTL[route] || 600000);
   }
 
   async function providerRoute(name, p) {

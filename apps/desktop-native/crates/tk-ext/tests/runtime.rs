@@ -250,3 +250,76 @@ async fn fetch_to_private_addresses_is_rejected_even_when_permitted() {
         assert!(r.as_str().unwrap().contains("address not allowed"), "{u}: {r}");
     }
 }
+
+fn anime() -> tk_core::Media {
+    tk_core::Media {
+        media_ref: tk_core::MediaRef::anilist(1),
+        kind: tk_core::MediaKind::Anime,
+        title: "Synthetic".into(),
+        titles: Default::default(),
+        cover: None,
+        banner: None,
+        color: None,
+        synopsis: None,
+        genres: vec![],
+        episodes: None,
+        status: None,
+        season: None,
+        year: None,
+        score: None,
+        source_provider: "test".into(),
+    }
+}
+
+/// BUG-102: an empty source listing is never cached by the host (the next ask, "Retry", reaches the bundle again),
+/// `refresh=1` (fresh listings) skips the cache, and a listing where a provider timed out is reported as partial.
+#[tokio::test]
+async fn empty_listings_are_not_cached_and_fresh_ones_skip_the_cache() {
+    let bundle = r#"module.exports = class {
+      constructor() { this.n = 0; this.mode = 'empty'; }
+      setMode(m) { this.mode = m; return m; }
+      calls() { return this.n; }
+      async streamAll(opts, emit) {
+        this.n++;
+        if (this.mode === 'empty') { emit({ provider: 'p', results: [], diagnostic: { provider: 'p', status: 'empty' } }); return; }
+        emit({ provider: 'p', results: [{ url: 'https://a.test/v.m3u8', quality: '1080p' }], diagnostic: { provider: 'p', status: 'ok' } });
+        if (this.mode === 'partial') emit({ provider: 'q', results: [], diagnostic: { provider: 'q', status: 'timeout' } });
+      }
+    };"#;
+    let c = install("cache", &[], bundle, |h| h);
+    let params = json!({ "anilistId": 1, "titles": ["Synthetic"], "episode": 3 });
+    let c = &c;
+    let calls = || async move { run(c, "cache", "calls", json!([])).await.unwrap() };
+    let stream = |extra: Value| {
+        let mut p = params.clone();
+        if let (Some(o), Some(e)) = (p.as_object_mut(), extra.as_object()) {
+            o.extend(e.clone());
+        }
+        async move { c.host.call("cache", "stream", p).await.unwrap() }
+    };
+
+    // Empty answers (network or proxy failure) are asked again every time.
+    assert_eq!(stream(json!({})).await["count"], 0);
+    assert_eq!(stream(json!({})).await["count"], 0);
+    assert_eq!(calls().await, 2, "the empty listing was not cached");
+
+    // A complete listing is cached; refresh=1 skips that cache.
+    run(&c, "cache", "setMode", json!(["ok"])).await.unwrap();
+    assert_eq!(stream(json!({})).await["count"], 1);
+    let again = stream(json!({})).await;
+    assert_eq!((again["count"].clone(), again["cached"].clone()), (json!(1), json!(true)));
+    assert_eq!(calls().await, 3);
+    assert_eq!(stream(json!({ "refresh": "1" })).await["cached"], false);
+    assert_eq!(calls().await, 4);
+
+    // Through the host API: fresh listings skip the bundle cache, and a provider timeout marks the listing partial.
+    let l = c.host.list_candidates(&anime(), 3, true).await;
+    assert_eq!((l.candidates.len(), l.partial), (1, false));
+    assert_eq!(calls().await, 5);
+    run(&c, "cache", "setMode", json!(["partial"])).await.unwrap();
+    let l = c.host.list_candidates(&anime(), 3, true).await;
+    assert_eq!((l.candidates.len(), l.partial), (1, true));
+    // After the outbound route changed, the next call runs on a fresh runtime (no cached listings, no old work).
+    c.host.restart_workers();
+    assert_eq!(calls().await, 0);
+}

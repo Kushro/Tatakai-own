@@ -409,6 +409,14 @@ impl ExtensionHost {
     }
 
     pub async fn resolve_candidates(&self, media: &Media, episode: u32) -> Vec<SourceCandidate> {
+        self.list_candidates(media, episode, false).await.candidates
+    }
+
+    /// [`Self::resolve_candidates`] with the cache choice and the completeness of the answer (BUG-102). `fresh`
+    /// sends `refresh=1`, so the extension's own route cache is skipped too ("Retry", the retry after a proxy
+    /// change); [`Listing::partial`] says some route failed or some provider failed / timed out, so the caller keeps
+    /// the list only briefly.
+    pub async fn list_candidates(&self, media: &Media, episode: u32, fresh: bool) -> Listing {
         // One entry per extension with its routes. Extensions run concurrently, but the routes of ONE extension run one
         // after the other, `torrent` first: an extension is a single JS thread, and running `stream` (dozens of
         // scraping providers, ~40 s) next to `torrent` starved the torrent providers past their own per-provider
@@ -424,32 +432,55 @@ impl ExtensionHost {
             v.sort_by(|a, b| a.3.total_cmp(&b.3).then_with(|| a.0.cmp(&b.0)));
             v
         };
-        let params = stream_params(media, episode);
+        let mut params = stream_params(media, episode);
+        if fresh {
+            params["refresh"] = json!("1");
+        }
         let futs = exts.iter().map(|(id, name, routes, _)| {
             let params = params.clone();
             async move {
                 let mut ordered: Vec<&'static str> = routes.iter().copied().filter(|r| *r == "torrent").collect();
                 ordered.extend(routes.iter().copied().filter(|r| *r != "torrent"));
                 let mut by_route: Vec<(&'static str, Vec<SourceCandidate>)> = Vec::new();
+                let mut partial = false;
                 for route in ordered {
-                    by_route.push((route, self.list_route(id, name, route, params.clone()).await));
+                    let (list, complete) = self.list_route(id, name, route, params.clone()).await;
+                    partial |= !complete;
+                    by_route.push((route, list));
                 }
                 // Output keeps the manifest's route order (stream before torrent), whatever order they ran in.
-                routes
+                let list = routes
                     .iter()
                     .flat_map(|r| by_route.iter().filter(|(x, _)| x == r).flat_map(|(_, c)| c.clone()).collect::<Vec<_>>())
-                    .collect::<Vec<_>>()
+                    .collect::<Vec<_>>();
+                (list, partial)
             }
         });
-        futures_util::future::join_all(futs).await.into_iter().flatten().collect()
+        let mut out = Listing::default();
+        for (list, partial) in futures_util::future::join_all(futs).await {
+            out.candidates.extend(list);
+            out.partial |= partial;
+        }
+        out
     }
 
-    /// One route of one extension mapped to candidates (failures are logged and yield none).
-    async fn list_route(&self, id: &str, name: &str, route: &'static str, params: Value) -> Vec<SourceCandidate> {
+    /// BUG-102: drop every running extension worker, so the next call starts a fresh runtime. Used when the outbound
+    /// route (proxy, FlareSolverr) changes: the route caches of the bundles hold lists fetched through the old route,
+    /// and work abandoned on it stops competing with the new calls. Calls already running finish on the old worker.
+    pub fn restart_workers(&self) {
+        for e in self.lock().values_mut() {
+            e.worker = None;
+        }
+    }
+
+    /// One route of one extension mapped to candidates (failures are logged and yield none), and whether the answer
+    /// was complete (the call worked and no provider failed or timed out).
+    async fn list_route(&self, id: &str, name: &str, route: &'static str, params: Value) -> (Vec<SourceCandidate>, bool) {
         let started = std::time::Instant::now();
         let episode = params["episode"].clone();
         match self.call(id, route, params).await {
             Ok(v) => {
+                let complete = listing_complete(&v);
                 let raw = v["sources"].as_array().map_or(0, Vec::len);
                 let mapped = map_candidates(id, name, &v);
                 if tracing::enabled!(tracing::Level::DEBUG) {
@@ -460,14 +491,31 @@ impl ExtensionHost {
                     }
                     tracing::debug!(extension = %id, route = %route, episode = %episode, raw, mapped = mapped.len(), ms = started.elapsed().as_millis() as u64, providers = ?by, "source listing");
                 }
-                mapped
+                (mapped, complete)
             }
             Err(e) => {
                 tracing::warn!(extension = %id, route = %route, error = %e, "source listing failed");
-                Vec::new()
+                (Vec::new(), false)
             }
         }
     }
+}
+
+/// Answer of [`ExtensionHost::list_candidates`].
+#[derive(Debug, Default, Clone)]
+pub struct Listing {
+    pub candidates: Vec<SourceCandidate>,
+    /// Some route call failed, or some provider of a route answered `error` / `timeout` (`providerStatus`).
+    pub partial: bool,
+}
+
+/// A route answer with every provider `ok` / `empty` (or no `providerStatus` at all).
+fn listing_complete(body: &Value) -> bool {
+    !body["providerStatus"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|d| matches!(d["status"].as_str(), Some("error" | "timeout")))
 }
 
 /// Fresh log buffer that starts with one `warn` line per accepted-but-deferred permission (`torrent:session`).

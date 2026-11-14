@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use tk_core::sources::SourceCandidate;
 use tk_core::{Compat, InstalledExtension, Media, StreamSource};
 use tk_ext::{BrowserRuntime, ExtensionHost};
 use tk_ext::hashing::Algo;
@@ -218,12 +217,13 @@ impl Extensions {
 
     /// Every source candidate of the episode (web `stream` route plus torrent `torrent` route, with server, subs,
     /// dubs and note), unranked. Logs one `stream` line per enabled extension like [`Self::resolve`].
-    pub async fn resolve_candidates(&self, media: &Media, episode: u32) -> Vec<SourceCandidate> {
+    /// `fresh` skips the extensions' own route caches too (BUG-102); the listing says whether it is partial.
+    pub async fn resolve_candidates(&self, media: &Media, episode: u32, fresh: bool) -> tk_ext::Listing {
         let started = Instant::now();
-        let list = self.host.resolve_candidates(media, episode).await;
+        let list = self.host.list_candidates(media, episode, fresh).await;
         let ms = started.elapsed().as_millis();
         for e in self.host.list().into_iter().filter(|e| e.enabled && e.compat != Compat::Unsupported) {
-            let n = list.iter().filter(|c| c.ext_id == e.id).count();
+            let n = list.candidates.iter().filter(|c| c.ext_id == e.id).count();
             let level = if n == 0 { ExtLogLevel::Warn } else { ExtLogLevel::Ok };
             self.note(&e.id, level, "stream", format!("\"{}\" ep {episode} -> {n} sources in {ms} ms", media.title));
         }

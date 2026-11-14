@@ -78,7 +78,7 @@ pub struct LiveBackend {
     titles: Mutex<HashMap<String, (String, Option<String>)>>,
     ext: ext::Extensions,
     link: link::LinkService,
-    /// `(media id, episode) -> (resolved at, candidates)`: `sources()` and `playback_source()` share one resolution
+    /// `(media id, episode) -> (expires at, candidates)`: `sources()` and `playback_source()` share one resolution
     /// (stream URLs expire, hence the TTL). Cleared when the set of enabled extensions changes.
     candidates: Mutex<HashMap<(String, u32), (Instant, Vec<SourceCandidate>)>>,
     /// When the extensions' outbound route (proxy / FlareSolverr) last changed (BUG-102): an empty listing right
@@ -104,9 +104,21 @@ pub struct LiveBackend {
 
 /// How long a resolved source list is reused before the extensions are asked again.
 const SOURCES_TTL: Duration = Duration::from_secs(5 * 60);
+/// BUG-102: a list some extension route or provider failed (or timed out) on is reused only this long, so the
+/// sources it missed (often the torrents) come back on the next ask instead of staying hidden for `SOURCES_TTL`.
+const PARTIAL_SOURCES_TTL: Duration = Duration::from_secs(15);
 /// BUG-102: how long after an outbound-route change an empty source listing is retried once, and the pause before.
 const NET_CHANGE_WINDOW: Duration = Duration::from_secs(90);
 const NET_CHANGE_RETRY_PAUSE: Duration = Duration::from_secs(2);
+
+/// How long a resolved source list of `len` candidates is reused (`None`: not kept). Pure.
+fn candidates_ttl(len: usize, partial: bool) -> Option<Duration> {
+    match (len, partial) {
+        (0, _) => None,
+        (_, true) => Some(PARTIAL_SOURCES_TTL),
+        _ => Some(SOURCES_TTL),
+    }
+}
 
 /// Whether the outbound route of the extensions differs between two saved settings. Pure.
 fn route_changed(old: &Settings, new: &Settings) -> bool {
@@ -275,20 +287,26 @@ impl LiveBackend {
             self.candidates
                 .lock()
                 .ok()
-                .and_then(|c| c.get(&key).filter(|(at, _)| at.elapsed() < SOURCES_TTL).map(|(_, v)| v.clone()))
+                .and_then(|c| c.get(&key).filter(|(until, _)| Instant::now() < *until).map(|(_, v)| v.clone()))
         };
         let mut list = match cached {
             Some(v) => v,
             None => {
                 // `resolve_candidates` keeps server/subs/dubs/note and lists torrents (resolve_streams does not).
                 // Wave B (j): paired extension servers and Stremio add-ons contribute candidates too.
-                let mut v = self.ext.resolve_candidates(media, episode).await;
+                // `fresh` also skips the extensions' own route caches (BUG-102: they kept an empty list 10-30 min).
+                let listing = self.ext.resolve_candidates(media, episode, fresh).await;
+                let mut v = listing.candidates;
                 v.extend(ext_catalog::extra_candidates(self, media, episode).await);
                 let v = sources::dedupe_by_key(v);
-                // An empty listing (sites unreachable, proxy down: BUG-082) is not kept, so "Retry" asks again.
-                if !v.is_empty() && let Ok(mut c) = self.candidates.lock() {
-                    c.retain(|_, (at, _)| at.elapsed() < SOURCES_TTL);
-                    c.insert(key, (Instant::now(), v.clone()));
+                // An empty listing (sites unreachable, proxy down: BUG-082) is not kept, so "Retry" asks again; a
+                // partial one only briefly.
+                if let Some(ttl) = candidates_ttl(v.len(), listing.partial)
+                    && let Ok(mut c) = self.candidates.lock()
+                {
+                    let now = Instant::now();
+                    c.retain(|_, (until, _)| now < *until);
+                    c.insert(key, (now + ttl, v.clone()));
                 }
                 v
             }
@@ -567,8 +585,10 @@ impl Backend for LiveBackend {
         downloads::on_settings(self, settings).await;
         server::on_settings(self, settings).await;
         if route_moved {
-            // BUG-102: lists resolved through the old route are dropped, and the next empty one is asked again.
+            // BUG-102: lists resolved through the old route are dropped (ours, and the route caches inside each
+            // extension: their runtimes restart), and the next empty one is asked again.
             self.invalidate_sources();
+            self.ext.host().restart_workers();
             if let Ok(mut g) = self.net_changed.lock() {
                 *g = Some(Instant::now());
             }
@@ -1418,6 +1438,16 @@ mod season_cap_tests {
 #[cfg(test)]
 mod route_change_tests {
     use super::*;
+
+    #[test]
+    fn empty_lists_are_not_kept_and_partial_ones_only_briefly() {
+        // BUG-102: an empty list is asked again; one some provider failed on comes back after a few seconds.
+        assert_eq!(candidates_ttl(0, false), None);
+        assert_eq!(candidates_ttl(0, true), None);
+        assert_eq!(candidates_ttl(15, true), Some(PARTIAL_SOURCES_TTL));
+        assert_eq!(candidates_ttl(15, false), Some(SOURCES_TTL));
+        assert!(PARTIAL_SOURCES_TTL <= Duration::from_secs(30));
+    }
 
     #[test]
     fn a_proxy_change_retries_the_next_empty_listing_once() {
