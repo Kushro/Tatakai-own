@@ -58,6 +58,8 @@
     <string name="player_link_ended">La PC cerró esta sesión porque estuvo un rato sin conexión. Vuelve a enviar el episodio desde la PC.</string>
     <string name="player_link_pc_error">Tu PC no pudo seguir con esta sesión. Toca Reintentar para abrirla de nuevo.</string>
     <string name="player_link_renewed">La sesión con tu PC había vencido: se abrió una nueva en el mismo punto.</string>
+    <!-- BUG-095: while a Link session buffers (the PC may be restarting its engine after a seek) -->
+    <string name="player_link_preparing">Tu PC está preparando el video desde este punto…</string>
     <string name="player_link_profile">Perfil de mejora</string>
     <string name="player_link_profile_hint">La PC reinicia la sesión con el perfil elegido en el mismo punto. Tu perfil preferido no cambia.</string>
     <string name="player_link_profile_changed">Perfil cambiado: la sesión sigue en el mismo punto.</string>

@@ -37,7 +37,12 @@ pub const TORRENT_OPEN_TIMEOUT: Duration = Duration::from_secs(75);
 /// Sources of the last sessions kept for [`SourceRequest::Session`].
 pub const ORIGINS_KEPT: usize = 128;
 /// Segments kept behind the playhead for seek-back.
-const KEEP_BEHIND: u32 = 6;
+/// BUG-095: segments kept behind the playhead (60 s), so a short rewind is served from RAM instead of restarting the
+/// engine (with A4K + LSFG a restart costs ~15 s). Still bounded by the RAM budget.
+const KEEP_BEHIND: u32 = 30;
+/// BUG-095: a request at most this many segments past the running engine's frontier may wait for it instead of
+/// restarting it there, when the engine makes them sooner than a restart would ([`wait_for_frontier`]).
+pub const MAX_WAIT_AHEAD: u32 = 30;
 
 #[derive(Debug, Clone)]
 pub struct SessionTuning {
@@ -123,6 +128,15 @@ struct State {
     run_started: Instant,
     run_segments: u32,
     run_throttled: bool,
+    /// BUG-095: the next segment the current run produces (the window also keeps segments of earlier runs, so its
+    /// last key is not the engine's frontier).
+    run_top: u32,
+    /// BUG-095: when the current run was spawned, the measured cost of a (re)start (spawn -> first segment) and the
+    /// engine's time per segment (back-pressure waits excluded), to decide between waiting and restarting.
+    run_spawned: Instant,
+    restart_cost: Option<Duration>,
+    seg_interval: Option<Duration>,
+    last_stored: Option<Instant>,
 }
 
 pub struct Session {
@@ -206,6 +220,19 @@ pub enum SourceRequest {
 /// already waiting for it or for a later one (`wanted`, BUG-058). Pure.
 pub fn lead_exceeded(k: u32, playhead: u32, wanted: u32, max_lead: u32) -> bool {
     k > playhead.saturating_add(max_lead) && k > wanted
+}
+
+/// BUG-095: whether a request `distance` segments past the running engine's frontier waits for it (`true`) or restarts
+/// the engine there. Always waits within `min_ahead`; past it, up to [`MAX_WAIT_AHEAD`], only when the engine makes
+/// those segments sooner than a restart produces its first one (both measured; unknown = restart, as before). Pure.
+pub fn wait_for_frontier(distance: u32, min_ahead: u32, per_segment: Option<Duration>, restart_cost: Option<Duration>) -> bool {
+    if distance <= min_ahead {
+        return true;
+    }
+    match (per_segment, restart_cost) {
+        (Some(per), Some(cost)) => distance <= MAX_WAIT_AHEAD && per * distance < cost,
+        _ => false,
+    }
 }
 
 /// Seconds of a run after which the sustain verdict is taken (BUG-025).
@@ -413,6 +440,11 @@ impl Manager {
                 run_started: Instant::now(),
                 run_segments: 0,
                 run_throttled: false,
+                run_top: start_segment,
+                run_spawned: Instant::now(),
+                restart_cost: None,
+                seg_interval: None,
+                last_stored: None,
             }),
             notify: Notify::new(),
             last_heartbeat: Mutex::new(Instant::now()),
@@ -613,7 +645,12 @@ impl Manager {
             st.gen_start = start_segment;
             // a (re)start at `k` means the consumer is at `k`; the next heartbeat refines it
             st.playhead = start_segment;
-            st.window = Window::default();
+            // BUG-095: the segments of earlier runs stay (same profile, absolute timestamps via `-output_ts_offset`):
+            // a seek back to what was already made is served from RAM. Only what the eviction rules drop is lost.
+            st.run_top = start_segment;
+            self.evict(&mut st);
+            st.run_spawned = Instant::now();
+            st.last_stored = None;
             st.finished = false;
             st.wanted = start_segment;
             st.run_started = Instant::now();
@@ -747,7 +784,18 @@ impl Manager {
                 if st.run_gen != run_gen || st.phase == Phase::Closed {
                     return Err(SinkError::Stale);
                 }
+                // BUG-095: restart cost (first segment of a run) and time per segment (from the previous store, so the
+                // back-pressure wait of the previous PUT is not counted)
+                let now = Instant::now();
+                match st.last_stored {
+                    None => st.restart_cost = Some(now.duration_since(st.run_spawned)),
+                    Some(prev) => {
+                        let dt = now.duration_since(prev);
+                        st.seg_interval = Some(st.seg_interval.map_or(dt, |old| (old * 3 + dt) / 4));
+                    }
+                }
                 st.event_top = st.event_top.max(k + 1);
+                st.run_top = st.run_top.max(k + 1);
                 st.window.bytes += body.len();
                 if let Some(old) = st.window.segs.insert(k, body) {
                     st.window.bytes -= old.len();
@@ -757,6 +805,7 @@ impl Manager {
                 if st.run_segments == 0 {
                     st.run_started = Instant::now();
                 }
+                st.last_stored = Some(Instant::now());
                 st.run_segments += 1;
                 let verdict = sustain_verdict(st.run_throttled, st.run_segments, st.run_started.elapsed(), st.paused);
                 tracing::debug!(k, run_gen, bytes = st.window.bytes, playhead = st.playhead, "sink: segment stored");
@@ -782,8 +831,11 @@ impl Manager {
             }
         }
         while st.window.bytes > self.tuning.max_ram_bytes {
-            // drop the oldest segment that is not the one being consumed
-            let Some(k) = st.window.segs.keys().next().copied() else { break };
+            // drop what is behind the playhead first (oldest first), then segments of earlier runs past what this run
+            // made (furthest first), then the oldest that is not the one being consumed
+            let first = st.window.segs.keys().next().copied();
+            let last = st.window.segs.keys().next_back().copied();
+            let Some(k) = first.filter(|k| *k < st.playhead).or(last.filter(|k| *k >= st.run_top.max(st.playhead + 1))).or(first) else { break };
             if k >= st.playhead && st.window.segs.len() == 1 {
                 break;
             }
@@ -849,9 +901,12 @@ impl Manager {
                 if let Some(b) = st.window.segs.get(&k) {
                     return Ok(b.clone());
                 }
-                let frontier = st.window.segs.keys().next_back().map_or(st.gen_start, |m| m + 1);
-                let behind = k < st.gen_start || st.window.segs.keys().next().is_some_and(|first| k < *first);
-                let too_far = k > frontier.saturating_add(self.tuning.seek_ahead_segments);
+                // BUG-095: the frontier of the running engine (the window also holds earlier runs' segments)
+                let frontier = st.run_top;
+                // not in the window and already passed by this run (or before its start): evicted or never made here
+                let behind = k < st.run_top;
+                let too_far = k >= frontier
+                    && !wait_for_frontier(k - frontier, self.tuning.seek_ahead_segments, st.seg_interval, st.restart_cost);
                 // finished runs never produce k again; evicted or never-produced segments need a new run
                 let dead = st.finished && !st.window.segs.contains_key(&k);
                 let restart = (behind || too_far || dead) && !restarted;
@@ -866,7 +921,7 @@ impl Manager {
                 restart.then_some(k)
             };
             if let Some(at) = restart_at {
-                tracing::debug!(k, "segment outside the window: restarting the engine there");
+                tracing::info!(k, "segment outside the window: restarting the engine there");
                 restarted = true;
                 self.start_run(s, at).await;
                 continue;
@@ -936,7 +991,7 @@ impl Manager {
             Phase::Failed(r) => ("failed", Some(r.as_str())),
             Phase::Closed => ("closed", None),
         };
-        let frontier = st.window.segs.keys().next_back().copied();
+        let frontier = st.window.segs.range(st.gen_start..st.run_top).next_back().map(|(k, _)| *k);
         let mut v = serde_json::json!({
             "state": state,
             "generation": st.run_gen,
@@ -977,6 +1032,19 @@ mod sustain_tests {
         assert!(!lead_exceeded(347, 331, 347, 15));
         assert!(!lead_exceeded(349, 331, 350, 15));
         assert!(lead_exceeded(351, 331, 350, 15));
+    }
+
+    #[test]
+    fn far_requests_wait_for_the_engine_only_when_that_beats_a_restart() {
+        let s = Duration::from_secs;
+        assert!(wait_for_frontier(4, 4, None, None), "within the seek margin it always waits");
+        assert!(!wait_for_frontier(5, 4, None, None), "nothing measured yet: restart, as before");
+        // BUG-095: A4K + LSFG on AV1, ~2 s per 2-s segment and ~15 s to restart: +10 s (5 segments) waits ~10 s
+        assert!(wait_for_frontier(5, 4, Some(s(2)), Some(s(15))));
+        assert!(!wait_for_frontier(8, 4, Some(s(2)), Some(s(15))), "16 s of waiting is worse than a 15-s restart");
+        // a fast engine (0.2 s per segment) waits for up to MAX_WAIT_AHEAD segments, never further
+        assert!(wait_for_frontier(MAX_WAIT_AHEAD, 4, Some(Duration::from_millis(200)), Some(s(15))));
+        assert!(!wait_for_frontier(MAX_WAIT_AHEAD + 1, 4, Some(Duration::from_millis(200)), Some(s(15))));
     }
 
     #[test]

@@ -97,6 +97,9 @@ internal fun BufferingOverlay(state: PlayerUiState, modifier: Modifier = Modifie
             } else if (state.phase == PlayerPhase.RESOLVING) {
                 val name = state.current?.candidate?.let { "${it.extName} · ${it.label}" }
                 Text(if (name != null) stringResource(R.string.player_resolving_from, name) else stringResource(R.string.player_resolving))
+            } else if (!state.remoteless) {
+                // BUG-095: a seek past what the PC already made restarts its engine there (up to ~15 s with A4K + LSFG)
+                Text(stringResource(R.string.player_link_preparing), Modifier.widthIn(max = 260.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }

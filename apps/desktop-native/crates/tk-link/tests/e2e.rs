@@ -597,3 +597,38 @@ async fn sources_without_a_duration_get_the_probed_one_and_a_vod_playlist() {
     let c = json(r).await;
     assert!(c.get("duration_secs").is_none(), "{c}");
 }
+
+/// BUG-095: a seek restarts the engine (with A4K + LSFG that costs ~15 s), but a rewind to segments an earlier run
+/// already made is served from RAM: restarting no longer throws the window away, and 60 s behind the playhead stay.
+#[tokio::test]
+async fn a_rewind_after_a_seek_is_served_from_ram_without_restarting() {
+    // 20 ms per segment: a restart (first segment in a few ms) beats waiting for anything past the seek margin
+    let engine = FakeEngine::new(200, 100, Duration::from_millis(20));
+    let mut h = harness(engine.clone(), quick_tuning(), lenient_default()).await;
+    let p = h.pair("Pixel").await;
+    let port = upstream_hls(200).await;
+    let sid = json(create(&h, &p, port, json!({})).await).await["session_id"].as_str().unwrap().to_owned();
+    p.client.post(h.url(&format!("/v1/sessions/{sid}/position"))).json(&json!({ "position_secs": 20.0, "paused": false })).send().await.unwrap();
+    wait_until("frontier 25", || async {
+        json(p.client.get(h.url(&format!("/v1/sessions/{sid}"))).send().await.unwrap()).await["frontier_segment"] == 25
+    })
+    .await;
+    // +30 s past the frontier: restart there
+    let r = p.client.get(h.url(&format!("/v1/sessions/{sid}/seg_40.m4s"))).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(engine.starts.lock().unwrap().as_slice(), [0, 40]);
+    // −50 s: segment 15 was made by the first run and is still in RAM
+    let started = std::time::Instant::now();
+    let r = p.client.get(h.url(&format!("/v1/sessions/{sid}/seg_15.m4s"))).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(r.bytes().await.unwrap()[0], 15u8);
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(engine.starts.lock().unwrap().as_slice(), [0, 40], "the rewind did not restart the engine");
+    // the frontier reported is the running engine's, not the last key of the window
+    let st = json(p.client.get(h.url(&format!("/v1/sessions/{sid}"))).send().await.unwrap()).await;
+    assert!(st["frontier_segment"].as_u64().unwrap() >= 40, "{st}");
+    // a short step forward inside what the running engine is making waits for it
+    let r = p.client.get(h.url(&format!("/v1/sessions/{sid}/seg_43.m4s"))).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(engine.starts.lock().unwrap().as_slice(), [0, 40]);
+}
