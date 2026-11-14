@@ -2,6 +2,9 @@
 package app.tatakai.next.player.mpv
 
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.os.Looper
 import android.os.SystemClock
 import androidx.media3.common.util.UnstableApi
@@ -15,11 +18,15 @@ import app.tatakai.next.player.PlaybackState
 import app.tatakai.next.player.PlayerSession
 import app.tatakai.next.player.PlayerSessionFactory
 import app.tatakai.next.player.SessionTicker
+import app.tatakai.next.player.ShaderFallback
+import app.tatakai.next.player.ShaderNotice
 import app.tatakai.next.player.SubtitleExtras
 import app.tatakai.next.player.SubtitleFonts
 import app.tatakai.next.player.SubtitleOption
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,8 +70,62 @@ class MpvPlayerSession(
         snapshot = { val s = _state.value; Triple(currentPositionMs(), s.durationMs, s.isPlaying) },
     )
 
+    /** BUG-043 / BUG-006: battery rule and real-time step-down of the shader chain. */
+    private val governor = PresetGovernor(preset)
+    private val appContext = context.applicationContext
+    private var noticeSeq = 0
+    private var governorJob: Job? = null
+
+    private fun battery(): BatteryInfo? = runCatching {
+        val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return@runCatching null
+        val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+        val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+        if (level < 0 || scale <= 0) return@runCatching null
+        val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        BatteryInfo(level * 100 / scale, charging)
+    }.getOrNull()
+
+    private fun announce(kind: ShaderFallback) {
+        noticeSeq++
+        _state.value = _state.value.copy(shaderNotice = ShaderNotice(noticeSeq, kind))
+        android.util.Log.i("mpv", "shader preset -> ${governor.preset} ($kind)")
+    }
+
+    private fun startGovernor() {
+        governorJob = scope.launch {
+            var sinceBattery = 0L
+            while (isActive && !released) {
+                delay(PresetGovernor.SAMPLE_MS)
+                if (released || ShaderPresets.chain(governor.preset).isEmpty()) break
+                sinceBattery += PresetGovernor.SAMPLE_MS
+                if (sinceBattery >= BATTERY_CHECK_MS) {
+                    sinceBattery = 0
+                    governor.onBattery(battery())?.let { change ->
+                        engine.applyPreset(governor.preset)
+                        announce(change)
+                    }
+                }
+                val st = _state.value
+                if (!st.isPlaying || st.isBuffering) {
+                    governor.reset()
+                    continue
+                }
+                val drops = engine.droppedFrames() ?: continue
+                val fps = engine.videoFps() ?: continue
+                governor.onSample(drops, fps, SystemClock.elapsedRealtime())?.let { change ->
+                    engine.applyPreset(governor.preset)
+                    announce(change)
+                }
+            }
+        }
+    }
+
     init {
-        engine.applyPreset(preset)
+        val (initialPreset, change) = governor.initial(battery())
+        engine.applyPreset(initialPreset)
+        change?.let { announce(it) }
+        if (ShaderPresets.chain(initialPreset).isNotEmpty()) startGovernor()
         mirror = scope.launch {
             engine.state.collect { m ->
                 val prev = _state.value
@@ -105,6 +166,7 @@ class MpvPlayerSession(
         if (released) return
         loaded = true
         ActivePlayback.publish(adapter)
+        governor.reset()
         engine.load(source.url, source.headers, startMs.coerceAtLeast(0) / 1000.0, source.subtitles.map { it.url })
     }
 
@@ -114,7 +176,10 @@ class MpvPlayerSession(
 
     override fun togglePlay() = if (_state.value.isPlaying) pause() else play()
 
-    override fun seekTo(positionMs: Long) = engine.seekTo(positionMs.coerceAtLeast(0) / 1000.0)
+    override fun seekTo(positionMs: Long) {
+        governor.reset()
+        engine.seekTo(positionMs.coerceAtLeast(0) / 1000.0)
+    }
 
     override fun seekBy(deltaMs: Long) = seekTo(currentPositionMs() + deltaMs)
 
@@ -174,12 +239,15 @@ class MpvPlayerSession(
         if (loaded) listener.onProgress(currentPositionMs(), _state.value.durationMs, true)
         released = true
         ticker.stop()
+        governorJob?.cancel()
         mirror.cancel()
         if (ActivePlayback.player.value === adapter) ActivePlayback.publish(null)
         adapter.detach()
         engine.release()
     }
 }
+
+private const val BATTERY_CHECK_MS = 60_000L
 
 /** Koin-bound factory of mpv sessions (see `mpvPlayerModule`). [preset] is read at creation time. */
 @UnstableApi

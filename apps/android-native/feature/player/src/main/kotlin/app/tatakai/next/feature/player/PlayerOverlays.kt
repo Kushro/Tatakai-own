@@ -54,6 +54,7 @@ import androidx.media3.common.util.UnstableApi
 import app.tatakai.next.designsystem.theme.TatakaiFonts
 import app.tatakai.next.model.SkipKind
 import app.tatakai.next.model.SubtitleStyle
+import app.tatakai.next.player.ShaderFallback
 import app.tatakai.next.player.FailKind
 import app.tatakai.next.ui.format.formatBytes
 import app.tatakai.next.ui.format.formatRate
@@ -134,6 +135,13 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
         }
         PlayerNotice.PretranslateUnavailable -> stringResource(R.string.player_pretranslate_unavailable)
         PlayerNotice.SwitchedToMpv -> stringResource(R.string.player_switched_to_mpv)
+        is PlayerNotice.ShaderChanged -> stringResource(
+            when (notice.kind) {
+                ShaderFallback.LIGHTER -> R.string.player_shader_lighter
+                ShaderFallback.OFF_SLOW -> R.string.player_shader_off_slow
+                ShaderFallback.OFF_BATTERY -> R.string.player_shader_off_battery
+            },
+        )
         PlayerNotice.LinkSessionRenewed -> stringResource(R.string.player_link_renewed)
     }
     val scheme = MaterialTheme.colorScheme

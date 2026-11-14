@@ -74,6 +74,7 @@ import app.tatakai.next.player.providerSources
 import app.tatakai.next.player.resolveWebStream
 import app.tatakai.next.player.markDebrid
 import app.tatakai.next.player.resolvePick
+import app.tatakai.next.player.ShaderFallback
 import app.tatakai.next.player.PlaybackError
 import app.tatakai.next.player.decodesInHardware
 import app.tatakai.next.player.decodeRecovery
@@ -202,6 +203,10 @@ sealed interface PlayerNotice {
 
     /** BUG-020: Media3 could not decode this video; it plays with libmpv (software decoding, may be slow). */
     data object SwitchedToMpv : PlayerNotice
+
+    /** BUG-043 / BUG-006: libmpv changed the shader preset by itself (too slow, or low battery). */
+    data class ShaderChanged(val kind: ShaderFallback) : PlayerNotice
+
     /** BUG-038: the PC had closed the Link session; a new one continues at the same position. */
     data object LinkSessionRenewed : PlayerNotice
 }
@@ -350,6 +355,7 @@ class PlayerViewModel(
     private var handledStartLoad = 0
 
     /** BUG-020 / BUG-042: silent decoder retries spent on [decodeRetryKey] (the flow attempt, or the direct source's URL). */
+    private var shaderNoticeSeq = 0
     private var decodeRetries = 0
     private var decodeRetryKey: String? = null
     private var autoSkippedIntro = false
@@ -827,6 +833,12 @@ class PlayerViewModel(
     }
 
     private fun onSessionState(st: PlaybackState) {
+        st.shaderNotice?.let { n ->
+            if (n.seq != shaderNoticeSeq) {
+                shaderNoticeSeq = n.seq
+                _notices.trySend(PlayerNotice.ShaderChanged(n.kind))
+            }
+        }
         if (st.loadId != loadsIssued || loadsIssued == 0) return
         if (st.positionMs > 0) lastPositionMs = st.positionMs
         if (st.durationMs > 0) lastDurationMs = st.durationMs
@@ -928,6 +940,7 @@ class PlayerViewModel(
         handledErrorLoad = 0
         handledStartLoad = 0
         secondaryDecidedLoad = -1
+        shaderNoticeSeq = 0
         _state.update { it.copy(engine = PlayerEngine.MPV, session = null) }
         _notices.trySend(PlayerNotice.SwitchedToMpv)
         loadIntoSession(src, startOverride = positionMs ?: args.startMs)

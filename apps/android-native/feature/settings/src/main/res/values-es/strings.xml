@@ -36,7 +36,7 @@
     <string name="settings_external_mpv">mpv-android</string>
     <string name="settings_external_vlc">VLC</string>
     <string name="settings_preset">Escalado predeterminado</string>
-    <string name="settings_preset_battery">Anime4K en el teléfono consume batería; se desactiva por debajo del 20 %.</string>
+    <string name="settings_preset_battery">Anime4K en el teléfono consume batería: se desactiva por debajo del 20 % si no está cargando, y baja solo a una versión más liviana si el teléfono no llega a tiempo real.</string>
     <string name="settings_preset_mpv_only">Solo lo aplica el motor libmpv.</string>
     <string name="settings_preset_off">Desactivado</string>
     <string name="settings_preset_anime4k_a">Anime4K A</string>

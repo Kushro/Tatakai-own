@@ -32,10 +32,34 @@ object ShaderPresets {
         "fsr" to listOf(FSR),
     )
 
-    /** Every bundled shader (each must exist in [ASSET_DIR]). */
-    val ALL_FILES: Set<String> = CHAINS.values.flatten().toSet()
+    /**
+     * BUG-043: lighter chains a phone falls back to when the full one does not keep up (the M CNNs run at 7-9 fps on an Adreno 619
+     * at 1080p): only the S networks. Keyed `<preset>`[LITE_SUFFIX]; installed like any preset.
+     */
+    private val LITE: Map<String, List<String>> = mapOf(
+        "anime4k-a$LITE_SUFFIX" to listOf(CLAMP, RESTORE_S, UPSCALE_S),
+        "anime4k-aa$LITE_SUFFIX" to listOf(CLAMP, RESTORE_S, UPSCALE_S),
+        "anime4k-b$LITE_SUFFIX" to listOf(CLAMP, RESTORE_S, UPSCALE_S),
+        "anime4k-c$LITE_SUFFIX" to listOf(CLAMP, UPSCALE_S),
+    )
 
-    fun chain(preset: String): List<String> = CHAINS[preset].orEmpty()
+    /** Every bundled shader (each must exist in [ASSET_DIR]). */
+    val ALL_FILES: Set<String> = (CHAINS.values + LITE.values).flatten().toSet()
+
+    fun chain(preset: String): List<String> = CHAINS[preset] ?: LITE[preset].orEmpty()
+
+    /** The lighter step below [preset] (`anime4k-x` -> `anime4k-x-lite` -> `off`); null when already off. */
+    fun lighter(preset: String): String? = when {
+        chain(preset).isEmpty() -> null
+        preset in LITE || preset == "fsr" -> "off"
+        "$preset$LITE_SUFFIX" in LITE -> "$preset$LITE_SUFFIX"
+        else -> "off"
+    }
+
+    /** An Anime4K chain (full or lite): the battery rule of the preset setting applies to these, not to FSR. */
+    fun isAnime4K(preset: String): Boolean = preset.startsWith("anime4k-") && chain(preset).isNotEmpty()
+
+    const val LITE_SUFFIX = "-lite"
 
     /**
      * Target names inside `filesDir/shaders/<preset>/`: an index prefix keeps the chain order when listed (`00_Anime4K_Clamp...glsl`), so a

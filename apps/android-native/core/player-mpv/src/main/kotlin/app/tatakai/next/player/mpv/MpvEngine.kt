@@ -365,6 +365,21 @@ class MpvEngine(context: Context) {
         return files.isNotEmpty()
     }
 
+    /** BUG-043: frames mpv dropped so far in this file (`frame-drop-count` + `decoder-frame-drop-count`); null when unknown. */
+    fun droppedFrames(): Long? {
+        if (released) return null
+        val vo = mpv.getPropertyInt("frame-drop-count")
+        val dec = mpv.getPropertyInt("decoder-frame-drop-count")
+        if (vo == null && dec == null) return null
+        return (vo ?: 0).toLong() + (dec ?: 0).toLong()
+    }
+
+    /** The video's frame rate (`container-fps`, else `estimated-vf-fps`); null when unknown. */
+    fun videoFps(): Double? {
+        if (released) return null
+        return (mpv.getPropertyDouble("container-fps") ?: mpv.getPropertyDouble("estimated-vf-fps"))?.takeIf { it > 0 }
+    }
+
     fun currentPositionSecs(): Double = if (released) 0.0 else mpv.getPropertyDouble("time-pos") ?: _state.value.positionSecs
 
     private val surfaceLock = Any()

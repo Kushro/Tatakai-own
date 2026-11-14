@@ -39,6 +39,9 @@
     </plurals>
     <string name="player_error_decoder">This phone could not decode the video of this source.</string>
     <string name="player_switched_to_mpv">This phone has no hardware decoder for this video: it now plays with libmpv (software), it may be slow</string>
+    <string name="player_shader_lighter">Anime4K does not keep up on this phone: switched to a lighter version</string>
+    <string name="player_shader_off_slow">Anime4K does not keep up on this phone: turned off for this video</string>
+    <string name="player_shader_off_battery">Battery below 20%: Anime4K is off until the phone charges</string>
     <string name="player_fallback_next">That source failed. Trying another one.</string>
     <string name="player_failed_list">Tried</string>
     <string name="player_failed_entry">%1$s: %2$s</string>

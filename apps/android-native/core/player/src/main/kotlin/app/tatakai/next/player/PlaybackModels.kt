@@ -91,7 +91,23 @@ data class PlaybackState(
     val loop: Boolean = false,
     /** mpv `secondary-sid` (a [SubtitleOption.groupIndex]); null = off. */
     val secondarySubtitleId: Int? = null,
+    /** BUG-043 / BUG-006: the engine changed the shader preset by itself (the player shows a notice once per [ShaderNotice.seq]). */
+    val shaderNotice: ShaderNotice? = null,
 )
+
+/** Why the libmpv engine changed the shader preset by itself. */
+enum class ShaderFallback {
+    /** The chain dropped too many frames: a lighter Anime4K chain (S networks only). */
+    LIGHTER,
+
+    /** Even the lighter chain did not keep up: shaders off. */
+    OFF_SLOW,
+
+    /** Battery below 20 % and not charging (the rule of Settings › Reproductor › Preajuste). */
+    OFF_BATTERY,
+}
+
+data class ShaderNotice(val seq: Int, val kind: ShaderFallback)
 
 /**
  * Automatic fallback to the next source: at most [maxFallbacks] (3) automatic moves after failures; a successful start of playback
