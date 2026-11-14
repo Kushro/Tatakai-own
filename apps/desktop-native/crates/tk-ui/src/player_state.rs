@@ -128,6 +128,16 @@ pub struct FlowState {
 }
 
 impl FlowState {
+    /// The rows for the player's `SourcePicker`: the source being played is the checked one; before anything plays
+    /// (Manual asks first) the user's remembered pick stays checked, so the picker puts it on top (BUG-052, §11.1).
+    pub fn picker_sources(&self) -> Vec<SourceVm> {
+        self.sources
+            .iter()
+            .enumerate()
+            .map(|(i, s)| SourceVm { picked: self.current.map_or(s.picked, |c| c == i), ..s.clone() })
+            .collect()
+    }
+
     /// `prefs` = `Settings::sources`: a remembered pick that no longer meets them is ignored (and reported in
     /// [`FlowState::dropped_pick`]); the recommended source plays and the old pick stays in the list as an option.
     ///
@@ -1064,6 +1074,25 @@ mod tests {
         assert_eq!(crate::components::sources::picker_order(&f.sources, true)[0].id, "toko|web|Ok.ru", "on top of the picker");
         let f = FlowState::with_confirmed(v, SourceModeVm::Manual, &prefs, true);
         assert_eq!((f.dropped_pick.clone(), f.to_resolve()), (None, Some(4)));
+    }
+
+    #[test]
+    fn the_player_picker_keeps_the_remembered_pick_before_playing() {
+        // BUG-052 (r4): Manual asks before playing (`current == None`); the rows the player hands to its
+        // SourcePicker must keep the remembered pick checked so it goes on top, not the recommended one.
+        let prefs = SourcePrefsVm::default();
+        let mut v = list();
+        v[4].picked = true;
+        let mut f = FlowState::new(v, SourceModeVm::Manual, &prefs);
+        assert_eq!(f.current, None);
+        let rows = f.picker_sources();
+        assert_eq!(rows.iter().filter(|s| s.picked).map(|s| s.id.as_str()).collect::<Vec<_>>(), ["toko|web|Ok.ru"]);
+        assert_eq!(crate::components::sources::picker_order(&rows, true)[0].id, "toko|web|Ok.ru");
+        // Once something plays, the playing row is the checked one.
+        assert!(f.pick(&f.sources[1].id.clone()));
+        let rows = f.picker_sources();
+        assert_eq!(rows.iter().filter(|s| s.picked).count(), 1);
+        assert!(rows[f.current.unwrap()].picked);
     }
 
     #[test]

@@ -1136,13 +1136,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let flash_text = flash().filter(|(_, at)| now.saturating_sub(*at) < FLASH_MS).map(|(text, _)| text);
     let next_secs = u64::from(flow_prefs.auto_next_secs);
     let next_left = next_since().map(|since| countdown_left(since, now, next_secs));
-    // The picker marks the source being played as checked.
-    let picker_sources: Vec<SourceVm> = fs
-        .sources
-        .iter()
-        .enumerate()
-        .map(|(i, s)| SourceVm { picked: Some(i) == fs.current, ..s.clone() })
-        .collect();
+    // The picker checks the source being played, or the remembered pick before anything plays (BUG-052).
+    let picker_sources: Vec<SourceVm> = fs.picker_sources();
     let prefs = ui.settings.read().sources.clone();
 
     let go_back = {
