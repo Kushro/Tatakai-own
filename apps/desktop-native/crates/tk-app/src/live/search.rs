@@ -363,7 +363,10 @@ pub async fn search_in_extension(b: &LiveBackend, ext_id: &str, query: &str, pag
         match b.router.search(MediaKind::Anime, &query, page).await {
             Ok(p) => {
                 let probed = probe(&host, ext_id, route, p.items).await;
-                for m in probed.playable {
+                for mut m in probed.playable {
+                    // BUG-002: with AniList down the router answers from Kitsu, which may lack the English title;
+                    // keep the one the app already showed for this series, as the Metadata tab does.
+                    b.fill_known_title(&mut m);
                     let vm = to_vm(&m);
                     if !vm.id.is_empty() && !out.iter().any(|x| x.id == vm.id) {
                         out.push(vm);
