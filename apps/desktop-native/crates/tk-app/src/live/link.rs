@@ -143,7 +143,13 @@ impl LinkHost for AppLinkHost {
     }
     fn open_torrent(&self, req: tk_link::TorrentRequest) -> tk_link::HostFuture<'_, Result<tk_link::OpenedTorrent, tk_link::api::ErrorCode>> {
         let backend = self.backend.get().and_then(std::sync::Weak::upgrade);
+        let forced = torrent_failure_forced(std::env::var(FAIL_TORRENT_ENV).ok().as_deref());
         Box::pin(async move {
+            if forced {
+                // QA (r3 BLOCKED case): exercise the "sent another source instead" notice without a torrent without peers
+                tracing::warn!(media = %req.media_id, episode = req.episode, "Link torrent source refused on purpose ({FAIL_TORRENT_ENV})");
+                return Err(tk_link::api::ErrorCode::SourceUnavailable);
+            }
             let b = backend.ok_or(tk_link::api::ErrorCode::SourceUnavailable)?;
             let played = super::torrent_play::play(&b, &req.uri, &req.media_id, req.episode).await.map_err(|e| {
                 tracing::info!(kind = ?e.kind, detail = %e.detail, "Link torrent source could not be opened");
@@ -252,6 +258,16 @@ fn link_api_err(e: tk_link::api::ApiError) -> UiError {
         _ => ErrorKind::Other,
     };
     UiError::new(kind, format!("{}: {}", e.0.as_str(), e.0.message()))
+}
+
+/// QA hook: with `TATAKAI_LINK_FAIL_TORRENT=1` in the PC's environment every torrent source of a Link session is
+/// refused (`503 source_unavailable`, as when its metadata never arrives), so both "Enviar a dispositivo" from the PC and
+/// "Enviar" from the phone fall back to a web stream and say so. Off when unset, empty or `0`.
+pub const FAIL_TORRENT_ENV: &str = "TATAKAI_LINK_FAIL_TORRENT";
+
+/// Whether [`FAIL_TORRENT_ENV`] asks to refuse torrent sources. Pure.
+pub fn torrent_failure_forced(value: Option<&str>) -> bool {
+    value.map(str::trim).is_some_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
 }
 
 /// `Backend::send_to_device` (wave B, worker **k**; checklist `link.send-to-device`): resolve the episode on the PC
@@ -736,6 +752,17 @@ fn anime4k_note(vulkan: bool, dir: &std::path::Path, profiles: &[tk_link::media:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_qa_hook_refuses_torrents_only_when_asked() {
+        assert!(!torrent_failure_forced(None));
+        for off in ["", " ", "0", "false"] {
+            assert!(!torrent_failure_forced(Some(off)), "{off:?}");
+        }
+        for on in ["1", "yes", "true"] {
+            assert!(torrent_failure_forced(Some(on)), "{on:?}");
+        }
+    }
 
     #[test]
     fn the_lsfg_dll_setting_must_be_the_games_lossless_dll() {
