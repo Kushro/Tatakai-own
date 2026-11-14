@@ -16,6 +16,7 @@
     <string name="player_pip">Imagen en imagen</string>
     <string name="player_brightness">Brillo</string>
     <string name="player_volume">Volumen</string>
+    <string name="player_volume_muted">Silenciado</string>
     <string name="player_percent">%1$d%%</string>
     <string name="player_seek_seconds">%1$+d s</string>
     <string name="player_loading_sources">Buscando fuentes…</string>

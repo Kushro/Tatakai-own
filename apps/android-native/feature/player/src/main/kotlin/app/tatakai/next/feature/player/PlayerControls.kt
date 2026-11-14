@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.BrightnessMedium
@@ -125,6 +126,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.compose.ContentFrame
 import app.tatakai.next.model.SkipKind
 import app.tatakai.next.model.SourceKind
+import app.tatakai.next.player.VolumeDrag
 import app.tatakai.next.player.PlaybackController
 import app.tatakai.next.player.PlaybackService
 import app.tatakai.next.player.PlaybackState
@@ -424,7 +426,7 @@ private fun SheetRow(text: String, selected: Boolean, onClick: () -> Unit) {
     )
 }
 
-private data class Hud(val kind: Kind, val percent: Int = 0, val seconds: Int = 0) {
+private data class Hud(val kind: Kind, val percent: Int = 0, val seconds: Int = 0, val muted: Boolean = false) {
     enum class Kind { Brightness, Volume, Seek, Hold }
 }
 
@@ -439,8 +441,13 @@ private fun HudPill(hud: Hud, modifier: Modifier) {
                     Text(stringResource(R.string.player_percent, hud.percent))
                 }
                 Hud.Kind.Volume -> {
-                    Icon(Icons.AutoMirrored.Rounded.VolumeUp, stringResource(R.string.player_volume))
-                    Text(stringResource(R.string.player_percent, hud.percent))
+                    if (hud.muted) {
+                        Icon(Icons.AutoMirrored.Rounded.VolumeOff, stringResource(R.string.player_volume))
+                        Text(stringResource(R.string.player_volume_muted))
+                    } else {
+                        Icon(Icons.AutoMirrored.Rounded.VolumeUp, stringResource(R.string.player_volume))
+                        Text(stringResource(R.string.player_percent, hud.percent))
+                    }
                 }
                 Hud.Kind.Seek -> Text(stringResource(R.string.player_seek_seconds, hud.seconds))
                 Hud.Kind.Hold -> {
@@ -465,10 +472,9 @@ private fun GestureLayer(session: PlayerSession, onToggleControls: () -> Unit, o
         val current = activity?.window?.attributes?.screenBrightness ?: -1f
         mutableFloatStateOf(if (current >= 0f) current else 0.5f)
     }
-    var volume by remember {
-        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-        mutableFloatStateOf(audio.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / max)
-    }
+    // BUG-044: the volume drag is re-created from the live system volume and mute state on every drag start (never a value cached
+    // when the player opened), so a muted or zeroed stream can't jump to 15/15.
+    var volumeDrag by remember { mutableStateOf<VolumeDrag?>(null) }
     var onLeft by remember { mutableStateOf(true) }
     var scrubStartMs by remember { mutableLongStateOf(0L) }
     var scrubDeltaMs by remember { mutableLongStateOf(0L) }
@@ -504,7 +510,16 @@ private fun GestureLayer(session: PlayerSession, onToggleControls: () -> Unit, o
             }
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
-                    onDragStart = { onLeft = it.x < size.width / 2f },
+                    onDragStart = {
+                        onLeft = it.x < size.width / 2f
+                        volumeDrag = if (onLeft) null else VolumeDrag(
+                            startIndex = audio.getStreamVolume(AudioManager.STREAM_MUSIC),
+                            maxIndex = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+                            muted = audio.isStreamMute(AudioManager.STREAM_MUSIC),
+                        )
+                    },
+                    onDragEnd = { volumeDrag = null },
+                    onDragCancel = { volumeDrag = null },
                     onVerticalDrag = { change, dy ->
                         change.consume()
                         val delta = -dy / size.height * 1.2f
@@ -513,10 +528,10 @@ private fun GestureLayer(session: PlayerSession, onToggleControls: () -> Unit, o
                             activity?.window?.let { w -> w.attributes = w.attributes.also { it.screenBrightness = brightness } }
                             onHud(Hud(Hud.Kind.Brightness, percent = (brightness * 100).roundToInt()))
                         } else {
-                            volume = (volume + delta).coerceIn(0f, 1f)
-                            val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                            audio.setStreamVolume(AudioManager.STREAM_MUSIC, (volume * max).roundToInt(), 0)
-                            onHud(Hud(Hud.Kind.Volume, percent = (volume * 100).roundToInt()))
+                            volumeDrag?.let { drag ->
+                                drag.onDrag(-dy / size.height)?.let { audio.setStreamVolume(AudioManager.STREAM_MUSIC, it, 0) }
+                                onHud(Hud(Hud.Kind.Volume, percent = drag.percent, muted = drag.muted))
+                            }
                         }
                     },
                 )
