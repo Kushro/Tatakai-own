@@ -80,10 +80,10 @@
     <string name="extserver_title">Servidor de extensiones de la PC</string>
     <string name="extserver_intro">Vincula este teléfono con Tatakai abierto en tu PC con Windows o Linux para usar sus extensiones desde aquí. Los resultados de la PC aparecen en la lista de fuentes junto a tus extensiones locales.</string>
     <string name="extserver_entry_title">Extensiones de tu PC</string>
-    <string name="extserver_entry_body">Usa desde este teléfono las fuentes Aniyomi, Mihon y CloudStream instaladas en tu PC.</string>
+    <string name="extserver_entry_body">Usa desde este teléfono las extensiones de Tatakai (.kai) instaladas en tu PC y, si la PC las tiene, también las de Aniyomi, Mihon y CloudStream.</string>
     <string name="extserver_entry_open">Configurar</string>
     <string name="extserver_pair_title">Conectar con tu PC</string>
-    <string name="extserver_pair_hint">En la PC, en los ajustes de Tatakai, abre la sección del servidor de extensiones, elige Vincular teléfono y escanea el código QR.</string>
+    <string name="extserver_pair_hint">En la PC, abre Enlace → Servidor de extensiones, pulsa Mostrar código y escanea el código QR.</string>
     <string name="extserver_scan">Escanear código QR</string>
     <string name="extserver_scan_cancel">Cancelar escaneo</string>
     <string name="extserver_camera_denied">Permiso de cámara denegado. Puedes pegar el enlace de emparejamiento.</string>
@@ -121,7 +121,8 @@
     <string name="extserver_disabled">Desactivado</string>
     <string name="extserver_revoked">Acceso revocado</string>
     <string name="extserver_unauthorized">Acceso revocado o caducado: vuelve a emparejar desde la PC.</string>
-    <string name="extserver_offline_fallback">Tu PC no responde. Tatakai sigue usando las extensiones locales de este dispositivo.</string>
+    <string name="extserver_offline_fallback">Este servidor no responde. Tatakai sigue usando las extensiones locales de este dispositivo.</string>
+    <string name="extserver_offline_fallback_others">Este servidor no responde. Las fuentes siguen llegando de los otros servidores en línea y de las extensiones locales.</string>
     <string name="extserver_err_invalid_link">Este enlace de emparejamiento no es válido.</string>
     <string name="extserver_err_expired_link">Este código de emparejamiento caducó o ya se usó. Genera uno nuevo en tu PC.</string>
     <string name="extserver_err_insecure_host">Bloqueado: %1$s no está en tu red local, así que debe usar https://.</string>
@@ -136,7 +137,7 @@
     <string name="extserver_err_generic">El servidor no pudo completar la petición (%1$s).</string>
     <string name="extserver_benefits_title">¿Por qué vincular el teléfono con tu PC?</string>
     <string name="extserver_pros_title">Ventajas</string>
-    <string name="extserver_pro_other_ecosystems">Usa en el teléfono las fuentes de Aniyomi, Mihon y CloudStream, que solo corren en la PC.</string>
+    <string name="extserver_pro_other_ecosystems">Instala las extensiones de Tatakai (.kai) solo en la PC y úsalas también en el teléfono, junto con las de Aniyomi, Mihon y CloudStream que solo corren en la PC.</string>
     <string name="extserver_pro_install_once">Instala y configura las extensiones una sola vez para todos tus dispositivos.</string>
     <string name="extserver_pro_pc_scrapes">La PC hace el scraping y el bypass de Cloudflare con su propio navegador.</string>
     <string name="extserver_pro_shared_cache">Caché compartida y resultados progresivos: las fuentes aparecen en cuanto cada una responde.</string>

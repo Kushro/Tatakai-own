@@ -4,6 +4,8 @@
 package app.tatakai.next.feature.link
 
 import android.Manifest
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -277,7 +279,10 @@ private fun ConnectPanel(
 
 @Composable
 private fun PasteLinkDialog(isPlausible: (String) -> Boolean, onDismiss: () -> Unit, onConnect: (String) -> Unit) {
-    var text by rememberSaveable { mutableStateOf("") }
+    val context = LocalContext.current
+    // BUG-012: the button says "paste", so the dialog opens with the clipboard's pairing link already in the field (only when it looks like
+    // one: never a random clipboard text). The field stays editable for a hand-typed link.
+    var text by rememberSaveable { mutableStateOf(clipboardText(context)?.takeIf { isPlausible(it) }.orEmpty()) }
     var showError by rememberSaveable { mutableStateOf(false) }
     val invalid = showError && !isPlausible(text)
     AlertDialog(
@@ -331,13 +336,14 @@ private fun ServersPanel(state: ExtensionServersUiState, onEnabled: (String, Boo
             else -> {
                 state.servers.forEachIndexed { i, row ->
                     if (i > 0) HorizontalDivider()
-                    ServerItem(row, onEnabled = { onEnabled(row.connection.id, it) }, onRemove = { onRemove(row.connection.id) })
-                }
-                if (state.servers.any { it.connection.enabled && it.status == ServerStatus.Offline }) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Hint(stringResource(R.string.extserver_offline_fallback))
-                    }
+                    ServerItem(
+                        row,
+                        // BUG-014: the "not responding" note sits under the server that does not respond, and says whether another
+                        // linked server still answers, so an online PC listed below an old dead entry does not look broken.
+                        othersOnline = state.servers.any { it !== row && it.connection.enabled && it.status is ServerStatus.Online },
+                        onEnabled = { onEnabled(row.connection.id, it) },
+                        onRemove = { onRemove(row.connection.id) },
+                    )
                 }
             }
         }
@@ -345,7 +351,7 @@ private fun ServersPanel(state: ExtensionServersUiState, onEnabled: (String, Boo
 }
 
 @Composable
-private fun ServerItem(row: ServerRow, onEnabled: (Boolean) -> Unit, onRemove: () -> Unit) {
+private fun ServerItem(row: ServerRow, othersOnline: Boolean, onEnabled: (Boolean) -> Unit, onRemove: () -> Unit) {
     var confirming by rememberSaveable { mutableStateOf(false) }
     val conn = row.connection
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -366,6 +372,16 @@ private fun ServerItem(row: ServerRow, onEnabled: (Boolean) -> Unit, onRemove: (
             }
         }
         StatusPill(enabled = conn.enabled, status = row.status)
+        if (conn.enabled && row.status == ServerStatus.Offline) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.CloudOff, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Hint(
+                    stringResource(
+                        if (othersOnline) R.string.extserver_offline_fallback_others else R.string.extserver_offline_fallback,
+                    ),
+                )
+            }
+        }
         if (conn.enabled && row.status == ServerStatus.Unauthorized) {
             Text(
                 stringResource(R.string.extserver_unauthorized),
@@ -534,3 +550,10 @@ private fun Panel(icon: ImageVector, title: String, content: @Composable ColumnS
 private fun Hint(text: String) {
     Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
+
+/** The clipboard's plain text, or null (nothing copied, not text, or the read is refused). */
+private fun clipboardText(context: Context): String? = runCatching {
+    val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip ?: return null
+    if (clip.itemCount == 0) return null
+    clip.getItemAt(0).coerceToText(context)?.toString()?.trim()
+}.getOrNull()

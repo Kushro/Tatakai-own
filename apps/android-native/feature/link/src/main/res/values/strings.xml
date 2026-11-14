@@ -80,10 +80,10 @@
     <string name="extserver_title">PC extension server</string>
     <string name="extserver_intro">Link this phone to Tatakai running on your Windows or Linux PC to use its extensions from here. Results from the PC appear in the source list next to your local extensions.</string>
     <string name="extserver_entry_title">Extensions from your PC</string>
-    <string name="extserver_entry_body">Use the Aniyomi, Mihon and CloudStream sources installed on your PC from this phone.</string>
+    <string name="extserver_entry_body">Use the Tatakai extensions (.kai) installed on your PC from this phone, plus its Aniyomi, Mihon and CloudStream sources if it has them.</string>
     <string name="extserver_entry_open">Set up</string>
     <string name="extserver_pair_title">Connect to your PC</string>
-    <string name="extserver_pair_hint">On the PC, in Tatakai\'s settings, open the extension server section, choose Link phone and scan the QR code.</string>
+    <string name="extserver_pair_hint">On the PC, open Link → Extension server, press Show pairing code and scan the QR code.</string>
     <string name="extserver_scan">Scan QR code</string>
     <string name="extserver_scan_cancel">Cancel scan</string>
     <string name="extserver_camera_denied">Camera permission denied. You can paste the pairing link instead.</string>
@@ -121,7 +121,8 @@
     <string name="extserver_disabled">Disabled</string>
     <string name="extserver_revoked">Access revoked</string>
     <string name="extserver_unauthorized">Access revoked or expired: pair again from the PC.</string>
-    <string name="extserver_offline_fallback">Your PC is not answering. Tatakai keeps using this device’s local extensions.</string>
+    <string name="extserver_offline_fallback">This server is not answering. Tatakai keeps using this device’s local extensions.</string>
+    <string name="extserver_offline_fallback_others">This server is not answering. Sources keep coming from the other online servers and the local extensions.</string>
     <string name="extserver_err_invalid_link">This pairing link is not valid.</string>
     <string name="extserver_err_expired_link">This pairing code expired or was already used. Generate a new one on your PC.</string>
     <string name="extserver_err_insecure_host">Blocked: %1$s is not on your local network, so it must use https://.</string>
@@ -136,7 +137,7 @@
     <string name="extserver_err_generic">The server could not complete the request (%1$s).</string>
     <string name="extserver_benefits_title">Why link your phone to your PC?</string>
     <string name="extserver_pros_title">Advantages</string>
-    <string name="extserver_pro_other_ecosystems">Use Aniyomi, Mihon and CloudStream sources on your phone, even though they only run on the PC.</string>
+    <string name="extserver_pro_other_ecosystems">Install Tatakai extensions (.kai) on the PC only and use them on your phone too, along with Aniyomi, Mihon and CloudStream sources that only run on the PC.</string>
     <string name="extserver_pro_install_once">Install and configure extensions once for every device.</string>
     <string name="extserver_pro_pc_scrapes">The PC does the scraping and the Cloudflare bypass with its own browser.</string>
     <string name="extserver_pro_shared_cache">Shared cache and progressive results: sources appear as soon as each one answers.</string>
