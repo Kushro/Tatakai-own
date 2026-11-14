@@ -46,6 +46,7 @@ val extensionsModule: Module = module {
                         }
                     },
                     onEvent = { level, op, msg -> logs.append(manifest.id, level, op, msg) },
+                    onDebug = { msg -> Log.d("Ext:${manifest.id}", msg) },
                 )
             },
         )

@@ -430,6 +430,7 @@ class ExtensionRepositoryImpl(
         val params = streamParams(media, episode)
         val acc = Mutex()
         val fresh = ArrayList<SourceCandidate>()
+        val incomplete = java.util.concurrent.atomic.AtomicBoolean(false)
         coroutineScope {
             snapshot.forEach { (m, routes) ->
                 // Routes of one extension are serialized by the host: they run one after the other here, each with its own budget
@@ -438,7 +439,7 @@ class ExtensionRepositoryImpl(
                 val withPrefs = withPreferences(m, params)
                 launch(io) {
                     for (route in Candidates.runOrder(routes)) {
-                        val list = candidatesOf(m, route, withPrefs, budgetMs(m))
+                        val list = candidatesOf(m, route, withPrefs, budgetMs(m)) { incomplete.set(true) }
                         if (list.isNotEmpty()) {
                             val all = acc.withLock {
                                 fresh += list
@@ -452,7 +453,9 @@ class ExtensionRepositoryImpl(
         }
         val all = acc.withLock { fresh.toList() }
         if (all.isNotEmpty()) synchronized(candidateCache) {
-            candidateCache[cacheKey] = clock() to all
+            // BUG-128: a route that failed or ran out of time is asked again soon (stamped so it expires PARTIAL_CACHE_TTL_MS from now).
+            val stamp = if (incomplete.get()) clock() - (CANDIDATE_CACHE_TTL_MS - PARTIAL_CACHE_TTL_MS) else clock()
+            candidateCache[cacheKey] = stamp to all
             while (candidateCache.size > CANDIDATE_CACHE_MAX) candidateCache.remove(candidateCache.keys.first())
         }
         // Always end on the complete list (also when nothing answered), so collectors know the ids.
@@ -468,16 +471,27 @@ class ExtensionRepositoryImpl(
         }
     }
 
-    private suspend fun candidatesOf(m: ExtensionManifest, route: String, params: JsonObject, budget: Long): List<SourceCandidate> {
+    private suspend fun candidatesOf(
+        m: ExtensionManifest,
+        route: String,
+        params: JsonObject,
+        budget: Long,
+        onIncomplete: () -> Unit = {},
+    ): List<SourceCandidate> {
+        var partial = false
         val result: Result<List<SourceCandidate>>? = withTimeoutOrNull(budget) {
             try {
-                Result.success(Candidates.mapCandidates(m.id, m.name, host.call(m.id, route, params)))
+                val body = host.call(m.id, route, params)
+                // BUG-128: the route ran out of time; these are the providers that answered before.
+                partial = (body["partial"] as? JsonPrimitive)?.content == "true"
+                Result.success(Candidates.mapCandidates(m.id, m.name, body))
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Result.failure(e)
             }
         }
+        if (result == null || result.isFailure || partial) onIncomplete()
         return when {
             result == null -> {
                 logStore.err(m.id, route, "no answer within ${budget / 1000} s")
@@ -488,7 +502,11 @@ class ExtensionRepositoryImpl(
                 emptyList()
             }
             else -> result.getOrThrow().also { list ->
-                if (list.isEmpty()) logStore.warn(m.id, route, "no sources for this episode") else logStore.ok(m.id, route, "${list.size} sources")
+                when {
+                    list.isEmpty() -> logStore.warn(m.id, route, "no sources for this episode")
+                    partial -> logStore.warn(m.id, route, "${list.size} sources (out of time: the providers that answered)")
+                    else -> logStore.ok(m.id, route, "${list.size} sources")
+                }
             }
         }
     }
@@ -1257,6 +1275,8 @@ class ExtensionRepositoryImpl(
         private const val MAX_PROVIDER_EMBEDS = 2
         /** How long Details' resolved candidates serve the player's own resolve (see candidateCache). */
         const val CANDIDATE_CACHE_TTL_MS = 3 * 60_000L
+        /** A listing with a failed or timed-out route (desktop FIX-D5 parity: partial answers live 15 s). */
+        const val PARTIAL_CACHE_TTL_MS = 15_000L
         private const val CANDIDATE_CACHE_MAX = 16
         private val SHA_HEX = Regex("^[0-9a-f]{64}$")
 

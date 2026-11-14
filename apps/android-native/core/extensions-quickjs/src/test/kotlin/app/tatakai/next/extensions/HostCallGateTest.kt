@@ -57,4 +57,23 @@ class HostCallGateTest {
         assertEquals("network down", r.exceptionOrNull()?.message)
         scope.cancel()
     }
+
+    /** BUG-128: two calls back to back on one runtime: the first one's leftover job neither blocks nor ends the second. */
+    @Test
+    fun a_leftover_job_of_one_call_does_not_end_or_hold_the_next_call() = runBlocking {
+        val scope = scope()
+        val gate = HostCallGate(scope)
+        gate.begin()
+        val leftover = async { gate.run("abandoned") { delay(30_000); "late answer" } }
+        delay(20)
+        gate.settle()
+        // The next call starts while the leftover's cancellation may still be in flight.
+        gate.begin()
+        val next = async { gate.run("abandoned") { delay(100); "fresh body" } }
+        assertEquals("abandoned", withTimeout(2_000) { leftover.await() })
+        assertEquals("fresh body", withTimeout(2_000) { next.await() })
+        assertTrue(!gate.settled, "the leftover of the first call must not settle the second one")
+        gate.settle()
+        scope.cancel()
+    }
 }

@@ -11,8 +11,11 @@ sealed class ExtError(message: String, val status: Int, cause: Throwable? = null
     class NotImplemented(message: String) : ExtError(message, 501)
     class BundleError(message: String, cause: Throwable? = null) : ExtError(message, 502, cause)
 
-    /** Exceeded the 15 s wall-clock budget of one call; the runtime is discarded. */
-    class Timeout : ExtError("Extension call timed out", 504)
+    /**
+     * Exceeded the wall-clock budget of one call; the runtime is discarded. BUG-128: [partial] holds what the bundle had already
+     * handed to `onChunk` (an aggregate route lists those sources instead of none, like the desktop host).
+     */
+    class Timeout(val partial: JsInvocation? = null) : ExtError("Extension call timed out", 504)
 
     /** Exceeded the JsEngine.MEMORY_LIMIT_BYTES memory limit; the runtime is discarded. */
     class OutOfMemory : ExtError("Extension exceeded its memory limit", 507)

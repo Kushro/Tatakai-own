@@ -876,11 +876,24 @@
     return true;
   };
   g.__tk_has = function (name) { return !!g.__tk_instance && typeof g.__tk_instance[name] === 'function'; };
-  g.__tk_call = async function (method, argsJson, collect) {
+  // BUG-128: every call carries the host's call number. Work a bundle left behind can resume during a LATER call of the same runtime
+  // (its promise jobs run in the next evaluation): its chunks, its "settled" signal and its timer reset are then ignored instead of
+  // ending the call in progress (the host would drop that call's fetches as "already answered" and could return the old result).
+  g.__tk_current_call = 0;
+  g.__tk_call = async function (method, argsJson, collect, callId) {
     var inst = g.__tk_instance, fn = inst && inst[method];
     if (typeof fn !== 'function') throw new Error('__TK_NOT_IMPLEMENTED__' + method);
+    var id = typeof callId === 'number' ? callId : 0;
+    g.__tk_current_call = id;
     var args = JSON.parse(argsJson), chunks = [], out = null;
-    if (collect) args.push(function (c) { try { chunks.push(JSON.parse(JSON.stringify(c === undefined ? null : c))); } catch (e) { /* ignore */ } });
+    // Every chunk also goes to the host right away, so a call that runs out of time still lists what it had found.
+    if (collect) args.push(function (c) {
+      try {
+        var text = JSON.stringify(c === undefined ? null : c);
+        chunks.push(JSON.parse(text));
+        if (g.__tk_current_call === id && typeof g.__host_chunk === 'function') g.__host_chunk(text, id);
+      } catch (e) { /* ignore */ }
+    });
     try {
       var r = await fn.apply(inst, args);
       out = JSON.stringify({ result: r === undefined ? null : r, chunks: chunks });
@@ -888,8 +901,10 @@
     } finally {
       // BUG-099/100: the answer is known. Drop the timers the bundle left behind (a provider it gave up on) and tell the host, so
       // the fetches, sleeps and browser operations still running for this call stop holding the evaluation (desktop parity).
-      timers = Object.create(null);
-      if (typeof g.__host_settled === 'function') g.__host_settled(out);
+      if (g.__tk_current_call === id) {
+        timers = Object.create(null);
+        if (typeof g.__host_settled === 'function') g.__host_settled(out, id);
+      }
     }
   };
 })(globalThis);

@@ -14,6 +14,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /** An extension as the host sees it: package contents plus the user's enable switch. */
 class LoadedExtension(
@@ -33,9 +34,11 @@ class ExtensionHost(
     private val hostFor: (ExtensionManifest) -> JsHost,
     private val clock: () -> Instant = { Instant.now() },
 ) {
-    private class Slot(var ext: LoadedExtension) {
+    private class Slot(@Volatile var ext: LoadedExtension) {
         val mutex = Mutex()
-        var session: JsSession? = null
+        @Volatile var session: JsSession? = null
+        /** BUG-128: sessions replaced while a call was using them; closed once that call ends (see [retire]). */
+        val retired = ConcurrentLinkedQueue<JsSession>()
     }
 
     private class CacheEntry(val at: Instant, val value: JsonObject)
@@ -50,15 +53,38 @@ class ExtensionHost(
             slots[id] = Slot(extension)
         } else {
             existing.ext = extension
-            existing.session?.runCatching { close() }
-            existing.session = null
+            retire(existing)
         }
         cache.keys.removeAll { it.startsWith("$id|") }
     }
 
     fun unregister(id: String) {
-        slots.remove(id)?.session?.runCatching { close() }
+        slots.remove(id)?.let(::retire)
         cache.keys.removeAll { it.startsWith("$id|") }
+    }
+
+    /**
+     * BUG-128: the next call of [slot] opens a fresh runtime; the current one is closed now if no call is using it, or as soon as
+     * the running call ends. Closing it under a running call (switching the extension off and on, an update) interrupted that
+     * call: QuickJS answered "InternalError: interrupted" and the route lost every source it had found.
+     */
+    private fun retire(slot: Slot) {
+        slot.session?.let { slot.retired.add(it) }
+        slot.session = null
+        closeRetiredIfIdle(slot)
+    }
+
+    private fun closeRetiredIfIdle(slot: Slot) {
+        if (slot.retired.isEmpty() || !slot.mutex.tryLock()) return
+        try {
+            closeRetired(slot)
+        } finally {
+            slot.mutex.unlock()
+        }
+    }
+
+    private fun closeRetired(slot: Slot) {
+        while (true) slot.retired.poll()?.runCatching { close() } ?: break
     }
 
     fun namespaces(): List<JsonObject> = slots.values.map { namespaceInfo(it.ext.manifest) }
@@ -136,18 +162,28 @@ class ExtensionHost(
         }
         val chunks = ArrayList<JsonElement>()
         var returned: JsonElement = JsonNull
-        withSession(slot) { session ->
-            val method = when {
-                session.hasMethod(primary) -> primary
-                session.hasMethod(fallback) -> fallback
-                else -> throw ExtError.NotImplemented("Bundle does not implement $primary or $fallback")
+        var partial = false
+        try {
+            withSession(slot) { session ->
+                val method = when {
+                    session.hasMethod(primary) -> primary
+                    session.hasMethod(fallback) -> fallback
+                    else -> throw ExtError.NotImplemented("Bundle does not implement $primary or $fallback")
+                }
+                val r = session.invoke(method, listOf(opts), collectChunks = method == primary)
+                chunks += r.chunks
+                returned = r.result
             }
-            val r = session.invoke(method, listOf(opts), collectChunks = method == primary)
-            chunks += r.chunks
-            returned = r.result
+        } catch (e: ExtError.Timeout) {
+            // BUG-128: the providers that answered before the budget ran out still count (desktop parity); none → the timeout.
+            val got = e.partial?.chunks.orEmpty()
+            if (got.isEmpty()) throw e
+            chunks += got
+            partial = true
         }
-        val body = buildAggregate(m, route, chunks, returned)
-        cache[key] = CacheEntry(clock(), body)
+        val body = buildAggregate(m, route, chunks, returned).let { if (partial) JsonObject(it + ("partial" to JsonPrimitive(true))) else it }
+        // A partial listing is not cached (BUG-102): the next look asks the providers again.
+        if (!partial) cache[key] = CacheEntry(clock(), body)
         return body
     }
 
@@ -325,26 +361,42 @@ class ExtensionHost(
     // ---- plumbing ---------------------------------------------------------------------------------------------------------------
 
     private suspend fun withSession(slot: Slot, block: suspend (JsSession) -> Unit) {
+        try {
+            locked(slot, block)
+        } finally {
+            // A session retired while this call held the lock, after its own drain, is closed here (see [retire]).
+            closeRetiredIfIdle(slot)
+        }
+    }
+
+    private suspend fun locked(slot: Slot, block: suspend (JsSession) -> Unit) {
         slot.mutex.withLock {
             val ext = slot.ext
             var session = slot.session
             if (session == null) {
                 session = engine.open(ext.manifest, ext.bundle, hostFor(ext.manifest))
-                slot.session = session
+                // Re-registered while it opened: this call still uses it, the next one opens the new package.
+                if (slot.ext === ext) slot.session = session else slot.retired.add(session)
             }
             try {
                 block(session)
             } catch (e: ExtError.Timeout) {
-                discard(slot); throw e
+                discard(slot, session); throw e
             } catch (e: ExtError.OutOfMemory) {
-                discard(slot); throw e
+                discard(slot, session); throw e
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // BUG-128: the caller gave up mid-call (its own budget, a screen closed). The bundle's half-run call stays in the
+                // runtime and could resume inside the next call: that runtime is not reused.
+                discard(slot, session); throw e
+            } finally {
+                closeRetired(slot)
             }
         }
     }
 
-    private fun discard(slot: Slot) {
-        slot.session?.runCatching { close() }
-        slot.session = null
+    private fun discard(slot: Slot, session: JsSession) {
+        session.runCatching { close() }
+        if (slot.session === session) slot.session = null
     }
 
     /** SourceOptions of the bundle API from the legacy query keys (routes.v1.json `queryParams.sourceOptions`). */

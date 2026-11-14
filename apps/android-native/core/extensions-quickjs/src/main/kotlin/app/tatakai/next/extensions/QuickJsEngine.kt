@@ -117,6 +117,12 @@ internal class QuickJsSession(
     private val gate = HostCallGate(hostJobs)
     /** The result JSON the prelude handed to `__host_settled` for the current call (kept if the evaluation fails afterwards). */
     @Volatile private var settledResult: String? = null
+    /** BUG-128: the `onChunk` values of the current call as they arrive (what a timed-out call still returns, see [ExtError.Timeout]). */
+    private val liveChunks = java.util.Collections.synchronizedList(ArrayList<JsonElement>())
+    /** Number of the call in progress, handed to `__tk_call` (BUG-128). */
+    @Volatile private var callId = 0
+
+    private fun isCurrentCall(id: Any?): Boolean = (id as? Number)?.toInt() == callId
 
     fun bind() {
         qjs.function("__host_log") { a -> host.log(a[0].toString(), a[1].toString()); null }
@@ -131,9 +137,18 @@ internal class QuickJsSession(
             val request = a[0].toString()
             gate.run(ABANDONED_FETCH) { fetchJson(request) }
         }
+        qjs.function("__host_chunk") { a ->
+            if (isCurrentCall(a.getOrNull(1))) {
+                (a.getOrNull(0) as? String)?.let { text -> runCatching { Json.parseToJsonElement(text) }.getOrNull()?.let(liveChunks::add) }
+            }
+            null
+        }
+        // BUG-128: only the call in progress may settle; a call left behind that finishes during a later one is ignored.
         qjs.function("__host_settled") { a ->
-            settledResult = a.getOrNull(0) as? String
-            gate.settle()
+            if (isCurrentCall(a.getOrNull(1))) {
+                settledResult = a.getOrNull(0) as? String
+                gate.settle()
+            }
             null
         }
         qjs.function("__host_hash") { a -> b64(digest(a[0].toString()).digest(unb64(a[1].toString()))) }
@@ -200,18 +215,20 @@ internal class QuickJsSession(
             html.clear()
             softTimedOut = false
             settledResult = null
+            liveChunks.clear()
+            val id = ++callId
             gate.begin()
             browser?.openedBrowser = false
             val text: String? = try {
                 if (browser == null) {
                     withTimeout(JsEngine.CALL_TIMEOUT_MS + 1_000) {
-                        qjs.evaluate<String?>("await __tk_call(\"$method\", __host_args(), $collectChunks)", "call.js")
+                        qjs.evaluate<String?>("await __tk_call(\"$method\", __host_args(), $collectChunks, $id)", "call.js")
                     }
                 } else {
                     // A call that opened a browser may run up to CALL_BUDGET_WITH_BROWSER_MS (Cloudflare solve); any other call keeps the
                     // CALL_TIMEOUT_MS budget, enforced by this watchdog because the interrupt budget of the runtime is the long one.
                     coroutineScope {
-                        val eval = async { qjs.evaluate<String?>("await __tk_call(\"$method\", __host_args(), $collectChunks)", "call.js") }
+                        val eval = async { qjs.evaluate<String?>("await __tk_call(\"$method\", __host_args(), $collectChunks, $id)", "call.js") }
                         val watchdog = launch {
                             delay(JsEngine.CALL_TIMEOUT_MS)
                             if (!browser.openedBrowser) {
@@ -229,15 +246,17 @@ internal class QuickJsSession(
                 }
             } catch (e: TimeoutCancellationException) {
                 runCatching { qjs.interruptEvaluation() }
-                settledResult ?: throw ExtError.Timeout()
+                settledResult ?: throw timedOut()
             } catch (e: QuickJsInterruptedException) {
-                settledResult ?: throw ExtError.Timeout()
+                settledResult ?: throw timedOut()
             } catch (e: CancellationException) {
-                if (softTimedOut) settledResult ?: throw ExtError.Timeout() else throw e
+                if (softTimedOut) settledResult ?: throw timedOut() else throw e
             } catch (e: Exception) {
                 // The bundle's answer already arrived: a late failure of an abandoned job does not take it away.
                 settledResult ?: run {
-                    if (softTimedOut) throw ExtError.Timeout()
+                    // BUG-128: the runtime's own deadline (evaluationTimeoutMillis) surfaces as the JS error "InternalError:
+                    // interrupted", not as QuickJsInterruptedException: it is a timeout too, with the sources found so far.
+                    if (softTimedOut || isInterruption(e)) throw timedOut()
                     throw mapFailure(e, "Extension call failed")
                 }
             } finally {
@@ -248,6 +267,8 @@ internal class QuickJsSession(
             JsInvocation(parsed["result"] ?: JsonNull, (parsed["chunks"] as? JsonArray)?.toList().orEmpty())
         }
     }
+
+    private fun timedOut(): ExtError.Timeout = ExtError.Timeout(JsInvocation(JsonNull, synchronized(liveChunks) { liveChunks.toList() }))
 
     fun mapFailure(e: Throwable, fallback: String): ExtError {
         val msg = e.message.orEmpty()
@@ -281,6 +302,12 @@ internal class QuickJsSession(
 
     companion object {
         private val METHOD = Regex("[A-Za-z_$][A-Za-z0-9_$]*")
+
+        /** QuickJS's interrupt error (budget or `interruptEvaluation`), however quickjs-kt wraps it. */
+        internal fun isInterruption(e: Throwable): Boolean =
+            generateSequence(e) { it.cause }.take(5).any { t ->
+                t is QuickJsInterruptedException || t.message.orEmpty().lineSequence().firstOrNull().orEmpty().contains("InternalError: interrupted")
+            }
         /** What a fetch / browser operation still running when its call settled resolves to (the bundle no longer reads it). */
         const val ABANDONED_FETCH = "{\"error\":\"Extension call already answered\"}"
         const val ABANDONED_BROWSER = "{\"ok\":false,\"error\":\"Extension call already answered\"}"
