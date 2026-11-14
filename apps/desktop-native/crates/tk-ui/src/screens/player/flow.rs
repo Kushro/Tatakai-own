@@ -430,9 +430,19 @@ impl Flow {
             }
             let loaded = match resolved {
                 Ok(vm) if vm.streams.is_empty() => Err(UiError::new(ErrorKind::NoSource, "")),
-                Ok(vm) => {
+                Ok(mut vm) => {
                     let start = resume.filter(|p| *p > 0.0).unwrap_or(f64::from(vm.start_secs));
                     meta.set(Some(vm.clone()));
+                    // BUG-059: FFmpeg opens every rendition of an HLS master before the first frame; mpv gets a
+                    // copy with the variant and languages it plays (headerless sources such as proxy URLs).
+                    if let Some(s) = vm.streams.first()
+                        && let Some(local) = self.backend.mpv_hls_master(&s.url, &s.headers).await
+                    {
+                        if flow.peek().attempt != attempt {
+                            return;
+                        }
+                        vm.streams[0].url = local;
+                    }
                     let mpv = self.ext_mpv.peek().clone();
                     if let Some(mpv) = mpv {
                         self.start_external(mpv, &vm, start, attempt).await

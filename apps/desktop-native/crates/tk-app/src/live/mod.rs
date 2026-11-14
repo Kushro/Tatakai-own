@@ -27,6 +27,7 @@ mod torrent_manual;
 mod downloads;
 mod ext_catalog;
 mod ext_server;
+mod hls;
 mod home;
 mod manga;
 mod novel;
@@ -561,6 +562,15 @@ impl Backend for LiveBackend {
         // Wave A, worker i: `SourceVm::debrid` from the connected debrid services (best effort). Wave B
         // (`sources.debrid.episode-context`, k): the episode context travels with the call instead of being guessed.
         Ok(debrid::mark_cached(self, id, episode, ranked).await)
+    }
+
+    async fn mpv_hls_master(&self, url: &str, headers: &[(String, String)]) -> Option<String> {
+        if !hls::applies(url, headers) {
+            return None;
+        }
+        let prefs = settings_store::load(&self.settings_file).sources;
+        let dir = self.data_root.join("cache").join("mpv-hls");
+        hls::filtered_master(&dir, url, &prefs.dub_lang, &prefs.sub_lang).await
     }
 
     async fn playback_source(&self, id: &str, episode: u32, source_id: &str) -> UiResult<PlaybackVm> {

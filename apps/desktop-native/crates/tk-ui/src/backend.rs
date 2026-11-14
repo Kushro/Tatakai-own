@@ -1346,6 +1346,11 @@ pub trait Backend: Send + Sync + 'static {
     async fn playback_source(&self, _id: &str, _episode: u32, _source_id: &str) -> UiResult<PlaybackVm> {
         Err(UiError::not_wired("playback_source"))
     }
+    /// BUG-059: a local copy of an HLS master filtered for mpv (one variant, the preferred languages' renditions), to
+    /// load instead of `url`; `None` = load `url` as it is (not HLS, has headers, nothing to drop, any failure).
+    async fn mpv_hls_master(&self, _url: &str, _headers: &[(String, String)]) -> Option<String> {
+        None
+    }
     /// Feed the reliability average of that source (`ok` = playback started).
     async fn report_source_result(&self, _source_id: &str, _ok: bool) -> UiResult<()> {
         Err(UiError::not_wired("report_source_result"))
