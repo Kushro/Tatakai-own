@@ -14,7 +14,7 @@ use dioxus::prelude::*;
 
 use crate::app::{Route, Services, Ui};
 use crate::backend::{
-    AiringVm, DetailsExtraVm, DetailsVm, DeviceVm, EpisodeVm, LinkStatusVm, MediaFactsVm, SendToDeviceVm, SourceVm, TrailerVm,
+    AiringVm, DetailsExtraVm, DetailsVm, DeviceVm, EpisodeVm, LinkStatusVm, MediaFactsVm, SendOutcomeVm, SendToDeviceVm, SourceVm, TrailerVm,
 };
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
@@ -366,6 +366,8 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
     let mut picker_list = use_signal(|| None::<Result<Vec<SourceVm>, UiError>>);
     let mut send_target = use_signal(|| None::<DeviceVm>);
     let mut send_error = use_signal(|| None::<UiError>);
+    // plan §9.1 / §11.4: "Se envió X porque…" when another source than the chosen one went to the phone
+    let mut send_notice = use_signal(|| None::<String>);
 
     // The ▾ of the split button and "See all sources" open the same picker with a fresh list.
     let open_picker = use_callback({
@@ -778,9 +780,17 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                         send_target.set(None);
                         let backend = send_backend.clone();
                         let req = send_req.clone();
+                        send_notice.set(None);
                         spawn(async move {
-                            if let Err(e) = backend.send_to_device(&req).await {
-                                send_error.set(Some(e));
+                            match backend.send_to_device(&req).await {
+                                Ok(outcome) => {
+                                    send_error.set(None);
+                                    if let Some(text) = send_outcome_text(&outcome) {
+                                        snackbar.show(text.clone());
+                                        send_notice.set(Some(text));
+                                    }
+                                }
+                                Err(e) => send_error.set(Some(e)),
                             }
                         });
                     },
@@ -889,6 +899,9 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                         {devices_body}
                         if let Some(err) = send_error() {
                             ErrorState { error: err.clone(), compact: true, retry: false }
+                        }
+                        if let Some(note) = send_notice() {
+                            p { class: "tk-muted tk-details__send-note", role: "status", "{note}" }
                         }
                     }
                 }
@@ -1382,6 +1395,14 @@ fn DetailsEpisodeRow(
     }
 }
 
+/// Plan §9.1 / §11.4: the notice after "Enviar a dispositivo" when another source than the chosen one went (never a
+/// technical id: the source is named as the lists name it). `None` = the chosen source was sent.
+pub(crate) fn send_outcome_text(o: &SendOutcomeVm) -> Option<String> {
+    let name = o.sent_instead.as_deref()?.trim();
+    let source = if name.is_empty() { t("details.send_other_source") } else { name.to_owned() };
+    Some(tf(if o.torrent_failed { "details.send_other_torrent" } else { "details.send_other" }, &[("source", &source)]))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1392,6 +1413,16 @@ mod tests {
 
     fn dev(id: &str, online: bool) -> DeviceVm {
         DeviceVm { id: id.into(), name: id.into(), platform: "android".into(), last_seen_unix: None, online }
+    }
+
+    #[test]
+    fn send_notice_names_the_source_sent_instead() {
+        // plan §9.1 / §11.4 (tests run in English: nothing in the test build switches the language)
+        assert_eq!(send_outcome_text(&SendOutcomeVm::default()), None);
+        let torrent = SendOutcomeVm { sent_instead: Some("anizone · 1080p".into()), torrent_failed: true };
+        assert_eq!(send_outcome_text(&torrent).unwrap(), "Sent anizone · 1080p because the PC could not open the chosen torrent.");
+        let web = SendOutcomeVm { sent_instead: Some(" ".into()), torrent_failed: false };
+        assert_eq!(send_outcome_text(&web).unwrap(), "Sent another web source because the chosen source could not be sent.");
     }
 
     #[test]

@@ -33,7 +33,7 @@ pub use crate::model::novel::{
     KittenStatusVm, NovelContentVm, NovelDetailsVm, TtsClipVm, TtsProviderVm, TtsRequestVm, TtsSpeakVm, TtsVoiceVm,
 };
 pub use crate::model::server::{
-    FlareSolverrVm, ProxyStatusVm, RemoteCommandVm, SendToDeviceVm, ServerDeviceVm, ServerLogPageVm, ServerLogVm,
+    FlareSolverrVm, ProxyStatusVm, RemoteCommandVm, SendOutcomeVm, SendToDeviceVm, ServerDeviceVm, ServerLogPageVm, ServerLogVm,
     ServerPairingVm, ServerStatusVm, SniffRequestVm, SniffResultVm,
 };
 pub use crate::model::social::{
@@ -2067,7 +2067,7 @@ pub trait Backend: Send + Sync + 'static {
         Err(UiError::not_wired("sniff_embed"))
     }
     /// Hand a title / episode / position to a paired phone over Tatakai Link (`link.send-to-device`).
-    async fn send_to_device(&self, _req: &SendToDeviceVm) -> UiResult<()> {
+    async fn send_to_device(&self, _req: &SendToDeviceVm) -> UiResult<SendOutcomeVm> {
         Err(UiError::not_wired("send_to_device"))
     }
     /// Long-poll: the next command a paired phone sent (`POST /v1/control`, `link.remote-control` /

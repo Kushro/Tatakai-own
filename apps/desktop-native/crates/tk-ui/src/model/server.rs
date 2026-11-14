@@ -275,6 +275,15 @@ pub struct SendToDeviceVm {
     pub position_secs: u32,
 }
 
+/// What `Backend::send_to_device` sent (decision plan §9.1 / §11.4: say when another source went instead).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SendOutcomeVm {
+    /// Name of the source that was sent when it is not the chosen one ("anizone · 1080p"); `None` = the chosen one.
+    pub sent_instead: Option<String>,
+    /// The chosen source was a torrent the PC could not open (otherwise: a web source the PC refused).
+    pub torrent_failed: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

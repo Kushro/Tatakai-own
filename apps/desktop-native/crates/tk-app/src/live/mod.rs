@@ -52,7 +52,7 @@ use tk_ui::backend::{
     ListConflictVm, ListEntryUpdateVm, ListEntryVm, ListImportVm, ListStatusVm, ListSyncVm, LocalItemVm, MangaDetailsVm,
     MediaVm, NotificationPageVm, NovelContentVm, NovelDetailsVm, PageVm, PlaybackVm, PresenceVm, ProfileVm,
     ProviderHealthVm, ProviderItemVm, ProxyStatusVm, ReadHomeVm, ReadProgressVm, RecommendationVm, RecsFeedbackVm,
-    RemoteCommandVm, ReviewVm, SearchPageVm, SearchQueryVm, SectionVm, SendToDeviceVm, ServerDeviceVm, ServerLogPageVm,
+    RemoteCommandVm, ReviewVm, SearchPageVm, SearchQueryVm, SectionVm, SendOutcomeVm, SendToDeviceVm, ServerDeviceVm, ServerLogPageVm,
     ServerPairingVm, ServerStatusVm, SkipMarkVm, SniffRequestVm, SniffResultVm, SourceVm, StorageUsageVm,
     StremioAddonVm, SystemCapsVm, TasteProfileVm, TopRangeVm, TorrentActivityVm, TorrentFileVm, TorrentLibraryItemVm,
     TorrentPeerVm, TorrentPlaybackVm, TorrentPreviewVm, TorrentSessionVm, TorrentSettingsVm, TorrentStatsVm,
@@ -1171,7 +1171,7 @@ impl Backend for LiveBackend {
     async fn sniff_embed(&self, req: &SniffRequestVm) -> UiResult<SniffResultVm> {
         sniffer::sniff(self, req).await
     }
-    async fn send_to_device(&self, req: &SendToDeviceVm) -> UiResult<()> {
+    async fn send_to_device(&self, req: &SendToDeviceVm) -> UiResult<SendOutcomeVm> {
         link::send_to_device(self, req).await
     }
     async fn wait_remote_command(&self) -> UiResult<RemoteCommandVm> {

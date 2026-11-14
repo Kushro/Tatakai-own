@@ -17,7 +17,7 @@ use tk_link::discovery::Announcer;
 use tk_link::media::capabilities::Sustain;
 use tk_link::sessions::{CreateRequest, SourceRequest};
 use tk_link::{Device, LinkConfig, LinkError, LinkHandle, LinkHost, Vendor};
-use tk_ui::backend::{Anime4kNoteVm, Backend, DeviceVm, LinkCapsVm, LinkStatusVm, PresenceVm, RemoteCommandVm, SendToDeviceVm, UiResult};
+use tk_ui::backend::{Anime4kNoteVm, Backend, DeviceVm, LinkCapsVm, LinkStatusVm, PresenceVm, RemoteCommandVm, SendOutcomeVm, SendToDeviceVm, UiResult};
 use tk_ui::model::{ErrorKind, Pairing, UiError};
 
 use super::LiveBackend;
@@ -258,7 +258,7 @@ fn link_api_err(e: tk_link::api::ApiError) -> UiError {
 /// (`Backend::playback`, the same sources the PC player would use), start a Link session owned by the phone at
 /// `position_secs` (`tk-link::sessions`, the path the phone itself uses with `POST /v1/sessions`) and queue the
 /// `handoff` event its `GET /v1/events` long-poll delivers ("La PC te envió <título>" -> "Reproducir aquí").
-pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<()> {
+pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<SendOutcomeVm> {
     let h = b.link.ensure().await?;
     let device = h
         .devices()
@@ -281,13 +281,20 @@ pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<(
         }
         Err(e) => return Err(e),
     };
-    sources.extend(playback.iter().flat_map(|p| p.streams.iter()).filter_map(|s| session_source(&s.url, &s.headers)));
+    // names for the "sent another source" notice (plan §9.1 / §11.4): the torrent is the chosen source, never named
+    let mut names: Vec<String> = vec![String::new(); sources.len()];
+    for s in playback.iter().flat_map(|p| p.streams.iter()) {
+        if let Some(src) = session_source(&s.url, &s.headers) {
+            sources.push(src);
+            names.push(stream_name(&s.provider, s.quality.as_deref()));
+        }
+    }
     let title = match &playback {
         Some(p) => p.title.clone(),
         None => b.media(&req.media_id).await.map(|(_, m)| m.title).unwrap_or_default(),
     };
     let mut last: Option<UiError> = None;
-    for (index, source) in sources.into_iter().enumerate() {
+    for (index, (source, name)) in sources.into_iter().zip(names).enumerate() {
         if index == 1 && torrent_first {
             tracing::info!("send to device: the torrent could not be opened, sending a web stream instead");
         }
@@ -305,7 +312,7 @@ pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<(
                     return Err(UiError::new(ErrorKind::Auth, format!("device {} is not paired", device.id)));
                 }
                 tracing::info!(device = %device.id, media = %req.media_id, episode = req.episode, "sent to device");
-                return Ok(());
+                return Ok(send_outcome(index, torrent_first, &name));
             }
             Err(e) => {
                 tracing::debug!(error = ?e.0, "send to device: session refused, trying the next stream");
@@ -314,6 +321,25 @@ pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<(
         }
     }
     Err(last.unwrap_or_else(|| UiError::new(ErrorKind::NoSource, "no stream of this episode can be sent to the phone")))
+}
+
+/// A web stream as the user knows it: "anizone · 1080p" (provider, then quality). Pure.
+fn stream_name(provider: &str, quality: Option<&str>) -> String {
+    let provider = provider.trim();
+    match quality.map(str::trim).filter(|q| !q.is_empty()) {
+        Some(q) if !provider.is_empty() => format!("{provider} · {q}"),
+        Some(q) => q.to_owned(),
+        None => provider.to_owned(),
+    }
+}
+
+/// Plan §9.1 / §11.4: what to tell the user after the source at `index` was sent. The first one is the chosen source
+/// (the torrent when `torrent_first`, else the top web stream); any later one went "instead". Pure.
+fn send_outcome(index: usize, torrent_first: bool, name: &str) -> SendOutcomeVm {
+    if index == 0 {
+        return SendOutcomeVm::default();
+    }
+    SendOutcomeVm { sent_instead: Some(name.trim().to_owned()), torrent_failed: torrent_first }
 }
 
 /// BUG-009: the torrent to send for `media_id` / `episode`: the user's pick when it is a torrent, else the top-ranked
@@ -819,5 +845,19 @@ mod tests {
         let e = LinkError::Io(std::io::Error::from(std::io::ErrorKind::AddrInUse));
         assert_eq!(start_err(&e, 47321).kind, ErrorKind::AddrInUse);
         assert_eq!(start_err(&LinkError::NoAddress, 47321).kind, ErrorKind::Other);
+    }
+
+    #[test]
+    fn send_outcome_names_the_source_sent_instead() {
+        // plan §9.1 / §11.4: the chosen source went: nothing to say
+        assert_eq!(send_outcome(0, true, ""), SendOutcomeVm::default());
+        assert_eq!(send_outcome(0, false, "anizone · 1080p"), SendOutcomeVm::default());
+        // the torrent could not be opened: the first web stream went
+        assert_eq!(send_outcome(1, true, "anizone · 1080p"), SendOutcomeVm { sent_instead: Some("anizone · 1080p".into()), torrent_failed: true });
+        // the chosen web stream was refused: another one went
+        assert_eq!(send_outcome(2, false, "kwik"), SendOutcomeVm { sent_instead: Some("kwik".into()), torrent_failed: false });
+        assert_eq!(stream_name("anizone", Some("1080p")), "anizone · 1080p");
+        assert_eq!(stream_name("anizone", Some(" ")), "anizone");
+        assert_eq!(stream_name("", Some("720p")), "720p");
     }
 }
