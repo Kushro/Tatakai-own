@@ -90,6 +90,31 @@ fn tone(c: CompatLevel) -> Tone {
     }
 }
 
+/// What a permission chip says (BUG-075): the host of `network:domain:<host>`, words for the other namespaces
+/// (`storage:*` "Saves data", `torrent:*` "Uses torrents", other `network*` "Internet"); anything unknown stays as is.
+pub fn perm_label(perm: &str) -> String {
+    if let Some(host) = perm.strip_prefix("network:domain:") {
+        host.to_owned()
+    } else if perm.starts_with("network") {
+        t("ext.perm.network")
+    } else if perm.starts_with("storage") {
+        t("ext.perm.storage")
+    } else if perm.starts_with("torrent") {
+        t("ext.perm.torrent")
+    } else {
+        perm.to_owned()
+    }
+}
+
+/// Manifest `type` in words (`torrent`, `onlinestream`); `None` for `custom` and unknown types, which tell the user
+/// nothing (BUG-075: "34 dominios custom").
+pub fn kind_label(kind: &str) -> Option<String> {
+    match kind {
+        "torrent" | "onlinestream" => Some(t(&format!("ext.kind.{kind}"))),
+        _ => None,
+    }
+}
+
 /// Icon of a permission chip by its namespace (`network:domain:x`, `storage:*` ...).
 pub fn perm_icon(perm: &str) -> &'static str {
     if perm.starts_with("network") {
@@ -712,8 +737,8 @@ fn ExtensionRow(
                     span { "{hash_label} " code { class: "tk-mono", "{d.hash}" } }
                 }
                 span { title: "{domains}", {tn("ext.domains", d.domains.len())} }
-                if !d.kind.is_empty() {
-                    span { class: "tk-mono", "{d.kind}" }
+                if let Some(kind) = kind_label(&d.kind) {
+                    span { "{kind}" }
                 }
             }
         }
@@ -746,12 +771,19 @@ fn ExtensionRow(
                 }
             }
             div { class: "tk-ext__perms",
-                span { class: "tk-ext__permlabel", {t("ext.permissions")} }
+                // Only sites: "Accesses" reads better than "Permissions" over a row of hosts (BUG-075).
+                span { class: "tk-ext__permlabel",
+                    if !ext.permissions.is_empty() && ext.permissions.iter().all(|p| p.starts_with("network:domain:")) {
+                        {t("ext.perm.accesses")}
+                    } else {
+                        {t("ext.permissions")}
+                    }
+                }
                 if ext.permissions.is_empty() {
                     InfoChip { text: t("ext.no_permissions") }
                 }
                 for p in ext.permissions.iter().take(PERMS_SHOWN) {
-                    InfoChip { key: "{p}", text: p.clone(), icon: perm_icon(p).to_string() }
+                    InfoChip { key: "{p}", text: perm_label(p), icon: perm_icon(p).to_string() }
                 }
                 if ext.permissions.len() > PERMS_SHOWN {
                     InfoChip { text: format!("+{}", ext.permissions.len() - PERMS_SHOWN) }
@@ -2243,6 +2275,11 @@ mod tests {
         assert_eq!(perm_icon("network:domain:example.org"), "language");
         assert_eq!(perm_icon("storage:kv"), "storage");
         assert_eq!(perm_icon("torrent:session"), "warning");
+        assert_eq!(perm_label("network:domain:az-animex.com"), "az-animex.com");
+        assert_ne!(perm_label("storage:kv"), "storage:kv");
+        assert_eq!(perm_label("weird"), "weird");
+        assert_eq!(kind_label("custom"), None);
+        assert!(kind_label("torrent").is_some());
         assert_eq!(clean_path("  \"C:\\x\\toko.kai\" "), "C:\\x\\toko.kai");
     }
 
