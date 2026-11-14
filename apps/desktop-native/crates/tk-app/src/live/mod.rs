@@ -267,7 +267,8 @@ impl LiveBackend {
                 let mut v = self.ext.resolve_candidates(media, episode).await;
                 v.extend(ext_catalog::extra_candidates(self, media, episode).await);
                 let v = sources::dedupe_by_key(v);
-                if let Ok(mut c) = self.candidates.lock() {
+                // An empty listing (sites unreachable, proxy down: BUG-082) is not kept, so "Retry" asks again.
+                if !v.is_empty() && let Ok(mut c) = self.candidates.lock() {
                     c.retain(|_, (at, _)| at.elapsed() < SOURCES_TTL);
                     c.insert(key, (Instant::now(), v.clone()));
                 }
@@ -280,6 +281,27 @@ impl LiveBackend {
         list
     }
 }
+
+impl LiveBackend {
+    /// BUG-082: installed source extensions listed nothing. With an outbound proxy that does not answer, that is the
+    /// reason (every extension fetch goes through it); otherwise they found nothing. Never "nothing installed".
+    async fn why_no_sources(&self, settings: &Settings) -> UiError {
+        if let Some(proxy) = settings.server.outbound_proxy.as_deref().filter(|p| !p.trim().is_empty()) {
+            match tk_server::upstream::probe_proxy(proxy.trim(), NO_SOURCES_PROXY_PROBE).await {
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!(error = %e, "no extension listed a source: the outbound proxy does not answer");
+                    return UiError::new(ErrorKind::Offline, tk_ui::model::SOURCES_PROXY_DOWN);
+                }
+            }
+        }
+        tracing::warn!("no extension listed a source for this episode");
+        UiError::new(ErrorKind::NoSource, tk_ui::model::SOURCES_NONE_FOUND)
+    }
+}
+
+/// How long the outbound-proxy check of [`LiveBackend::why_no_sources`] waits.
+const NO_SOURCES_PROXY_PROBE: Duration = Duration::from_secs(6);
 
 /// Episodes past the season's `total` (AniList) are dropped unless they already aired (`air_date` before `today`,
 /// both `YYYY-MM-DD`): AniList's count can lag behind a season that is still airing, never the other way round.
@@ -559,6 +581,9 @@ impl Backend for LiveBackend {
             self.ext.installed().into_iter().map(|e| (e.id, e.enabled && e.compat != Compat::Unsupported)).collect();
         let picked = self.store.picked_source(id, episode).ok().flatten();
         let ranked = sources::ranked_vms(candidates, &prefs, |ext_id| enabled.get(ext_id).copied().unwrap_or(ext_catalog::is_remote_ext_id(ext_id)), picked.as_deref());
+        if ranked.is_empty() && self.ext.host().has_source_extensions() {
+            return Err(self.why_no_sources(&settings).await);
+        }
         // Wave A, worker i: `SourceVm::debrid` from the connected debrid services (best effort). Wave B
         // (`sources.debrid.episode-context`, k): the episode context travels with the call instead of being guessed.
         Ok(debrid::mark_cached(self, id, episode, ranked).await)

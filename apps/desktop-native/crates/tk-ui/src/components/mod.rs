@@ -51,6 +51,6 @@ pub use reviews::Reviews;
 pub use segmented::{SegOption, Segmented};
 pub use sheet::Sheet;
 pub use snackbar::{Snackbar, SnackbarHost, use_snackbar};
-pub use sources::{SourcePicker, SourceRow, SourceSummary};
+pub use sources::{SourcePicker, SourceRow, SourceSummary, SourcesError};
 pub use state::{EmptyState, ErrorState, SkeletonGrid, SkeletonLines, SkeletonRow};
 pub use title_bar::TitleBar;

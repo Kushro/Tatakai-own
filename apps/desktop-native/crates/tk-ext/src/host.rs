@@ -399,6 +399,15 @@ impl ExtensionHost {
     /// docs/redesign/10 section 6). Only enabled, runnable extensions are asked; reliability is
     /// [`tk_core::sources::INITIAL_RELIABILITY`] until the caller applies `LocalStore::reliability`. Failures of one
     /// extension (or one route) never fail the others.
+    /// Some enabled, supported extension lists sources (`stream` / `torrent` routes): an empty
+    /// [`ExtensionHost::resolve_candidates`] then means they found nothing or could not reach their sites, not that
+    /// nothing is installed (BUG-082).
+    pub fn has_source_extensions(&self) -> bool {
+        self.lock()
+            .values()
+            .any(|e| e.enabled && e.report.level != Compat::Unsupported && !candidate_routes(&e.manifest, e.torrent_all).is_empty())
+    }
+
     pub async fn resolve_candidates(&self, media: &Media, episode: u32) -> Vec<SourceCandidate> {
         // One entry per extension with its routes. Extensions run concurrently, but the routes of ONE extension run one
         // after the other, `torrent` first: an extension is a single JS thread, and running `stream` (dozens of

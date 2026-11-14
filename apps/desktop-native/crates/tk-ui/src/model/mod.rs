@@ -822,6 +822,23 @@ impl ErrorKind {
     }
 }
 
+/// `UiError::detail` of `Backend::sources` when usable extensions are installed but none listed a source (BUG-082):
+/// the configured outbound proxy does not answer, so every extension fetch failed.
+pub const SOURCES_PROXY_DOWN: &str = "sources:outbound-proxy-down";
+/// Same, with no proxy to blame: the extensions found nothing (or could not reach their sites).
+pub const SOURCES_NONE_FOUND: &str = "sources:none-found";
+
+/// `(title, cause)` for the source-list errors of [`SOURCES_PROXY_DOWN`] / [`SOURCES_NONE_FOUND`] (their marker is
+/// never shown as a technical detail); `None` for any other error.
+pub fn sources_error_text(e: &UiError) -> Option<(String, String)> {
+    let key = match e.detail.as_str() {
+        SOURCES_PROXY_DOWN => "src.error.proxy_down",
+        SOURCES_NONE_FOUND => "src.error.none_found",
+        _ => return None,
+    };
+    Some((crate::i18n::t(&format!("{key}.title")), crate::i18n::t(key)))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiError {
     pub kind: ErrorKind,

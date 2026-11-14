@@ -50,7 +50,7 @@ use crate::app::{Route, Services, Ui};
 use crate::backend::{BackendRef, DetailsVm, PlaybackVm, PresenceVm, SourceKindVm, SourceVm, TorrentStateVm, TorrentStatsVm};
 use crate::components::player_controls::{NextEpisodeCard, ShortcutHelp, track_label};
 use crate::components::{
-    Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, PlayerControls, SourcePicker,
+    Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, PlayerControls, SourcePicker, SourcesError,
     WavyProgress,
 };
 use crate::i18n::{t, tf, tn};
@@ -1204,14 +1204,25 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     } else if let Some((err, cause)) = failure() {
         rsx! {
             div { class: "tk-player__fail",
-                ErrorState {
-                    error: err.clone(),
-                    title: t("player.error.title"),
-                    cause,
-                    on_retry: move |_| {
-                        failure.set(None);
-                        boot.restart();
-                    },
+                if crate::model::sources_error_text(&err).is_some() {
+                    // BUG-082: the source listing failed (outbound proxy down, nothing found).
+                    SourcesError {
+                        error: err.clone(),
+                        on_retry: move |_| {
+                            failure.set(None);
+                            boot.restart();
+                        },
+                    }
+                } else {
+                    ErrorState {
+                        error: err.clone(),
+                        title: t("player.error.title"),
+                        cause,
+                        on_retry: move |_| {
+                            failure.set(None);
+                            boot.restart();
+                        },
+                    }
                 }
                 Button {
                     label: t("common.back"),

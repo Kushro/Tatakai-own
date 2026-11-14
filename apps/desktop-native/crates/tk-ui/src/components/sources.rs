@@ -24,7 +24,7 @@ use crate::components::sheet::Sheet;
 use crate::components::state::{EmptyState, ErrorState};
 use crate::i18n::{t, tf};
 use crate::icons::Icon;
-use crate::model::{SourceModeVm, SourcePrefsVm};
+use crate::model::{SourceModeVm, SourcePrefsVm, UiError};
 
 /// Reliability of a source the app has never tried (`tk_core::sources::INITIAL_RELIABILITY`).
 const UNTRIED_RELIABILITY: f32 = 0.8;
@@ -447,6 +447,55 @@ pub fn SourceRow(
     }
 }
 
+/// A failed source listing. The BUG-082 cases ([`crate::model::sources_error_text`]: outbound proxy down, installed
+/// extensions found nothing) say what happened instead of a generic error, without their marker as a technical
+/// detail, and the proxy case links to Settings. `title` = the title of any other error (`None`: from its kind).
+#[component]
+pub fn SourcesError(
+    error: UiError,
+    on_retry: EventHandler<()>,
+    #[props(default)] title: Option<String>,
+    #[props(default)] compact: bool,
+) -> Element {
+    let navigator = use_navigator();
+    match crate::model::sources_error_text(&error) {
+        Some((title, cause)) => {
+            let proxy = error.detail == crate::model::SOURCES_PROXY_DOWN;
+            rsx! {
+                ErrorState {
+                    error: UiError::new(error.kind, ""),
+                    title,
+                    cause,
+                    compact,
+                    on_retry: move |_| on_retry.call(()),
+                    if proxy {
+                        Button {
+                            label: t("nav.settings"),
+                            variant: ButtonVariant::Text,
+                            icon: "settings".to_string(),
+                            onclick: move |_| {
+                                navigator.push(Route::SettingsPage {});
+                            },
+                        }
+                    } else {
+                        Button {
+                            label: t("details.go_extensions"),
+                            variant: ButtonVariant::Text,
+                            icon: "extensions".to_string(),
+                            onclick: move |_| {
+                                navigator.push(Route::ExtensionsPage {});
+                            },
+                        }
+                    }
+                }
+            }
+        }
+        None => rsx! {
+            ErrorState { error, title, compact, on_retry: move |_| on_retry.call(()) }
+        },
+    }
+}
+
 /// Picker order: best score first; in Manual mode the earlier pick goes on top, preselected (plan §11.1).
 pub fn picker_order(sources: &[SourceVm], manual: bool) -> Vec<SourceVm> {
     let mut ranked = sources.to_vec();
@@ -763,7 +812,7 @@ pub fn SourceSummary(media_id: String, episode: u32, on_play: EventHandler<Strin
             }
         },
         Some(Err(e)) => rsx! {
-            ErrorState { error: e.clone(), compact: true, on_retry: move |_| sources.restart() }
+            SourcesError { error: e.clone(), compact: true, on_retry: move |_| sources.restart() }
         },
         Some(Ok(list)) => match list.iter().find(|s| s.picked).or(list.first()) {
             None => rsx! {

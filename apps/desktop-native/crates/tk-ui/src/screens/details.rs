@@ -21,7 +21,7 @@ use crate::components::{
     Button, ButtonSize, ButtonVariant, ConfirmDialog, DownloadSeasonSheet, EmptyState, ErrorState,
     FloatingToolbar, IconButton, IconButtonSize, IconButtonVariant, InfoChip, ListButton, LoadingIndicator, MediaCover, Menu, MenuItem, Pill,
     Reviews,
-    Segmented, Sheet, SkeletonLines, SourcePicker, SourceSummary, SplitButton, TextField, ToolbarSeparator, Tone,
+    Segmented, Sheet, SkeletonLines, SourcePicker, SourceSummary, SourcesError, SplitButton, TextField, ToolbarSeparator, Tone,
     use_snackbar,
 };
 use crate::i18n::{t, tf, tn};
@@ -556,7 +556,7 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
             },
             Some(Err(e)) => rsx! {
                 Sheet { title: t("src.title"), wide: true, on_close: move |_| picker_open.set(false),
-                    ErrorState { error: e.clone(), on_retry: move |_| open_picker.call(*picker_ep.peek()) }
+                    SourcesError { error: e.clone(), on_retry: move |_| open_picker.call(*picker_ep.peek()) }
                 }
             },
             Some(Ok(list)) => rsx! {
