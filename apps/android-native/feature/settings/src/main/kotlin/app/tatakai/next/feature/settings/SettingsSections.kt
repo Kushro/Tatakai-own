@@ -49,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -189,6 +190,14 @@ private val PRESETS = listOf("off", "anime4k-a", "anime4k-aa", "anime4k-b", "ani
 private const val PKG_MPV = "is.xyz.mpv"
 private const val PKG_VLC = "org.videolan.vlc"
 
+/** Visible to the app through the manifest `<queries>` (app module). */
+private fun isPackageInstalled(context: Context, pkg: String): Boolean = try {
+    context.packageManager.getApplicationInfo(pkg, 0)
+    true
+} catch (e: android.content.pm.PackageManager.NameNotFoundException) {
+    false
+}
+
 @Composable
 internal fun PlayerSection(state: SettingsUiState, vm: SettingsViewModel, onOpenExtensions: () -> Unit) {
     val s = state.settings
@@ -207,12 +216,22 @@ internal fun PlayerSection(state: SettingsUiState, vm: SettingsViewModel, onOpen
         )
     }
     if (s.playerEngine == PlayerEngine.EXTERNAL) {
-        SettingRow(stringResource(R.string.settings_external_app), stringResource(R.string.settings_external_app_hint), stack = true) {
+        // BUG-046: say which external players are missing instead of listing them as if they were there.
+        val context = LocalContext.current
+        val installed = remember(s.playerEngine) { setOf(PKG_MPV, PKG_VLC).filter { isPackageInstalled(context, it) }.toSet() }
+        val missing = stringResource(R.string.settings_external_missing)
+        fun label(pkg: String, name: String) = if (pkg in installed) name else "$name · $missing"
+        val hint = if (installed.isEmpty()) {
+            stringResource(R.string.settings_external_app_hint) + " " + stringResource(R.string.settings_external_none_installed)
+        } else {
+            stringResource(R.string.settings_external_app_hint)
+        }
+        SettingRow(stringResource(R.string.settings_external_app), hint, stack = true) {
             Segmented(
                 options = listOf<SegmentedOption<String?>>(
                     SegmentedOption(null, stringResource(R.string.settings_external_chooser)),
-                    SegmentedOption(PKG_MPV, stringResource(R.string.settings_external_mpv)),
-                    SegmentedOption(PKG_VLC, stringResource(R.string.settings_external_vlc)),
+                    SegmentedOption(PKG_MPV, label(PKG_MPV, stringResource(R.string.settings_external_mpv))),
+                    SegmentedOption(PKG_VLC, label(PKG_VLC, stringResource(R.string.settings_external_vlc))),
                 ),
                 selected = s.externalPlayerPackage,
                 onSelect = vm::setExternalPlayerPackage,

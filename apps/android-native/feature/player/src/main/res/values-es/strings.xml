@@ -92,6 +92,9 @@
     <string name="player_external_chooser">Reproducir con</string>
     <string name="player_external_no_app">Ninguna app puede reproducir este video. Instala mpv o VLC, o elige otro motor en Ajustes › Reproductor.</string>
     <string name="player_external_open_settings">Abrir Ajustes</string>
+    <string name="player_external_no_app_title">No hay reproductor externo</string>
+    <string name="player_external_app_missing">%1$s no está instalada en este teléfono. Instálala, elige otra app en Ajustes › Reproductor o reproduce aquí.</string>
+    <string name="player_external_use_builtin">Reproducir con Media3</string>
     <string name="src_picker_title">Fuentes del episodio</string>
     <string name="src_picker_mode_line">%1$s · %2$s</string>
     <string name="src_picker_failover">Si falla, se prueba la siguiente de la lista</string>

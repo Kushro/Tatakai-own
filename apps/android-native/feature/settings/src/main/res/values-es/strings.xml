@@ -35,6 +35,8 @@
     <string name="settings_external_chooser">Preguntar siempre</string>
     <string name="settings_external_mpv">mpv-android</string>
     <string name="settings_external_vlc">VLC</string>
+    <string name="settings_external_missing">no instalada</string>
+    <string name="settings_external_none_installed">No hay ningún reproductor externo instalado: al reproducir se ofrecerá Media3.</string>
     <string name="settings_preset">Escalado predeterminado</string>
     <string name="settings_preset_battery">Anime4K en el teléfono consume batería: se desactiva por debajo del 20 % si no está cargando, y baja solo a una versión más liviana si el teléfono no llega a tiempo real.</string>
     <string name="settings_preset_mpv_only">Solo lo aplica el motor libmpv.</string>

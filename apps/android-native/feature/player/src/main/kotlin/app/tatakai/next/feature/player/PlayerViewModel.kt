@@ -983,12 +983,26 @@ class PlayerViewModel(
 
     private fun launchExternal(source: PlayableSource) {
         val launch = ExternalPlayer.launch(source, args.title, args.startMs, settings.externalPlayerPackage)
+        currentSource = source // BUG-046: "Play with Media3" reloads it
         _state.update { it.copy(external = ExternalUi(launch)) }
     }
 
     /** The screen started the external activity ([ok] = false when no app could take it). */
     fun onExternalLaunched(ok: Boolean) {
         _state.update { st -> st.copy(external = st.external?.copy(launched = true, failed = !ok)) }
+    }
+
+    /**
+     * BUG-046: "Play with Media3" on the "no external player" screen: this session plays in the built-in Media3 engine instead (the
+     * setting is not changed).
+     */
+    fun useBuiltInPlayer() {
+        if (engine != PlayerEngine.EXTERNAL) return
+        val source = currentSource ?: return
+        engine = PlayerEngine.MEDIA3
+        _state.update { it.copy(engine = PlayerEngine.MEDIA3, external = null) }
+        loadIntoSession(source)
+        if (flow != null) publishFlow() else _state.update { it.copy(phase = PlayerPhase.BUFFERING) }
     }
 
     /** The external app returned: record the position it reported (mpv-android / VLC result extras). */

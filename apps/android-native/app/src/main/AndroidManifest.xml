@@ -9,6 +9,17 @@
         <intent>
             <action android:name="android.support.customtabs.action.CustomTabsService" />
         </intent>
+        <!-- BUG-046: the external player engine must see whether mpv-android / VLC / any video player is installed. -->
+        <package android:name="is.xyz.mpv" />
+        <package android:name="org.videolan.vlc" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="video/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:mimeType="application/x-mpegURL" />
+        </intent>
     </queries>
 
     <application

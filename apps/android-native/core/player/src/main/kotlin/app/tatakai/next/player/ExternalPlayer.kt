@@ -66,7 +66,12 @@ object ExternalPlayer {
 
     /** The Intent for [launch]; with no package the system chooser is used (`Intent.createChooser`). */
     fun intent(launch: ExternalLaunch, chooserTitle: CharSequence?): Intent {
-        val view = Intent(Intent.ACTION_VIEW).apply {
+        val view = viewIntent(launch)
+        return if (launch.packageName == null) Intent.createChooser(view, chooserTitle) else view
+    }
+
+    private fun viewIntent(launch: ExternalLaunch): Intent {
+        return Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(Uri.parse(launch.uri), launch.mimeType)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             launch.packageName?.let { setPackage(it) }
@@ -80,7 +85,6 @@ object ExternalPlayer {
                 }
             }
         }
-        return if (launch.packageName == null) Intent.createChooser(view, chooserTitle) else view
     }
 
     /** Position (ms) the external player returned: mpv-android `position` (Int), VLC `extra_position` (Long); null when absent. */
@@ -96,6 +100,19 @@ object ExternalPlayer {
         val raw = extras.get("duration") ?: extras.get("extra_duration") ?: return null
         return (raw as? Number)?.toLong()?.takeIf { it > 0 }
     }
+
+    /**
+     * BUG-046: whether any installed app takes [launch] (the given package, or any player for the chooser). Without one, the system
+     * chooser only says "No app can perform this action" while the app claimed to be playing externally.
+     */
+    fun canLaunch(context: Context, launch: ExternalLaunch): Boolean = try {
+        context.packageManager.queryIntentActivities(viewIntent(launch), 0).isNotEmpty()
+    } catch (e: RuntimeException) {
+        true // unknown: let the launch decide
+    }
+
+    /** Whether [packageName] is installed (and visible to this app: see the manifest `<queries>`). */
+    fun isInstalled(context: Context, packageName: String): Boolean = appLabel(context, packageName) != null
 
     /** User-facing name of [packageName] ("mpv", "VLC"), or null when not installed / not visible. */
     fun appLabel(context: Context, packageName: String?): String? {

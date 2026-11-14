@@ -91,6 +91,9 @@
     <string name="player_external_chooser">Play with</string>
     <string name="player_external_no_app">No app can play this video. Install mpv or VLC, or choose another engine in Settings › Player.</string>
     <string name="player_external_open_settings">Open Settings</string>
+    <string name="player_external_no_app_title">No external player</string>
+    <string name="player_external_app_missing">%1$s is not installed on this phone. Install it, choose another app in Settings › Player, or play here.</string>
+    <string name="player_external_use_builtin">Play with Media3</string>
     <string name="src_picker_title">Episode sources</string>
     <string name="src_picker_mode_line">%1$s · %2$s</string>
     <string name="src_picker_failover">If it fails, the next one in the list is tried</string>

@@ -24,7 +24,9 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -339,7 +341,8 @@ private fun ExternalBranch(
     }
     val chooserTitle = stringResource(R.string.player_external_chooser)
     fun open() {
-        val ok = try {
+        // BUG-046: with no app able to play it, say so here instead of "Playing in an external player" + the system's empty chooser.
+        val ok = ExternalPlayer.canLaunch(context, external.launch) && try {
             launcher.launch(ExternalPlayer.intent(external.launch, chooserTitle))
             true
         } catch (e: ActivityNotFoundException) {
@@ -351,12 +354,16 @@ private fun ExternalBranch(
     val appLabel = remember(external.launch.packageName) { ExternalPlayer.appLabel(context, external.launch.packageName) }
     if (external.failed) {
         Centered {
-            ErrorState(
-                message = stringResource(R.string.player_external_no_app),
-                retryLabel = stringResource(R.string.player_external_open_settings),
-                onRetry = { onOpenSettings(SettingsSection.PLAYER) },
-                title = stringResource(R.string.player_error),
+            Text(stringResource(R.string.player_external_no_app_title), style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+            Text(
+                external.launch.packageName?.let { pkg -> stringResource(R.string.player_external_app_missing, appLabelFor(pkg)) }
+                    ?: stringResource(R.string.player_external_no_app),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
             )
+            Button(onClick = vm::useBuiltInPlayer) { Text(stringResource(R.string.player_external_use_builtin)) }
+            OutlinedButton(onClick = { onOpenSettings(SettingsSection.PLAYER) }) { Text(stringResource(R.string.player_external_open_settings)) }
         }
         return
     }
@@ -368,6 +375,13 @@ private fun ExternalBranch(
         torrentLine = state.torrent?.let { torrentLine(it) },
         onReopen = { open() },
     )
+}
+
+/** Display name of a known external player package (it is not installed, so the system cannot name it). */
+private fun appLabelFor(pkg: String): String = when (pkg) {
+    ExternalPlayer.PACKAGE_MPV -> "mpv-android"
+    ExternalPlayer.PACKAGE_VLC -> "VLC"
+    else -> pkg
 }
 
 @Composable
