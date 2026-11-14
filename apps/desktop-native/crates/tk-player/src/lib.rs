@@ -44,7 +44,7 @@ pub use external::{ExternalEvent, ExternalPlayer, FrameGen, enhancement_args, fi
 pub use host::PlayerHost;
 pub use preset::{Anime4kQuality, ShaderPreset, all_preset_files, glsl_shaders_value, list_separator, shader_paths};
 pub use subs::{SubStyle, sub_options};
-pub use types::{KeyAction, MediaSource, PlayerError, PlayerEvent, Rect, SubtitleSource, TrackInfo, TrackKind};
+pub use types::{KeyAction, LOCAL_HLS_PROTOCOL_WHITELIST, MediaSource, PlayerError, PlayerEvent, Rect, SubtitleSource, TrackInfo, TrackKind};
 
 /// True when this build can actually play video.
 pub const HAS_MPV: bool = cfg!(feature = "mpv");

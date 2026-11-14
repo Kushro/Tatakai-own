@@ -16,7 +16,7 @@ use crate::engine::EngineConfig;
 use crate::headers::{HeaderPlan, mpv_list, mpv_quote};
 use crate::preset::{Anime4kQuality, ShaderPreset, glsl_shaders_value, list_separator};
 use crate::types::{
-    KeyAction, MediaSource, PlayerError, PlayerEvent, Rect, SubtitleSource, TrackInfo, TrackKind,
+    KeyAction, LOCAL_HLS_PROTOCOL_WHITELIST, MediaSource, PlayerError, PlayerEvent, Rect, SubtitleSource, TrackInfo, TrackKind,
 };
 
 /// Sent when an extension gives no User-Agent (mpv's own "libmpv" is blocked by many CDNs).
@@ -61,6 +61,8 @@ pub struct Player {
     /// mpv-anime-build's Fidelity state for the current resolution, from its `anime-state-broadcast`
     /// (0 = not heard yet, 1 = off, 2 = on; BUG-032).
     build_fidelity: Arc<AtomicU8>,
+    /// `demuxer-lavf-o` carries the local-HLS `protocol_whitelist` (BUG-080, [`Player::widen_protocols`]).
+    lavf_widened: AtomicBool,
     stop: Arc<AtomicBool>,
     thread: Mutex<Option<JoinHandle<()>>>,
 }
@@ -136,6 +138,7 @@ impl Player {
             pending_subs,
             presets_apply: crate::enhanced_conf::shader_presets_apply(&cfg.mode),
             build_fidelity,
+            lavf_widened: AtomicBool::new(false),
             stop,
             thread: Mutex::new(Some(handle)),
         })
@@ -163,8 +166,29 @@ impl Player {
         if let Ok(mut s) = self.pending_subs.lock() {
             *s = src.subtitles.clone();
         }
+        self.widen_protocols(src.is_local_hls());
         self.mpv.command("loadfile", &[&mpv_quote(&src.url), "replace"]).map_err(mpv_err)?;
         self.mpv.set_property("pause", false).map_err(mpv_err)
+    }
+
+    /// BUG-080: a local HLS master (BUG-059's filtered copy) gets FFmpeg's `file,crypto,data` whitelist and its
+    /// http(s) playlists fail; it is opened with [`LOCAL_HLS_PROTOCOL_WHITELIST`]. Only that key of
+    /// `demuxer-lavf-o` is added and removed again for the next file, so the user's own options (Enhanced mode
+    /// reads their `mpv.conf`) stay.
+    fn widen_protocols(&self, on: bool) {
+        if on == self.lavf_widened.load(Ordering::Relaxed) {
+            return;
+        }
+        let r = if on {
+            let pair = format!("protocol_whitelist={LOCAL_HLS_PROTOCOL_WHITELIST}");
+            self.mpv.command("change-list", &["demuxer-lavf-o", "append", &mpv_quote(&pair)])
+        } else {
+            self.mpv.command("change-list", &["demuxer-lavf-o", "remove", "protocol_whitelist"])
+        };
+        match r {
+            Ok(()) => self.lavf_widened.store(on, Ordering::Relaxed),
+            Err(e) => tracing::warn!(error = %e, on, "mpv refused the protocol whitelist of a local HLS master"),
+        }
     }
 
     pub fn play(&self) -> Result<(), PlayerError> {

@@ -61,7 +61,22 @@ impl MediaSource {
     pub fn network_timeout_secs(&self) -> i64 {
         if self.is_loopback() { LOOPBACK_NETWORK_TIMEOUT_SECS } else { NETWORK_TIMEOUT_SECS }
     }
+
+    /// A local HLS playlist (the filtered master of BUG-059, a path or `file://` URL ending in `.m3u8` / `.m3u`).
+    /// FFmpeg gives a playlist opened through `file` the whitelist `file,crypto,data`, so its `http(s)` variants
+    /// fail with "Protocol 'http' not on whitelist" (BUG-080) unless the player widens it
+    /// ([`LOCAL_HLS_PROTOCOL_WHITELIST`]) for this file.
+    pub fn is_local_hls(&self) -> bool {
+        let url = self.url.trim();
+        let local = url.starts_with("file://") || !url.contains("://");
+        let path = url.split(['?', '#']).next().unwrap_or("").to_ascii_lowercase();
+        local && (path.ends_with(".m3u8") || path.ends_with(".m3u"))
+    }
 }
+
+/// FFmpeg `protocol_whitelist` for a local HLS master whose playlists and segments are remote (BUG-080): the
+/// protocols an `http(s)` HLS stream needs (`crypto` for AES-128 segments, `httpproxy` for https through a proxy).
+pub const LOCAL_HLS_PROTOCOL_WHITELIST: &str = "file,http,https,tcp,tls,crypto,data,httpproxy";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SubtitleSource {

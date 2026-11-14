@@ -34,7 +34,7 @@ pub mod remote;
 pub mod subs;
 mod torrent;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -271,6 +271,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let mut ext_mpv = use_signal(|| None::<PathBuf>);
     let mut frame_gen = use_signal(|| None::<tk_player::FrameGen>);
     let external = use_hook(|| Rc::new(ExternalSlot::default()));
+    let hls_original = use_hook(|| Rc::new(RefCell::new(None::<flow::HlsOriginal>)));
     let ext_ended = use_signal(|| false);
     let ext_closed = use_signal(|| false);
     // External mode without an mpv executable: `Some(configured path or "")`.
@@ -308,6 +309,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         picker_open,
         fullscreen,
         source_prefs: ui.settings.peek().sources.clone(),
+        hls_original: hls_original.clone(),
     };
 
     // Rank the sources, start mpv, resolve the first one and pump mpv's events.
@@ -657,6 +659,11 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                             }
                             tracing::warn!(%msg, "playback error");
                             let attempt = flow.peek().attempt;
+                            if let Some(o) = ctx.take_hls_original(attempt) {
+                                // BUG-080: the filtered HLS master did not open; the original one before failing over.
+                                spawn(ctx.clone().play_hls_original(o));
+                                continue;
+                            }
                             let resume = pstate.peek().position;
                             ctx.fail(attempt, UiError::new(ErrorKind::Other, msg));
                             if flow.peek().to_resolve().is_some() {

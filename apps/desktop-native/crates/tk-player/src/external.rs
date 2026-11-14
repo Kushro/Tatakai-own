@@ -477,6 +477,11 @@ fn mpv_args(endpoint: &str, src: &MediaSource, start_secs: f64, title: &str) -> 
             args.push(format!("--sub-file={}", sub.url).into());
         }
     }
+    if src.is_local_hls() {
+        // BUG-080: the filtered HLS master is a local file; FFmpeg only opens its http(s) playlists with this.
+        // `-append` adds one key, so a `demuxer-lavf-o` from the user's mpv.conf stays.
+        args.push(format!("--demuxer-lavf-o-append=protocol_whitelist={}", crate::types::LOCAL_HLS_PROTOCOL_WHITELIST).into());
+    }
     args.push("--".into());
     args.push(src.url.clone().into());
     args
@@ -762,6 +767,30 @@ mod tests {
         assert!(a.contains(&format!("--network-timeout={}", crate::types::LOOPBACK_NETWORK_TIMEOUT_SECS)));
         assert!(!MediaSource { url: "http://127.0.0.1.example.com/v.mkv".into(), ..Default::default() }.is_loopback());
         assert!(!MediaSource { url: "https://cdn.example/v.m3u8".into(), ..Default::default() }.is_loopback());
+    }
+
+    #[test]
+    fn a_local_hls_master_opens_its_http_playlists() {
+        // BUG-080: the filtered master (BUG-059) is a local file; without the whitelist FFmpeg refuses its http URLs.
+        let flag = format!("--demuxer-lavf-o-append=protocol_whitelist={}", crate::types::LOCAL_HLS_PROTOCOL_WHITELIST);
+        for url in [
+            "/home/u/.config/Tatakai-Next/cache/mpv-hls/master-1.m3u8",
+            r"C:\Users\u\AppData\Roaming\Tatakai-Next\cache\mpv-hls\master-1.m3u8",
+            "file:///tmp/master.M3U8",
+        ] {
+            let src = MediaSource { url: url.into(), ..Default::default() };
+            assert!(src.is_local_hls(), "{url}");
+            let a = strs(&mpv_args("p", &src, 0.0, ""));
+            assert!(a.contains(&flag), "{url}");
+            assert_eq!(a.last().map(String::as_str), Some(url));
+        }
+        for url in ["https://cdn.example/v.m3u8", "http://127.0.0.1:8099/api/server/v1/media/x/master.m3u8", "/media/ep1.mkv"] {
+            let src = MediaSource { url: url.into(), ..Default::default() };
+            assert!(!src.is_local_hls(), "{url}");
+            assert!(!strs(&mpv_args("p", &src, 0.0, "")).iter().any(|x| x.contains("protocol_whitelist")), "{url}");
+        }
+        assert!(crate::types::LOCAL_HLS_PROTOCOL_WHITELIST.split(',').any(|p| p == "http"));
+        assert!(crate::types::LOCAL_HLS_PROTOCOL_WHITELIST.split(',').any(|p| p == "crypto"));
     }
 
     #[test]

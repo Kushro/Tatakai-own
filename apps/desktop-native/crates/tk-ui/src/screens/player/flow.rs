@@ -354,6 +354,26 @@ pub(super) struct Flow {
     /// `Settings::sources` at boot: a remembered pick that no longer meets them is ignored (audit bug
     /// `sources.remembered-vs-prefs`, `FlowState::new`).
     pub(super) source_prefs: SourcePrefsVm,
+    /// BUG-080: the original stream of an attempt that loaded the filtered HLS master instead.
+    pub(super) hls_original: Rc<RefCell<Option<HlsOriginal>>>,
+}
+
+/// The original master of `attempt` when it is still the current one and nothing played yet (pure part of
+/// [`Flow::take_hls_original`]).
+fn take_hls_original(slot: &mut Option<HlsOriginal>, attempt: u64, current: u64, phase: Phase) -> Option<HlsOriginal> {
+    if attempt != current || phase != Phase::Buffering || slot.as_ref().is_none_or(|o| o.attempt != attempt) {
+        return None;
+    }
+    slot.take()
+}
+
+/// BUG-080 safety net: when the filtered master (BUG-059) fails before anything plays, the attempt loads the master
+/// it replaced, once, before failing over.
+#[derive(Clone)]
+pub(super) struct HlsOriginal {
+    pub(super) attempt: u64,
+    pub(super) vm: PlaybackVm,
+    pub(super) start: f64,
 }
 
 impl Flow {
@@ -433,6 +453,7 @@ impl Flow {
                 Ok(mut vm) => {
                     let start = resume.filter(|p| *p > 0.0).unwrap_or(f64::from(vm.start_secs));
                     meta.set(Some(vm.clone()));
+                    self.hls_original.replace(None);
                     // BUG-059: FFmpeg opens every rendition of an HLS master before the first frame; mpv gets a
                     // copy with the variant and languages it plays (headerless sources such as proxy URLs).
                     if let Some(s) = vm.streams.first()
@@ -441,6 +462,7 @@ impl Flow {
                         if flow.peek().attempt != attempt {
                             return;
                         }
+                        self.hls_original.replace(Some(HlsOriginal { attempt, vm: vm.clone(), start }));
                         vm.streams[0].url = local;
                     }
                     let mpv = self.ext_mpv.peek().clone();
@@ -604,6 +626,39 @@ impl Flow {
         spawn(self.clone().drive(Some(resume)));
     }
 
+    /// BUG-080: the filtered HLS master of the current attempt failed before playing: the original master it
+    /// replaced (once), `None` when this attempt did not use one or already went back to it.
+    pub(super) fn take_hls_original(&self, attempt: u64) -> Option<HlsOriginal> {
+        let (current, phase) = {
+            let f = self.flow.peek();
+            (f.attempt, f.phase)
+        };
+        take_hls_original(&mut self.hls_original.borrow_mut(), attempt, current, phase)
+    }
+
+    /// Load the original master after the filtered copy failed; if that fails too, the attempt fails as usual.
+    pub(super) async fn play_hls_original(self, o: HlsOriginal) {
+        tracing::warn!(url = %o.vm.streams.first().map(|s| s.url.as_str()).unwrap_or(""),
+            "the filtered HLS master did not open; retrying with the original master (BUG-080)");
+        let mpv = self.ext_mpv.peek().clone();
+        let loaded = if let Some(mpv) = mpv {
+            self.start_external(mpv, &o.vm, o.start, o.attempt).await
+        } else {
+            match self.player.peek().clone() {
+                Some(p) => load_stream(&p, &o.vm, 0, o.start).map_err(|e| UiError::new(ErrorKind::Other, e.to_string())),
+                None => Err(UiError::new(ErrorKind::Other, no_player_text(&self.backend))),
+            }
+        };
+        if let Err(e) = loaded {
+            tracing::warn!(kind = ?e.kind, detail = %e.detail, "source failed");
+            self.fail(o.attempt, e);
+            if self.flow.peek().to_resolve().is_some() {
+                let next: std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> = Box::pin(self.clone().drive(None));
+                spawn(next);
+            }
+        }
+    }
+
     /// "Retry" on the final error.
     pub(super) fn retry(&self) {
         let mut flow = self.flow;
@@ -718,6 +773,12 @@ impl Flow {
                     }
                     // Nothing played yet: this source does not work, close the window and fail over.
                     self.external.set(None);
+                    if let Some(o) = self.take_hls_original(attempt) {
+                        // BUG-080: the filtered master first falls back to the original one.
+                        let next: std::pin::Pin<Box<dyn std::future::Future<Output = ()>>> = Box::pin(self.clone().play_hls_original(o));
+                        spawn(next);
+                        return;
+                    }
                     self.fail(attempt, UiError::new(ErrorKind::Other, msg));
                     if flow.peek().to_resolve().is_some() {
                         // Type-erased: `drive` -> `start_external` -> this pump -> `drive` would be a cyclic
@@ -773,5 +834,29 @@ mod preset_guard_tests {
         // No data dir: nothing is written, nothing panics.
         arm_preset_guard("", ShaderPreset::Fsr);
         assert_eq!(take_crashed_preset(""), None);
+    }
+}
+
+#[cfg(test)]
+mod hls_original_tests {
+    use super::*;
+
+    fn original(attempt: u64) -> HlsOriginal {
+        let vm = PlaybackVm { title: String::new(), poster: None, episodes_total: None, streams: Vec::new(), start_secs: 0 };
+        HlsOriginal { attempt, vm, start: 12.0 }
+    }
+
+    #[test]
+    fn the_filtered_master_falls_back_to_the_original_once_before_playing() {
+        // BUG-080: a failure of the filtered copy loads the original master, once, only for its own attempt.
+        let mut slot = Some(original(3));
+        assert!(take_hls_original(&mut slot, 3, 3, Phase::Playing).is_none(), "it already played");
+        assert!(take_hls_original(&mut slot, 2, 3, Phase::Buffering).is_none(), "an older attempt");
+        assert!(take_hls_original(&mut slot, 3, 4, Phase::Buffering).is_none(), "a pick took over");
+        assert_eq!(take_hls_original(&mut slot, 3, 3, Phase::Buffering).map(|o| o.start), Some(12.0));
+        assert!(take_hls_original(&mut slot, 3, 3, Phase::Buffering).is_none(), "only once: then the usual failover");
+        let mut other = Some(original(1));
+        assert!(take_hls_original(&mut other, 2, 2, Phase::Buffering).is_none(), "the slot belongs to another attempt");
+        assert!(other.is_some());
     }
 }
