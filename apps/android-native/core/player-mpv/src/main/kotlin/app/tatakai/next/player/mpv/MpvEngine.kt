@@ -428,7 +428,14 @@ class MpvEngine(context: Context) {
     }
 
     internal fun resizeSurface(width: Int, height: Int) {
-        if (!released) mpv.setPropertyString("android-surface-size", "${width}x$height")
+        if (released) return
+        mpv.setPropertyString("android-surface-size", "${width}x$height")
+        // BUG-093: a paused vo=gpu keeps the last frame laid out for the old size (stretched, black band) until playback resumes; an
+        // exact seek to the same position redraws it for the new size.
+        val st = _state.value
+        if (needsRedrawAfterResize(paused = mpv.getPropertyBoolean("pause") == true, started = st.started, ended = st.ended)) {
+            mpv.command(arrayOf("seek", "0", "relative+exact"))
+        }
     }
 
     internal fun detachSurface() {
@@ -491,3 +498,6 @@ class MpvEngine(context: Context) {
         private const val PATH_LIST_SEPARATOR = ":"
     }
 }
+
+/** BUG-093: whether a surface resize must redraw the frame by hand (paused on a frame; while playing the next frame does it). */
+internal fun needsRedrawAfterResize(paused: Boolean, started: Boolean, ended: Boolean): Boolean = paused && started && !ended
