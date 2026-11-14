@@ -106,6 +106,8 @@ data class DetailsUiState(
     val episodeView: EpisodeView = EpisodeView.LIST,
     /** The title's row of the local list mirror (AniList / MAL); null = not on the list (or no lists layer). */
     val listEntry: ListEntry? = null,
+    /** BUG-039: "Volver a comprobar" of the send dialog is asking the PC. */
+    val pcChecking: Boolean = false,
 ) {
     private val total: Int? get() = listEntry?.totalEpisodes?.takeIf { it > 0 } ?: (media as? LoadState.Ok)?.value?.episodes
 
@@ -524,6 +526,19 @@ class DetailsViewModel(
      * when the PC refuses or cannot open one web source the next ones are tried ([MAX_SEND_ATTEMPTS]); a failure always ends in
      * [DetailsEvent.SendFailed] with a [SendFailReason], and a source other than the chosen one is announced ([DetailsEvent.SentOther]).
      */
+    /**
+     * BUG-039: the send dialog with the PC "No responde" offers to check again instead of a send that would fail. Any Link call
+     * refreshes the reachability ([LinkState.Paired.reachable]); the dialog turns into "Enviar" when the PC answers.
+     */
+    fun recheckPc() {
+        if (_state.value.pcChecking) return
+        _state.update { it.copy(pcChecking = true) }
+        viewModelScope.launch {
+            runCatching { link.capabilities() }
+            _state.update { it.copy(pcChecking = false) }
+        }
+    }
+
     fun sendToDevice() {
         val media = mediaOrNull ?: return
         if (_state.value.sending) return

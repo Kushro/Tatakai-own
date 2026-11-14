@@ -245,6 +245,8 @@ fun DetailsScreen(
                     episode = state.continueEpisode,
                     pcName = pc.serverName,
                     reachable = state.pcAvailable,
+                    checking = state.pcChecking,
+                    onRecheck = viewModel::recheckPc,
                     onConfirm = {
                         sendDialog = false
                         viewModel.sendToDevice()
@@ -370,6 +372,8 @@ private fun SendToDeviceDialog(
     episode: Int,
     pcName: String,
     reachable: Boolean,
+    checking: Boolean,
+    onRecheck: () -> Unit,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -389,7 +393,16 @@ private fun SendToDeviceDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.details_send_action)) } },
+        // BUG-039: no "Enviar" while the PC does not answer (the send would fail); check again instead
+        confirmButton = {
+            if (reachable) {
+                TextButton(onClick = onConfirm) { Text(stringResource(R.string.details_send_action)) }
+            } else {
+                TextButton(onClick = onRecheck, enabled = !checking) {
+                    Text(stringResource(if (checking) R.string.details_send_checking else R.string.details_send_recheck), maxLines = 1)
+                }
+            }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.details_cancel)) } },
     )
 }

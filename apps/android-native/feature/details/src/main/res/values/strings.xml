@@ -34,7 +34,9 @@
     <string name="details_episode_menu">More for episode %1$d</string>
     <string name="details_send_device">Send to device</string>
     <string name="details_send_body">%1$s · Episode %2$d → %3$s</string>
-    <string name="details_send_unreachable">The PC is not answering right now, so the session may fail.</string>
+    <string name="details_send_unreachable">The PC is not answering right now. Open Tatakai on the PC (on the same network) and check again.</string>
+    <string name="details_send_recheck">Check again</string>
+    <string name="details_send_checking">Checking…</string>
     <string name="details_send_action">Send</string>
     <string name="details_send_failed">Could not send to the PC: %1$s</string>
     <string name="details_send_no_web">There is no source of this episode to send to the PC.</string>
