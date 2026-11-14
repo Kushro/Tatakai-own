@@ -226,6 +226,28 @@ pub fn episode_pills(e: &EpisodeVm, resume: u32, with_check: bool) -> Vec<(&'sta
     out
 }
 
+/// Reports whether the header's actions row (Watch / Continue) is inside the viewport, on every scroll (any
+/// scroller, capture phase) and resize, only when it changes. No row (still loading) counts as hidden.
+const HEADER_ACTIONS_JS: &str = r#"
+if (window.__tkHeadActionsOff) window.__tkHeadActionsOff();
+let last = null, queued = false;
+const check = () => {
+  queued = false;
+  const el = document.querySelector('.tk-details[data-embedded="false"] .tk-dhead__actions');
+  let v = false;
+  if (el) { const r = el.getBoundingClientRect(); v = r.bottom > 0 && r.top < window.innerHeight && r.height > 0; }
+  if (v !== last) { last = v; dioxus.send(v); }
+};
+const later = () => { if (!queued) { queued = true; requestAnimationFrame(check); } };
+document.addEventListener('scroll', later, true);
+window.addEventListener('resize', later);
+const mo = new MutationObserver(later);
+mo.observe(document.body, { childList: true, subtree: true });
+// One watcher at a time: the next Details screen removes this one.
+window.__tkHeadActionsOff = () => { document.removeEventListener('scroll', later, true); window.removeEventListener('resize', later); mo.disconnect(); };
+check();
+"#;
+
 /// The requested device, else the one connected now seen most recently, else the one seen most recently (BUG-039:
 /// never a tablet last seen 19 h ago over the phone that is connected), else the first paired one.
 pub fn pick_device(list: &[DeviceVm], wanted: Option<&str>) -> Option<DeviceVm> {
@@ -328,6 +350,16 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
 
     let mut tab = use_signal(|| Tab::Episodes);
     let mut picker_open = use_signal(|| false);
+    // BUG-078: the floating toolbar shows only once the header's Watch / Continue row has scrolled away.
+    let mut header_actions_visible = use_signal(|| false);
+    use_future(move || async move {
+        let mut eval = document::eval(HEADER_ACTIONS_JS);
+        while let Ok(v) = eval.recv::<bool>().await {
+            if *header_actions_visible.peek() != v {
+                header_actions_visible.set(v);
+            }
+        }
+    });
     // Wave B mount point (worker h): the "Download season" sheet; the contract only opens / closes it.
     let mut download_open = use_signal(|| false);
     let mut picker_ep = use_signal(|| 1_u32);
@@ -759,9 +791,10 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
     };
 
     // UX review #8: the floating toolbar steps aside while a sheet or dialog is open (it covered their lists).
+    // BUG-078: and while the header's own Watch / Continue button is on screen (it repeated it).
     let overlay_open = picker_open() || download_open() || send_target().is_some();
     let toolbar = match vm.as_ref() {
-        Some(v) if !overlay_open => {
+        Some(v) if !overlay_open && !header_actions_visible() => {
             let label = if resume > 0 {
                 tf("details.continue", &[("n", &resume.to_string())])
             } else {
