@@ -32,6 +32,8 @@ use tk_core::net::{Policy, sanitize_headers};
 pub const HEARTBEAT_SECS: u64 = 4;
 pub const IDLE_TIMEOUT_SECS: u64 = 120;
 const TOMBSTONES: usize = 64;
+/// Adding a magnet waits for its metadata (DHT / trackers): give up after this long (BUG-009).
+pub const TORRENT_OPEN_TIMEOUT: Duration = Duration::from_secs(75);
 /// Sources of the last sessions kept for [`SourceRequest::Session`].
 pub const ORIGINS_KEPT: usize = 128;
 /// Segments kept behind the playhead for seek-back.
@@ -125,6 +127,8 @@ pub struct Session {
     fetch_token: String,
     pub sink_token: String,
     pub duration: Option<f64>,
+    /// BUG-009: the engine torrent this session reads (its after-watch policy runs when the session ends).
+    torrent_id: Option<String>,
     audio_track: u32,
     shader: Option<String>,
     /// LSFG profiles: the probed source rate (or the fallback), fixed for the session.
@@ -177,6 +181,9 @@ pub enum SourceRequest {
     /// recently closed (the last [`ORIGINS_KEPT`]), e.g. to change its profile or to reopen it after the idle timeout
     /// at `start_secs`. A PC without it answers `400 request_invalid`.
     Session { session_id: String },
+    /// Contract v1 addition (BUG-009): a torrent the PC adds to its own engine and streams to FFmpeg from its loopback
+    /// server; `uri` = magnet or 40-hex info-hash, `media_id` + `episode` pick the file of a pack.
+    Torrent { uri: String, media_id: String, episode: u32 },
     Url {
         url: String,
         #[serde(default)]
@@ -331,7 +338,7 @@ impl Manager {
             SourceRequest::Session { session_id } => self.origin_of(device_id, session_id).ok_or(ApiError(ErrorCode::SessionNotFound))?,
             other => other.clone(),
         };
-        let (input_url, fetch_token, duration) = self.open_source(&source).await?;
+        let (input_url, fetch_token, duration, torrent_id) = self.open_source(&source).await?;
 
         let lsfg_rate = match profile.fg.lsfg() {
             Some(_) => Some(self.engine.source_rate(&input_url).await.unwrap_or_else(|| {
@@ -362,6 +369,7 @@ impl Manager {
             encoder,
             input_url,
             fetch_token,
+            torrent_id,
             sink_token: uuid::Uuid::new_v4().simple().to_string(),
             duration,
             audio_track: req.audio_track,
@@ -418,9 +426,31 @@ impl Manager {
         lock(&self.origins).iter().rev().find(|(sid, dev, _)| sid == id && dev == device).map(|(_, _, src)| src.clone())
     }
 
-    async fn open_source(&self, src: &SourceRequest) -> ApiResult<(String, String, Option<f64>)> {
+    async fn open_source(&self, src: &SourceRequest) -> ApiResult<(String, String, Option<f64>, Option<String>)> {
         match src {
             SourceRequest::Session { .. } => Err(ErrorCode::RequestInvalid.into()),
+            SourceRequest::Torrent { uri, media_id, episode } => {
+                if uri.is_empty() || uri.len() > 4096 || uri.chars().any(char::is_control) || media_id.is_empty() || media_id.len() > 128 || *episode == 0 {
+                    return Err(ErrorCode::RequestInvalid.into());
+                }
+                let req = crate::TorrentRequest { uri: uri.clone(), media_id: media_id.clone(), episode: *episode };
+                let opened = tokio::time::timeout(TORRENT_OPEN_TIMEOUT, self.host.open_torrent(req))
+                    .await
+                    .map_err(|_| ApiError(ErrorCode::SourceUnavailable))?
+                    .map_err(ApiError)?;
+                let target = Url::parse(&opened.url).map_err(|_| ApiError(ErrorCode::Internal))?;
+                let trusted = crate::torrent_stream_origin(&target).ok_or(ApiError(ErrorCode::Internal))?;
+                let token = self.fetcher.register(SourceSpec { url: target.clone(), headers: Vec::new(), extension_permissions: None, trusted: vec![trusted] });
+                if let Err(e) = self.fetcher.validate(&token, &target).await {
+                    self.fetcher.unregister(&token);
+                    self.host.torrent_session_ended(&opened.torrent_id);
+                    return Err(match e {
+                        FetchError::Denied => ErrorCode::UrlSourceDenied.into(),
+                        FetchError::Unavailable => ErrorCode::SourceUnavailable.into(),
+                    });
+                }
+                Ok((self.fetcher.entry_url(&token, &target, false), token, None, Some(opened.torrent_id)))
+            }
             SourceRequest::Library { item_id } => {
                 if item_id.len() != 32 || !item_id.bytes().all(|b| b.is_ascii_hexdigit()) {
                     return Err(ErrorCode::RequestInvalid.into());
@@ -431,7 +461,7 @@ impl Manager {
                 }
                 let duration = self.host.library().iter().find(|i| &i.id == item_id).map(|i| i.duration_secs).filter(|d| *d > 0.0);
                 let token = self.fetcher.register_file(path);
-                Ok((self.fetcher.file_url(&token), token, duration))
+                Ok((self.fetcher.file_url(&token), token, duration, None))
             }
             SourceRequest::Url { url, headers, extension_id, container } => {
                 if url.len() > 4096 {
@@ -456,7 +486,7 @@ impl Manager {
                 }
                 .await;
                 match result {
-                    Ok(duration) => Ok((self.fetcher.entry_url(&token, &target, hls), token, duration)),
+                    Ok(duration) => Ok((self.fetcher.entry_url(&token, &target, hls), token, duration, None)),
                     Err(e) => {
                         self.fetcher.unregister(&token);
                         Err(match e {
@@ -494,6 +524,9 @@ impl Manager {
             }
         }
         self.fetcher.unregister(&s.fetch_token);
+        if let Some(t) = &s.torrent_id {
+            self.host.torrent_session_ended(t);
+        }
         // the working dir is `<work_root>/<session id>`: a uuid we generated, never user input
         if s.workdir.parent() == Some(self.work_root.as_path()) {
             let _ = std::fs::remove_dir_all(&s.workdir);

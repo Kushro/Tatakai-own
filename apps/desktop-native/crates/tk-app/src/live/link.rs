@@ -82,6 +82,16 @@ struct AppLinkHost {
     player: SharedPlayer,
     /// `ui-settings.json`, read for the extension server's port and switch (BUG-023 trusted origins).
     settings_file: PathBuf,
+    /// BUG-009: the backend, for the torrent engine (`torrent_play`); bound once the backend is in its `Arc`.
+    backend: BackendSlot,
+}
+
+/// Late-bound backend of the Link host ([`bind_backend`]).
+type BackendSlot = Arc<std::sync::OnceLock<std::sync::Weak<LiveBackend>>>;
+
+/// BUG-009: let the Link host reach the backend (torrent engine). Called once by `main.rs` after `Arc::new`.
+pub fn bind_backend(b: &Arc<LiveBackend>) {
+    let _ = b.link.backend.set(Arc::downgrade(b));
 }
 
 /// Path prefix of the extension server's media proxy (`tk_server::API_PREFIX` + `/media/`).
@@ -130,6 +140,31 @@ impl LinkHost for AppLinkHost {
     }
     fn player_state(&self) -> Option<PlayerState> {
         current_player(&self.player)
+    }
+    fn open_torrent(&self, req: tk_link::TorrentRequest) -> tk_link::HostFuture<'_, Result<tk_link::OpenedTorrent, tk_link::api::ErrorCode>> {
+        let backend = self.backend.get().and_then(std::sync::Weak::upgrade);
+        Box::pin(async move {
+            let b = backend.ok_or(tk_link::api::ErrorCode::SourceUnavailable)?;
+            let played = super::torrent_play::play(&b, &req.uri, &req.media_id, req.episode).await.map_err(|e| {
+                tracing::info!(kind = ?e.kind, detail = %e.detail, "Link torrent source could not be opened");
+                match e.kind {
+                    ErrorKind::NoSource => tk_link::api::ErrorCode::LibraryItemNotFound,
+                    _ => tk_link::api::ErrorCode::SourceUnavailable,
+                }
+            })?;
+            let url = played.playback.streams.first().map(|s| s.url.clone()).ok_or(tk_link::api::ErrorCode::SourceUnavailable)?;
+            tracing::info!(torrent = %played.torrent_id, file = played.file_index, "Link session reads a torrent");
+            Ok(tk_link::OpenedTorrent { url, torrent_id: played.torrent_id })
+        })
+    }
+    fn torrent_session_ended(&self, torrent_id: &str) {
+        let Some(b) = self.backend.get().and_then(std::sync::Weak::upgrade) else { return };
+        let id = torrent_id.to_owned();
+        tokio::spawn(async move {
+            if let Err(e) = super::torrent_settings::playback_ended(&b, &id, false).await {
+                tracing::debug!(detail = %e.detail, "torrent after-watch policy after a Link session failed");
+            }
+        });
     }
     fn trusted_media_origins(&self) -> Vec<tk_core::net::TrustedOrigin> {
         let prefs = crate::settings_store::load(&self.settings_file).server;
@@ -230,10 +265,32 @@ pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<(
         .into_iter()
         .find(|d| d.id == req.device_id && d.is_active(now_unix()))
         .ok_or_else(|| UiError::new(ErrorKind::Auth, format!("device {} is not paired", req.device_id)))?;
-    let playback = <LiveBackend as Backend>::playback(b, &req.media_id, req.episode).await?;
+    // BUG-009: the episode's chosen torrent (or the top-ranked source when it is a torrent) goes first, streamed by
+    // this PC's engine; the web streams follow.
+    let mut sources: Vec<SourceRequest> = torrent_choice(b, &req.media_id, req.episode)
+        .await
+        .map(|uri| SourceRequest::Torrent { uri, media_id: req.media_id.clone(), episode: req.episode })
+        .into_iter()
+        .collect();
+    let torrent_first = !sources.is_empty();
+    let playback = match <LiveBackend as Backend>::playback(b, &req.media_id, req.episode).await {
+        Ok(p) => Some(p),
+        Err(e) if torrent_first => {
+            tracing::debug!(detail = %e.detail, "send to device: no web stream, torrent only");
+            None
+        }
+        Err(e) => return Err(e),
+    };
+    sources.extend(playback.iter().flat_map(|p| p.streams.iter()).filter_map(|s| session_source(&s.url, &s.headers)));
+    let title = match &playback {
+        Some(p) => p.title.clone(),
+        None => b.media(&req.media_id).await.map(|(_, m)| m.title).unwrap_or_default(),
+    };
     let mut last: Option<UiError> = None;
-    for stream in &playback.streams {
-        let Some(source) = session_source(&stream.url, &stream.headers) else { continue };
+    for (index, source) in sources.into_iter().enumerate() {
+        if index == 1 && torrent_first {
+            tracing::info!("send to device: the torrent could not be opened, sending a web stream instead");
+        }
         let create = CreateRequest { source, profile: None, audio_track: 0, start_secs: f64::from(req.position_secs) };
         match h.create_session_for(&device.id, create).await {
             Ok(created) => {
@@ -242,7 +299,7 @@ pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<(
                     media_id: Some(req.media_id.clone()),
                     episode: Some(req.episode),
                     position_secs: req.position_secs,
-                    title: Some(playback.title.clone()).filter(|t| !t.is_empty()),
+                    title: Some(title.clone()).filter(|t| !t.is_empty()),
                 };
                 if !h.push_event(&device.id, event) {
                     return Err(UiError::new(ErrorKind::Auth, format!("device {} is not paired", device.id)));
@@ -257,6 +314,22 @@ pub async fn send_to_device(b: &LiveBackend, req: &SendToDeviceVm) -> UiResult<(
         }
     }
     Err(last.unwrap_or_else(|| UiError::new(ErrorKind::NoSource, "no stream of this episode can be sent to the phone")))
+}
+
+/// BUG-009: the torrent to send for `media_id` / `episode`: the user's pick when it is a torrent, else the top-ranked
+/// source when it is one (the order the PC player uses). `None` = send web streams.
+async fn torrent_choice(b: &LiveBackend, media_id: &str, episode: u32) -> Option<String> {
+    let picked = b.store.picked_source(media_id, episode).ok().flatten();
+    if let Some(p) = picked.filter(|p| is_torrent_source_id(p)) {
+        return Some(p);
+    }
+    let ranked = <LiveBackend as Backend>::sources(b, media_id, episode).await.ok()?;
+    ranked.first().filter(|s| is_torrent_source_id(&s.id)).map(|s| s.id.clone())
+}
+
+/// `<ext>|torrent|<label>` (`tk_core::sources::source_key`). Pure.
+fn is_torrent_source_id(id: &str) -> bool {
+    tk_core::sources::parse_source_key(id).is_some_and(|(_, kind, _)| kind == tk_core::sources::SourceKind::Torrent)
 }
 
 /// `Settings::server.link_announce` changed (or start-up): announce Link over mDNS or stop (`link.discovery`).
@@ -301,6 +374,8 @@ pub struct LinkService {
     /// Wave B (k, `link.discovery`): announce over mDNS while the server runs (`Settings::server.link_announce`).
     announce: AtomicBool,
     announcer: Mutex<Option<Announcer>>,
+    /// BUG-009: shared with every `AppLinkHost` ([`bind_backend`]).
+    backend: BackendSlot,
 }
 
 /// `name` in one of the absolute `PATH` entries.
@@ -426,6 +501,7 @@ impl LinkService {
             player: SharedPlayer::default(),
             announce: AtomicBool::new(true),
             announcer: Mutex::new(None),
+            backend: BackendSlot::default(),
         }
     }
 
@@ -464,6 +540,7 @@ impl LinkService {
             remote: self.remote.clone(),
             player: self.player.clone(),
             // `<data>/link` -> `<data>/ui-settings.json` (`AppPaths::ui_settings_file`)
+            backend: self.backend.clone(),
             settings_file: self.dir.parent().map_or_else(|| self.dir.join("ui-settings.json"), |root| root.join("ui-settings.json")),
         });
         match tk_link::start(cfg, host).await {
@@ -692,6 +769,14 @@ mod tests {
         for bad in ["http://192.168.1.43:8098/api/server/v1/media/abc/x.ts", "http://192.168.1.43:8099/api/server/v1/devices", "http://192.168.1.44:8099/api/server/v1/media/a/x.ts"] {
             assert!(!o.iter().any(|t| t.matches(&reqwest::Url::parse(bad).unwrap())), "{bad}");
         }
+    }
+
+    #[test]
+    fn torrent_source_ids_are_recognised() {
+        assert!(is_torrent_source_id("toko|torrent|ToonsHub"));
+        assert!(is_torrent_source_id("manual|torrent|2b5d833d"));
+        assert!(!is_torrent_source_id("toko|web|anizone"));
+        assert!(!is_torrent_source_id("magnet:?xt=urn:btih:2b5d"));
     }
 
     #[test]

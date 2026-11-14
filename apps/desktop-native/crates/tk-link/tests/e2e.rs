@@ -523,3 +523,27 @@ async fn a_session_source_reopens_an_earlier_session_of_the_same_device() {
     assert_eq!(again(&a.client, &renewed).await.unwrap().status(), 201);
     assert_eq!(again(&a.client, "00000000-0000-0000-0000-000000000000").await.unwrap().status(), 404);
 }
+
+/// BUG-009: a `torrent` source streams from the engine's loopback server (trusted for that exact origin only), even
+/// with a strict SSRF policy; the engine hears when the session ends.
+#[tokio::test]
+async fn a_torrent_source_streams_from_the_engine_loopback_server() {
+    let strict = tk_core::net::SafeHttp::new(tk_core::net::Policy::link_source(false));
+    let mut h = harness(FakeEngine::new(3, 100, Duration::from_millis(1)), quick_tuning(), strict).await;
+    let a = h.pair("A").await;
+    let (port, _seen) = stub(|_| (200, vec![("content-type".into(), "video/x-matroska".into())], vec![0u8; 64])).await;
+    let body = |uri: &str| json!({ "source": { "kind": "torrent", "uri": uri, "media_id": "212888", "episode": 4 } });
+    // no engine answer -> 503
+    let r = a.client.post(h.url("/v1/sessions")).json(&body("magnet:?xt=urn:btih:2b5d")).send().await.unwrap();
+    assert_eq!(r.status(), 503);
+    *h.host.torrent.lock().unwrap() =
+        Some(tk_link::OpenedTorrent { url: format!("http://127.0.0.1:{port}/tok123/2b5d/0/ep4.mkv"), torrent_id: "2b5d".into() });
+    assert_eq!(a.client.post(h.url("/v1/sessions")).json(&json!({ "source": { "kind": "torrent", "uri": "", "media_id": "1", "episode": 4 } })).send().await.unwrap().status(), 400);
+    let r = a.client.post(h.url("/v1/sessions")).json(&body("magnet:?xt=urn:btih:2b5d")).send().await.unwrap();
+    assert_eq!(r.status(), 201);
+    let sid = json(r).await["session_id"].as_str().unwrap().to_owned();
+    assert_eq!(a.client.delete(h.url(&format!("/v1/sessions/{sid}"))).send().await.unwrap().status(), 204);
+    assert_eq!(h.host.torrents_ended.lock().unwrap().as_slice(), ["2b5d".to_owned()]);
+    // only the engine's own `/<token>/` path is trusted
+    assert!(tk_link::torrent_stream_origin(&url::Url::parse("http://10.0.0.2:80/t/x").unwrap()).is_none());
+}

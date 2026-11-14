@@ -153,6 +153,11 @@ impl LiveBackend {
         AppPaths::from_root(self.data_root.clone())
     }
 
+    /// BUG-009: hand the Link host a weak reference to this backend (torrent engine). Call once after `Arc::new`.
+    pub fn bind_self(self: &Arc<Self>) {
+        link::bind_backend(self);
+    }
+
     /// Wave A: start-up jobs (`live/system.rs::on_start`, worker f: update notice). tk-app's `main.rs` spawns it
     /// through `Services::on_start` once the UI runtime is up; a stub until f lands.
     pub async fn on_start(&self) {

@@ -55,6 +55,7 @@ type OnStart = Option<Arc<dyn Fn() + Send + Sync>>;
 #[cfg(feature = "live")]
 fn build_backend(paths: &paths::AppPaths, cfg: &config::AppConfig, ui: UiThread) -> anyhow::Result<(BackendRef, OnStart)> {
     let backend = Arc::new(live::LiveBackend::new(paths, cfg, ui)?);
+    backend.bind_self();
     // Wave A: start-up jobs once the UI (and its async runtime) is up: update notice (f, `live/system.rs::on_start`).
     let on_start: Arc<dyn Fn() + Send + Sync> = {
         let backend = backend.clone();

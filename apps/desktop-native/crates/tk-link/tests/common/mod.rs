@@ -178,11 +178,14 @@ async fn ffmpeg_style_put(url: &str, body: &[u8]) -> u16 {
 pub struct TestHost {
     pub files: Mutex<HashMap<String, PathBuf>>,
     pub extension_perms: Mutex<HashMap<String, Vec<String>>>,
+    /// BUG-009: what `open_torrent` answers, and the torrents whose session ended.
+    pub torrent: Mutex<Option<tk_link::OpenedTorrent>>,
+    pub torrents_ended: Mutex<Vec<String>>,
 }
 
 impl TestHost {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { files: Mutex::default(), extension_perms: Mutex::default() })
+        Arc::new(Self { files: Mutex::default(), extension_perms: Mutex::default(), torrent: Mutex::default(), torrents_ended: Mutex::default() })
     }
 }
 
@@ -206,6 +209,15 @@ impl LinkHost for TestHost {
 
     fn extension_permissions(&self, id: &str) -> Option<Vec<String>> {
         self.extension_perms.lock().unwrap().get(id).cloned()
+    }
+
+    fn open_torrent(&self, _req: tk_link::TorrentRequest) -> tk_link::HostFuture<'_, Result<tk_link::OpenedTorrent, tk_link::api::ErrorCode>> {
+        let answer = self.torrent.lock().unwrap().clone();
+        Box::pin(async move { answer.ok_or(tk_link::api::ErrorCode::SourceUnavailable) })
+    }
+
+    fn torrent_session_ended(&self, torrent_id: &str) {
+        self.torrents_ended.lock().unwrap().push(torrent_id.to_owned());
     }
 }
 

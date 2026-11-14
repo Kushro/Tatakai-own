@@ -122,6 +122,45 @@ pub trait LinkHost: Send + Sync + 'static {
     fn trusted_media_origins(&self) -> Vec<tk_core::net::TrustedOrigin> {
         Vec::new()
     }
+    /// BUG-009: add / reuse the torrent of a `torrent` session source in the PC's engine, pick the episode's file and
+    /// return its loopback stream (the engine's HTTP server, Range-capable). Default: no torrent engine
+    /// (`source_unavailable`).
+    fn open_torrent(&self, _req: TorrentRequest) -> HostFuture<'_, Result<OpenedTorrent, api::ErrorCode>> {
+        Box::pin(async { Err(api::ErrorCode::SourceUnavailable) })
+    }
+    /// BUG-009: the Link session reading `torrent_id` ended (after-watch policy of the engine). Default: nothing.
+    fn torrent_session_ended(&self, _torrent_id: &str) {}
+}
+
+/// Boxed future of the async [`LinkHost`] calls (no extra dependency for hosts).
+pub type HostFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+/// What a `torrent` session source asks the host for (BUG-009).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TorrentRequest {
+    /// Magnet URI, 40-hex info-hash or a PC source id of a torrent candidate.
+    pub uri: String,
+    /// Title id on the PC (AniList id), for the episode's file in a pack.
+    pub media_id: String,
+    pub episode: u32,
+}
+
+/// The loopback stream of an opened torrent: `http://127.0.0.1:<port>/<token>/<hash>/<index>/<name>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenedTorrent {
+    pub url: String,
+    pub torrent_id: String,
+}
+
+/// The exact origin of the engine's stream server for `url` (loopback literal + port + `/<token>/`), trusted for that
+/// session only. `None` for anything else. Pure.
+pub fn torrent_stream_origin(url: &url::Url) -> Option<tk_core::net::TrustedOrigin> {
+    let ip = match url.host()? {
+        url::Host::Ipv4(v) if v.is_loopback() => IpAddr::V4(v),
+        _ => return None,
+    };
+    let token = url.path_segments()?.next().filter(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))?;
+    Some(tk_core::net::TrustedOrigin::new(SocketAddr::new(ip, url.port_or_known_default()?), format!("/{token}/")))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

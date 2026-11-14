@@ -2035,6 +2035,9 @@
               },
               {
                 "$ref": "#/components/schemas/SessionSource"
+              },
+              {
+                "$ref": "#/components/schemas/TorrentSource"
               }
             ],
             "discriminator": {
@@ -2126,6 +2129,36 @@
           "session_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "TorrentSource": {
+        "type": "object",
+        "required": [
+          "kind",
+          "uri",
+          "media_id",
+          "episode"
+        ],
+        "additionalProperties": false,
+        "description": "Additive v1 extension (QA fixes 2026-11, BUG-009): a torrent the PC adds to its own engine (librqbit), streams to FFmpeg from its loopback server and transcodes with the session profile like any other source. media_id + episode pick the episode's file of a pack (the PC's manual alignment first). Invalid -> 400 request_invalid; no file for the episode -> 404 library_item_not_found; no engine, no metadata within 75 s -> 503 source_unavailable. duration_secs is null. A PC without this extension answers 400 request_invalid. The phone should allow ~90 s for this call (magnet metadata).",
+        "properties": {
+          "kind": {
+            "const": "torrent"
+          },
+          "uri": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "magnet URI, 40-hex info-hash, or a source id of the PC (`<ext>|torrent|<label>`)"
+          },
+          "media_id": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "title id on the PC (AniList id)"
+          },
+          "episode": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       },
