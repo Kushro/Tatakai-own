@@ -4,9 +4,11 @@ package app.tatakai.next.feature.player
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.getValue
@@ -39,7 +41,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  * Link sessions, DASH and when no download module is bound. Shows "downloaded" once the episode is in Downloads.
  */
 @Composable
-fun DownloadAction(args: PlayerArgs, current: StreamSource?, label: String) {
+fun DownloadAction(
+    args: PlayerArgs,
+    current: StreamSource?,
+    label: String,
+    /** BUG-060: render as an item of the compact top bar's overflow menu ([onDone] closes it). */
+    asMenuItem: Boolean = false,
+    onDone: () -> Unit = {},
+) {
     if (args.localUri != null || args.torrentId != null || args.remoteSessionId != null) return
     if (current == null || current.container == Container.DASH) return
     val koin = getKoin()
@@ -60,25 +69,26 @@ fun DownloadAction(args: PlayerArgs, current: StreamSource?, label: String) {
     val on = MaterialTheme.colorScheme.onBackground
     val done = state == DownloadState.COMPLETED
     val inQueue = state == DownloadState.QUEUED || state == DownloadState.DOWNLOADING || state == DownloadState.PAUSED
-    IconButton(
-        enabled = !busy && !done && !inQueue,
-        onClick = {
-            busy = true
-            scope.launch {
-                val media = runCatching { metadata?.media(MediaKind.ANIME, args.media) }.getOrNull() ?: fallbackMedia(args)
-                downloads.enqueue(DownloadRequest(media = media, episode = args.episode, stream = current, sourceLabel = label)).fold(
-                    onSuccess = { snackbar.show(queued) },
-                    onFailure = { e -> snackbar.show("$failed: ${e.message ?: e::class.java.simpleName}") },
-                )
-                busy = false
-            }
-        },
-    ) {
-        Icon(
-            if (done) Icons.Rounded.DownloadDone else Icons.Rounded.Download,
-            contentDescription = stringResource(if (done) UiR.string.download_state_completed else UiR.string.download_episode),
-            tint = on,
-        )
+    val enabled = !busy && !done && !inQueue
+    val start: () -> Unit = {
+        busy = true
+        scope.launch {
+            val media = runCatching { metadata?.media(MediaKind.ANIME, args.media) }.getOrNull() ?: fallbackMedia(args)
+            downloads.enqueue(DownloadRequest(media = media, episode = args.episode, stream = current, sourceLabel = label)).fold(
+                onSuccess = { snackbar.show(queued) },
+                onFailure = { e -> snackbar.show("$failed: ${e.message ?: e::class.java.simpleName}") },
+            )
+            busy = false
+            // In the menu the item lives only while the menu is open: close it once the request went out, not before.
+            onDone()
+        }
+    }
+    val icon = if (done) Icons.Rounded.DownloadDone else Icons.Rounded.Download
+    val text = stringResource(if (done) UiR.string.download_state_completed else UiR.string.download_episode)
+    if (asMenuItem) {
+        DropdownMenuItem(text = { Text(text) }, onClick = start, enabled = enabled, leadingIcon = { Icon(icon, contentDescription = null) })
+    } else {
+        IconButton(enabled = enabled, onClick = start) { Icon(icon, contentDescription = text, tint = on) }
     }
 }
 

@@ -13,6 +13,7 @@
     <string name="player_subtitles_off">Off</string>
     <string name="player_speed">Speed</string>
     <string name="player_speed_value">%1$sx</string>
+    <string name="player_speed_desc">Speed %1$s</string>
     <string name="player_pip">Picture in picture</string>
     <string name="player_brightness">Brightness</string>
     <string name="player_volume">Volume</string>
@@ -156,6 +157,7 @@
     <string name="player_screenshot_saved">Screenshot saved to %1$s</string>
     <string name="player_screenshot_failed">The screenshot could not be saved</string>
     <string name="player_more">More</string>
+    <string name="player_more_options">More options</string>
     <string name="player_sleep">Sleep timer</string>
     <string name="player_sleep_off">Off</string>
     <string name="player_sleep_minutes">%1$d min</string>

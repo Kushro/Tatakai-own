@@ -72,18 +72,28 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Subtitles
 import androidx.compose.material3.AssistChip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.material.icons.rounded.Hub
+import androidx.compose.material.icons.rounded.MoreVert
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -593,63 +603,52 @@ private fun Controls(
     val scheme = MaterialTheme.colorScheme
     val on = scheme.onBackground
     Box(Modifier.fillMaxSize().background(scheme.scrim.copy(alpha = 0.45f))) {
-        // Top bar: back, title + source chip, "Open in the client", PiP
-        Row(
-            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp).align(Alignment.TopCenter),
-            Arrangement.spacedBy(4.dp),
-            Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.player_back), tint = on) }
-            Column(Modifier.weight(1f)) {
-                Text(title, color = on, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
-                    state.current?.let { cur ->
-                        val (n, total) = state.position ?: (1 to 1)
-                        AssistChip(
-                            onClick = { if (state.canPickSource) onOpenPicker() },
-                            label = {
-                                Text(
-                                    stringResource(R.string.player_source_chip, n, total, "${cur.candidate.extName} · ${cur.candidate.label}"),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    if (cur.candidate.kind == SourceKind.TORRENT) Icons.Rounded.Download else Icons.Rounded.Language,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            },
-                            trailingIcon = if (state.canPickSource) ({ Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) }) else null,
-                            colors = AssistChipDefaults.assistChipColors(labelColor = on, leadingIconContentColor = on, trailingIconContentColor = on),
-                        )
-                    }
-                    state.torrent?.takeIf { it.fileIndex != null }?.torrentId?.let { id ->
-                        AssistChip(
-                            onClick = { onOpenTorrent(id) },
-                            label = { Text(stringResource(R.string.player_torrent_open_client)) },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                            colors = AssistChipDefaults.assistChipColors(labelColor = on, leadingIconContentColor = on),
-                        )
-                    }
-                    state.torrent?.takeIf { it.fileIndex != null }?.let { t ->
-                        Text(torrentLine(t), color = on.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace)
-                    }
+        // Top bar: back, title + source chip, "Open in the client", PiP. BUG-060: on a compact width (a phone in portrait) the 7-8
+        // icons left the title and the source chip (the only way to change source while playing) with 0 dp: there the title row keeps
+        // back, PiP, fullscreen and a "More options" menu (download, lock, screenshot, episodes / Link profile, shortcuts), and the
+        // chips get a row of their own.
+        val compact = LocalConfiguration.current.screenWidthDp < COMPACT_TOP_BAR_DP
+        // BUG-061: keyboard shortcuts only mean something with a hardware keyboard.
+        val hasKeyboard = LocalConfiguration.current.keyboard != Configuration.KEYBOARD_NOKEYS
+        val chips: @Composable () -> Unit = {
+            Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
+                state.current?.let { cur ->
+                    val (n, total) = state.position ?: (1 to 1)
+                    AssistChip(
+                        onClick = { if (state.canPickSource) onOpenPicker() },
+                        label = {
+                            Text(
+                                stringResource(R.string.player_source_chip, n, total, "${cur.candidate.extName} · ${cur.candidate.label}"),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                // BUG-054: the torrent type is not the download action's arrow.
+                                if (cur.candidate.kind == SourceKind.TORRENT) Icons.Rounded.Hub else Icons.Rounded.Language,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        },
+                        trailingIcon = if (state.canPickSource) ({ Icon(Icons.Rounded.ExpandMore, null, Modifier.size(18.dp)) }) else null,
+                        colors = AssistChipDefaults.assistChipColors(labelColor = on, leadingIconContentColor = on, trailingIconContentColor = on),
+                    )
+                }
+                state.torrent?.takeIf { it.fileIndex != null }?.torrentId?.let { id ->
+                    AssistChip(
+                        onClick = { onOpenTorrent(id) },
+                        label = { Text(stringResource(R.string.player_torrent_open_client), maxLines = 1) },
+                        leadingIcon = { Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        colors = AssistChipDefaults.assistChipColors(labelColor = on, leadingIconContentColor = on),
+                    )
+                }
+                state.torrent?.takeIf { it.fileIndex != null }?.let { t ->
+                    Text(torrentLine(t), color = on.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace)
                 }
             }
-            LocalDownloadArgs.current?.let { a -> DownloadAction(a, state.current?.candidate?.toStream(), state.current?.candidate?.label.orEmpty()) } // parity wave B (r): downloads.player-button
-            IconButton(onClick = onLock) { Icon(Icons.Rounded.LockOpen, stringResource(R.string.player_lock), tint = on) }
-            IconButton(onClick = onScreenshot, enabled = ps.started) { Icon(Icons.Rounded.PhotoCamera, stringResource(R.string.player_screenshot), tint = on) }
-            if (state.remoteless) {
-                IconButton(onClick = { onOpenSheet(Sheet.Episodes) }) { Icon(Icons.Rounded.FormatListNumbered, stringResource(R.string.player_episodes), tint = on) }
-            } else if (state.linkProfiles.isNotEmpty()) {
-                // BUG-022: change the PC's enhancement profile without leaving the player
-                IconButton(onClick = { onOpenSheet(Sheet.LinkProfile) }, enabled = !state.linkProfileChanging) {
-                    Icon(Icons.Rounded.AutoAwesome, stringResource(R.string.player_link_profile), tint = on)
-                }
-            }
-            IconButton(onClick = onHelp) { Icon(Icons.Rounded.Keyboard, stringResource(R.string.player_shortcuts), tint = on) }
+        }
+        val pipAndFullscreen: @Composable () -> Unit = {
             IconButton(onClick = onPip) { Icon(Icons.Rounded.PictureInPictureAlt, stringResource(R.string.player_pip), tint = on) }
             IconButton(onClick = onToggleFullscreen) {
                 Icon(
@@ -658,6 +657,76 @@ private fun Controls(
                     tint = on,
                 )
             }
+        }
+        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp).align(Alignment.TopCenter)) {
+            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(4.dp), Alignment.CenterVertically) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, stringResource(R.string.player_back), tint = on) }
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = on, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                    if (!compact) chips()
+                }
+                if (compact) {
+                    pipAndFullscreen()
+                    var menu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { menu = true; onInteract() }) {
+                            Icon(Icons.Rounded.MoreVert, stringResource(R.string.player_more_options), tint = on)
+                        }
+                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                            LocalDownloadArgs.current?.let { a ->
+                                DownloadAction(a, state.current?.candidate?.toStream(), state.current?.candidate?.label.orEmpty(), asMenuItem = true, onDone = { menu = false })
+                            }
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.player_lock)) },
+                                onClick = { menu = false; onLock() },
+                                leadingIcon = { Icon(Icons.Rounded.LockOpen, contentDescription = null) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.player_screenshot)) },
+                                onClick = { menu = false; onScreenshot() },
+                                enabled = ps.started,
+                                leadingIcon = { Icon(Icons.Rounded.PhotoCamera, contentDescription = null) },
+                            )
+                            if (state.remoteless) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.player_episodes)) },
+                                    onClick = { menu = false; onOpenSheet(Sheet.Episodes) },
+                                    leadingIcon = { Icon(Icons.Rounded.FormatListNumbered, contentDescription = null) },
+                                )
+                            } else if (state.linkProfiles.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.player_link_profile)) },
+                                    onClick = { menu = false; onOpenSheet(Sheet.LinkProfile) },
+                                    enabled = !state.linkProfileChanging,
+                                    leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
+                                )
+                            }
+                            if (hasKeyboard) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.player_shortcuts)) },
+                                    onClick = { menu = false; onHelp() },
+                                    leadingIcon = { Icon(Icons.Rounded.Keyboard, contentDescription = null) },
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    LocalDownloadArgs.current?.let { a -> DownloadAction(a, state.current?.candidate?.toStream(), state.current?.candidate?.label.orEmpty()) } // parity wave B (r): downloads.player-button
+                    IconButton(onClick = onLock) { Icon(Icons.Rounded.LockOpen, stringResource(R.string.player_lock), tint = on) }
+                    IconButton(onClick = onScreenshot, enabled = ps.started) { Icon(Icons.Rounded.PhotoCamera, stringResource(R.string.player_screenshot), tint = on) }
+                    if (state.remoteless) {
+                        IconButton(onClick = { onOpenSheet(Sheet.Episodes) }) { Icon(Icons.Rounded.FormatListNumbered, stringResource(R.string.player_episodes), tint = on) }
+                    } else if (state.linkProfiles.isNotEmpty()) {
+                        // BUG-022: change the PC's enhancement profile without leaving the player
+                        IconButton(onClick = { onOpenSheet(Sheet.LinkProfile) }, enabled = !state.linkProfileChanging) {
+                            Icon(Icons.Rounded.AutoAwesome, stringResource(R.string.player_link_profile), tint = on)
+                        }
+                    }
+                    if (hasKeyboard) IconButton(onClick = onHelp) { Icon(Icons.Rounded.Keyboard, stringResource(R.string.player_shortcuts), tint = on) }
+                    pipAndFullscreen()
+                }
+            }
+            if (compact) Box(Modifier.padding(start = 52.dp)) { chips() }
         }
 
         // Transport
@@ -687,9 +756,14 @@ private fun Controls(
         Column(Modifier.fillMaxWidth().align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
             SeekBar(session, ps, state, onInteract)
             Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
+                // BUG-067: "Más" first, so it is not the chip that falls off a phone's width.
+                PlayerChip(
+                    onClick = { onOpenSheet(Sheet.More) },
+                    label = { Text(stringResource(R.string.player_more)) },
+                    leadingIcon = { Icon(Icons.Rounded.MoreHoriz, null, Modifier.size(18.dp)) },
+                )
                 if (ps.videoHeights.isNotEmpty()) {
-                    FilterChip(
-                        selected = ps.selectedHeight != null,
+                    PlayerChip(
                         onClick = { onOpenSheet(Sheet.Quality) },
                         label = { Text(ps.selectedHeight?.let { stringResource(R.string.player_quality_height, it) } ?: stringResource(R.string.player_quality)) },
                         leadingIcon = { Icon(Icons.Rounded.HighQuality, null, Modifier.size(18.dp)) },
@@ -697,36 +771,27 @@ private fun Controls(
                 }
                 // Always offered once playing: "Load file…", delay and translation live in this sheet.
                 if (ps.subtitles.isNotEmpty() || ps.started) {
-                    FilterChip(
-                        selected = ps.subtitlesEnabled || state.customSubtitle != null,
+                    PlayerChip(
                         onClick = { onOpenSheet(Sheet.Subtitles) },
                         label = { Text(stringResource(R.string.player_subtitles)) },
                         leadingIcon = { Icon(Icons.Rounded.Subtitles, null, Modifier.size(18.dp)) },
                     )
                 }
                 if (ps.audioTracks.size > 1) {
-                    FilterChip(
-                        selected = false,
+                    PlayerChip(
                         onClick = { onOpenSheet(Sheet.Audio) },
                         label = { Text(stringResource(R.string.player_audio)) },
                         leadingIcon = { Icon(Icons.Rounded.Audiotrack, null, Modifier.size(18.dp)) },
                     )
                 }
-                FilterChip(
-                    selected = ps.speed != 1f,
+                PlayerChip(
                     onClick = { onOpenSheet(Sheet.Speed) },
                     label = { Text(stringResource(R.string.player_speed_value, speedText(ps.speed))) },
+                    description = stringResource(R.string.player_speed_desc, speedText(ps.speed)),
                     leadingIcon = { Icon(Icons.Rounded.Speed, null, Modifier.size(18.dp)) },
                 )
-                FilterChip(
-                    selected = state.sleep != null || state.loop || state.settings.stableVolume,
-                    onClick = { onOpenSheet(Sheet.More) },
-                    label = { Text(stringResource(R.string.player_more)) },
-                    leadingIcon = { Icon(Icons.Rounded.MoreHoriz, null, Modifier.size(18.dp)) },
-                )
                 if (state.hasNextEpisode && state.remoteless) {
-                    FilterChip(
-                        selected = false,
+                    PlayerChip(
                         onClick = onNext,
                         label = {
                             Text(
@@ -744,9 +809,32 @@ private fun Controls(
 }
 
 /**
+ * BUG-067: the bottom actions open sheets, so they are buttons ([AssistChip], read by TalkBack as "button"), not [FilterChip]s that
+ * TalkBack announced as checked / unchecked boxes. [description] replaces the label for TalkBack when it says more ("Velocidad 1x").
+ */
+@Composable
+private fun PlayerChip(
+    onClick: () -> Unit,
+    label: @Composable () -> Unit,
+    leadingIcon: @Composable () -> Unit,
+    description: String? = null,
+) {
+    AssistChip(
+        onClick = onClick,
+        label = label,
+        leadingIcon = leadingIcon,
+        modifier = Modifier.semantics {
+            role = Role.Button
+            if (description != null) contentDescription = description
+        },
+    )
+}
+
+/**
  * Slider + a thin strip under it with the torrent's downloaded ranges (secondary), the "ready to play" range from the playhead (primary)
  * and the intro / outro / recap marks (tertiary). Colours come from the scheme only.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SeekBar(session: PlayerSession, ps: PlaybackState, state: PlayerUiState, onInteract: () -> Unit) {
     var dragging by remember { mutableStateOf(false) }
@@ -759,31 +847,43 @@ private fun SeekBar(session: PlayerSession, ps: PlaybackState, state: PlayerUiSt
     val downloaded = rangeSpans(ranges)
     val ready = if (ps.durationMs > 0) readySpan(ranges, ps.positionMs.toDouble() / ps.durationMs) else null
     val bufferedFraction = if (ps.durationMs > 0) (ps.bufferedMs.toFloat() / ps.durationMs).coerceIn(0f, 1f) else 0f
-    val trackColor = scheme.onBackground.copy(alpha = 0.18f)
     val bufferColor = scheme.onBackground.copy(alpha = 0.35f)
     val downloadedColor = scheme.secondary
     val readyColor = scheme.primary
     val markColor = scheme.tertiary
     Column {
+        // BUG-068: buffer, downloaded ranges and intro marks are drawn inside the slider's own track (over the part not played yet),
+        // not as a second loose strip under it with another margin.
+        val playedFraction = (shown / duration.toFloat()).coerceIn(0f, 1f)
         Slider(
             value = shown,
             onValueChange = { dragging = true; dragValue = it; onInteract() },
             onValueChangeFinished = { session.seekTo(dragValue.toLong()); dragging = false },
             valueRange = 0f..duration.toFloat(),
             enabled = ps.durationMs > 0,
+            track = { sliderState ->
+                Box(contentAlignment = Alignment.Center) {
+                    SliderDefaults.Track(sliderState = sliderState, enabled = ps.durationMs > 0)
+                    Canvas(Modifier.fillMaxWidth().height(4.dp)) {
+                        val w = size.width
+                        val h = size.height
+                        val r = CornerRadius(h / 2, h / 2)
+                        val from = w * playedFraction
+                        fun span(left: Float, width: Float, color: androidx.compose.ui.graphics.Color) {
+                            val l = maxOf(w * left, from)
+                            val rgt = minOf(w * (left + width), w)
+                            if (rgt > l) drawRoundRect(color, Offset(l, 0f), Size(rgt - l, h), r)
+                        }
+                        if (downloaded.isEmpty()) span(0f, bufferedFraction, bufferColor)
+                        downloaded.forEach { (left, width) -> span(left, width, downloadedColor) }
+                        ready?.let { (left, width) -> span(left, width, readyColor) }
+                        marks.forEach { m ->
+                            drawRoundRect(markColor.copy(alpha = if (m.kind == SkipKind.INTRO) 0.9f else 0.6f), Offset(w * m.left, 0f), Size(w * m.width, h), r)
+                        }
+                    }
+                }
+            },
         )
-        Canvas(Modifier.fillMaxWidth().height(6.dp).padding(horizontal = 10.dp)) {
-            val w = size.width
-            val h = size.height
-            val r = CornerRadius(h / 2, h / 2)
-            drawRoundRect(trackColor, Offset.Zero, Size(w, h), r)
-            if (downloaded.isEmpty()) {
-                drawRoundRect(bufferColor, Offset.Zero, Size(w * bufferedFraction, h), r)
-            }
-            downloaded.forEach { (left, width) -> drawRoundRect(downloadedColor, Offset(w * left, 0f), Size(w * width, h), r) }
-            ready?.let { (left, width) -> drawRoundRect(readyColor, Offset(w * left, 0f), Size(w * width, h), r) }
-            marks.forEach { m -> drawRoundRect(markColor.copy(alpha = if (m.kind == SkipKind.INTRO) 0.9f else 0.6f), Offset(w * m.left, 0f), Size(w * m.width, h), r) }
-        }
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), Arrangement.SpaceBetween) {
             Text(formatDuration(shown.toLong() / 1000), color = scheme.onBackground, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace)
             Text(
@@ -814,6 +914,8 @@ private tailrec fun Context.findActivity(): Activity? =
         else -> null
     }
 
+/** BUG-060: below this width the top bar moves its secondary actions to a menu and the chips to a row of their own. */
+private const val COMPACT_TOP_BAR_DP = 600
 private const val CONTROLS_TIMEOUT_MS = 4_000L
 private const val HUD_TIMEOUT_MS = 900L
 private const val SEEK_STEP_MS = 10_000L
