@@ -648,9 +648,9 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
     // and that ~40 s resolution held the extension's single JS thread while the real episode waited behind it.
     let sources_panel = if has_source_ext && vm.is_some() {
         rsx! {
-            section { class: "tk-details__sources",
-                h3 { class: "tk-panel__title", Icon { name: "extensions".to_string(), size: 20 } {t("details.provider")} }
-                p { class: "tk-muted tk-details__hint", {t("details.provider_hint")} }
+            // BUG-077: no outer "Stream source" title: the card's own "Episode sources" is the only heading (as on
+            // Android); the old hint is the section's tooltip.
+            section { class: "tk-details__sources", title: t("details.provider_hint"),
                 SourceSummary {
                     key: "{id}-{watch_ep}",
                     media_id: id.clone(),
