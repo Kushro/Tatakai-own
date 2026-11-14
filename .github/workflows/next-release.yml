@@ -141,6 +141,26 @@ jobs:
         with:
           arch: x64
 
+      # Link's LSFG helper (native/temple-lsfg, C++/Vulkan, static CRT). Ninja comes with the VS CMake tools; the
+      # Visual Studio generator is the fallback. tk-link looks for temple-lsfg.exe next to tatakai-next.exe.
+      - name: temple-lsfg (LSFG helper)
+        working-directory: apps/desktop-native
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $out = 'target/temple-lsfg'
+          if (Get-Command ninja -ErrorAction SilentlyContinue) {
+            cmake -S native/temple-lsfg -B $out -G Ninja -DCMAKE_BUILD_TYPE=Release
+          } else {
+            cmake -S native/temple-lsfg -B $out -G 'Visual Studio 17 2022' -A x64
+          }
+          if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)" }
+          cmake --build $out --config Release --parallel
+          if ($LASTEXITCODE -ne 0) { throw "cmake build failed ($LASTEXITCODE)" }
+          $exe = Get-ChildItem $out -Recurse -Filter temple-lsfg.exe | Select-Object -First 1
+          if (-not $exe) { throw 'temple-lsfg.exe was not built' }
+          $dest = Join-Path (Resolve-Path $out).Path 'temple-lsfg.exe'
+          if ($exe.FullName -ne $dest) { Copy-Item $exe.FullName $dest -Force }
+
       - name: Runtime deps (libmpv, ffmpeg, Anime4K; SHA-256 pinned)
         run: ./apps/desktop-native/packaging/fetch-deps.ps1 -Only libmpv,ffmpeg,anime4k
 
@@ -161,6 +181,15 @@ jobs:
           $stage = Join-Path $PWD "stage/Tatakai-Next"
           New-Item -ItemType Directory -Force -Path $stage, "$stage/shaders", "$stage/assets/fonts" | Out-Null
           Copy-Item "$app/target/release/tatakai-next.exe" $stage
+          Copy-Item "$app/target/temple-lsfg/temple-lsfg.exe" $stage
+          $tl = "$app/native/temple-lsfg"
+          New-Item -ItemType Directory -Force -Path "$stage/licenses/temple-lsfg" | Out-Null
+          Copy-Item "$tl/README.md", "$tl/LICENSE", "$tl/LICENSE-GPL-3.0.txt" "$stage/licenses/temple-lsfg"
+          Copy-Item "$tl/third_party/README.md" "$stage/licenses/temple-lsfg/third_party-README.md"
+          Copy-Item "$tl/third_party/lsfg-vk/LICENSE.md" "$stage/licenses/temple-lsfg/lsfg-vk-LICENSE.md"
+          Copy-Item "$tl/third_party/volk/LICENSE.md" "$stage/licenses/temple-lsfg/volk-LICENSE.md"
+          Copy-Item "$tl/third_party/pe-parse/LICENSE" "$stage/licenses/temple-lsfg/pe-parse-LICENSE"
+          Copy-Item "$tl/third_party/vulkan-headers/LICENSE-Apache-2.0.txt" "$stage/licenses/temple-lsfg/vulkan-headers-LICENSE-Apache-2.0.txt"
           Copy-Item "$deps/libmpv/libmpv-2.dll" $stage
           Copy-Item "$deps/ffmpeg" "$stage/ffmpeg" -Recurse
           Copy-Item "$deps/shaders/*.glsl" "$stage/shaders"
@@ -174,7 +203,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $root = Join-Path $PWD 'stage/Tatakai-Next'
-          foreach ($f in 'tatakai-next.exe', 'libmpv-2.dll', 'ffmpeg/bin/ffmpeg.exe', 'shaders/Anime4K_Restore_CNN_M.glsl', 'LICENSE') {
+          foreach ($f in 'tatakai-next.exe', 'temple-lsfg.exe', 'libmpv-2.dll', 'ffmpeg/bin/ffmpeg.exe', 'shaders/Anime4K_Restore_CNN_M.glsl', 'LICENSE') {
             if (-not (Test-Path (Join-Path $root $f))) { throw "package is missing $f" }
           }
           $out = Join-Path $env:RUNNER_TEMP 'tk-version.txt'

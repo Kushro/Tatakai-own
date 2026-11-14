@@ -7,12 +7,13 @@
 #   <prefix>/lib/tatakai-next/shaders/*.glsl                   paths.rs::shaders_dir (when fetched)
 #   <prefix>/lib/tatakai-next/mpv-anime-build/<zip>            anime_build.rs::zip_path (+ SHA256SUMS, LICENSE)
 #   <prefix>/lib/tatakai-next/ffmpeg/bin/{ffmpeg,ffprobe}      -> /usr/bin (paths.rs::ffmpeg_path, Link sessions)
+#   <prefix>/lib/tatakai-next/temple-lsfg                      Link's LSFG helper (tk-link lsfg::find_helper), with --lsfg
 #   <prefix>/bin/tatakai-next -> ../lib/tatakai-next/tatakai-next
 #   <prefix>/share/{applications,metainfo,icons/hicolor}       desktop entry, AppStream, icons
 #   <prefix>/share/licenses/tatakai-next/                      AGPL text + third-party notices and licenses
 #
 # Usage: install-tree.sh --bin <built binary> --root <staging root> [--prefix /usr] [--deps <fetch-deps dest>]
-#                        [--no-ffmpeg-links]
+#                        [--lsfg <built temple-lsfg>] [--no-ffmpeg-links]
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,6 +25,7 @@ root=""
 prefix="/usr"
 deps="$app/packaging/deps"
 ffmpeg_links=1
+lsfg=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -31,13 +33,15 @@ while [ $# -gt 0 ]; do
         --root) root="$2"; shift 2 ;;
         --prefix) prefix="$2"; shift 2 ;;
         --deps) deps="$2"; shift 2 ;;
+        --lsfg) lsfg="$2"; shift 2 ;;
         --no-ffmpeg-links) ffmpeg_links=0; shift ;;
-        -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
 [ -n "$bin" ] && [ -f "$bin" ] || { echo "--bin <path to the built tatakai-next> is required" >&2; exit 2; }
 [ -n "$root" ] || { echo "--root <staging root> is required" >&2; exit 2; }
+[ -z "$lsfg" ] || [ -x "$lsfg" ] || { echo "--lsfg: not an executable: $lsfg" >&2; exit 2; }
 
 id="app.tatakai.own.next"
 base="$root$prefix"
@@ -83,6 +87,13 @@ if [ "$ffmpeg_links" -eq 1 ]; then
     ln -sfn /usr/bin/ffprobe "$lib/ffmpeg/bin/ffprobe"
 fi
 
+# LSFG helper (built from native/temple-lsfg by build-temple-lsfg.sh). Without it Link reports helper_missing.
+if [ -n "$lsfg" ]; then
+    install -Dm0755 "$lsfg" "$lib/temple-lsfg"
+else
+    echo "note: no --lsfg given; shipping without the temple-lsfg helper (Link LSFG profiles unavailable)" >&2
+fi
+
 install -Dm0644 "$here/$id.desktop" "$base/share/applications/$id.desktop"
 install -Dm0644 "$here/$id.metainfo.xml" "$base/share/metainfo/$id.metainfo.xml"
 for size in 16 32 48 64 128 256 512; do
@@ -93,6 +104,17 @@ lic="$base/share/licenses/tatakai-next"
 install -Dm0644 "$app/LICENSE" "$lic/LICENSE"
 install -m0644 "$app/THIRD_PARTY_NOTICES.md" "$lic/THIRD_PARTY_NOTICES.md"
 install -m0644 "$anime/LICENSE" "$lic/mpv-anime-build-LICENSE"
+if [ -n "$lsfg" ]; then
+    # GPL-3.0 combined work: its corresponding source is native/temple-lsfg of this repository.
+    tl="$app/native/temple-lsfg"
+    install -Dm0644 "$tl/README.md" "$lic/temple-lsfg/README.md"
+    install -m0644 "$tl/LICENSE" "$tl/LICENSE-GPL-3.0.txt" "$lic/temple-lsfg/"
+    install -m0644 "$tl/third_party/README.md" "$lic/temple-lsfg/third_party-README.md"
+    install -m0644 "$tl/third_party/lsfg-vk/LICENSE.md" "$lic/temple-lsfg/lsfg-vk-LICENSE.md"
+    install -m0644 "$tl/third_party/volk/LICENSE.md" "$lic/temple-lsfg/volk-LICENSE.md"
+    install -m0644 "$tl/third_party/pe-parse/LICENSE" "$lic/temple-lsfg/pe-parse-LICENSE"
+    install -m0644 "$tl/third_party/vulkan-headers/LICENSE-Apache-2.0.txt" "$lic/temple-lsfg/vulkan-headers-LICENSE-Apache-2.0.txt"
+fi
 for f in "$lib"/assets/fonts/OFL-*.txt; do
     if [ -f "$f" ]; then install -m0644 "$f" "$lic/"; fi
 done

@@ -11,10 +11,11 @@
 #
 # Build host: the oldest distribution you want to support (CI uses Ubuntu 24.04: libmpv 2.x needs mpv >= 0.35).
 # Needs: cargo (unless --bin), curl, patchelf, pkg-config, perl, webkit2gtk-4.1 + gtk3 + libmpv dev packages,
-# glib-networking. linuxdeploy and its gtk plugin are downloaded into the tools cache unless $LINUXDEPLOY and
+# glib-networking, and cmake + a C++20 compiler (+ ninja, optional) for the temple-lsfg helper (unless --lsfg). linuxdeploy and its gtk plugin are downloaded into the tools cache unless $LINUXDEPLOY and
 # $LINUXDEPLOY_PLUGIN_GTK point at local copies.
 #
 # Usage: build-appimage.sh [--bin <built tatakai-next>] [--out <dir>] [--deps <fetch-deps dest>]
+#                          [--lsfg <built temple-lsfg>]
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,12 +25,14 @@ id="app.tatakai.own.next"
 bin=""
 out="$app/target/appimage"
 deps="$app/packaging/deps"
+lsfg=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --bin) bin="$2"; shift 2 ;;
         --out) out="$2"; shift 2 ;;
         --deps) deps="$2"; shift 2 ;;
-        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+        --lsfg) lsfg="$2"; shift 2 ;;
+        -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -46,6 +49,9 @@ if [ -z "$bin" ]; then
     bin="$app/target/release/tatakai-next"
 fi
 [ -f "$bin" ] || { echo "binary not found: $bin" >&2; exit 1; }
+if [ -z "$lsfg" ]; then
+    lsfg="$("$here/build-temple-lsfg.sh" | tail -n1)"
+fi
 
 # A fresh AppDir per run; nothing is deleted (CI runners are ephemeral, locally remove old ones by hand).
 mkdir -p "$out"
@@ -54,7 +60,7 @@ appdir="$work/AppDir"
 mkdir -p "$appdir"
 echo "AppDir: $appdir"
 
-"$here/install-tree.sh" --bin "$bin" --root "$appdir" --prefix /usr --deps "$deps"
+"$here/install-tree.sh" --bin "$bin" --root "$appdir" --prefix /usr --deps "$deps" --lsfg "$lsfg"
 
 # --- WebKitGTK helpers -------------------------------------------------------------------------------------
 webkit_libdir="$(pkg-config --variable=libdir webkit2gtk-4.1)"
@@ -106,6 +112,7 @@ cp "$app/../../resources/icon-256.png" "$icon"
     --icon-file "$icon" \
     --custom-apprun "$here/AppRun" \
     --deploy-deps-only "$appdir/usr/lib/tatakai-next/tatakai-next" \
+    --deploy-deps-only "$appdir/usr/lib/tatakai-next/temple-lsfg" \
     --deploy-deps-only "$appdir$helpers" \
     --deploy-deps-only "$appdir$helpers/injected-bundle" \
     --deploy-deps-only "$appdir/usr/lib/gio/modules" \
@@ -136,6 +143,7 @@ rel_helpers="${helpers#/usr/lib/}"            # webkit2gtk-4.1 or x86_64-linux-g
 slashes="${rel_helpers//[^\/]/}"
 helpers_depth=$(( ${#slashes} + 1 ))
 patchelf --set-rpath "$(origin_up 1)" "$appdir/usr/lib/tatakai-next/tatakai-next"
+patchelf --set-rpath "$(origin_up 1)" "$appdir/usr/lib/tatakai-next/temple-lsfg"
 for f in "$appdir$helpers"/*; do
     if [ -f "$f" ] && head -c4 "$f" | grep -q 'ELF'; then
         patchelf --set-rpath "$(origin_up "$helpers_depth")" "$f"

@@ -6,8 +6,9 @@
 # _fetch_shaders=0 to package without them (the upscale presets then report the missing files).
 # `makepkg --nocheck` skips the workspace tests.
 #
-# Installed layout (docs/redesign/09 section 8): /usr/lib/tatakai-next/{tatakai-next, assets/fonts/, shaders/,
-# mpv-anime-build/, ffmpeg/bin/ -> /usr/bin} with a /usr/bin/tatakai-next symlink.
+# Installed layout (docs/redesign/09 section 8): /usr/lib/tatakai-next/{tatakai-next, temple-lsfg, assets/fonts/,
+# shaders/, mpv-anime-build/, ffmpeg/bin/ -> /usr/bin} with a /usr/bin/tatakai-next symlink. temple-lsfg (Link's
+# LSFG helper, GPL-3.0 combined work) is built from native/temple-lsfg of this checkout.
 
 pkgname=tatakai-next
 pkgver=0.1.0
@@ -15,7 +16,7 @@ pkgrel=1
 pkgdesc='Native anime player (Dioxus + libmpv) with Anime4K and sandboxed .kai extensions'
 arch=('x86_64')
 url='https://github.com/Kushro/Tatakai-own'
-license=('AGPL-3.0-or-later' 'MIT' 'OFL-1.1')
+license=('AGPL-3.0-or-later' 'GPL-3.0-only' 'MIT' 'Apache-2.0' 'OFL-1.1')
 depends=(
     'mpv'              # libmpv.so.2 (client API 2.x)
     'webkit2gtk-4.1'
@@ -28,6 +29,7 @@ depends=(
     'gdk-pixbuf2'
     'xdotool'          # libxdo (menu accelerators)
     'ffmpeg'           # Tatakai Link sessions
+    'vulkan-icd-loader' # libvulkan.so.1 for temple-lsfg (Link LSFG profiles)
     'hicolor-icon-theme'
 )
 optdepends=(
@@ -35,7 +37,7 @@ optdepends=(
     'libayatana-appindicator: tray icon'
     'xdg-desktop-portal: native file dialogs'
 )
-makedepends=('cargo' 'curl' 'python' 'pkgconf')
+makedepends=('cargo' 'curl' 'python' 'pkgconf' 'cmake' 'ninja')
 # GCC LTO objects from the cc-built C code (bundled SQLite, ring) do not link into the Rust binary.
 options=('!lto')
 
@@ -66,6 +68,7 @@ build() {
     cd "$_app"
     export CARGO_TARGET_DIR="$srcdir/target"
     cargo build --release --locked -p tk-app
+    "$_app/packaging/linux/build-temple-lsfg.sh" --out "$srcdir/temple-lsfg"
 }
 
 check() {
@@ -80,5 +83,6 @@ package() {
         --bin "$srcdir/target/release/tatakai-next" \
         --root "$pkgdir" \
         --prefix /usr \
-        --deps "$srcdir/deps"
+        --deps "$srcdir/deps" \
+        --lsfg "$srcdir/temple-lsfg/temple-lsfg"
 }

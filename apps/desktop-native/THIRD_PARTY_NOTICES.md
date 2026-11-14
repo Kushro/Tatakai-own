@@ -27,6 +27,20 @@ Every branch that copies a file MUST add a row here (origin repo + path, license
 | [mpv-anime-build](https://github.com/Chinna95P/mpv-anime-build) release v5.6 (`vendor/mpv-anime-build/mpv-anime-build-v5.6.zip`, pinned by `SHA256SUMS`) | MIT (Chinna95P; `vendor/mpv-anime-build/LICENSE`) | Ship the zip unmodified with its `LICENSE` next to it (`<app>/mpv-anime-build/`); notice in About. The app extracts it into the data directory and comments out embedding-hostile lines of `mpv.conf` (original kept as `mpv.conf.upstream`). |
 | Components bundled inside that release (uosc and its `ziggy` helpers, thumbfast and other mpv user scripts, ravu / nnedi3 / FSRCNNX / SSim / KrigBilateral / adaptive-sharpen / hdr-toys shaders, fonts) | Their own licenses (LGPL / MPL / MIT / GPL and font licenses), as distributed by the release | Redistributed as part of the unmodified release zip; never executed by the app (mpv loads the scripts and shaders). Review the per-component licenses before a public release, in particular the bundled fonts. |
 
+### 2c. Forked in the repo: temple-lsfg (Tatakai Link LSFG helper)
+
+Source in `native/temple-lsfg/`, forked from the author's own Enigmata-Temple `native/temple-lsfg` (commit `34ff76c`) and maintained here independently (no sync). Built by `packaging/linux/build-temple-lsfg.sh` (AppImage, PKGBUILD) and by the Windows release job, and shipped as `temple-lsfg` / `temple-lsfg.exe` next to `tatakai-next`. The binary is a **GPL-3.0 combined work**; its corresponding source is `native/temple-lsfg/` of this repository. The packages ship its license files under `share/licenses/tatakai-next/temple-lsfg/` (Linux) or `licenses/temple-lsfg/` (Windows).
+
+| Component | License | Obligation |
+|---|---|---|
+| temple-lsfg own code (`src/main.cpp`, `src/unicode_*.cpp`, `CMakeLists.txt`) | MIT (`native/temple-lsfg/LICENSE`) | Keep the notice |
+| `src/shader_loader.{h,cpp}` (adapted from [LSFG-Android-Application](https://github.com/FrankBarretta/LSFG-Android-Application) b8475419 via Enigmata) | GPL-3.0-only (`native/temple-lsfg/LICENSE-GPL-3.0.txt`) | Makes the binary GPL-3.0; offer the source (this repository) with every package |
+| [lsfg-vk](https://github.com/FrankBarretta/lsfg-vk-android) framegen core (b55b1820, 4 files from LSFG-Android-A6xx f1c0e9ae; modifications listed in `third_party/README.md`) | MIT, Copyright (c) 2025 lsfg-vk (`third_party/lsfg-vk/LICENSE.md`) | Keep the notice and the modification list |
+| [volk](https://github.com/zeux/volk) be3dbd49 | MIT, Copyright (c) 2018-2025 Arseny Kapoulkine (`third_party/volk/LICENSE.md`) | Keep the notice |
+| [pe-parse](https://github.com/trailofbits/pe-parse) 31ac5966 | MIT, Copyright (c) 2013 Andrew Ruef (`third_party/pe-parse/LICENSE`) | Keep the notice |
+| Vulkan headers (Khronos, `VK_HEADER_VERSION` 275) | Apache-2.0 (`third_party/vulkan-headers/LICENSE-Apache-2.0.txt`) | Keep the license text |
+| Lossless Scaling `Lossless.dll` | Proprietary (its authors) | **Never shipped**: the helper reads the user's own copy in memory |
+
 ## 3. Rust crates (versions pinned by `Cargo.lock`)
 
 Dioxus (MIT/Apache-2.0), tokio (MIT), reqwest (MIT/Apache-2.0), rustls with the `ring` provider (Apache-2.0/ISC/MIT), axum/hyper (MIT), rcgen (MIT/Apache-2.0), x509-parser (MIT/Apache-2.0),
@@ -81,7 +95,7 @@ Anime4K shaders (MIT / Unlicense, bloc97), FSR.glsl (MIT, agyild), Space Grotesk
 | `tk-link/src/media/lsfg.rs` (temple-lsfg / `Lossless.dll` discovery incl. Steam `libraryfolders.vdf`, `--probe` parsing, `DISABLE_LSFGVK=1`) | Enigmata-Temple v0.7.0 `crates/temple-core/src/media/lsfg.rs` | AGPL-3.0-or-later | ported with its tests; capability field `lsfg` adds `auto_target_fps` and the `disabled` reason |
 | `tk-link/src/media/profiles.rs` (LSFG catalog x2..x5 / auto 120 fps, bitrates, `auto_lsfg_multiplier`) | Enigmata-Temple v0.7.0 `crates/temple-core/src/media/profiles.rs` (`lsfg_specs`) and `tuning.rs` (`LSFG_MULTIPLIERS`) | AGPL-3.0-or-later | Link ids `p-lsfg-1080-*`, `p-anime4k-lsfg-1080-*` |
 | `tk-link/src/media/probe.rs` (`FrameRate`), `tk-link/src/media/engine.rs` (process chain) | Enigmata-Temple v0.7.0 `crates/temple-core/src/media/probe.rs`, `media.rs` (`run_chain`) | AGPL-3.0-or-later | Linux children also get `PR_SET_PDEATHSIG` |
-| `temple-lsfg` helper (external program, **not shipped**: built by the user from Enigmata-Temple `native/temple-lsfg` and placed next to `tatakai-next`, or pointed to with `TEMPLE_LSFG`) | Enigmata-Temple `native/temple-lsfg` (lsfg-vk core MIT, `shader_loader` GPL-3.0-only) | GPL-3.0 (combined work) | run as a separate process; reads the user's own Lossless Scaling `Lossless.dll`, which is never copied |
+| `temple-lsfg` helper (separate process; source forked into `native/temple-lsfg/`, see section 2c) | Enigmata-Temple `native/temple-lsfg` (34ff76c) | GPL-3.0 (combined work) | built and shipped next to `tatakai-next`; reads the user's own Lossless Scaling `Lossless.dll`, which is never copied |
 | `tk-link/src/devices.rs`, `tk-link/src/server.rs` structure | Enigmata-Temple `devices.rs` / `server.rs` | AGPL-3.0-or-later | rewritten for axum 0.8 + hyper-util without the `tower` crate |
 | `tk-ext/src/js/prelude.js` shim semantics | `src/core/extensions/mobile/{requireShim,parseHtml}.ts` of this repository (MPL-2.0) | MPL-2.0 | re-implemented in JS for QuickJS |
 | metadata router semantics | `src/lib/metadata/router.ts` of this repository | MPL-2.0 | |
