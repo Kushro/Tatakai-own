@@ -69,7 +69,17 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import android.content.res.Configuration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -180,7 +190,24 @@ fun NovelReaderScreen(
             add(-1 to -3)
         }
     }
-    val list = rememberLazyListState(initialFirstVisibleItemIndex = (args.startParagraph + 1).coerceAtLeast(0))
+    // BUG-124: a chapter opened at its start shows its title row (index 0), not the first paragraph with the title above the screen.
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = NovelReaderLayout.initialRow(args.startParagraph))
+    // BUG-124: the text starts below the real top bar (measured), not under it; in landscape the bars hide when the phone turns and
+    // when the text scrolls (a tap brings them back), and they are one compact row.
+    val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val density = LocalDensity.current
+    var topBarPx by remember(landscape) { mutableIntStateOf(0) }
+    var bottomBarPx by remember(landscape) { mutableIntStateOf(0) }
+    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val topPad = if (topBarPx > 0) with(density) { topBarPx.toDp() } + 8.dp else statusTop + NovelReaderLayout.barEstimate(landscape) + 8.dp
+    val bottomPad = if (bottomBarPx > 0) with(density) { bottomBarPx.toDp() } + 16.dp else navBottom + NovelReaderLayout.barEstimate(landscape) + 16.dp
+    val idle by rememberUpdatedState(ttsState == TtsState.IDLE)
+    LaunchedEffect(landscape) { if (NovelReaderLayout.hideBarsOnRotate(landscape)) chrome = false }
+    LaunchedEffect(list, landscape) {
+        if (!landscape) return@LaunchedEffect
+        snapshotFlow { list.isScrollInProgress }.distinctUntilChanged().collect { scrolling -> if (scrolling && idle) chrome = false }
+    }
     LaunchedEffect(list, rows) {
         snapshotFlow { list.firstVisibleItemIndex }.distinctUntilChanged().collect { i ->
             val (s, p) = rows.getOrNull(i) ?: return@collect
@@ -216,7 +243,7 @@ fun NovelReaderScreen(
                 state = list,
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(reader.paragraphSpacingDp.dp),
-                contentPadding = PaddingValues(top = 96.dp, bottom = 160.dp, start = 20.dp, end = 20.dp),
+                contentPadding = PaddingValues(top = topPad, bottom = bottomPad, start = 20.dp, end = 20.dp),
                 modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures(onTap = { chrome = !chrome }) },
             ) {
                 itemsIndexed(rows, key = { i, r -> "${r.first}:${r.second}:$i" }) { _, (s, p) ->
@@ -271,18 +298,18 @@ fun NovelReaderScreen(
         }
 
         AnimatedVisibility(visible = chrome, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f), modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.statusBarsPadding().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            // BUG-124: opaque bars (the text no longer shows through); the percentage is only in the bottom bar.
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().onSizeChanged { topBarPx = it.height }) {
+                Row(Modifier.statusBarsPadding().padding(horizontal = 4.dp, vertical = if (landscape) 0.dp else 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { vm.saveProgress(); onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back)) }
+                    val chapterLine = ChapterText.formatNumber(ui.chapter?.number)?.let { stringResource(R.string.novel_chapter_n, it) }
                     Column(Modifier.weight(1f)) {
-                        Text(args.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            listOfNotNull(
-                                ChapterText.formatNumber(ui.chapter?.number)?.let { stringResource(R.string.novel_chapter_n, it) },
-                                stringResource(R.string.novel_reader_percent, (ui.fraction * 100).roundToInt()),
-                            ).joinToString(" · "),
-                            style = MaterialTheme.typography.labelMedium,
-                        )
+                        if (landscape) {
+                            Text(listOfNotNull(args.title, chapterLine).joinToString(" · "), style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        } else {
+                            Text(args.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            chapterLine?.let { Text(it, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        }
                     }
                     IconButton(onClick = { sheet = NovelSheet.CHAPTERS }) { Icon(Icons.AutoMirrored.Outlined.List, contentDescription = stringResource(R.string.novel_reader_chapters)) }
                     IconButton(onClick = { sheet = NovelSheet.SETTINGS }) { Icon(Icons.Outlined.TextFields, contentDescription = stringResource(R.string.novel_reader_settings)) }
@@ -293,8 +320,8 @@ fun NovelReaderScreen(
             }
         }
         AnimatedVisibility(visible = chrome || ttsState != TtsState.IDLE, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.BottomCenter)) {
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.navigationBarsPadding().padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().onSizeChanged { bottomBarPx = it.height }) {
+                Column(Modifier.navigationBarsPadding().padding(horizontal = 8.dp, vertical = if (landscape) 0.dp else 4.dp)) {
                     ttsError?.let { err ->
                         Text(ttsErrorText(err), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 8.dp))
                     }
@@ -379,4 +406,16 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
+}
+
+/** BUG-124: where the novel reader opens and how much room its bars take. Pure (unit-tested). */
+internal object NovelReaderLayout {
+    /** Rows are (segment, paragraph) with the chapter title first: paragraph p is row p + 1, the start of a chapter its title row. */
+    fun initialRow(startParagraph: Int): Int = if (startParagraph <= 0) 0 else startParagraph + 1
+
+    /** Height of a bar before it is measured (one 48 dp row in landscape; title + chapter line in portrait), insets apart. */
+    fun barEstimate(landscape: Boolean) = if (landscape) 48.dp else 64.dp
+
+    /** Turning to landscape hides the bars (two of them left ~6 lines of text). */
+    fun hideBarsOnRotate(landscape: Boolean): Boolean = landscape
 }
