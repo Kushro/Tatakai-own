@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.feature.novel
 
+import app.tatakai.next.ui.labels.genreLabel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -131,8 +132,8 @@ fun NovelHomeScreen(
                 )
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     NovelFilterDropdown(
-                        stringResource(R.string.novel_filter_genre), filters.genre, listOf<String?>(null) + home.genres,
-                        optionLabel = { it ?: stringResource(R.string.novel_filter_any) },
+                        stringResource(R.string.novel_filter_genre), filters.genre?.let { genreLabel(it) }, listOf<String?>(null) + home.genres,
+                        optionLabel = { it?.let { g -> genreLabel(g) } ?: stringResource(R.string.novel_filter_any) },
                     ) { v -> vm.setFilters { it.copy(genre = v) } }
                     NovelFilterDropdown(
                         stringResource(R.string.novel_filter_status), novelStatusLabel(filters.status), listOf<String?>(null) + NovelFilters.STATUSES,
@@ -253,7 +254,7 @@ fun NovelHomeScreen(
                         item(key = "genres") {
                             NovelSectionHeader(stringResource(R.string.novel_row_genres))
                             FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                home.genres.forEach { g -> SuggestionChip(onClick = { vm.setFilters { NovelFilters(genre = g) } }, label = { Text(g) }) }
+                                home.genres.forEach { g -> SuggestionChip(onClick = { vm.setFilters { NovelFilters(genre = g) } }, label = { Text(genreLabel(g)) }) }
                             }
                         }
                     }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.feature.novel
 
+import app.tatakai.next.ui.labels.staffRoleLabel
+import app.tatakai.next.ui.labels.genreLabel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -255,7 +257,7 @@ fun NovelDetailsScreen(
                                     Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                                 }
                             }
-                            Fact(stringResource(R.string.novel_fact_authors), info.value.authors.joinToString(", ") { a -> a.role?.let { "${a.staff.name} ($it)" } ?: a.staff.name })
+                            Fact(stringResource(R.string.novel_fact_authors), info.value.authors.map { a -> a.staff.name to a.role?.trim()?.takeIf { it.isNotEmpty() }?.let { staffRoleLabel(it) } }.joinToString(", ") { (name, role) -> role?.let { "$name ($it)" } ?: name }) // BUG-114
                             Fact(stringResource(R.string.novel_fact_volumes), info.value.volumes?.toString())
                             Fact(stringResource(R.string.novel_fact_chapters), info.value.chapters?.toString())
                             Fact(stringResource(R.string.novel_fact_status), novelStatusLabel(info.value.status))
@@ -268,7 +270,7 @@ fun NovelDetailsScreen(
                     if (media.genres.isNotEmpty()) {
                         item(key = "genres") {
                             FlowRow(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                media.genres.forEach { g -> AssistChip(onClick = { onOpenGenre(g) }, label = { Text(g) }) }
+                                media.genres.forEach { g -> AssistChip(onClick = { onOpenGenre(g) }, label = { Text(genreLabel(g)) }) } // BUG-114
                             }
                         }
                     }
