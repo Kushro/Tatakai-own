@@ -21,6 +21,7 @@
     <string name="details_mark_failed">Could not update the list: %1$s</string>
     <string name="details_resume_at">Resume at %1$s</string>
     <string name="details_aired">Aired %1$s</string>
+    <string name="details_airs_on">Airs %1$s</string>
     <plurals name="details_episodes_count">
         <item quantity="one">%1$d episode</item>
         <item quantity="other">%1$d episodes</item>

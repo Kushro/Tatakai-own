@@ -778,7 +778,8 @@ private fun DetailsEpisodeRow(
             }
             episode.airDate?.let {
                 Text(
-                    stringResource(R.string.details_aired, formatAirDate(it)),
+                    // BUG-015: an episode that has not aired yet "airs on <date>", never "Aired <future date>".
+                    stringResource(if (unaired) R.string.details_airs_on else R.string.details_aired, formatAirDate(it)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
