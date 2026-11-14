@@ -90,6 +90,15 @@ internal object DownloadsLogic {
 
     fun torrentActive(t: TorrentLibraryItem): Boolean = t.progress < 1.0 && t.state != TorrentState.SEEDING
 
+    /**
+     * BUG-085: what "Ocupa" says: the web downloads' storage plus what the torrents already hold on disk (a paused 240 MB torrent
+     * read "Ocupa 0 B"). null while neither is known.
+     */
+    fun usedBytes(webBytes: Long?, torrents: List<TorrentLibraryItem>): Long? {
+        val torrentBytes = torrents.sumOf { (it.sizeBytes * it.progress.coerceIn(0.0, 1.0)).toLong() }
+        return if (webBytes == null && torrents.isEmpty()) null else (webBytes ?: 0L) + torrentBytes
+    }
+
     /** Remaining seconds from two samples of the progress (0..1) of one download; null while it cannot be estimated. */
     fun eta(p0: Double, t0Ms: Long, p1: Double, t1Ms: Long): Long? {
         val dp = p1 - p0
@@ -156,7 +165,7 @@ class DownloadsViewModel(
             history = s.history.filter { DownloadsLogic.matches(q, it.title, it.sourceLabel) },
             library = s.library.filter { DownloadsLogic.matches(q, it.fileName, it.title) },
             rules = s.rules,
-            usedBytes = l.used,
+            usedBytes = DownloadsLogic.usedBytes(l.used, s.torrents),
             eta = etaOf(s.web),
             loaded = true,
             busy = l.busy,

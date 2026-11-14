@@ -43,4 +43,14 @@ class DownloadsLogicTest {
         assertEquals("D", codeText("dash_not_supported", "D", "L", "N", "F"))
         assertNull(codeText("other", "D", "L", "N", "F"))
     }
+
+    @Test
+    fun usageCountsWhatTheTorrentsHoldOnDisk() {
+        // BUG-085: a paused ME5 torrent (240 MB on disk) and "Ocupa 0 B".
+        val t = app.tatakai.next.model.torrent.TorrentLibraryItem(id = "a", name = "ME5", sizeBytes = 1_000L, progress = 0.25)
+        kotlin.test.assertEquals(250L, DownloadsLogic.usedBytes(0L, listOf(t)))
+        kotlin.test.assertEquals(1_250L, DownloadsLogic.usedBytes(1_000L, listOf(t)))
+        kotlin.test.assertEquals(250L, DownloadsLogic.usedBytes(null, listOf(t)))
+        kotlin.test.assertEquals(null, DownloadsLogic.usedBytes(null, emptyList()))
+    }
 }

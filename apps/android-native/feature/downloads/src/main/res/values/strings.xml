@@ -102,4 +102,11 @@
     <string name="downloads_verified">%1$d broken files found</string>
     <string name="downloads_verified_ok">Every downloaded file is fine</string>
     <string name="downloads_verify">Check files</string>
+    <!-- BUG-085 -->
+    <plurals name="downloads_torrents_elsewhere">
+        <item quantity="one">%1$d paused or complete torrent · %2$s</item>
+        <item quantity="other">%1$d paused or complete torrents · %2$s</item>
+    </plurals>
+    <string name="downloads_torrents_elsewhere_hint">They are in the Anime tab, with the downloaded episodes.</string>
+    <string name="downloads_torrents_elsewhere_open">View</string>
 </resources>

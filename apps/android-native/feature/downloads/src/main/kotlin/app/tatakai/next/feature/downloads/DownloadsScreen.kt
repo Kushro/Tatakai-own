@@ -31,7 +31,8 @@ import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Pause
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.VerifiedUser
+import androidx.compose.material.icons.automirrored.outlined.FactCheck
+import androidx.compose.material.icons.rounded.Hub
 import androidx.compose.material.icons.outlined.VideoFile
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -173,7 +174,8 @@ fun DownloadsScreen(
                 },
                 actions = {
                     IconButton(onClick = viewModel::verify, enabled = !state.busy) {
-                        Icon(Icons.Outlined.VerifiedUser, contentDescription = stringResource(R.string.downloads_verify))
+                        // BUG-085: a file check, not a shield.
+                        Icon(Icons.AutoMirrored.Outlined.FactCheck, contentDescription = stringResource(R.string.downloads_verify))
                     }
                 },
             )
@@ -289,6 +291,24 @@ private fun LazyListScope.activeTab(
     if (state.active.isEmpty() && state.activeTorrents.isEmpty()) {
         item(key = "empty") {
             EmptyState(icon = Icons.Outlined.CloudDownload, title = stringResource(R.string.downloads_empty_active), message = stringResource(R.string.downloads_empty_active_body))
+        }
+        // BUG-085: Tú said "1 torrent en la biblioteca" and this tab looked empty: point at where the torrents are.
+        if (state.completedTorrents.isNotEmpty()) {
+            item(key = "torrents-elsewhere") {
+                val n = state.completedTorrents.size
+                val bytes = state.completedTorrents.sumOf { (it.sizeBytes * it.progress.coerceIn(0.0, 1.0)).toLong() }
+                androidx.compose.material3.ListItem(
+                    headlineContent = { Text(androidx.compose.ui.res.pluralStringResource(R.plurals.downloads_torrents_elsewhere, n, n, formatBytes(bytes))) },
+                    supportingContent = { Text(stringResource(R.string.downloads_torrents_elsewhere_hint)) },
+                    leadingContent = { Icon(Icons.Rounded.Hub, contentDescription = null) },
+                    trailingContent = {
+                        androidx.compose.material3.TextButton(onClick = { vm.selectTab(DownloadsTab.ANIME) }) {
+                            Text(stringResource(R.string.downloads_torrents_elsewhere_open))
+                        }
+                    },
+                    modifier = Modifier.clickable { vm.selectTab(DownloadsTab.ANIME) },
+                )
+            }
         }
         return
     }

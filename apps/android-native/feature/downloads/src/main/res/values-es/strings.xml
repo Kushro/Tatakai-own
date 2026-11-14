@@ -102,4 +102,11 @@
     <string name="downloads_verified">%1$d archivos rotos encontrados</string>
     <string name="downloads_verified_ok">Todos los archivos descargados están bien</string>
     <string name="downloads_verify">Comprobar archivos</string>
+    <!-- BUG-085 -->
+    <plurals name="downloads_torrents_elsewhere">
+        <item quantity="one">%1$d torrent en pausa o completo · %2$s</item>
+        <item quantity="other">%1$d torrents en pausa o completos · %2$s</item>
+    </plurals>
+    <string name="downloads_torrents_elsewhere_hint">Están en la pestaña Anime, con los episodios descargados.</string>
+    <string name="downloads_torrents_elsewhere_open">Ver</string>
 </resources>
