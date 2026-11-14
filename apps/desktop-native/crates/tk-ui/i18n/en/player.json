@@ -16,6 +16,8 @@
   "player.error.title": "Playback failed",
   "player.error.trying_next": "That source failed. Trying another one.",
   "player.error.no_more": "No other source is available for this episode.",
+  "player.error.others_left": "This source did not work. {n} more sources are in the list: pick another one or retry.",
+  "player.error.others_left.one": "This source did not work. {n} more source is in the list: pick it or retry.",
   "player.error.no_player": "The video player could not start. Check the log in the logs folder of the app's data directory.",
   "player.shaders_missing": "Upscaling shaders are missing. Check your connection: they are downloaded the first time you pick a preset.",
   "player.fullscreen": "Full screen",

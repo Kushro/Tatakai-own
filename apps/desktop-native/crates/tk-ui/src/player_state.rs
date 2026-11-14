@@ -307,6 +307,12 @@ impl FlowState {
             .or_else(|| self.sources.iter().find(web))
     }
 
+    /// Playable sources that have not failed in this round: the error screen says how many are left to pick
+    /// instead of "no other source" (BUG-081; Manual never tries the next one by itself).
+    pub fn untried_left(&self) -> usize {
+        self.sources.iter().filter(|s| playable(s) && !self.failed.iter().any(|f| f.id == s.id)).count()
+    }
+
     /// The last failure was a torrent source (the error screen then offers the best web source).
     pub fn last_failed_torrent(&self) -> bool {
         self.failed
@@ -1029,6 +1035,19 @@ mod tests {
         v[4].picked = true; // 480p, below the default 720p minimum
         let f = FlowState::with_confirmed(v, SourceModeVm::Auto, &prefs, true);
         assert_eq!((f.dropped_pick.clone(), f.to_resolve()), (None, Some(4)));
+    }
+
+    #[test]
+    fn a_failed_manual_pick_counts_the_sources_left() {
+        // BUG-081: Manual stops on the failed pick; the error counts the others instead of "no other source".
+        let mut f = FlowState::new(list(), SourceModeVm::Manual, &any());
+        let n = f.sources.len();
+        assert!(f.pick("toko|web|Ok.ru"));
+        let a = f.attempt;
+        f.fail(a, UiError::new(ErrorKind::Other, "x"));
+        assert_eq!(f.phase, Phase::Error);
+        assert_eq!(f.untried_left(), n - 1 - f.sources.iter().filter(|s| !playable(s)).count());
+        assert!(f.untried_left() > 0);
     }
 
     #[test]

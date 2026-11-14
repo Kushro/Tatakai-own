@@ -16,6 +16,8 @@
   "player.error.title": "La reproducción falló",
   "player.error.trying_next": "Esa fuente falló. Probando otra.",
   "player.error.no_more": "No hay otra fuente disponible para este episodio.",
+  "player.error.others_left": "Esta fuente no funcionó. Quedan {n} fuentes más en la lista: elige otra o reintenta.",
+  "player.error.others_left.one": "Esta fuente no funcionó. Queda {n} fuente más en la lista: elígela o reintenta.",
   "player.error.no_player": "No se pudo iniciar el reproductor de video. Revisa el registro en la carpeta logs del directorio de datos de la app.",
   "player.shaders_missing": "Faltan los shaders de escalado. Revisa la conexión: se descargan la primera vez que eliges un preajuste.",
   "player.fullscreen": "Pantalla completa",

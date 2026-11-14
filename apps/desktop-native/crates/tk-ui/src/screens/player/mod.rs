@@ -53,7 +53,7 @@ use crate::components::{
     Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, PlayerControls, SourcePicker,
     WavyProgress,
 };
-use crate::i18n::{t, tf};
+use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
 use crate::model::{
     EnhancedUiVm, ErrorKind, PlayerAction, PlayerModeVm, PlayerState, SEEK_STEP_SECS, SettingsAction, UiError, format_time,
@@ -1242,6 +1242,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
             t("player.torrent.no_file_cause")
         } else if m2 || fs.failed.is_empty() {
             String::new()
+        } else if fs.untried_left() > 0 {
+            // BUG-081: Manual stops on the failed pick with more sources in the list (same text as Android).
+            tn("player.error.others_left", fs.untried_left())
         } else {
             t("player.error.no_more")
         };
