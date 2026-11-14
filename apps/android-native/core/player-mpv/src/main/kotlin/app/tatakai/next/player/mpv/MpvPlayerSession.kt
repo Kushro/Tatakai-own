@@ -27,7 +27,9 @@ import app.tatakai.next.player.SubtitleFonts
 import app.tatakai.next.player.SubtitleOption
 import app.tatakai.next.player.mpvStartWatched
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -79,6 +81,9 @@ class MpvPlayerSession(
     private var noticeSeq = 0
     private var governorJob: Job? = null
     private var startWatch: Job? = null
+    private var prepareJob: Job? = null
+    private var audioLang: String? = null
+    private var subLang: String? = null
 
     private fun battery(): BatteryInfo? = runCatching {
         val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return@runCatching null
@@ -171,11 +176,28 @@ class MpvPlayerSession(
         loaded = true
         ActivePlayback.publish(adapter)
         governor.reset()
-        engine.load(source.url, source.headers, startMs.coerceAtLeast(0) / 1000.0, source.subtitles.map { it.url })
-        // BUG-059: a network stream that shows no frame in time is given up (the view-model moves it to Media3).
         startWatch?.cancel()
+        prepareJob?.cancel()
+        val loadId = engine.beginLoad()
+        val startSecs = startMs.coerceAtLeast(0) / 1000.0
+        val subs = source.subtitles.map { it.url }
+        if (!HlsPrefetch.applies(source)) {
+            open(source, source.url, startSecs, subs, loadId)
+            return
+        }
+        // BUG-059: FFmpeg waits for every rendition of an HLS master; hand mpv a master with only the variant and the languages it
+        // will play. The PC's extension-server sources (no headers needed) are the ones with 15 audio renditions.
+        prepareJob = scope.launch {
+            val url = withContext(Dispatchers.IO) { HlsPrefetch.filteredMaster(appContext, source.url, audioLang, subLang) } ?: source.url
+            if (!released && engine.state.value.loadId == loadId) open(source, url, startSecs, subs, loadId)
+        }
+    }
+
+    private fun open(source: PlayableSource, url: String, startSecs: Double, subs: List<String>, loadId: Int) {
+        engine.loadPrepared(url, source.headers, startSecs, subs)
+        // BUG-059: a network stream that shows no frame in time is given up (the view-model moves it to Media3). Safety net only:
+        // the filtered master above is what makes such streams start.
         startWatch = if (mpvStartWatched(source.container, source.torrent)) {
-            val loadId = engine.state.value.loadId
             scope.launch {
                 delay(MPV_START_TIMEOUT_MS)
                 val m = engine.state.value
@@ -211,7 +233,11 @@ class MpvPlayerSession(
 
     override fun selectAudio(id: Int) = engine.selectAudio(id)
 
-    override fun setPreferredLanguages(subtitle: String?, audio: String?) = engine.setPreferredLanguages(subtitle, audio)
+    override fun setPreferredLanguages(subtitle: String?, audio: String?) {
+        subLang = subtitle
+        audioLang = audio
+        engine.setPreferredLanguages(subtitle, audio)
+    }
 
     override fun setSubtitleStyle(style: SubtitleStyle) {
         this.style = style
@@ -260,6 +286,7 @@ class MpvPlayerSession(
         ticker.stop()
         governorJob?.cancel()
         startWatch?.cancel()
+        prepareJob?.cancel()
         mirror.cancel()
         if (ActivePlayback.player.value === adapter) ActivePlayback.publish(null)
         adapter.detach()

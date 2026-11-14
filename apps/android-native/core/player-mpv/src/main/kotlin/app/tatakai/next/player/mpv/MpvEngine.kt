@@ -191,11 +191,27 @@ class MpvEngine(context: Context) {
     /** [load] plus external subtitle URLs (`sub-add` after the file is loaded). */
     fun load(url: String, headers: Map<String, String>, startSecs: Double, subtitleUrls: List<String>) {
         if (released) return
+        beginLoad()
+        loadPrepared(url, headers, startSecs, subtitleUrls)
+    }
+
+    /**
+     * BUG-059: starts a new load (new `loadId`, buffering) before its URL is known, so the session can prepare the stream (a filtered
+     * HLS master) while the player already shows the new load. Returns its `loadId`; [loadPrepared] then opens the URL.
+     */
+    fun beginLoad(): Int {
+        if (released) return _state.value.loadId
         fileLoaded = false
         lastError = null
-        pendingSubtitles = subtitleUrls
         subtitleDecided = false
         _state.update { MpvState(loadId = it.loadId + 1, buffering = true, speed = it.speed, loop = it.loop, subDelayMs = it.subDelayMs) }
+        return _state.value.loadId
+    }
+
+    /** Opens [url] for the load [beginLoad] started (see [load]). */
+    fun loadPrepared(url: String, headers: Map<String, String>, startSecs: Double, subtitleUrls: List<String>) {
+        if (released) return
+        pendingSubtitles = subtitleUrls
         val ua = headers.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
         val referer = headers.entries.firstOrNull { it.key.equals("Referer", ignoreCase = true) }?.value
         val rest = headers.filterKeys { !it.equals("User-Agent", ignoreCase = true) && !it.equals("Referer", ignoreCase = true) }

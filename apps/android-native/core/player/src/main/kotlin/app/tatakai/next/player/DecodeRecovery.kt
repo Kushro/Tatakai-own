@@ -46,7 +46,7 @@ const val MAX_SILENT_RETRIES = 1
 const val MPV_START_TIMEOUT_CODE = -2
 
 /** How long a network (non-torrent) stream may take in libmpv before its first frame. */
-const val MPV_START_TIMEOUT_MS = 25_000L
+const val MPV_START_TIMEOUT_MS = 15_000L
 
 /** Whether an mpv load of a source of [container] (a torrent loopback stream when [torrent]) is watched by [MPV_START_TIMEOUT_MS]. */
 fun mpvStartWatched(container: Container, torrent: Boolean): Boolean =

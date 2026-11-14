@@ -10,6 +10,7 @@ dependencies {
     implementation(projects.core.model)
     implementation(projects.core.player)
     implementation(libs.libmpv)
+    implementation(libs.okhttp) // BUG-059: HlsPrefetch downloads the HLS master
     // parity wave A (15 §3.2, worker p): MpvPlayerAdapter is a Media3 SimpleBasePlayer so PlaybackService serves both engines.
     implementation(libs.media3.common)
     implementation(libs.bundles.compose.core)
