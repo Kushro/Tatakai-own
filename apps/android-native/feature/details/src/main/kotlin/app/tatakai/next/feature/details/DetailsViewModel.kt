@@ -336,13 +336,14 @@ class DetailsViewModel(
     fun onPick(source: RankedSource) {
         val request = _state.value.picker ?: return
         _state.update { it.copy(picker = null, selectedKey = source.key) }
+        chosenInPanel = request.episode to source.key
         val mediaId = HistoryEntry.animeIdOf(ref.anilistId, ref.malId)
         val store = stats
         if (mediaId != null && store != null) {
             viewModelScope.launch { runCatchingApp { store.setPickedSource(mediaId, request.episode, source.key) } }
         }
         if (request.playOnPick) {
-            emitPlayer(request.episode, sourceKey = source.key, preferLocal = false)
+            emitPlayer(request.episode, sourceKey = source.key, preferLocal = false, sourceConfirmed = true)
         } else {
             _events.trySend(DetailsEvent.SourceChosen(source.candidate.extName, source.candidate.label))
         }
@@ -394,8 +395,15 @@ class DetailsViewModel(
     /** An episode row: straight to the player (the player resolves and fails over; Manual mode asks there). */
     fun onEpisodeClick(episode: Int) = emitPlayer(episode, sourceKey = sourceKeyFor(episode))
 
+    /**
+     * A source the user chose in this screen's picker (not yet played). The panel's default (the remembered pick, loaded once) is not
+     * passed on: the player reads the remembered pick itself, so a source changed inside the player is not overridden by a stale panel
+     * (BUG-018: A-11 went back to Latino after picking anizone in the player). One-shot: cleared once the player opens.
+     */
+    private var chosenInPanel: Pair<Int, String>? = null
+
     private fun sourceKeyFor(episode: Int): String? =
-        _state.value.selectedKey?.takeIf { _state.value.panel?.episode == episode }
+        chosenInPanel?.takeIf { it.first == episode && _state.value.selectedKey == it.second }?.second
 
     // ---- downloads (the composable wraps every call in rememberDownloadGate().launch { ... }) ----
 
@@ -619,9 +627,11 @@ class DetailsViewModel(
         remoteSessionId: String? = null,
         preferLocal: Boolean = true,
         resume: Boolean = true,
+        sourceConfirmed: Boolean = false,
     ) {
         val s = _state.value
         val title = (s.media as? LoadState.Ok)?.value?.title ?: return
+        if (remoteSessionId == null) chosenInPanel = null
         val saved = s.progress[episode]
         val startMs = if (resume && saved != null && !saved.completed) saved.progressSec * 1000L else 0L
         val repo = downloads
@@ -635,6 +645,7 @@ class DetailsViewModel(
                         startMs = startMs,
                         remoteSessionId = remoteSessionId,
                         sourceKey = sourceKey,
+                        sourceConfirmed = sourceConfirmed && sourceKey != null,
                         localUri = localUri,
                     ),
                 ),

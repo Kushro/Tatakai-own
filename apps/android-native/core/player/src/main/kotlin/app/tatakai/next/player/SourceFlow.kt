@@ -49,7 +49,17 @@ fun sourceName(s: RankedSource): String = "${s.candidate.extName} · ${s.candida
 /** What Auto mode may try on its own: any source of an enabled extension (torrents included since the torrent wave). */
 fun playable(s: RankedSource): Boolean = s.extEnabled
 
-class SourceFlow(sources: List<RankedSource>, val mode: SourceMode, private val legacy: Boolean = false) {
+/**
+ * [pickConfirmed]: the `picked` row was chosen by the user right before opening the player (Details picker), so Manual mode plays it
+ * without asking again. A remembered pick (an older session, or the Details panel's default) is only preselected: Manual always asks
+ * first (BUG-018, plan §11.1).
+ */
+class SourceFlow(
+    sources: List<RankedSource>,
+    val mode: SourceMode,
+    private val legacy: Boolean = false,
+    private var pickConfirmed: Boolean = false,
+) {
     var sources: List<RankedSource> = sources
         private set
     var phase: FlowPhase = FlowPhase.RESOLVING
@@ -81,11 +91,12 @@ class SourceFlow(sources: List<RankedSource>, val mode: SourceMode, private val 
             return
         }
         val pickedIndex = sources.indexOfFirst { it.picked }
-        if (pickedIndex >= 0) {
+        val manual = mode == SourceMode.MANUAL && !legacy
+        if (pickedIndex >= 0 && (!manual || pickConfirmed)) {
             enter(pickedIndex)
             return
         }
-        if (mode == SourceMode.MANUAL && !legacy) {
+        if (manual) {
             phase = FlowPhase.MANUAL
             return
         }
@@ -125,6 +136,7 @@ class SourceFlow(sources: List<RankedSource>, val mode: SourceMode, private val 
         val i = sources.indexOfFirst { it.key == key }
         if (i < 0) return false
         sources = sources.map { it.copy(picked = it.key == key) }
+        pickConfirmed = true
         _failed.removeAll { it.key == key }
         enter(i)
         return true
@@ -175,6 +187,12 @@ class SourceFlow(sources: List<RankedSource>, val mode: SourceMode, private val 
 
     /** "Retry" on the final error: forget the failures and start over (the pick still wins). */
     fun retry() = begin()
+
+    /**
+     * Sources the user can still try (extension enabled, not in `failed`): the error screen only says "no other source" when this is 0
+     * (BUG-020).
+     */
+    fun remaining(): Int = sources.count { s -> playable(s) && _failed.none { it.key == s.key } }
 
     /** Best web source to offer when a torrent fails / on mobile data (not failed yet if possible). */
     fun bestWeb(): RankedSource? {

@@ -52,6 +52,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -220,7 +221,8 @@ class DetailsViewModelTest {
     }
 
     @Test
-    fun `a stored manual pick is selected and passed to the player`() = runTest {
+    fun `a stored manual pick is shown but the player reads it itself`() = runTest {
+        // BUG-018: the panel's remembered pick is not forced on the player (it may be stale after a change inside the player).
         val picked = torrent(picked = true)
         val vm = vm(extensions = FakeExtensions({ listOf(web, picked) }))
         assertEquals(picked.key, vm.state.value.selectedKey)
@@ -228,7 +230,24 @@ class DetailsViewModelTest {
             vm.onWatch()
             val event = assertIs<DetailsEvent.NavigateToPlayer>(awaitItem())
             assertEquals(1, event.args.episode)
-            assertEquals(picked.key, event.args.sourceKey)
+            assertNull(event.args.sourceKey)
+            assertFalse(event.args.sourceConfirmed)
+        }
+    }
+
+    @Test
+    fun `a source chosen in the panel picker is passed once, unconfirmed`() = runTest {
+        val vm = vm()
+        vm.events.test {
+            vm.openPicker(playOnPick = false)
+            vm.onPick(torrent())
+            awaitItem() // SourceChosen
+            vm.onWatch()
+            val first = assertIs<DetailsEvent.NavigateToPlayer>(awaitItem())
+            assertEquals(torrent().key, first.args.sourceKey)
+            assertFalse(first.args.sourceConfirmed, "Manual still asks, with it preselected")
+            vm.onWatch()
+            assertNull(assertIs<DetailsEvent.NavigateToPlayer>(awaitItem()).args.sourceKey)
         }
     }
 
@@ -242,6 +261,7 @@ class DetailsViewModelTest {
             vm.onPick(torrent())
             val event = assertIs<DetailsEvent.NavigateToPlayer>(awaitItem())
             assertEquals(torrent().key, event.args.sourceKey)
+            assertTrue(event.args.sourceConfirmed, "picked right now: Manual plays it without asking again")
             assertNull(vm.state.value.picker)
             assertEquals(listOf(Triple("7", 1, torrent().key)), stats.picks)
         }

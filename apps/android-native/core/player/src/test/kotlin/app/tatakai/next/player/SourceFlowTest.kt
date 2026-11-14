@@ -58,10 +58,34 @@ class SourceFlowTest {
     }
 
     @Test
-    fun aPickWinsInAnyMode() {
+    fun aPickWinsInAutoAndAConfirmedPickInManual() {
         val sources = list().mapIndexed { i, s -> if (i == 3) s.copy(picked = true) else s }
-        assertEquals("toko|web|Beta", SourceFlow(sources, SourceMode.MANUAL).toResolve()?.key)
         assertEquals("toko|web|Beta", SourceFlow(sources, SourceMode.AUTO).toResolve()?.key)
+        assertEquals("toko|web|Beta", SourceFlow(sources, SourceMode.MANUAL, pickConfirmed = true).toResolve()?.key)
+    }
+
+    @Test
+    fun manualAlwaysAsksWithTheRememberedPickPreselected() {
+        // BUG-018 / plan §11.1: Manual = ask every time; the earlier choice stays marked so the picker shows it first.
+        val sources = list().mapIndexed { i, s -> if (i == 3) s.copy(picked = true) else s }
+        val f = SourceFlow(sources, SourceMode.MANUAL)
+        assertEquals(FlowPhase.MANUAL, f.phase)
+        assertNull(f.toResolve())
+        assertEquals("toko|web|Beta", f.sources.single { it.picked }.key)
+        assertTrue(f.pick("toko|web|Alpha"))
+        f.fail(f.attempt, FailKind.PLAYBACK, "403")
+        f.retry()
+        assertEquals("toko|web|Alpha", f.toResolve()?.key, "Retry replays the source the user picked")
+    }
+
+    @Test
+    fun remainingCountsUntriedPlayableSources() {
+        // BUG-020: "no other source" only when nothing is left to try.
+        val f = SourceFlow(list(), SourceMode.MANUAL)
+        assertEquals(3, f.remaining())
+        f.pick("toko|web|Alpha")
+        f.fail(f.attempt, FailKind.PLAYBACK, "403")
+        assertEquals(2, f.remaining())
     }
 
     @Test

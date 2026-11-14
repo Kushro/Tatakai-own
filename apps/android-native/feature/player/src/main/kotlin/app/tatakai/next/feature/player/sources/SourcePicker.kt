@@ -137,11 +137,12 @@ private fun PickerContent(
     var filters by rememberSaveable(stateSaver = FiltersSaver) { mutableStateOf(SourceFilters()) }
     val caps = remember { DeviceCodecs.capabilities() }
     val options = remember(sources, caps) { FilterOptions.of(sources, caps) }
-    val shown = remember(sources, filters, caps) { filters.apply(sources, caps) }
+    // BUG-018 (plan §11.1): the earlier choice is preselected at the top; the rest keeps the ranking order.
+    val shown = remember(sources, filters, caps) { filters.apply(sources, caps).sortedByDescending { it.picked } }
 
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.src_picker_title), style = MaterialTheme.typography.titleLarge)
-        ModeBanner(mode = mode, choosing = mode == SourceMode.MANUAL && sources.none { it.picked }, onOpenSettings = onOpenSettings)
+        ModeBanner(mode = mode, choosing = mode == SourceMode.MANUAL, onOpenSettings = onOpenSettings)
 
         when {
             loading && sources.isEmpty() -> PickerLoading()

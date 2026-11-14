@@ -462,7 +462,7 @@ class PlayerViewModel(
             _state.update { it.copy(phase = PlayerPhase.NO_SOURCES) }
             return
         }
-        flow = SourceFlow(sources, settings.sourcePrefs.mode)
+        flow = SourceFlow(sources, settings.sourcePrefs.mode, pickConfirmed = args.sourceConfirmed && args.sourceKey != null)
         advance()
     }
 

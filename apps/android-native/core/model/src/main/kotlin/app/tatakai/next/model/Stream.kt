@@ -35,6 +35,11 @@ data class PlayerArgs(
     // --- android wave (12 §3.2), all optional ---
     /** `sourceKey` chosen in Details (split button / picker): the player tries it first (Manual mode: only it). */
     val sourceKey: String? = null,
+    /**
+     * BUG-018: [sourceKey] was chosen in a picker right before opening the player, so "Selección de fuente: Manual" plays it without
+     * asking again. false = it is only the panel's / remembered choice: Manual shows the picker with it preselected.
+     */
+    val sourceConfirmed: Boolean = false,
     /** Play a file of a torrent already in the session (client "Play this file", batch next episode, completed download). */
     val torrentId: String? = null,
     /** With [torrentId]: the file to play; null = `pickEpisodeFile`. */
