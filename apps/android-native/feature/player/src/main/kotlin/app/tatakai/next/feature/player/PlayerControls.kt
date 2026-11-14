@@ -3,6 +3,9 @@
 
 package app.tatakai.next.feature.player
 
+import androidx.compose.foundation.verticalScroll
+import app.tatakai.next.feature.link.ProfileList
+import androidx.compose.material.icons.rounded.AutoAwesome
 import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Context
@@ -146,7 +149,7 @@ import org.koin.compose.getKoin
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private enum class Sheet { Quality, Subtitles, Audio, Speed, More, Episodes }
+private enum class Sheet { Quality, Subtitles, Audio, Speed, More, Episodes, LinkProfile }
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
 
@@ -408,6 +411,22 @@ internal fun PlayerContent(
                 Sheet.Audio -> ps.audioTracks.forEach { a ->
                     SheetRow(a.label, a.selected) { session.selectAudio(a.id); sheet = null }
                 }
+                Sheet.LinkProfile -> {
+                    Text(
+                        stringResource(R.string.player_link_profile),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    )
+                    Text(
+                        stringResource(R.string.player_link_profile_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                    )
+                    Box(Modifier.padding(horizontal = 12.dp).verticalScroll(rememberScrollState())) {
+                        ProfileList(state.linkProfiles, selected = state.linkProfile.orEmpty()) { id -> sheet = null; vm.changeLinkProfile(id) }
+                    }
+                }
                 Sheet.Speed -> SPEEDS.forEach { sp ->
                     SheetRow(stringResource(R.string.player_speed_value, speedText(sp)), ps.speed == sp) { session.setSpeed(sp); sheet = null }
                 }
@@ -624,6 +643,11 @@ private fun Controls(
             IconButton(onClick = onScreenshot, enabled = ps.started) { Icon(Icons.Rounded.PhotoCamera, stringResource(R.string.player_screenshot), tint = on) }
             if (state.remoteless) {
                 IconButton(onClick = { onOpenSheet(Sheet.Episodes) }) { Icon(Icons.Rounded.FormatListNumbered, stringResource(R.string.player_episodes), tint = on) }
+            } else if (state.linkProfiles.isNotEmpty()) {
+                // BUG-022: change the PC's enhancement profile without leaving the player
+                IconButton(onClick = { onOpenSheet(Sheet.LinkProfile) }, enabled = !state.linkProfileChanging) {
+                    Icon(Icons.Rounded.AutoAwesome, stringResource(R.string.player_link_profile), tint = on)
+                }
             }
             IconButton(onClick = onHelp) { Icon(Icons.Rounded.Keyboard, stringResource(R.string.player_shortcuts), tint = on) }
             IconButton(onClick = onPip) { Icon(Icons.Rounded.PictureInPictureAlt, stringResource(R.string.player_pip), tint = on) }

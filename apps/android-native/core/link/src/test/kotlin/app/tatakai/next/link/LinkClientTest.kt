@@ -66,6 +66,25 @@ class LinkClientTest {
     }
 
     @Test
+    fun sessionSourceReopensAnEarlierSession() = withClient { c, fake ->
+        fake.handler = {
+            Triple(
+                201,
+                """{"session_id":"$sid","generation":2,"playback_path":"/v1/sessions/$sid/master.m3u8","segment_secs":2,"heartbeat_interval_secs":4,"idle_timeout_secs":120}""",
+                true,
+            )
+        }
+        val old = "0b1d3c1e-8d0f-4b6a-9a76-0c2a8d9d2f11"
+        assertIs<LinkResult.Ok<SessionCreatedDto>>(c.createSession(SessionSource.Session(old), profile = "p-anime4k-1080", startSecs = 460.0))
+        val body = Json.parseToJsonElement(fake.seen.single().body).jsonObject
+        val src = body["source"]!!.jsonObject
+        assertEquals("session", src["kind"]!!.jsonPrimitive.content)
+        assertEquals(old, src["session_id"]!!.jsonPrimitive.content)
+        assertEquals(setOf("kind", "session_id"), src.keys)
+        assertEquals(460.0, body["start_secs"]!!.jsonPrimitive.content.toDouble())
+    }
+
+    @Test
     fun heartbeatAndStopUseTheSessionRoutes() = withClient { c, fake ->
         fake.handler = { Triple(204, "", true) }
         assertIs<LinkResult.Ok<Unit>>(c.heartbeat(sid, 61.2, paused = false))

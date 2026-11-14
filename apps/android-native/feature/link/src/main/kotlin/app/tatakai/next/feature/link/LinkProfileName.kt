@@ -50,8 +50,9 @@ internal data class ProfileName(
     }
 }
 
+/** Public for the player's Link profile sheet (BUG-022). */
 @Composable
-internal fun profileLabel(profile: LinkProfile): String {
+fun profileLabel(profile: LinkProfile): String {
     val name = ProfileName.parse(profile.id) ?: return profile.label
     if (name.none) return stringResource(R.string.linked_profile_none)
     val parts = buildList {
@@ -65,7 +66,7 @@ internal fun profileLabel(profile: LinkProfile): String {
 
 /** Radio list of the PC's profiles: one row each with its full name, so a dozen options stay readable. */
 @Composable
-internal fun ProfileList(profiles: List<LinkProfile>, selected: String, onSelect: (String) -> Unit) {
+fun ProfileList(profiles: List<LinkProfile>, selected: String, onSelect: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().selectableGroup()) {
         profiles.forEach { profile ->
             val on = profile.id == selected

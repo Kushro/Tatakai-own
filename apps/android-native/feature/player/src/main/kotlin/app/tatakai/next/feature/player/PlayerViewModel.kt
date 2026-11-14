@@ -7,7 +7,11 @@ import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
+import app.tatakai.next.link.LinkApiError
+import app.tatakai.next.link.LinkError
 import app.tatakai.next.link.RemotePlaybackAccess
+import app.tatakai.next.model.LinkProfile
+import app.tatakai.next.link.linkErrorOrNull
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.AppSettings
@@ -209,6 +213,9 @@ sealed interface PlayerNotice {
 
     /** BUG-038: the PC had closed the Link session; a new one continues at the same position. */
     data object LinkSessionRenewed : PlayerNotice
+
+    /** BUG-022: the Link session restarted with another profile at the same position ([ok] = false: it could not). */
+    data class LinkProfileChanged(val ok: Boolean) : PlayerNotice
 }
 
 /** BUG-038 / BUG-026: why a Link (PC) playback stopped, for an error screen in words (no Media3 codes, no "Extensions"). */
@@ -257,6 +264,11 @@ data class PlayerUiState(
     val remoteless: Boolean = true,
     /** BUG-038 / BUG-026: set with phase ERROR when a Link session failed. */
     val remoteFailure: RemoteFailure? = null,
+    /** BUG-022: the PC's enhancement profiles (Link sessions only) and the one this session uses. */
+    val linkProfiles: List<LinkProfile> = emptyList(),
+    val linkProfile: String? = null,
+    /** BUG-022: a profile change is restarting the session. */
+    val linkProfileChanging: Boolean = false,
     // --- parity wave A (worker p) ---
     val hasPrevEpisode: Boolean = false,
     val sleep: SleepUi? = null,
@@ -421,6 +433,7 @@ class PlayerViewModel(
         viewModelScope.launch {
             val remoteId = this@PlayerViewModel.remoteId
             if (remoteId != null) {
+                loadLinkProfiles(remoteId)
                 val src = RemotePlayback.source(remote, remoteId, args.title)
                 if (src == null) {
                     _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
@@ -1068,7 +1081,12 @@ class PlayerViewModel(
                                 loadIntoSession(src, startOverride = positionMs)
                             }
                         },
-                        onFailure = { e -> remoteError(RemoteFailure.PC_ERROR, e.asAppError()) },
+                        onFailure = { e ->
+                            // an older PC (no `session` source) or a session it forgot: only a new send helps
+                            val api = (e.linkErrorOrNull() as? LinkError.Api)?.error
+                            val ended = api == LinkApiError.RequestInvalid || api == LinkApiError.SessionNotFound || api == LinkApiError.SessionGone
+                            remoteError(if (ended) RemoteFailure.SESSION_ENDED else RemoteFailure.PC_ERROR, e.asAppError())
+                        },
                     )
                 } else {
                     remoteError(RemoteFailure.SESSION_ENDED, null)
@@ -1076,6 +1094,40 @@ class PlayerViewModel(
                 true -> if (auto) remoteError(RemoteFailure.PC_ERROR, null) else start()
                 null -> if (auto) remoteError(RemoteFailure.CONNECTION_LOST, AppError.Offline) else start()
             }
+        }
+    }
+
+    /** BUG-022: the profiles the PC offers, for the in-player profile sheet (best effort: no sheet without them). */
+    private fun loadLinkProfiles(sessionId: String) {
+        if (_state.value.linkProfiles.isNotEmpty()) return
+        viewModelScope.launch {
+            val caps = link.capabilities().getOrNull() ?: return@launch
+            val current = remote.profileOf(sessionId) ?: caps.defaultProfile
+            _state.update { it.copy(linkProfiles = caps.profiles, linkProfile = current) }
+        }
+    }
+
+    /**
+     * BUG-022: restart the Link session with [profileId] at the current position (a new session from the same source; the
+     * PC replaces the old one). The choice is not saved as the preferred profile (that stays on the Linked screen).
+     */
+    fun changeLinkProfile(profileId: String) {
+        val id = remoteId ?: return
+        if (profileId == _state.value.linkProfile || _state.value.linkProfileChanging) return
+        val positionMs = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs
+        _state.update { it.copy(linkProfileChanging = true) }
+        viewModelScope.launch {
+            val renewed = remote.renew(id, positionMs / 1000.0, profileId).getOrNull()
+            val src = renewed?.let { RemotePlayback.source(remote, it.sessionId, args.title) }
+            if (renewed == null || src == null) {
+                _state.update { it.copy(linkProfileChanging = false) }
+                _notices.trySend(PlayerNotice.LinkProfileChanged(ok = false))
+                return@launch
+            }
+            remoteId = renewed.sessionId
+            _state.update { it.copy(linkProfile = profileId, linkProfileChanging = false, phase = PlayerPhase.BUFFERING) }
+            loadIntoSession(src, startOverride = positionMs)
+            _notices.trySend(PlayerNotice.LinkProfileChanged(ok = true))
         }
     }
 

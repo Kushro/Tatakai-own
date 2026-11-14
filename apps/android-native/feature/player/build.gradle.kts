@@ -4,6 +4,7 @@ plugins { id("tatakai.android.feature") }
 dependencies {
     implementation(projects.core.player)
     implementation(projects.core.link)   // RemotePlaybackAccess (Link HLS + heartbeat)
+    implementation(projects.feature.link) // BUG-022: the Link profile names / list for the in-player profile sheet
     implementation(libs.bundles.media3)
     implementation(libs.media3.ui.compose)
     implementation(libs.androidx.activity.compose)

@@ -501,3 +501,25 @@ async fn lsfg_profiles_appear_with_the_probe_and_run_the_three_process_chain() {
     assert!(a.windows(2).any(|w| w[0] == "-framerate" && w[1] == "120000/1001"), "{a:?}");
     assert!(a.contains(&"1:a:0?".to_owned()));
 }
+
+/// BUG-008 / BUG-022 / BUG-038: `source.kind = "session"` reopens the source of an earlier session of the same device
+/// (open or closed), with another start or profile; another device cannot borrow it.
+#[tokio::test]
+async fn a_session_source_reopens_an_earlier_session_of_the_same_device() {
+    let mut h = harness(FakeEngine::new(3, 100, Duration::from_millis(1)), quick_tuning(), lenient_default()).await;
+    let a = h.pair("A").await;
+    let b = h.pair("B").await;
+    let port = upstream_hls(3).await;
+    let sid = json(create(&h, &a, port, json!({})).await).await["session_id"].as_str().unwrap().to_owned();
+    assert_eq!(a.client.delete(h.url(&format!("/v1/sessions/{sid}"))).send().await.unwrap().status(), 204);
+    assert_eq!(a.client.get(h.url(&format!("/v1/sessions/{sid}"))).send().await.unwrap().status(), 410);
+    let again = |c: &reqwest::Client, id: &str| c.post(h.url("/v1/sessions")).json(&json!({ "source": { "kind": "session", "session_id": id }, "start_secs": 2.0 })).send();
+    assert_eq!(again(&b.client, &sid).await.unwrap().status(), 404, "another device cannot reuse it");
+    let r = again(&a.client, &sid).await.unwrap();
+    assert_eq!(r.status(), 201);
+    let renewed = json(r).await["session_id"].as_str().unwrap().to_owned();
+    assert_ne!(renewed, sid);
+    // chained: the renewed session can be renewed too, and an unknown id is 404
+    assert_eq!(again(&a.client, &renewed).await.unwrap().status(), 201);
+    assert_eq!(again(&a.client, "00000000-0000-0000-0000-000000000000").await.unwrap().status(), 404);
+}

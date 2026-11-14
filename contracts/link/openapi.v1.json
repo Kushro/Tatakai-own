@@ -2032,6 +2032,9 @@
               },
               {
                 "$ref": "#/components/schemas/UrlSource"
+              },
+              {
+                "$ref": "#/components/schemas/SessionSource"
               }
             ],
             "discriminator": {
@@ -2105,6 +2108,24 @@
               "mp4",
               "dash"
             ]
+          }
+        }
+      },
+      "SessionSource": {
+        "type": "object",
+        "required": [
+          "kind",
+          "session_id"
+        ],
+        "additionalProperties": false,
+        "description": "Additive v1 extension (QA fixes 2026-11, BUG-008 / BUG-022 / BUG-038): the source of an earlier session of the SAME device, still open or among the last 128 the PC created (closed by DELETE, by the idle timeout or replaced). Used to change the profile of a session or to reopen it at start_secs after it expired. Unknown, foreign or forgotten id -> 404 session_not_found. A PC without this extension answers 400 request_invalid.",
+        "properties": {
+          "kind": {
+            "const": "session"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

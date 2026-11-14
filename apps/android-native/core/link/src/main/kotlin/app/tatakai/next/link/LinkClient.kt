@@ -75,6 +75,9 @@ data class LibraryDto(val items: List<LibraryItemDto>, val truncated: Boolean)
 sealed interface SessionSource {
     data class Library(val itemId: String) : SessionSource
     data class Url(val url: String, val headers: Map<String, String>, val extensionId: String? = null, val container: String? = null) : SessionSource
+
+    /** Additive v1 extension (BUG-008 / BUG-022 / BUG-038): the source of an earlier session of this phone, open or closed. */
+    data class Session(val sessionId: String) : SessionSource
 }
 
 /**
@@ -188,6 +191,7 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
 
     private fun sourceJson(source: SessionSource): JsonObject = when (source) {
         is SessionSource.Library -> buildJsonObject { put("kind", "library"); put("item_id", source.itemId) }
+        is SessionSource.Session -> buildJsonObject { put("kind", "session"); put("session_id", source.sessionId) }
         is SessionSource.Url -> buildJsonObject {
             put("kind", "url")
             put("url", source.url)

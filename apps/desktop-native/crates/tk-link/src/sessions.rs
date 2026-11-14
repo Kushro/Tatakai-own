@@ -32,6 +32,8 @@ use tk_core::net::{Policy, sanitize_headers};
 pub const HEARTBEAT_SECS: u64 = 4;
 pub const IDLE_TIMEOUT_SECS: u64 = 120;
 const TOMBSTONES: usize = 64;
+/// Sources of the last sessions kept for [`SourceRequest::Session`].
+pub const ORIGINS_KEPT: usize = 128;
 /// Segments kept behind the playhead for seek-back.
 const KEEP_BEHIND: u32 = 6;
 
@@ -167,6 +169,10 @@ pub struct CreateRequest {
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum SourceRequest {
     Library { item_id: String },
+    /// Contract v1 addition (BUG-008 / BUG-022 / BUG-038): the source of an earlier session of the SAME device, open or
+    /// recently closed (the last [`ORIGINS_KEPT`]), e.g. to change its profile or to reopen it after the idle timeout
+    /// at `start_secs`. A PC without it answers `400 request_invalid`.
+    Session { session_id: String },
     Url {
         url: String,
         #[serde(default)]
@@ -193,6 +199,8 @@ pub struct Manager {
     by_device: Mutex<HashMap<String, String>>,
     device_generation: Mutex<HashMap<String, u32>>,
     tombstones: Mutex<VecDeque<String>>,
+    /// `(session id, device id, source)` of the last [`ORIGINS_KEPT`] sessions ([`SourceRequest::Session`]).
+    origins: Mutex<VecDeque<(String, String, SourceRequest)>>,
     next_run: AtomicU32,
 }
 
@@ -228,6 +236,7 @@ impl Manager {
             by_device: Mutex::default(),
             device_generation: Mutex::default(),
             tombstones: Mutex::default(),
+            origins: Mutex::default(),
             next_run: AtomicU32::new(1),
         })
     }
@@ -274,8 +283,12 @@ impl Manager {
         let profile = profiles::find(wanted).filter(|p| self.env.profile_available(p)).ok_or(ApiError(ErrorCode::ProfileUnavailable))?;
         let encoder = self.env.encoder_for(profile).ok_or(ApiError(ErrorCode::ProfileUnavailable))?;
 
-        // source -> loopback input
-        let (input_url, fetch_token, duration) = self.open_source(&req.source).await?;
+        // source -> loopback input (a `session` source reuses the source of an earlier session of this device)
+        let source = match &req.source {
+            SourceRequest::Session { session_id } => self.origin_of(device_id, session_id).ok_or(ApiError(ErrorCode::SessionNotFound))?,
+            other => other.clone(),
+        };
+        let (input_url, fetch_token, duration) = self.open_source(&source).await?;
 
         let lsfg_rate = match profile.fg.lsfg() {
             Some(_) => Some(self.engine.source_rate(&input_url).await.unwrap_or_else(|| {
@@ -327,6 +340,13 @@ impl Manager {
             last_heartbeat: Mutex::new(Instant::now()),
         });
         lock(&self.sessions).insert(id.clone(), session.clone());
+        {
+            let mut o = lock(&self.origins);
+            o.push_back((id.clone(), device_id.to_owned(), source));
+            while o.len() > ORIGINS_KEPT {
+                o.pop_front();
+            }
+        }
         lock(&self.by_device).insert(device_id.to_owned(), id.clone());
         let generation = {
             let mut g = lock(&self.device_generation);
@@ -347,8 +367,14 @@ impl Manager {
         })
     }
 
+    /// The source of session `id` if `device` owns it (open or among the last [`ORIGINS_KEPT`]).
+    fn origin_of(&self, device: &str, id: &str) -> Option<SourceRequest> {
+        lock(&self.origins).iter().rev().find(|(sid, dev, _)| sid == id && dev == device).map(|(_, _, src)| src.clone())
+    }
+
     async fn open_source(&self, src: &SourceRequest) -> ApiResult<(String, String, Option<f64>)> {
         match src {
+            SourceRequest::Session { .. } => Err(ErrorCode::RequestInvalid.into()),
             SourceRequest::Library { item_id } => {
                 if item_id.len() != 32 || !item_id.bytes().all(|b| b.is_ascii_hexdigit()) {
                     return Err(ErrorCode::RequestInvalid.into());

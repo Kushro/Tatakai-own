@@ -55,6 +55,10 @@
     <string name="player_link_ended">The PC closed this session after a while without connection. Send the episode again from the PC.</string>
     <string name="player_link_pc_error">Your PC could not continue this session. Tap Retry to open it again.</string>
     <string name="player_link_renewed">The session with your PC had expired: a new one opened at the same point.</string>
+    <string name="player_link_profile">Enhancement profile</string>
+    <string name="player_link_profile_hint">The PC restarts the session with the chosen profile at the same point. Your preferred profile does not change.</string>
+    <string name="player_link_profile_changed">Profile changed: the session continues at the same point.</string>
+    <string name="player_link_profile_failed">The PC could not change the profile; the previous one continues.</string>
     <string name="player_go_extensions">Go to Extensions</string>
     <string name="player_open_linked">Linked device</string>
     <string name="player_no_sources_title">No sources for this episode</string>

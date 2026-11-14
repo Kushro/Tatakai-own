@@ -56,7 +56,7 @@ interface RemotePlaybackAccess {
      */
     suspend fun sessionAlive(sessionId: String): Boolean? = null
 
-    /** Whether [renew] can recreate [sessionId]: this phone started it, so it knows its source and profile (not a PC hand-off). */
+    /** Whether [renew] can recreate [sessionId] (a session this phone knows: started here or handed off by the PC). */
     fun canRenew(sessionId: String): Boolean = false
 
     /**
@@ -65,6 +65,9 @@ interface RemotePlaybackAccess {
      */
     suspend fun renew(sessionId: String, startSecs: Double, profileId: String? = null): Result<RemoteSession> =
         Result.failure(UnsupportedOperationException("renew"))
+
+    /** BUG-022: the profile [sessionId] was created with by this phone; null = the PC's default (or unknown). */
+    fun profileOf(sessionId: String): String? = null
 }
 
 /**
@@ -200,10 +203,22 @@ class LinkRepositoryImpl(
                 heartbeatIntervalSecs = DEFAULT_HEARTBEAT_SECS,
                 idleTimeoutSecs = DEFAULT_IDLE_SECS,
             )
-            _pendingHandoff.value = h
-            runCatching { handoffNotifier?.notify(h) }
+            val handoff = withPreferredProfile(h)
+            _pendingHandoff.value = handoff
+            runCatching { handoffNotifier?.notify(handoff) }
         }
         return true
+    }
+
+    /**
+     * BUG-008: the PC starts a hand-off without knowing this phone's profile (its default, no enhancement). With a preferred
+     * profile chosen on the Linked screen the session is recreated with it at the hand-off position; if the PC cannot (older PC,
+     * profile unavailable) the hand-off stays as the PC sent it.
+     */
+    private suspend fun withPreferredProfile(h: LinkHandoff): LinkHandoff {
+        val preferred = _linkedDevice.value?.preferredProfile?.takeIf { it.isNotBlank() && it != DEFAULT_PROFILE } ?: return h
+        val renewed = renew(h.sessionId, h.positionSec.toDouble(), preferred).getOrNull() ?: return h
+        return h.copy(sessionId = renewed.sessionId)
     }
 
     override suspend fun pair(payload: String, deviceName: String): Result<PairedPc> = withContext(io) {
@@ -299,10 +314,17 @@ class LinkRepositoryImpl(
         }
     }
 
-    override fun canRenew(sessionId: String): Boolean = origins.containsKey(sessionId)
+    override fun profileOf(sessionId: String): String? = origins[sessionId]?.profile
 
+    override fun canRenew(sessionId: String): Boolean = origins.containsKey(sessionId) || sessions.containsKey(sessionId)
+
+    /**
+     * A session this phone started is recreated from its own source; any other (a PC hand-off) with the `session` source, which
+     * the PC resolves to the source it used (contract extension; an older PC answers request_invalid).
+     */
     override suspend fun renew(sessionId: String, startSecs: Double, profileId: String?): Result<RemoteSession> {
-        val origin = origins[sessionId] ?: return Result.failure(LinkError.Api(LinkApiError.SessionGone).toAppException())
+        if (!canRenew(sessionId)) return Result.failure(LinkError.Api(LinkApiError.SessionGone).toAppException())
+        val origin = origins[sessionId] ?: Origin(SessionSource.Session(sessionId), profile = null)
         val result = call { c -> create(c, origin.source, profileId ?: origin.profile, startSecs.coerceAtLeast(0.0)) }
         if (result.isSuccess) {
             sessions.remove(sessionId)
@@ -432,6 +454,8 @@ class LinkRepositoryImpl(
         const val EVENTS_BACKOFF_MAX_MS = 60_000L
         const val DEFAULT_HEARTBEAT_SECS = 4
         const val DEFAULT_IDLE_SECS = 120
+        /** tk-link `profiles::DEFAULT_PROFILE`: what a hand-off uses when the PC was not told a profile. */
+        const val DEFAULT_PROFILE = "p-none"
 
         /** `7a3f91c2...` -> `7A3F 91C2 ...`; null for an empty pin. */
         fun displayFingerprint(hex: String): String? {

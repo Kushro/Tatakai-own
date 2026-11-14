@@ -143,6 +143,8 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
             },
         )
         PlayerNotice.LinkSessionRenewed -> stringResource(R.string.player_link_renewed)
+        is PlayerNotice.LinkProfileChanged ->
+            stringResource(if (notice.ok) R.string.player_link_profile_changed else R.string.player_link_profile_failed)
     }
     val scheme = MaterialTheme.colorScheme
     Surface(modifier.widthIn(max = 560.dp).padding(horizontal = 16.dp), shape = RoundedCornerShape(50), color = scheme.inverseSurface, contentColor = scheme.inverseOnSurface) {
