@@ -61,6 +61,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.layout.calculatePaneScaffoldDirective
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteItem
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteType
@@ -318,7 +320,10 @@ private fun AppShell(
     }
 
     // ShortNavigationBar on compact windows (< 600 dp), WideNavigationRail from medium width; hidden over the player.
-    val wide = LocalConfiguration.current.screenWidthDp >= WIDE_MIN_WIDTH_DP
+    // BUG-041: a phone in landscape (~430 dp tall) cannot fit the rail's destinations ("Tú" fell off the screen): short windows keep
+    // the bottom bar, which always fits.
+    val config = LocalConfiguration.current
+    val wide = config.screenWidthDp >= WIDE_MIN_WIDTH_DP && config.screenHeightDp >= RAIL_MIN_HEIGHT_DP
     val destinations = topLevelRoutes(wide)
     val selectedTop = backStack.asReversed()
         .firstNotNullOfOrNull { key -> (key as? Route)?.topLevel(wide)?.takeIf { it in destinations } }
@@ -432,7 +437,15 @@ private fun rememberTorrentStatus(): StateFlow<TorrentServiceStatus> {
 @Composable
 private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
     // List-detail on expanded windows: Search/Library are list panes, Details the detail pane.
-    val listDetail = rememberListDetailSceneStrategy<NavKey>()
+    // BUG-045: two panes only when the window really is wide and tall enough (read from the configuration, which follows rotation at
+    // once); a phone in portrait showed Search + a ~510 px Details with the title split letter by letter.
+    val config = LocalConfiguration.current
+    val twoPanes = config.screenWidthDp >= TWO_PANE_MIN_WIDTH_DP && config.screenHeightDp >= RAIL_MIN_HEIGHT_DP
+    val defaultDirective = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo())
+    val directive = remember(defaultDirective, twoPanes) {
+        defaultDirective.copy(maxHorizontalPartitions = if (twoPanes) defaultDirective.maxHorizontalPartitions.coerceAtMost(2) else 1)
+    }
+    val listDetail = rememberListDetailSceneStrategy<NavKey>(directive = directive)
 
     fun openDetails(anilistId: Int) {
         if (backStack.lastOrNull() is Route.Details) backStack.removeLastOrNull()
@@ -787,6 +800,12 @@ private fun NavBackStack<NavKey>.navigateTop(route: Route) {
 }
 
 private const val WIDE_MIN_WIDTH_DP = 600
+
+/** BUG-041 / BUG-045: below this height (a phone in landscape) the rail does not fit and two panes are too cramped. */
+private const val RAIL_MIN_HEIGHT_DP = 480
+
+/** BUG-045: list + detail side by side from the expanded width class. */
+private const val TWO_PANE_MIN_WIDTH_DP = 840
 private val OFFLINE_BANNER_HEIGHT = 40.dp
 
 private fun Route.icon(selected: Boolean): ImageVector = when (this) {
