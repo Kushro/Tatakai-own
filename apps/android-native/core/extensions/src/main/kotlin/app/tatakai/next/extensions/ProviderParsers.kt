@@ -4,6 +4,8 @@ package app.tatakai.next.extensions
 import app.tatakai.next.model.ChapterPage
 import app.tatakai.next.model.ExtensionHomeItem
 import app.tatakai.next.model.ExtensionHomeRow
+import app.tatakai.next.model.MangaRouteChapter
+import app.tatakai.next.model.MangaRouteQuery
 import app.tatakai.next.model.ProviderEntry
 import app.tatakai.next.model.ProviderItem
 import kotlinx.serialization.json.JsonArray
@@ -141,6 +143,68 @@ object ProviderParsers {
         return raw.sortedBy { it.first }.mapIndexed { i, (_, url, headers) -> ChapterPage(i, url, headers) }
     }
 
+    /**
+     * BUG-099: a `manga/chapters` answer (same shapes as desktop `tk_core::manga::parse_ext_chapters`): a bare array, `results`
+     * (debug variant), `chapters` (a PC server's progressive answer) or `data`, of either merged entries
+     * `{ number, title, volume, sources: [{ provider, chapterKey, language, scanlator, releaseDate }] }` or flat entries
+     * `{ chapterKey | id, number, title, volume, language | lang, scanlator | group, releaseDate | date }`. The provider is `provider`,
+     * else the `chapterKey` prefix (`mangadex:abc`), else [extensionId]. Duplicate keys of one provider are dropped.
+     */
+    fun mangaRouteChapters(extensionId: String, body: JsonElement?): List<MangaRouteChapter> {
+        val list: JsonArray = when (body) {
+            is JsonArray -> body
+            is JsonObject -> (body["results"] ?: body["chapters"] ?: body["result"] ?: body["data"]) as? JsonArray ?: return emptyList()
+            else -> return emptyList()
+        }
+        val out = ArrayList<MangaRouteChapter>()
+        val seen = HashSet<String>()
+        fun add(o: JsonObject, parent: JsonObject?) {
+            val key = o.idText("chapterKey") ?: o.idText("id") ?: return
+            val provider = o.text("provider") ?: key.substringBefore(':', "").takeIf { it.isNotEmpty() } ?: extensionId
+            if (!seen.add("$provider|$key")) return
+            val number = listOfNotNull(parent?.number("number"), parent?.number("chapter"), o.number("number"), o.number("chapter"))
+                .firstOrNull { it > 0 }
+            out += MangaRouteChapter(
+                provider = provider,
+                key = key,
+                number = number,
+                volume = (o.volume("volume") ?: parent?.volume("volume")),
+                title = o.text("title") ?: parent?.text("title"),
+                lang = (o.text("language") ?: o.text("lang"))?.lowercase(java.util.Locale.ROOT)?.substringBefore('-')?.takeIf { it.length in 2..3 },
+                group = o.text("scanlator") ?: o.text("group"),
+                releasedAtMs = o.epochMs("releaseDate") ?: o.epochMs("date"),
+            )
+        }
+        for (el in list) {
+            val e = el as? JsonObject ?: continue
+            val sources = e["sources"] as? JsonArray
+            if (sources != null) sources.forEach { s -> (s as? JsonObject)?.let { add(it, e) } } else add(e, null)
+        }
+        return out
+    }
+
+    /** `manga/chapters` params for [query] (as desktop `fetch_ext`): `anilistId`, `malId`, `title` (the first one) and `titles`. */
+    fun mangaRouteParams(query: MangaRouteQuery): JsonObject = JsonObject(
+        buildMap {
+            query.anilistId?.let { put("anilistId", JsonPrimitive(it)) }
+            query.malId?.let { put("malId", JsonPrimitive(it)) }
+            query.titles.firstOrNull()?.let { put("title", JsonPrimitive(it)) }
+            put("titles", JsonArray(query.titles.map { JsonPrimitive(it) }))
+        },
+    )
+
+    /** `manga/pages` params for a `chapterKey` (`<provider>:<providerChapterId>`), as desktop `fetch_pages`. */
+    fun mangaPagesParams(chapterKey: String): JsonObject {
+        val provider = chapterKey.substringBefore(':', "")
+        return JsonObject(
+            buildMap {
+                put("chapterKey", JsonPrimitive(chapterKey))
+                put("provider", if (provider.isEmpty()) JsonNull else JsonPrimitive(provider))
+                put("providerChapterId", JsonPrimitive(chapterKey.substringAfter(':')))
+            },
+        )
+    }
+
     /** Blank-line separated paragraphs (single newlines kept inside a paragraph); HTML `<p>` tags are split too. */
     fun paragraphsOf(text: String): List<String> =
         text.replace(Regex("(?i)</p>\\s*<p[^>]*>"), "\n\n").replace(Regex("(?i)</?p[^>]*>"), "")
@@ -179,6 +243,14 @@ object ProviderParsers {
         val p = this[key] as? JsonPrimitive ?: return null
         if (p is JsonNull) return null
         return p.doubleOrNull ?: p.content.trim().toDoubleOrNull()
+    }
+
+    /** A volume number or text (`3`, `"Vol. 3"`); null when missing or 0. */
+    private fun JsonObject.volume(key: String): Int? {
+        val p = this[key] as? JsonPrimitive ?: return null
+        if (p is JsonNull) return null
+        val n = p.doubleOrNull ?: Regex("(\\d+)").find(p.content)?.groupValues?.get(1)?.toDoubleOrNull() ?: return null
+        return n.toInt().takeIf { it in 1 until 100_000 }
     }
 
     private fun JsonObject.flag(key: String): Boolean? = (this[key] as? JsonPrimitive)?.takeUnless { it.isString }?.contentOrNull?.toBooleanStrictOrNull()

@@ -254,6 +254,18 @@ interface ExtensionRepository {
     /** `custom/read`: pages of one `read` entry (manga reader of s) or paragraphs of a `novel` entry (text joined by the caller). */
     suspend fun providerRead(extensionId: String, sourceId: String, itemId: String, entryId: String): List<ChapterPage> = emptyList()
 
+    /**
+     * BUG-099: extensions that read manga through the `manga/chapters` / `manga/pages` routes instead of a `read` custom source (Toko
+     * 4.x: MangaDex, Comick, Mangapill…), installed here or on a linked PC extension server. One row per extension, kind `read`.
+     */
+    suspend fun mangaRouteSources(): List<CustomSourceRef> = emptyList()
+
+    /** `manga/chapters` of one of [mangaRouteSources]: every chapter of every inner provider. @throws AppException on failure. */
+    suspend fun mangaRouteChapters(extensionId: String, query: MangaRouteQuery): List<MangaRouteChapter> = emptyList()
+
+    /** `manga/pages` of a chapter of [mangaRouteChapters] ([MangaRouteChapter.key]). @throws AppException on failure. */
+    suspend fun mangaRoutePages(extensionId: String, chapterKey: String): List<ChapterPage> = emptyList()
+
     fun providerBookmarks(): Flow<List<ProviderBookmark>> = emptyFlow()
 
     /** Adds / replaces a bookmark; [bookmark] with `completed = true` marks it done. */

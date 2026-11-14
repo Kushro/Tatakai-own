@@ -150,6 +150,8 @@ fun MangaDetailsScreen(
     val queuedText = stringResource(R.string.manga_download_queued_snack)
     val openDownloadsLabel = stringResource(R.string.manga_open_downloads)
     val noChapterText = stringResource(R.string.manga_no_chapter)
+    val noSourceText = stringResource(R.string.manga_no_source_found)
+    val sourcesLabel = stringResource(R.string.manga_no_source_found_action)
     val errorPrefix = stringResource(UiR.string.ui_error_title)
     LaunchedEffect(vm) {
         vm.events.collect { ev ->
@@ -161,6 +163,10 @@ fun MangaDetailsScreen(
                 }
                 is DetailsEvent.Failed -> scope.launch { snackbar.showSnackbar(errorPrefix) }
                 DetailsEvent.NoChapter -> scope.launch { snackbar.showSnackbar(noChapterText) }
+                DetailsEvent.NoSourceFound -> scope.launch {
+                    val r = snackbar.showSnackbar(noSourceText, actionLabel = sourcesLabel)
+                    if (r == androidx.compose.material3.SnackbarResult.ActionPerformed) sourceSheet = true
+                }
             }
         }
     }
@@ -580,7 +586,9 @@ private fun LazyListScope.chaptersSection(
                 is LoadState.Err -> item(key = "chapters-error") { ErrorBlock(chapters.cause, vm::refreshChapters) }
                 is LoadState.Ok -> {
                     val shown = ui.shown
-                    if (ui.source?.itemId == null) {
+                    if (ui.noSourceFound) {
+                        item(key = "unmatched-all") { Text(stringResource(R.string.manga_no_source_found_long), modifier = Modifier.padding(16.dp)) }
+                    } else if (ui.source?.itemId == null) {
                         item(key = "unmatched") { Text(stringResource(R.string.manga_source_unmatched), modifier = Modifier.padding(16.dp)) }
                     } else if (shown.isEmpty()) {
                         item(key = "chapters-empty") { Text(stringResource(R.string.manga_chapters_empty), modifier = Modifier.padding(16.dp)) }

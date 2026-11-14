@@ -20,7 +20,9 @@ import app.tatakai.next.model.MangaChapter
 import app.tatakai.next.model.MangaChapterSource
 import app.tatakai.next.model.MangaDetails
 import app.tatakai.next.model.MangaHome
+import app.tatakai.next.model.MANGA_ROUTE_SOURCE
 import app.tatakai.next.model.MangaReaderArgs
+import app.tatakai.next.model.MangaRouteQuery
 import app.tatakai.next.model.MangaRepository
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
@@ -165,6 +167,9 @@ class MangaRepositoryImpl(
     private val feeds = MutableStateFlow(MangaHome())
     private val infoCache = HashMap<String, MangaInfo>()
     private val chapterMemo = HashMap<String, CachedChapters>()
+
+    /** BUG-097/099: `<ext>|<mediaKey>` -> when a route-based extension last found nothing (asked again after [ROUTE_MISS_TTL_MS]). */
+    private val routeMisses = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val memoLock = Mutex()
     private var genresCache: List<String>? = null
     private var downloadJob: Job? = null
@@ -285,8 +290,9 @@ class MangaRepositoryImpl(
         val key = mediaKey(ref) ?: return emptyList()
         val titles = titlesOf(ref, title)
         val custom = runCatching { extensions.customSources("read") }.getOrDefault(emptyList())
+        val routes = runCatching { extensions.mangaRouteSources() }.getOrDefault(emptyList())
         val rel = reliability.value
-        val sources = if (custom.isEmpty()) {
+        val sources = if (custom.isEmpty() && routes.isEmpty()) {
             val id = matchFor(key, sourceKey(MangaDexClient.EXTENSION_ID, MangaDexClient.SOURCE_ID)) {
                 mangaDex.find(ref.anilistId, titles)
             }
@@ -323,7 +329,38 @@ class MangaRepositoryImpl(
                             reliability = rel[sk] ?: app.tatakai.next.model.INITIAL_RELIABILITY,
                         )
                     }
-                }.awaitAll()
+                }.let { customJobs ->
+                    // BUG-099: Toko and the Spanish pack read manga through `manga/chapters` (no `read` custom source): one source per
+                    // inner provider that found the title, or one empty row when the extension found nothing / failed.
+                    val routeJobs = routes.map { route ->
+                        async {
+                            val missKey = "${route.extensionId}|$key"
+                            val recentMiss = routeMisses[missKey]?.let { clock() - it < ROUTE_MISS_TTL_MS } == true
+                            val list = if (recentMiss) {
+                                emptyList()
+                            } else {
+                                withTimeoutOrNull(ROUTE_TIMEOUT_MS) {
+                                    runCatching { routeChapters(route.extensionId, key, route, titles, refresh = false, ref = ref) }.getOrNull()
+                                }.orEmpty()
+                            }
+                            if (list.isNotEmpty()) routeMisses.remove(missKey) else if (!recentMiss) routeMisses[missKey] = clock()
+                            MangaRoutes.sources(route, key, list) { rel[it] }.ifEmpty {
+                                listOf(
+                                    MangaChapterSource(
+                                        extensionId = route.extensionId,
+                                        extensionName = route.extensionName,
+                                        sourceId = MANGA_ROUTE_SOURCE,
+                                        itemId = null,
+                                        languages = emptyList(),
+                                        chapterCount = 0,
+                                        reliability = rel[sourceKey(route.extensionId, MANGA_ROUTE_SOURCE)] ?: app.tatakai.next.model.INITIAL_RELIABILITY,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                    customJobs.awaitAll() + routeJobs.awaitAll().flatten()
+                }
             }
         }
         val prefs = _prefs.value
@@ -341,6 +378,12 @@ class MangaRepositoryImpl(
     private suspend fun chaptersOf(extensionId: String, sourceId: String, itemId: String, refresh: Boolean): List<MangaChapter> {
         val sk = sourceKey(extensionId, sourceId)
         if (!refresh) cachedChapters(sk, itemId)?.let { return markDownloaded(it) }
+        if (MangaRoutes.isRouteSource(sourceId)) {
+            // BUG-099: one `manga/chapters` call answers every provider of the extension; this source keeps its own.
+            val ref = refOf(itemId) ?: return emptyList()
+            val all = routeChapters(extensionId, itemId, null, titlesOf(ref, ""), refresh, ref)
+            return markDownloaded(all.filter { it.sourceId == sourceId })
+        }
         val list = if (extensionId == MangaDexClient.EXTENSION_ID) {
             mangaDex.chapters(itemId, preferredLanguages())
         } else {
@@ -377,6 +420,11 @@ class MangaRepositoryImpl(
         val sk = sourceKey(extensionId, sourceId)
         val name = if (extensionId == MangaDexClient.EXTENSION_ID) {
             MangaDexClient.NAME
+        } else if (MangaRoutes.isRouteSource(sourceId)) {
+            val ext = runCatching { extensions.mangaRouteSources() }.getOrDefault(emptyList()).firstOrNull { it.extensionId == extensionId }?.extensionName
+                ?: extensions.installed.value.firstOrNull { it.id == extensionId }?.name
+                ?: extensionId.substringAfterLast('/')
+            MangaRoutes.sourceName(ext, MangaRoutes.providerOf(sourceId))
         } else {
             runCatching { extensions.customSources("read") }.getOrDefault(emptyList())
                 .firstOrNull { it.extensionId == extensionId && it.sourceId == sourceId }?.let { it.extensionName.ifBlank { it.name } }
@@ -412,6 +460,8 @@ class MangaRepositoryImpl(
         return try {
             val pages = if (chapter.extensionId == MangaDexClient.EXTENSION_ID) {
                 mangaDex.pages(chapter.id)
+            } else if (MangaRoutes.isRouteSource(chapter.sourceId)) {
+                extensions.mangaRoutePages(chapter.extensionId, chapter.id)
             } else {
                 extensions.providerRead(chapter.extensionId, chapter.sourceId, chapter.itemId, chapter.id)
             }
@@ -444,6 +494,8 @@ class MangaRepositoryImpl(
             runCatching { chapterFile(sk, itemId).delete() }
         }
         matchStore.update { map -> map.filterKeys { !it.startsWith("$key|") } }
+        clearRouteCaches(key)
+        routeMisses.keys.removeAll { it.endsWith("|$key") }
         memoLock.withLock { infoCache.remove(key) }
     }
 
@@ -588,7 +640,11 @@ class MangaRepositoryImpl(
         try {
             val pages = when (item.chapter.extensionId) {
                 MangaDexClient.EXTENSION_ID -> mangaDex.pages(item.chapter.id)
-                else -> extensions.providerRead(item.chapter.extensionId, item.chapter.sourceId, item.chapter.itemId, item.chapter.id)
+                else -> if (MangaRoutes.isRouteSource(item.chapter.sourceId)) {
+                    extensions.mangaRoutePages(item.chapter.extensionId, item.chapter.id)
+                } else {
+                    extensions.providerRead(item.chapter.extensionId, item.chapter.sourceId, item.chapter.itemId, item.chapter.id)
+                }
             }
             if (pages.isEmpty()) throw AppException(AppError.Extension(item.chapter.extensionId, "custom/read: no pages"))
             var bytes = 0L
@@ -699,6 +755,54 @@ class MangaRepositoryImpl(
         return found
     }
 
+    /**
+     * BUG-099: every chapter a route-based manga extension has for the title [mediaKey] (all its inner providers), cached like the other
+     * lists: the whole answer under `<ext>/manga-route` and each provider under its own source key (so [chaptersOf] and the chapter
+     * counts find it). An empty answer is not cached (the next open asks again).
+     */
+    private suspend fun routeChapters(
+        extensionId: String,
+        mediaKey: String,
+        source: app.tatakai.next.model.CustomSourceRef?,
+        titles: List<String>,
+        refresh: Boolean,
+        ref: MediaRef? = refOf(mediaKey),
+    ): List<MangaChapter> {
+        val aggregate = sourceKey(extensionId, MANGA_ROUTE_SOURCE)
+        if (!refresh) cachedChapters(aggregate, mediaKey)?.let { return it }
+        val answer = extensions.mangaRouteChapters(extensionId, MangaRouteQuery(ref?.anilistId, ref?.malId, titles))
+        val list = MangaRoutes.chapters(source?.extensionId ?: extensionId, mediaKey, answer)
+        if (list.isEmpty()) return list
+        storeChapters(aggregate, mediaKey, list)
+        list.groupBy { it.sourceId }.forEach { (sourceId, chapters) -> storeChapters(sourceKey(extensionId, sourceId), mediaKey, chapters) }
+        return list
+    }
+
+    private suspend fun storeChapters(sk: String, itemId: String, list: List<MangaChapter>) {
+        val cached = CachedChapters(list, clock())
+        memoLock.withLock { chapterMemo["$sk|$itemId"] = cached }
+        runCatching {
+            val file = chapterFile(sk, itemId)
+            file.parentFile?.mkdirs()
+            file.writeText(ReaderJson.encodeToString(CachedChapters.serializer(), cached))
+        }
+    }
+
+    /** Drops the route-based caches of [mediaKey] (the aggregate and each provider it listed). */
+    private suspend fun clearRouteCaches(mediaKey: String) {
+        val routes = runCatching { extensions.mangaRouteSources() }.getOrDefault(emptyList())
+        for (r in routes) {
+            val aggregate = sourceKey(r.extensionId, MANGA_ROUTE_SOURCE)
+            val file = chapterFile(aggregate, mediaKey)
+            val providers = runCatching { if (file.isFile) ReaderJson.decodeFromString(CachedChapters.serializer(), file.readText()) else null }
+                .getOrNull()?.chapters?.map { it.sourceId }?.distinct().orEmpty()
+            for (sk in providers.map { sourceKey(r.extensionId, it) } + aggregate) {
+                memoLock.withLock { chapterMemo.remove("$sk|$mediaKey") }
+                runCatching { chapterFile(sk, mediaKey).delete() }
+            }
+        }
+    }
+
     private suspend fun cachedChapters(sourceKey: String, itemId: String): List<MangaChapter>? {
         val key = "$sourceKey|$itemId"
         memoLock.withLock { chapterMemo[key] }?.let { if (clock() - it.atMs < CHAPTERS_TTL_MS) return it.chapters }
@@ -728,6 +832,9 @@ class MangaRepositoryImpl(
         private const val MAX_FOLLOWED = 12
         private const val MAX_BEST_SOURCES = 5
         private const val SOURCE_TIMEOUT_MS = 15_000L
+        /** BUG-099: a `manga/chapters` call asks every inner provider (Toko: 8 s budget + title lookup; the PC adds its own hop). */
+        private const val ROUTE_TIMEOUT_MS = 30_000L
+        private const val ROUTE_MISS_TTL_MS = 5 * 60_000L
         private const val CHAPTERS_TTL_MS = 6 * 60 * 60 * 1000L
         private const val SERIES_TTL_MS = 7 * 24 * 60 * 60 * 1000L
         private const val MISS_TTL_MS = 24 * 60 * 60 * 1000L

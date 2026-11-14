@@ -5,6 +5,9 @@ import app.tatakai.next.model.AppError
 import app.tatakai.next.model.ChapterPage
 import app.tatakai.next.model.Container
 import app.tatakai.next.model.CustomSourceRef
+import app.tatakai.next.model.MANGA_ROUTE_SOURCE
+import app.tatakai.next.model.MangaRouteChapter
+import app.tatakai.next.model.MangaRouteQuery
 import app.tatakai.next.model.EmbedSniffException
 import app.tatakai.next.model.EmbedSniffer
 import app.tatakai.next.model.AppException
@@ -887,6 +890,40 @@ class ExtensionRepositoryImpl(
             "read",
         )
         return ProviderParsers.pages(src.kind, body)
+    }
+
+    override suspend fun mangaRouteSources(): List<CustomSourceRef> {
+        ready.await()
+        val local = lock.withLock {
+            records.values.filter { it.runnable && it.manifest.readsMangaByRoute }
+                .sortedWith(compareBy<Record> { it.manifest.priority }.thenBy { it.manifest.id })
+                .map { r -> CustomSourceRef(r.manifest.id, r.manifest.name, MANGA_ROUTE_SOURCE, "read", r.manifest.name) }
+        }
+        val remote = externalCustom.flatMap { group -> runCatchingNonCancel { group.mangaRouteSources() }.orEmpty() }
+        // BUG-086 (manga side): the PC's copy of an extension installed here too is left out; the local one does not depend on the PC.
+        val localIds = local.map { it.extensionId }.toSet()
+        return local + remote.filter { it.extensionId.substringAfterLast('/') !in localIds }
+    }
+
+    override suspend fun mangaRouteChapters(extensionId: String, query: MangaRouteQuery): List<MangaRouteChapter> {
+        externalCustom.firstOrNull { it.owns(extensionId) }?.let { return it.mangaRouteChapters(extensionId, query) }
+        val m = mangaRouteManifest(extensionId)
+        val body = callProvider(m, "manga/chapters", ProviderParsers.mangaRouteParams(query), "manga")
+        return ProviderParsers.mangaRouteChapters(m.id, body)
+    }
+
+    override suspend fun mangaRoutePages(extensionId: String, chapterKey: String): List<ChapterPage> {
+        externalCustom.firstOrNull { it.owns(extensionId) }?.let { return it.mangaRoutePages(extensionId, chapterKey) }
+        val m = mangaRouteManifest(extensionId)
+        val body = callProvider(m, "manga/pages", ProviderParsers.mangaPagesParams(chapterKey), "pages")
+        return ProviderParsers.pages("read", body)
+    }
+
+    private suspend fun mangaRouteManifest(extensionId: String): ExtensionManifest {
+        ready.await()
+        val r = lock.withLock { records[extensionId] } ?: throw AppException(AppError.Extension(extensionId, "Extension not installed"))
+        if (!r.runnable) throw AppException(AppError.Extension(extensionId, "Extension disabled"))
+        return r.manifest
     }
 
     override fun providerBookmarks(): Flow<List<ProviderBookmark>> = _bookmarks.asStateFlow()

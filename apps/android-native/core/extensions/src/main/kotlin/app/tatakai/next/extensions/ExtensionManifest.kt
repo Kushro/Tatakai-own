@@ -65,6 +65,14 @@ data class ExtensionManifest(
 
     val networkPolicy: NetworkPolicy get() = NetworkPolicy.fromPermissions(permissions)
 
+    /**
+     * BUG-099: reads manga through the `manga/chapters` / `manga/pages` routes (desktop `manifest_reads_manga`): the route is listed, or
+     * the manga capability is declared without a `read` custom source (those go through `custom/search` / `custom/info`).
+     */
+    val readsMangaByRoute: Boolean
+        get() = (apiServer?.routesExplicit == true && apiServer.routes.contains("manga/chapters")) ||
+            ((capabilities.contains("manga") || capabilities.contains("chapters")) && customSources.none { it.kind == "read" })
+
     companion object {
         val DEFAULT_ROUTES = listOf("sources", "stream", "torrent")
         val ID_PATTERN = Regex("^[a-z0-9][a-z0-9._-]{0,63}$")

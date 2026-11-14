@@ -64,12 +64,26 @@ data class MangaDetailsUi(
             val list = (chapters as? LoadState.Ok)?.value ?: return emptyList()
             return ChapterLists.filtered(ChapterLists.sorted(list, tools.order), tools.query, tools.lang)
         }
+
+    /** BUG-097: the sources answered and none of them found the title (nothing to read, nothing to preselect). */
+    val noSourceFound: Boolean
+        get() = (sources as? LoadState.Ok)?.value?.let { list -> list.isNotEmpty() && list.none { it.itemId != null } } == true
 }
+
+/**
+ * BUG-097: the source the details page opens with: the current one when it is still listed, else the best ranked source that found the
+ * title. A source that found nothing is never preselected (it used to pick the first one, e.g. an adult source with no results).
+ */
+internal fun initialSource(list: List<MangaChapterSource>, current: MangaChapterSource?): MangaChapterSource? =
+    current?.let { cur -> list.firstOrNull { it.key == cur.key && it.itemId != null } } ?: list.firstOrNull { it.itemId != null }
 
 sealed interface DetailsEvent {
     data class Queued(val count: Int) : DetailsEvent
     data class Failed(val error: AppError) : DetailsEvent
     data object NoChapter : DetailsEvent
+
+    /** BUG-097: "Leer" with no saved chapter while none of the sources found the title. */
+    data object NoSourceFound : DetailsEvent
     data class Open(val args: MangaReaderArgs) : DetailsEvent
 }
 
@@ -128,10 +142,7 @@ class MangaDetailsViewModel(
             } catch (e: Exception) {
                 LoadState.Err(e.toAppError())
             }
-            val chosen = (state as? LoadState.Ok)?.value?.let { list ->
-                val keep = _ui.value.source?.let { cur -> list.firstOrNull { it.key == cur.key } }
-                keep ?: list.firstOrNull { it.itemId != null } ?: list.firstOrNull()
-            }
+            val chosen = (state as? LoadState.Ok)?.value?.let { list -> initialSource(list, _ui.value.source) }
             _ui.update { it.copy(sources = state, source = chosen) }
             if (chosen != null) loadChapters(chosen, refresh = false) else _ui.update { it.copy(chapters = LoadState.Ok(emptyList())) }
         }
@@ -297,6 +308,11 @@ class MangaDetailsViewModel(
             return
         }
         val list = (_ui.value.chapters as? LoadState.Ok)?.value.orEmpty()
+        if (list.isEmpty() && _ui.value.noSourceFound) {
+            // BUG-097: asking every source again (bestChapter) took up to a minute and then said nothing useful.
+            _events.tryEmit(DetailsEvent.NoSourceFound)
+            return
+        }
         val asc = ChapterLists.sorted(list, ChapterOrder.ASC)
         val read = ListProgress.readThrough(p?.chapterNumber, listProgress)
         val wanted = asc.firstOrNull { (it.number ?: 0.0) > read }?.number ?: asc.firstOrNull()?.number

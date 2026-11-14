@@ -100,6 +100,31 @@ data class CustomSourceRef(
     val description: String? = null,
 )
 
+/**
+ * BUG-099: what a route-based manga extension (`manga/chapters`, e.g. Toko 4.x, which has no `read` custom source) needs to find a
+ * title: its AniList / MAL ids and its titles, best first.
+ */
+/** [CustomSourceRef.sourceId] of a route-based manga extension ([ExtensionRepository.mangaRouteSources]). */
+const val MANGA_ROUTE_SOURCE: String = "manga-route"
+
+data class MangaRouteQuery(val anilistId: Int?, val malId: Int?, val titles: List<String>)
+
+/**
+ * One chapter of a `manga/chapters` answer ([ExtensionRepository.mangaRouteChapters]). [provider] is the extension's inner provider
+ * (`mangadex`, `comick`…: the `chapterKey` prefix); [key] is what `manga/pages` takes back (`chapterKey`).
+ */
+data class MangaRouteChapter(
+    val provider: String,
+    val key: String,
+    val number: Double? = null,
+    val volume: Int? = null,
+    val title: String? = null,
+    /** ISO 639-1, lowercase; null = unknown. */
+    val lang: String? = null,
+    val group: String? = null,
+    val releasedAtMs: Long? = null,
+)
+
 /** One episode / chapter of a provider title (`custom/info` entry). [kind] = `watch` | `read` | `novel`. */
 data class ProviderEntry(
     val id: String,

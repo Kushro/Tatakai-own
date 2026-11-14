@@ -5,6 +5,8 @@ import app.tatakai.next.model.ChapterPage
 import app.tatakai.next.model.CustomSourceRef
 import app.tatakai.next.model.ExtensionHomeItem
 import app.tatakai.next.model.ExtensionHomeRow
+import app.tatakai.next.model.MangaRouteChapter
+import app.tatakai.next.model.MangaRouteQuery
 import app.tatakai.next.model.ProviderItem
 import app.tatakai.next.model.StreamSource
 
@@ -32,4 +34,11 @@ interface ExternalCustomSources {
     suspend fun watch(extensionId: String, sourceId: String, itemId: String, entryId: String): List<StreamSource>
 
     suspend fun read(extensionId: String, sourceId: String, itemId: String, entryId: String): List<ChapterPage>
+
+    /** BUG-099: the route-based manga extensions of this group (`manga/chapters`), kind `read`; never throws. */
+    suspend fun mangaRouteSources(): List<CustomSourceRef> = emptyList()
+
+    suspend fun mangaRouteChapters(extensionId: String, query: MangaRouteQuery): List<MangaRouteChapter> = emptyList()
+
+    suspend fun mangaRoutePages(extensionId: String, chapterKey: String): List<ChapterPage> = emptyList()
 }

@@ -101,6 +101,9 @@
     <string name="manga_mode_webtoon">Webtoon</string>
     <string name="manga_no">No</string>
     <string name="manga_yes">Sí</string>
+    <string name="manga_no_source_found">Ninguna de tus fuentes encontró este título.</string>
+    <string name="manga_no_source_found_action">Fuentes e idiomas</string>
+    <string name="manga_no_source_found_long">Ninguna de tus fuentes encontró este título. Prueba otra fuente en Fuentes e idiomas o instala una extensión de manga.</string>
     <string name="manga_no_chapter">Todavía no hay capítulo que abrir.</string>
     <string name="manga_no_sources">No hay fuentes de manga</string>
     <string name="manga_no_sources_message">Instala una extensión de manga para listar capítulos por fuente.</string>

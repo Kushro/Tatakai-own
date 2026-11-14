@@ -8,6 +8,9 @@ import app.tatakai.next.model.ChapterPage
 import app.tatakai.next.model.CustomSourceRef
 import app.tatakai.next.model.ExtensionHomeItem
 import app.tatakai.next.model.ExtensionHomeRow
+import app.tatakai.next.model.MANGA_ROUTE_SOURCE
+import app.tatakai.next.model.MangaRouteChapter
+import app.tatakai.next.model.MangaRouteQuery
 import app.tatakai.next.model.ProviderItem
 import app.tatakai.next.model.StreamSource
 import kotlinx.coroutines.CancellationException
@@ -46,7 +49,7 @@ class ServerCustomSources(
 
     override fun owns(extensionId: String): Boolean = extensionId.startsWith(ServerCandidates.EXT_PREFIX)
 
-    override suspend fun customSources(): List<CustomSourceRef> = rows().map { (conn, src) ->
+    override suspend fun customSources(): List<CustomSourceRef> = rows().filterNot { (_, src) -> isMangaRoute(src) }.map { (conn, src) ->
         CustomSourceRef(
             extensionId = extensionIdOf(conn, src),
             extensionName = "${src.name.ifBlank { src.extensionId }} · ${conn.name}",
@@ -137,6 +140,43 @@ class ServerCustomSources(
         return ProviderParsers.pages(kind, body)
     }
 
+    // ---- BUG-099: route-based manga (`<ext>~read` variants of the native desktop server: `manga/chapters` / `manga/pages`) --------------
+
+    override suspend fun mangaRouteSources(): List<CustomSourceRef> = runCatchingNonCancel {
+        rows().filter { (_, src) -> isMangaRoute(src) }.map { (conn, src) ->
+            val ext = src.extensionId.ifBlank { src.id.substringAfter('/').substringBefore('~') }
+            CustomSourceRef(
+                extensionId = extensionIdOf(conn, src),
+                // "Toko · eidos": the server's "Toko · Manga" without the kind label, which the manga screens do not need.
+                extensionName = "${src.name.substringBefore(" · ").ifBlank { ext }} · ${conn.name}",
+                sourceId = MANGA_ROUTE_SOURCE,
+                kind = "read",
+                name = src.name.ifBlank { src.id },
+            )
+        }
+    }.orEmpty()
+
+    override suspend fun mangaRouteChapters(extensionId: String, query: MangaRouteQuery): List<MangaRouteChapter> {
+        val (conn, src) = resolveMangaRoute(extensionId)
+        val body = invokeFirst(conn, src.id, listOf("chapters"), ProviderParsers.mangaRouteParams(query))
+        return ProviderParsers.mangaRouteChapters(extensionId.substringAfterLast('/'), body)
+    }
+
+    override suspend fun mangaRoutePages(extensionId: String, chapterKey: String): List<ChapterPage> {
+        val (conn, src) = resolveMangaRoute(extensionId)
+        val body = invokeFirst(conn, src.id, listOf("pages"), ProviderParsers.mangaPagesParams(chapterKey))
+        return ProviderParsers.pages("read", body)
+    }
+
+    private suspend fun resolveMangaRoute(extensionId: String): Pair<ExtensionServerConnection, ServerSource> {
+        fun find(list: List<Pair<ExtensionServerConnection, ServerSource>>) =
+            list.firstOrNull { (conn, src) -> isMangaRoute(src) && extensionIdOf(conn, src) == extensionId }
+        return find(rows()) ?: run {
+            cached = null
+            find(rows())
+        } ?: throw ExtensionServerException(ExtensionServerException.UNREACHABLE)
+    }
+
     // ---- plumbing ---------------------------------------------------------------------------------------------------------------
 
     private fun kindOf(src: ServerSource): String = src.kind.takeIf { it == "read" || it == "novel" } ?: "watch"
@@ -220,6 +260,12 @@ class ServerCustomSources(
             val ext = src.extensionId.ifBlank { src.id.substringAfter('/').substringBefore('~') }
             return "${ServerCandidates.EXT_PREFIX}${conn.serverId}/${ext.replace("|", "_")}"
         }
+
+        /**
+         * BUG-099: the `~read` variant the native desktop server lists for a `.kai` with the manga capability (`descriptors` in
+         * tk-server): it reads through `manga/chapters` / `manga/pages` (`/invoke` ops `chapters` / `pages`), not `custom/search`.
+         */
+        fun isMangaRoute(src: ServerSource): Boolean = src.kind == "read" && src.id.endsWith("~read")
 
         /** The server refused the op name itself (not the data): try the next spelling. */
         fun refusedOp(e: ExtensionServerException): Boolean =

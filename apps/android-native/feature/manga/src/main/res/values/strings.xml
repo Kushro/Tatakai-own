@@ -101,6 +101,9 @@
     <string name="manga_mode_webtoon">Webtoon</string>
     <string name="manga_no">No</string>
     <string name="manga_yes">Yes</string>
+    <string name="manga_no_source_found">None of your sources found this title.</string>
+    <string name="manga_no_source_found_action">Sources and languages</string>
+    <string name="manga_no_source_found_long">None of your sources found this title. Try another source in Sources and languages or install a manga extension.</string>
     <string name="manga_no_chapter">No chapter to open yet.</string>
     <string name="manga_no_sources">No manga sources</string>
     <string name="manga_no_sources_message">Install a manga extension to list chapters by source.</string>
