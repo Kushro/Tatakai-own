@@ -362,11 +362,16 @@ pub async fn search_in_extension(b: &LiveBackend, ext_id: &str, query: &str, pag
     if let Some(route) = probe_route(&manifest) {
         match b.router.search(MediaKind::Anime, &query, page).await {
             Ok(p) => {
-                let probed = probe(&host, ext_id, route, p.items).await;
-                for mut m in probed.playable {
-                    // BUG-002: with AniList down the router answers from Kitsu, which may lack the English title;
-                    // keep the one the app already showed for this series, as the Metadata tab does.
-                    b.fill_known_title(&mut m);
+                // BUG-002 / BUG-083: with AniList down the router answers from Kitsu, which may lack the English
+                // title; the one the app already showed for this series is added before probing (the extension
+                // searches its sites with these titles: Latino found nothing with "Temppal: Item no Chikara"), and
+                // kept for display, as the Metadata tab does.
+                let mut items = p.items;
+                for m in &mut items {
+                    b.fill_known_title(m);
+                }
+                let probed = probe(&host, ext_id, route, items).await;
+                for m in probed.playable {
                     let vm = to_vm(&m);
                     if !vm.id.is_empty() && !out.iter().any(|x| x.id == vm.id) {
                         out.push(vm);

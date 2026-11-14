@@ -259,6 +259,23 @@ pub fn map_kitsu_media(doc: &Value, res: &Value) -> Media {
     if let Some(t) = s(&a["titles"]["ja_jp"]) {
         titles.insert("native".to_owned(), t);
     }
+    // BUG-083: Kitsu often lacks the English title (Overgeared is "Temppal: Item no Chikara" with "OVERGEARED" only in
+    // `abbreviatedTitles`); extensions searching Western catalogues need it when AniList is down. Latin-script ones
+    // only (no "템빨") and no real abbreviations ("AoT", "SNK": they would match unrelated releases), the rule of the
+    // extensions' own `usefulSynonyms`; as extra `alt_N` keys that matching reads and display ignores.
+    let abbreviation = |t: &str| {
+        let n = t.chars().count();
+        !t.contains(char::is_whitespace) && (n <= 4 || (n <= 6 && !t.chars().any(char::is_lowercase)))
+    };
+    let alts = a["abbreviatedTitles"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).map(str::trim).filter(|t| {
+        !abbreviation(t)
+            && t.chars().all(|c| !c.is_alphabetic() || c.is_ascii_alphabetic() || ('\u{00C0}'..='\u{024F}').contains(&c))
+    });
+    for (i, t) in alts.take(3).enumerate() {
+        if !titles.values().any(|v: &String| v.eq_ignore_ascii_case(t)) {
+            titles.insert(format!("alt_{}", i + 1), t.to_owned());
+        }
+    }
     let title = titles
         .get("english")
         .cloned()
@@ -329,5 +346,23 @@ mod tests {
         assert_eq!(clean_synopsis(Some("(Source: x)")), None);
         assert_eq!(clean_synopsis(Some("")), None);
         assert_eq!(clean_synopsis(None), None);
+    }
+
+    #[test]
+    fn kitsu_abbreviated_titles_feed_matching() {
+        // BUG-083: Kitsu's Overgeared (id 50743) has its English name only in `abbreviatedTitles`.
+        let res = serde_json::json!({
+            "id": "50743",
+            "attributes": {
+                "canonicalTitle": "Temppal: Item no Chikara",
+                "titles": { "en_jp": "Temppal: Item no Chikara", "ja_jp": "テムパル～アイテムの力～" },
+                "abbreviatedTitles": ["OVERGEARED", "템빨", "TEMPPAL: ITEM NO CHIKARA", "OG", "AoT", "TEMPAL"]
+            }
+        });
+        let m = map_kitsu_media(&serde_json::json!({}), &res);
+        assert_eq!(m.title, "Temppal: Item no Chikara", "the display title does not change");
+        assert_eq!(m.titles.get("alt_1").map(String::as_str), Some("OVERGEARED"));
+        assert!(!m.titles.values().any(|t| ["템빨", "OG", "AoT", "TEMPAL"].contains(&t.as_str())), "non-Latin ones and abbreviations are left out");
+        assert_eq!(m.titles.len(), 3, "a duplicate of the romaji title is not added again: {:?}", m.titles);
     }
 }
