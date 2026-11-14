@@ -449,6 +449,7 @@ class PlayerViewModel(
             val remoteId = this@PlayerViewModel.remoteId
             if (remoteId != null) {
                 loadLinkProfiles(remoteId)
+                launch { loadRemotePoster() }
                 val src = RemotePlayback.source(remote, remoteId, args.title)
                 if (src == null) {
                     _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
@@ -495,6 +496,24 @@ class PlayerViewModel(
                 else -> loadCandidates(m)
             }
         }
+    }
+
+    /**
+     * BUG-096: a Link session skips the source flow (and its metadata), so its history rows were saved without a poster and
+     * "Continuar viendo" lost the cover. Only the poster (and the notification artwork) is taken: the session stays remote.
+     */
+    private suspend fun loadRemotePoster() {
+        if (args.media.anilistId == null && args.media.malId == null) return
+        val m = try {
+            metadata.media(MediaKind.ANIME, args.media)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        val cover = m?.cover ?: return
+        _state.update { it.copy(poster = cover) }
+        notificationText?.let { (t, sub) -> ActivePlayback.setMetadata(PlaybackMetadata(t, sub, cover)) }
     }
 
     private fun loadSkipMarks() {

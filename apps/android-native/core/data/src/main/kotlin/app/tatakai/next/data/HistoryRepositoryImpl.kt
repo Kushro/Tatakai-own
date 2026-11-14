@@ -1,6 +1,7 @@
 package app.tatakai.next.data
 
 import app.tatakai.next.database.HistoryDao
+import app.tatakai.next.database.HistoryRow
 import app.tatakai.next.link.LinkHistoryRow
 import app.tatakai.next.link.LinkHistoryUnavailableException
 import app.tatakai.next.model.HistoryEntry
@@ -78,11 +79,21 @@ class HistoryRepositoryImpl(
         val existing = dao.get(entry.episodeId)
         // A "started" seed (progress 0) must never overwrite a real position that is already stored.
         if (existing != null && entry.progressSec == 0 && existing.progressSec > 0) return
-        val row = entry.toRow()
+        // BUG-096: a row without a poster (a Link session before its metadata arrives) keeps the one already known: this
+        // episode's, else the series' newest, so "Continuar viendo" does not lose the cover
+        val row = entry.toRow().let { r ->
+            if (!r.poster.isNullOrEmpty()) r else r.copy(poster = existing?.poster?.takeIf { it.isNotEmpty() } ?: seriesPoster(r))
+        }
         dao.upsert(row)
         scheduler.requestSync(immediate = false)
         listHooks(entry, newlyCompleted = row.completed && existing?.completed != true, firstPlay = existing == null)
     }
+
+    private suspend fun seriesPoster(row: HistoryRow): String? =
+        dao.observeForAnime(row.anilistId ?: -1, row.animeId).first()
+            .filter { !it.poster.isNullOrEmpty() }
+            .maxByOrNull { it.watchedAtMs }
+            ?.poster
 
     /** Best effort: the lists layer never breaks the history. */
     private suspend fun listHooks(entry: HistoryEntry, newlyCompleted: Boolean, firstPlay: Boolean) {

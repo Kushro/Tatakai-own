@@ -125,6 +125,36 @@ class HistorySyncerTest {
     }
 
     @Test
+    fun aNewerRowWithoutAPosterKeepsTheLocalCover() = runBlocking {
+        // BUG-096: the PC's newer row (played in a Link session) came without a poster and wiped the cover
+        val dao = FakeDao()
+        dao.upsert(row(1, watched = 1_700_000_000_000L, synced = 1_700_000_000_000L).copy(poster = "https://img/frieren.jpg"))
+        HistorySyncer(dao, FakeRemote(mutableListOf(LinkHistoryPageDto(listOf(remoteRow(1, "2026-11-01T10:00:00.000Z", 180)), 10)))).syncOnce()
+        assertEquals(180, dao.get("1:1")!!.progressSec)
+        assertEquals("https://img/frieren.jpg", dao.get("1:1")!!.poster)
+    }
+
+    @Test
+    fun recordingWithoutAPosterKeepsTheEpisodeOrSeriesCover() = runBlocking {
+        // BUG-096: the player of a Link session records progress before (or without) the metadata
+        val dao = FakeDao()
+        val repo = HistoryRepositoryImpl(dao, object : HistorySyncScheduler {
+            override fun requestSync(immediate: Boolean) {}
+        })
+        dao.upsert(row(1, watched = 1_000).copy(poster = "https://img/ep1.jpg"))
+        fun entry(ep: Int, poster: String?) = app.tatakai.next.model.HistoryEntry(
+            animeId = "1", title = "Frieren", poster = poster, episodeId = "1:$ep", episode = ep, progressSec = 300, durationSec = 1440,
+            completed = false, watchedAt = java.time.Instant.ofEpochMilli(2_000L + ep), anilistId = 1, malId = null,
+        )
+        repo.record(entry(1, null))
+        assertEquals("https://img/ep1.jpg", dao.get("1:1")!!.poster, "the episode keeps its cover")
+        repo.record(entry(2, null))
+        assertEquals("https://img/ep1.jpg", dao.get("1:2")!!.poster, "a new episode takes the series' cover")
+        repo.record(entry(2, "https://img/new.jpg"))
+        assertEquals("https://img/new.jpg", dao.get("1:2")!!.poster, "a poster that comes with the row wins")
+    }
+
+    @Test
     fun unpairedOrDisabledDoesNothing() = runBlocking {
         val dao = FakeDao()
         dao.upsert(row(1, watched = 1))

@@ -60,11 +60,17 @@ pub fn since(store: &Arc<LocalStore>, since_unix: i64, limit: usize) -> Vec<Hist
 /// Returns the rows accepted: `merge_remote` applies the rule per row and tells nothing back, so this counts the
 /// rows that win against the current store before merging. Rows without an AniList / MAL id never get here
 /// (`tk_link::history::HistoryRow::into_entry` drops them).
-pub fn merge(store: &Arc<LocalStore>, rows: Vec<HistoryEntry>) -> usize {
+pub fn merge(store: &Arc<LocalStore>, mut rows: Vec<HistoryEntry>) -> usize {
     touch(store);
     let mut wins = 0;
-    for r in &rows {
-        let current = store.progress_for(&r.anime_id).unwrap_or_default().into_iter().find(|e| e.episode_id == r.episode_id);
+    for r in &mut rows {
+        let known = store.progress_for(&r.anime_id).unwrap_or_default();
+        // BUG-096: a row played in a Link session can come without a poster; keep the one the PC already has (this
+        // episode's, else any of the series) so "Continue watching" does not lose its cover on either side
+        if r.poster.as_deref().is_none_or(str::is_empty) {
+            r.poster = known_poster(&known, &r.episode_id);
+        }
+        let current = known.into_iter().find(|e| e.episode_id == r.episode_id);
         if current.is_none_or(|c| r.wins_over(&c)) {
             wins += 1;
         }
@@ -74,6 +80,13 @@ pub fn merge(store: &Arc<LocalStore>, rows: Vec<HistoryEntry>) -> usize {
         return 0;
     }
     wins
+}
+
+/// BUG-096: the poster to keep for a row of `episode_id` that came without one: that episode's, else the newest of the
+/// series (rows of one anime). Pure.
+pub fn known_poster(rows: &[HistoryEntry], episode_id: &str) -> Option<String> {
+    let usable = |e: &&HistoryEntry| e.poster.as_deref().is_some_and(|p| !p.is_empty());
+    rows.iter().filter(usable).find(|e| e.episode_id == episode_id).or_else(|| rows.iter().filter(usable).max_by_key(|e| e.watched_at)).and_then(|e| e.poster.clone())
 }
 
 /// `DELETE /v1/history`: drop the PC history. `false` on a store error (the route answers `internal`).
@@ -131,6 +144,23 @@ mod tests {
         // same instant: more progress wins, nothing is lost
         assert_eq!(merge(&store, vec![row(5, 380, 200)]), 0);
         assert_eq!(since(&store, 0, 10)[0].progress_sec, 383);
+    }
+
+    #[test]
+    fn a_pushed_row_without_a_poster_keeps_the_one_the_pc_has() {
+        // BUG-096: the phone played ep 5 in a Link session and pushed it without a poster
+        let store = Arc::new(LocalStore::open_in_memory().unwrap());
+        let mut seen = row(4, 1400, 100);
+        seen.poster = Some("https://img.example/og.jpg".into());
+        store.record_history(&seen).unwrap();
+        assert_eq!(merge(&store, vec![row(5, 300, 200)]), 1);
+        let got = since(&store, 150, 10);
+        assert_eq!(got[0].poster.as_deref(), Some("https://img.example/og.jpg"));
+        // a poster that comes with the row wins
+        let mut fresh = row(5, 400, 300);
+        fresh.poster = Some("https://img.example/new.jpg".into());
+        merge(&store, vec![fresh]);
+        assert_eq!(since(&store, 250, 10)[0].poster.as_deref(), Some("https://img.example/new.jpg"));
     }
 
     #[test]

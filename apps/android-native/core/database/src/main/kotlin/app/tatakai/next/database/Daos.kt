@@ -39,7 +39,9 @@ abstract class HistoryDao {
             remote.watchedAtMs > local.watchedAtMs ||
             (remote.watchedAtMs == local.watchedAtMs && remote.progressSec > local.progressSec)
         if (takeRemote) {
-            upsert(remote.copy(syncedAtMs = remote.watchedAtMs))
+            // BUG-096: a newer row without a poster (played in a Link session) keeps the local one
+            val poster = remote.poster?.takeIf { it.isNotEmpty() } ?: local?.poster
+            upsert(remote.copy(syncedAtMs = remote.watchedAtMs, poster = poster))
         } else if (local != null && local.watchedAtMs == remote.watchedAtMs && local.progressSec == remote.progressSec) {
             upsert(local.copy(syncedAtMs = local.watchedAtMs))
         }
