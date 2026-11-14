@@ -266,6 +266,15 @@ impl LiveBackend {
     }
 }
 
+/// Episodes past the season's `total` (AniList) are dropped unless they already aired (`air_date` before `today`,
+/// both `YYYY-MM-DD`): AniList's count can lag behind a season that is still airing, never the other way round.
+fn cap_to_season(eps: Vec<tk_core::Episode>, total: Option<u32>, today: &str) -> Vec<tk_core::Episode> {
+    let Some(total) = total.filter(|t| *t > 0) else { return eps };
+    eps.into_iter()
+        .filter(|e| e.number <= total || e.air_date.as_deref().is_some_and(|d| d.len() >= 10 && &d[..10] < today))
+        .collect()
+}
+
 fn media_ref(id: &str) -> Option<MediaRef> {
     let (kind, n) = parse_media_id(id)?;
     Some(match kind {
@@ -385,6 +394,11 @@ impl Backend for LiveBackend {
             .collect();
         let list_progress = self.list_row(&r).map_or(0, |l| l.progress);
         let eps = self.router.episodes(&r).await.map_err(provider_err)?;
+        // BUG-031: an episode source (TVDB through ani.zip) can list a continuing series' future episodes (Overgeared:
+        // 22 for a 12-episode season); AniList's count wins for the ones that have not aired.
+        let total = self.media(id).await.ok().and_then(|(_, m)| m.episodes);
+        let today = OffsetDateTime::now_utc().date().to_string();
+        let eps = cap_to_season(eps, total, &today);
         Ok(eps
             .into_iter()
             .map(|e| EpisodeVm {
@@ -1285,5 +1299,28 @@ impl Backend for LiveBackend {
     }
     async fn anilist_review(&self, review_id: u64) -> UiResult<ReviewVm> {
         social::review(self, review_id).await
+    }
+}
+
+#[cfg(test)]
+mod season_cap_tests {
+    use super::cap_to_season;
+
+    fn ep(number: u32, air: Option<&str>) -> tk_core::Episode {
+        tk_core::Episode { number, title: None, image: None, air_date: air.map(str::to_owned), is_filler: false }
+    }
+
+    #[test]
+    fn future_episodes_past_the_season_are_dropped() {
+        // BUG-031: Overgeared, 12 on AniList, 22 listed (8-22 not aired).
+        let eps: Vec<_> = (1..=22).map(|n| ep(n, Some(if n <= 7 { "2026-10-01" } else { "2027-01-01" }))).collect();
+        let out = cap_to_season(eps.clone(), Some(12), "2026-11-14");
+        assert_eq!(out.len(), 12);
+        // An aired episode past a lagging AniList count stays; no count keeps everything.
+        let mut aired = eps[..13].to_vec();
+        aired[12].air_date = Some("2026-11-01T00:00:00Z".into());
+        assert_eq!(cap_to_season(aired, Some(12), "2026-11-14").len(), 13);
+        assert_eq!(cap_to_season(eps.clone(), None, "2026-11-14").len(), 22);
+        assert_eq!(cap_to_season(eps, Some(0), "2026-11-14").len(), 22);
     }
 }
