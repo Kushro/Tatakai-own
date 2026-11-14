@@ -110,6 +110,10 @@ struct State {
     finished: bool,
     kill: Option<Arc<Notify>>,
     throttled: bool,
+    /// BUG-025 sustain measurement of the current run: when it started, segments stored, whether back-pressure held it.
+    run_started: Instant,
+    run_segments: u32,
+    run_throttled: bool,
 }
 
 pub struct Session {
@@ -184,6 +188,24 @@ pub enum SourceRequest {
     },
 }
 
+/// Seconds of a run after which the sustain verdict is taken (BUG-025).
+pub const SUSTAIN_WINDOW_SECS: u64 = 20;
+
+/// BUG-025: whether the engine keeps up with real time. Held back by back-pressure = it was ahead (sustained). Otherwise,
+/// after [`SUSTAIN_WINDOW_SECS`] of an unpaused run (timed from its first segment), it must have produced at least 95 % of that time in segments.
+/// `None` = not decided yet. Pure.
+pub fn sustain_verdict(throttled: bool, segments: u32, elapsed: Duration, paused: bool) -> Option<bool> {
+    if throttled {
+        return Some(true);
+    }
+    if paused || elapsed < Duration::from_secs(SUSTAIN_WINDOW_SECS) {
+        return None;
+    }
+    // `segments` counts the first one, which starts the clock
+    let produced = f64::from(segments.saturating_sub(1)) * f64::from(SEGMENT_SECS);
+    Some(produced >= 0.95 * elapsed.as_secs_f64())
+}
+
 pub struct Manager {
     pub(crate) tuning: SessionTuning,
     pub(crate) engine: Arc<dyn Engine>,
@@ -199,6 +221,9 @@ pub struct Manager {
     by_device: Mutex<HashMap<String, String>>,
     device_generation: Mutex<HashMap<String, u32>>,
     tombstones: Mutex<VecDeque<String>>,
+    /// BUG-025: where measured sustain verdicts go (`/v1/capabilities` `measured_sustain`), and the sessions measured.
+    bench: Mutex<Option<Arc<Mutex<crate::media::capabilities::BenchStore>>>>,
+    measured: Mutex<std::collections::HashSet<String>>,
     /// `(session id, device id, source)` of the last [`ORIGINS_KEPT`] sessions ([`SourceRequest::Session`]).
     origins: Mutex<VecDeque<(String, String, SourceRequest)>>,
     next_run: AtomicU32,
@@ -237,8 +262,26 @@ impl Manager {
             device_generation: Mutex::default(),
             tombstones: Mutex::default(),
             origins: Mutex::default(),
+            bench: Mutex::default(),
+            measured: Mutex::default(),
             next_run: AtomicU32::new(1),
         })
+    }
+
+    /// BUG-025: store measured sustain verdicts here.
+    pub fn set_bench(&self, bench: Arc<Mutex<crate::media::capabilities::BenchStore>>) {
+        *lock(&self.bench) = Some(bench);
+    }
+
+    /// Record the first verdict of session `s` for its profile (later runs of the same session do not overwrite it).
+    fn note_sustain(&self, s: &Arc<Session>, sustained: bool) {
+        if !lock(&self.measured).insert(s.id.clone()) {
+            return;
+        }
+        tracing::info!(profile = s.profile.id, sustained, "Link profile sustain measured");
+        if let Some(b) = lock(&self.bench).as_ref() {
+            lock(b).record(s.profile.id, sustained);
+        }
     }
 
     pub fn tuning(&self) -> &SessionTuning {
@@ -335,6 +378,9 @@ impl Manager {
                 finished: false,
                 kill: None,
                 throttled: false,
+                run_started: Instant::now(),
+                run_segments: 0,
+                run_throttled: false,
             }),
             notify: Notify::new(),
             last_heartbeat: Mutex::new(Instant::now()),
@@ -457,6 +503,7 @@ impl Manager {
         while t.len() > TOMBSTONES {
             t.pop_front();
         }
+        lock(&self.measured).remove(id);
         let _ = self.events.send(crate::LinkEvent::SessionEnded { session_id: id.to_owned() });
         tracing::info!(session = %id, "session closed");
     }
@@ -511,6 +558,9 @@ impl Manager {
             st.playhead = start_segment;
             st.window = Window::default();
             st.finished = false;
+            st.run_started = Instant::now();
+            st.run_segments = 0;
+            st.run_throttled = false;
             if matches!(st.phase, Phase::Failed(_)) {
                 st.phase = Phase::Preparing;
             }
@@ -627,6 +677,7 @@ impl Manager {
                         }
                         let too_far = k > st.playhead.saturating_add(self.tuning.max_lead_segments);
                         st.throttled = too_far;
+                        st.run_throttled |= too_far;
                         too_far
                     };
                     if !wait {
@@ -643,11 +694,20 @@ impl Manager {
                     st.window.bytes -= old.len();
                 }
                 self.evict(&mut st);
+                // timed from the first segment: FFmpeg start-up (probe, shaders, LSFG) is not throughput
+                if st.run_segments == 0 {
+                    st.run_started = Instant::now();
+                }
+                st.run_segments += 1;
+                let verdict = sustain_verdict(st.run_throttled, st.run_segments, st.run_started.elapsed(), st.paused);
                 tracing::debug!(k, run_gen, bytes = st.window.bytes, playhead = st.playhead, "sink: segment stored");
                 if st.phase == Phase::Preparing && st.window.init.is_some() {
                     st.phase = Phase::Ready;
                 }
                 drop(st);
+                if let Some(sustained) = verdict {
+                    self.note_sustain(s, sustained);
+                }
                 s.notify.notify_waiters();
                 Ok(())
             }
@@ -834,4 +894,21 @@ pub enum SinkError {
     BadName,
     /// PUT from a run that is no longer current (or a closed session).
     Stale,
+}
+
+#[cfg(test)]
+mod sustain_tests {
+    use super::*;
+
+    #[test]
+    fn sustain_verdicts() {
+        let w = Duration::from_secs(SUSTAIN_WINDOW_SECS);
+        assert_eq!(sustain_verdict(true, 1, Duration::ZERO, false), Some(true), "held back by back-pressure = ahead");
+        assert_eq!(sustain_verdict(false, 5, Duration::from_secs(5), false), None, "too early");
+        assert_eq!(sustain_verdict(false, 30, w, true), None, "paused runs are not judged");
+        // 2 s segments: 11 segments after the first in 20 s = 22 s of video
+        assert_eq!(sustain_verdict(false, 11, w, false), Some(true));
+        // 6 segments after the first = 12 s of video in 20 s: does not keep up
+        assert_eq!(sustain_verdict(false, 7, w, false), Some(false));
+    }
 }

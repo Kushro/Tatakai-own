@@ -339,6 +339,9 @@ pub async fn start(cfg: LinkConfig, host: Arc<dyn LinkHost>) -> Result<LinkHandl
         host.clone(),
         events.clone(),
     );
+    // BUG-025: sessions measure whether their profile keeps up and store it for `measured_sustain`
+    let bench = Arc::new(Mutex::new(BenchStore::open(cfg.data_dir.join("bench.json"))));
+    manager.set_bench(bench.clone());
     let (_, sink_task) = sink::start(manager.clone()).await?;
 
     let addrs: Vec<SocketAddr> = listeners.iter().filter_map(|l| l.local_addr().ok()).collect();
@@ -350,7 +353,7 @@ pub async fn start(cfg: LinkConfig, host: Arc<dyn LinkHost>) -> Result<LinkHandl
         pairing,
         manager: manager.clone(),
         env,
-        bench: Arc::new(Mutex::new(BenchStore::open(cfg.data_dir.join("bench.json")))),
+        bench: bench.clone(),
         host,
         instance_id: uuid::Uuid::new_v4().to_string(),
         server_name: cfg.server_name,

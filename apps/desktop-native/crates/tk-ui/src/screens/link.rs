@@ -378,7 +378,7 @@ pub fn LinkPage() -> Element {
             let encoder = c.encoder.clone().unwrap_or_else(|| unknown.clone());
             let upscale = c.upscale.clone().unwrap_or_else(|| unknown.clone());
             let profiles = c.profiles.clone();
-            let (measured, unmeasured) = (t("link.caps.measured"), t("link.caps.unknown"));
+            let (sustained, stutters, unmeasured) = (t("link.caps.sustained"), t("link.caps.stutters"), t("link.caps.unknown"));
             rsx! {
                 div { class: "tk-caps",
                     Cap { k: t("link.caps.gpu"), v: gpu }
@@ -394,8 +394,8 @@ pub fn LinkPage() -> Element {
                             for (name , ok) in profiles {
                                 span {
                                     key: "{name}",
-                                    title: if ok.is_some() { measured.clone() } else { unmeasured.clone() },
-                                    InfoChip { text: name.clone(), icon: profile_icon(ok).to_string() }
+                                    title: match ok { Some(true) => sustained.clone(), Some(false) => stutters.clone(), None => unmeasured.clone() },
+                                    InfoChip { text: profile_label(&name), icon: profile_icon(ok).to_string() }
                                 }
                             }
                         }
@@ -545,6 +545,51 @@ pub fn LinkPage() -> Element {
 }
 
 /// Chip icon of a capability profile: supported, not supported, not measured yet.
+/// What a Link profile does, read from its stable id (`p-none`, `p-anime4k-<h>`, `p-anime4k-1080-fg2x`,
+/// `p-lsfg-1080-x<n>`, `p-lsfg-1080-auto<fps>`, `p-anime4k-lsfg-1080-…`): `(upscale height, fixed multiplier, auto fps)`.
+/// `None` for an id it does not know. Same rule as the phone (`feature/link` `ProfileName`). Pure.
+pub fn profile_parts(id: &str) -> Option<(Option<u32>, Option<u32>, Option<u32>)> {
+    if id == "p-none" {
+        return Some((None, None, None));
+    }
+    let mut it = id.strip_prefix("p-")?.split('-').peekable();
+    let anime4k = it.next_if_eq(&"anime4k").is_some();
+    let lsfg = it.next_if_eq(&"lsfg").is_some();
+    let height: u32 = it.next()?.parse().ok()?;
+    let (mut multiplier, mut auto) = (None, None);
+    if let Some(tail) = it.next() {
+        if let Some(n) = tail.strip_prefix('x') {
+            multiplier = Some(n.parse().ok()?);
+        } else if let Some(f) = tail.strip_prefix("auto") {
+            auto = Some(f.parse().ok()?);
+        } else if let Some(n) = tail.strip_prefix("fg").and_then(|t| t.strip_suffix('x')) {
+            multiplier = Some(n.parse().ok()?);
+        } else {
+            return None;
+        }
+    }
+    if it.next().is_some() || (!anime4k && !lsfg) || (lsfg && multiplier.is_none() && auto.is_none()) {
+        return None;
+    }
+    Some((anime4k.then_some(height), multiplier, auto))
+}
+
+/// BUG-025: the profile in words ("Anime4K a 1080p + Generación de cuadros ×2"); the raw id when unknown.
+fn profile_label(id: &str) -> String {
+    let Some((height, multiplier, auto)) = profile_parts(id) else { return id.to_owned() };
+    let mut parts = Vec::new();
+    if let Some(h) = height {
+        parts.push(tf("link.profile.anime4k", &[("h", &h.to_string())]));
+    }
+    if let Some(n) = multiplier {
+        parts.push(tf("link.profile.fg", &[("n", &n.to_string())]));
+    }
+    if let Some(f) = auto {
+        parts.push(tf("link.profile.fg_auto", &[("fps", &f.to_string())]));
+    }
+    if parts.is_empty() { t("link.profile.none") } else { parts.join(" + ") }
+}
+
 fn profile_icon(ok: Option<bool>) -> &'static str {
     match ok {
         Some(true) => "check",
@@ -739,6 +784,18 @@ pub fn last_seen_attr(last_seen: Option<i64>, now: i64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn profile_ids_are_read_like_the_phone_does_bug_025() {
+        assert_eq!(super::profile_parts("p-none"), Some((None, None, None)));
+        assert_eq!(super::profile_parts("p-anime4k-1080"), Some((Some(1080), None, None)));
+        assert_eq!(super::profile_parts("p-lsfg-1080-x3"), Some((None, Some(3), None)));
+        assert_eq!(super::profile_parts("p-anime4k-lsfg-1080-auto120"), Some((Some(1080), None, Some(120))));
+        assert_eq!(super::profile_parts("p-anime4k-1080-fg2x"), Some((Some(1080), Some(2), None)));
+        for bad in ["p-lsfg-1080", "p-1080", "p-anime4k-x", "quality", "p-anime4k-1080-x2-y"] {
+            assert_eq!(super::profile_parts(bad), None, "{bad}");
+        }
+    }
+
     use super::{alt_port, last_seen_attr, platform_key};
 
     #[test]
