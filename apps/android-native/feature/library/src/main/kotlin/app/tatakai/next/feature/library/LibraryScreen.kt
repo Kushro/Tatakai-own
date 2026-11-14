@@ -364,11 +364,13 @@ private fun HistoryRow(entry: HistoryEntry, onClick: () -> Unit) {
     }
 }
 
-/** "hace 5 min" / "5 minutes ago" in the app locale (platform formatter). */
+/** "hace 5 min" / "5 minutes ago" in the app locale (platform formatter), lowercase: it always follows other words (BUG-092). */
 @Composable
 private fun relativeTime(epochMs: Long): String {
     LocalContext.current // recompose on configuration (locale) changes
-    return DateUtils.getRelativeTimeSpanString(epochMs, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
+    return app.tatakai.next.ui.format.midSentence(
+        DateUtils.getRelativeTimeSpanString(epochMs, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString(),
+    )
 }
 
 @Composable

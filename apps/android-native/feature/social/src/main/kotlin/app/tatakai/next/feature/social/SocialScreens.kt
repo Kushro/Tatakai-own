@@ -603,7 +603,8 @@ fun AniListSocialSlot(media: Media, modifier: Modifier = Modifier) {
     val reviews by vm.reviews.state.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    Column(modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // BUG-088: the same 20 dp side margin as "Seguir esta serie" and "Descargar temporada" above it in Details.
+    Column(modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(stringResource(R.string.social_reviews_title), style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })

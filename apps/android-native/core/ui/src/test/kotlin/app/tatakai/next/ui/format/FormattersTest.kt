@@ -36,4 +36,12 @@ class FormattersTest {
         assertEquals(RelativeTime.Yesterday, relativeTimeBucket(30 * 3_600_000L))
         assertEquals(RelativeTime.Days(5), relativeTimeBucket(5 * 86_400_000L))
     }
+
+    @Test
+    fun platformRelativeTimeReadsInsideASentence() {
+        // BUG-092: "Actualizada Hace 3 horas", "Sincronizado Hace 33 minutos".
+        kotlin.test.assertEquals("hace 3 horas", midSentence("Hace 3 horas", java.util.Locale.forLanguageTag("es")))
+        kotlin.test.assertEquals("ayer", midSentence("Ayer", java.util.Locale.forLanguageTag("es")))
+        kotlin.test.assertEquals("3 hours ago", midSentence("3 hours ago", java.util.Locale.ENGLISH))
+    }
 }

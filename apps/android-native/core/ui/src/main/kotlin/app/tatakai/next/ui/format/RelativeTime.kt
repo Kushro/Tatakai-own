@@ -37,3 +37,9 @@ fun relativeTime(epochMs: Long, nowMs: Long = System.currentTimeMillis()): Strin
     RelativeTime.Yesterday -> stringResource(R.string.ui_time_yesterday)
     is RelativeTime.Days -> stringResource(R.string.ui_time_d_ago, b.n)
 }
+
+/**
+ * BUG-092: the platform's relative time (`DateUtils.getRelativeTimeSpanString`) starts with a capital ("Hace 3 horas", "Ayer"), which
+ * reads wrong inside a sentence ("Actualizada Hace 3 horas"). This lowercases its first letter for use after other words.
+ */
+fun midSentence(text: String, locale: java.util.Locale = java.util.Locale.getDefault()): String = text.replaceFirstChar { it.lowercase(locale) }

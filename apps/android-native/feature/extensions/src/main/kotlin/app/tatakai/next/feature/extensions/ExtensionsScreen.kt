@@ -563,7 +563,9 @@ private fun FootFacts(d: ExtensionDetail) {
     val color = MaterialTheme.colorScheme.onSurfaceVariant
     FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         d.installedAtMs?.let { at ->
-            val rel = DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
+            val rel = app.tatakai.next.ui.format.midSentence(
+                DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString(),
+            ) // BUG-092: "Actualizada hace 3 horas"
             Text(stringResource(R.string.extensions_updated, rel), style = style, color = color)
         }
         if (d.hash.isNotEmpty()) Text(stringResource(R.string.extensions_hash, d.hash), style = style, color = color, fontFamily = FontFamily.Monospace)
