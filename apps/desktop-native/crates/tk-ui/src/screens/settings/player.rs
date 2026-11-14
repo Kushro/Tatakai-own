@@ -8,7 +8,7 @@ use tk_player::ShaderPreset;
 
 use super::{SettingRow, lang_seg, mpv_placeholder, seg};
 use crate::app::{Services, Ui};
-use crate::backend::{AnimeBuildVm, PresenceVm, SourceKindVm};
+use crate::backend::{AnimeBuildVm, Backend, PresenceVm, SourceKindVm};
 use crate::components::{
     Button, ButtonSize, ButtonVariant, ErrorState, IconButton, IconButtonSize, Kbd, LoadingIndicator, Pill, Segmented,
     SkeletonLines, Switch, TextField, Tone, use_snackbar,
@@ -600,6 +600,19 @@ fn ExternalMpvRows(on_action: EventHandler<SettingsAction>) -> Element {
     }
 }
 
+/// Restart a running Link server on its port after new shaders were installed (BUG-051); a stopped one stays
+/// stopped (it measures its profiles when it starts).
+async fn restart_link_for_shaders(backend: &dyn Backend) {
+    match backend.link_status().await {
+        Ok(s) if s.running => {
+            if let Err(e) = backend.link_restart(s.port).await {
+                tracing::warn!(detail = %e.detail, "restarting Link after installing shaders failed");
+            }
+        }
+        _ => {}
+    }
+}
+
 /// BUG-048: the presets' shader files that are not installed, with an "Install" button (`Backend::fetch_shaders`).
 /// Hidden when every file is there.
 #[component]
@@ -633,8 +646,11 @@ fn ShadersRow() -> Element {
                     error.set(None);
                     let backend = backend.clone();
                     spawn(async move {
-                        if let Err(e) = backend.fetch_shaders().await {
-                            error.set(Some(e.detail));
+                        match backend.fetch_shaders().await {
+                            // BUG-051: Link measures its profiles when the server starts, so restart it (as the
+                            // Enlace button does) for the 1440p / 2160p profiles to show up without restarting the app.
+                            Ok(_) => restart_link_for_shaders(&*backend).await,
+                            Err(e) => error.set(Some(e.detail)),
                         }
                         busy.set(false);
                         refresh += 1;
