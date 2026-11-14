@@ -52,6 +52,17 @@ enum class SourceProblem {
                 error?.javaClass?.simpleName?.contains("Timeout") == true
             ) TIMEOUT else FAILED
         }
+
+        /**
+         * BUG-125: an own (`read` custom) source that looked the title up: null when found; [TIMEOUT] when the lookup ran out of
+         * time, [FAILED] when every search failed, [NOT_FOUND] when it answered without the title.
+         */
+        fun ofSearch(found: Boolean, timedOut: Boolean, searches: Int, failed: Int): SourceProblem? = when {
+            found -> null
+            timedOut -> TIMEOUT
+            searches > 0 && failed == searches -> FAILED
+            else -> NOT_FOUND
+        }
     }
 }
 

@@ -19,4 +19,14 @@ class SourceProblemTest {
         assertEquals(true, timeout is TimeoutCancellationException)
         assertEquals(SourceProblem.TIMEOUT, SourceProblem.of(timeout))
     }
+
+    /** BUG-125: "HentaiDB · 80%" without a reason: an own source that did not find the title now says why. */
+    @Test
+    fun anOwnSourceSaysWhyItHasNoChapters() {
+        assertEquals(null, SourceProblem.ofSearch(found = true, timedOut = false, searches = 2, failed = 0))
+        assertEquals(SourceProblem.NOT_FOUND, SourceProblem.ofSearch(found = false, timedOut = false, searches = 2, failed = 1))
+        assertEquals(SourceProblem.NOT_FOUND, SourceProblem.ofSearch(found = false, timedOut = false, searches = 0, failed = 0))
+        assertEquals(SourceProblem.TIMEOUT, SourceProblem.ofSearch(found = false, timedOut = true, searches = 1, failed = 0))
+        assertEquals(SourceProblem.FAILED, SourceProblem.ofSearch(found = false, timedOut = false, searches = 2, failed = 2))
+    }
 }

@@ -315,12 +315,23 @@ class MangaRepositoryImpl(
                 custom.map { src ->
                     async {
                         val sk = sourceKey(src.extensionId, src.sourceId)
-                        val itemId = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
-                            matchFor(key, sk) {
-                                val hits = titles.take(2).flatMap { t -> runCatching { extensions.providerSearch(src.extensionId, src.sourceId, t) }.getOrDefault(emptyList()) }
-                                TitleMatch.best(hits, titles)?.id
-                            }
+                        var searches = 0
+                        var failed = 0
+                        // Boxed so a timeout (null) is told apart from "searched, not found" (BUG-125).
+                        val match = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
+                            listOf(
+                                matchFor(key, sk) {
+                                    val hits = titles.take(2).flatMap { t ->
+                                        searches++
+                                        runCatching { extensions.providerSearch(src.extensionId, src.sourceId, t) }
+                                            .onFailure { if (it is CancellationException) throw it; failed++ }
+                                            .getOrDefault(emptyList())
+                                    }
+                                    TitleMatch.best(hits, titles)?.id
+                                },
+                            )
                         }
+                        val itemId = match?.single()
                         val cached = itemId?.let { cachedChapters(sk, it) }
                         MangaChapterSource(
                             extensionId = src.extensionId,
@@ -330,6 +341,8 @@ class MangaRepositoryImpl(
                             languages = cached?.let(ChapterLists::languages).orEmpty(),
                             chapterCount = cached?.size,
                             reliability = rel[sk] ?: app.tatakai.next.model.INITIAL_RELIABILITY,
+                            // BUG-125: an own source that did not find the title says why, like the route sources (BUG-099).
+                            problem = app.tatakai.next.model.SourceProblem.ofSearch(itemId != null, timedOut = match == null, searches = searches, failed = failed),
                         )
                     }
                 }.let { customJobs ->
