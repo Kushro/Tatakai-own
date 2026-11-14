@@ -90,6 +90,8 @@
 }
 .tk-cap__v { font-family: var(--tk-font-display); font-size: var(--md-sys-typescale-title-small-size); font-weight: var(--md-sys-typescale-title-small-weight-emphasized); }
 .tk-caps__profiles { display: flex; flex-direction: column; gap: var(--tk-space-8); }
+.tk-caps__note { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); margin-top: var(--tk-space-8); }
+.tk-caps__note .tk-panel__hint { flex: 1 1 260px; margin: 0; }
 
 @media (max-width: 599px) {
   .tk-steps { grid-template-columns: 1fr; }

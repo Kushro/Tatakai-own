@@ -43,6 +43,8 @@
   "settings.player.mpv.redetect": "Detect again",
   "settings.player.preset_hint_embedded": "Embedded mode only: the enhanced build brings its own shaders and external mpv uses your config. Applied when playback starts; heavier presets need a capable GPU.",
   "settings.player.preset_hint_enhanced": "Does not apply to Enhanced integrated: it starts with the build's profile, and the player's Enhance button switches its modes (Anime4K, Fidelity, ArtCNN) for that playback only. This preset and “Anime4K high quality” belong to the Integrated mode (and frame generation).",
+  "settings.player.shaders_missing": "Upscaling shaders missing",
+  "settings.player.shaders_missing_hint": "{n} of the {total} files the presets use are missing (Anime4K high quality, Fidelity, ArtCNN, NVScaler, CAS…): those presets cannot apply until they are installed. They download verified, a few MB.",
   "settings.player.auto_next": "Play the next episode automatically",
   "settings.player.auto_next_hint": "At the end of an episode a card counts down and plays the next one. Off: the card waits for you.",
   "settings.player.auto_next_secs": "Countdown",

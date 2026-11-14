@@ -51,6 +51,7 @@ pub fn PlayerSection(commit_saved: Callback<SettingsAction>) -> Element {
                 },
             }
         }
+        ShadersRow {}
         VideoRows { on_action: commit_saved }
         SettingRow { label: t("src.mode"), hint: t("src.mode.hint"),
             Segmented {
@@ -599,6 +600,51 @@ fn ExternalMpvRows(on_action: EventHandler<SettingsAction>) -> Element {
     }
 }
 
+/// BUG-048: the presets' shader files that are not installed, with an "Install" button (`Backend::fetch_shaders`).
+/// Hidden when every file is there.
+#[component]
+fn ShadersRow() -> Element {
+    let services = use_context::<Services>();
+    let dir = services.player.shaders_dir().to_path_buf();
+    let mut refresh = use_signal(|| 0_u32);
+    let mut busy = use_signal(|| false);
+    let mut error = use_signal(|| None::<String>);
+    let missing = {
+        let _ = refresh();
+        tk_player::all_preset_files().into_iter().filter(|f| !dir.join(f).is_file()).count()
+    };
+    if missing == 0 {
+        return rsx! {};
+    }
+    let total = tk_player::all_preset_files().len();
+    let backend = services.backend.clone();
+    let hint = match error() {
+        Some(e) => tf("player.shaders_fetch_failed", &[("detail", &e)]),
+        None => tf("settings.player.shaders_missing_hint", &[("n", &missing.to_string()), ("total", &total.to_string())]),
+    };
+    rsx! {
+        SettingRow { label: t("settings.player.shaders_missing"), hint,
+            Button {
+                label: if busy() { t("link.caps.shaders_installing") } else { t("link.caps.shaders_install") },
+                variant: ButtonVariant::Tonal,
+                disabled: busy(),
+                onclick: move |_| {
+                    busy.set(true);
+                    error.set(None);
+                    let backend = backend.clone();
+                    spawn(async move {
+                        if let Err(e) = backend.fetch_shaders().await {
+                            error.set(Some(e.detail));
+                        }
+                        busy.set(false);
+                        refresh += 1;
+                    });
+                },
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -711,4 +757,3 @@ fn VideoRows(on_action: Callback<SettingsAction>) -> Element {
         }
     }
 }
-

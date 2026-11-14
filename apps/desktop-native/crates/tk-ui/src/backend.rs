@@ -292,6 +292,22 @@ pub struct LinkCapsVm {
     /// Certificate fingerprint, display form (`7A3F 91C2 ...`).
     pub fingerprint: String,
     pub lan_ip: Option<String>,
+    /// Why Anime4K profiles are missing or partial (BUG-048), `None` when all are offered.
+    pub anime4k_note: Option<Anime4kNoteVm>,
+    /// Why LSFG profiles are missing (BUG-001): `tk_link::media::lsfg` reason code (`helper_missing`, `dll_missing`,
+    /// `no_vulkan`, `device_unsupported`, ...); `None` when LSFG is available.
+    pub lsfg_reason: Option<String>,
+}
+
+/// Anime4K state of the Link capabilities (BUG-010 / BUG-048).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Anime4kNoteVm {
+    /// No shader files: no Anime4K profile at all (they can be installed).
+    ShadersMissing,
+    /// The M networks are there but not the large ones: no 1440p / 2160p profiles (they can be installed).
+    LargeMissing,
+    /// No Vulkan through libplacebo: Anime4K cannot run on this PC.
+    NoVulkan,
 }
 
 // ---------------------------------------------------------------------------------------------

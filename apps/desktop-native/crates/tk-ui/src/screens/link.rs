@@ -7,7 +7,7 @@ use std::time::Duration;
 use dioxus::prelude::*;
 
 use crate::app::{Route, Services};
-use crate::backend::{DeviceVm, LinkCapsVm, LinkStatusVm};
+use crate::backend::{Anime4kNoteVm, DeviceVm, LinkCapsVm, LinkStatusVm};
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
     Banner, Button, ButtonSize, ButtonVariant, ConfirmDialog, EmptyState, ErrorState, IconButton, IconButtonSize, InfoChip,
@@ -157,6 +157,35 @@ pub fn LinkPage() -> Element {
                     Err(e) => restart_error.set(Some(e)),
                 }
                 restart_busy.set(false);
+            });
+        }
+    });
+
+    // BUG-048 / BUG-010: install the missing Anime4K shaders from Enlace, then restart Link so it offers their
+    // profiles (capabilities are measured when the server starts).
+    let mut shaders_busy = use_signal(|| false);
+    let install_shaders = use_callback({
+        let backend = backend.clone();
+        move |_: ()| {
+            if shaders_busy() {
+                return;
+            }
+            shaders_busy.set(true);
+            let backend = backend.clone();
+            spawn(async move {
+                match backend.fetch_shaders().await {
+                    Ok(_) => {
+                        let port = status.peek().as_ref().and_then(|r| r.as_ref().ok()).map(|s| s.port).unwrap_or(DEFAULT_PORT);
+                        if let Err(e) = backend.link_restart(port).await {
+                            restart_error.set(Some(e));
+                        }
+                        status.restart();
+                        caps.restart();
+                        snack.show(t("link.caps.shaders_installed"));
+                    }
+                    Err(e) => snack.show(tf("player.shaders_fetch_failed", &[("detail", &e.detail)])),
+                }
+                shaders_busy.set(false);
             });
         }
     });
@@ -376,8 +405,17 @@ pub fn LinkPage() -> Element {
                 _ => unknown.clone(),
             };
             let encoder = c.encoder.clone().unwrap_or_else(|| unknown.clone());
-            let upscale = c.upscale.clone().unwrap_or_else(|| unknown.clone());
+            let upscale = c.upscale.clone().unwrap_or_else(|| match c.anime4k_note {
+                Some(Anime4kNoteVm::ShadersMissing | Anime4kNoteVm::NoVulkan) => t("link.caps.upscale_none"),
+                _ => unknown.clone(),
+            });
             let profiles = c.profiles.clone();
+            let anime4k_note = c.anime4k_note.map(|n| match n {
+                Anime4kNoteVm::ShadersMissing => (t("link.caps.anime4k.shaders_missing"), true),
+                Anime4kNoteVm::LargeMissing => (t("link.caps.anime4k.large_missing"), true),
+                Anime4kNoteVm::NoVulkan => (t("link.caps.anime4k.no_vulkan"), false),
+            });
+            let lsfg_note = c.lsfg_reason.as_deref().filter(|r| *r != "disabled").map(lsfg_reason_text);
             let (sustained, stutters, unmeasured) = (t("link.caps.sustained"), t("link.caps.stutters"), t("link.caps.unknown"));
             rsx! {
                 div { class: "tk-caps",
@@ -399,6 +437,25 @@ pub fn LinkPage() -> Element {
                                 }
                             }
                         }
+                    }
+                }
+                if let Some((text, installable)) = anime4k_note {
+                    div { class: "tk-caps__note",
+                        p { class: "tk-panel__hint", "{text}" }
+                        if installable {
+                            Button {
+                                label: if shaders_busy() { t("link.caps.shaders_installing") } else { t("link.caps.shaders_install") },
+                                variant: ButtonVariant::Tonal,
+                                icon: "download".to_string(),
+                                disabled: shaders_busy(),
+                                onclick: move |_| install_shaders.call(()),
+                            }
+                        }
+                    }
+                }
+                if let Some(text) = lsfg_note {
+                    div { class: "tk-caps__note",
+                        p { class: "tk-panel__hint", "{text}" }
                     }
                 }
             }
@@ -542,6 +599,20 @@ pub fn LinkPage() -> Element {
             }
         }
     }
+}
+
+/// BUG-001: why Link offers no LSFG profile, and how to fix it (`tk_link::media::lsfg` reason codes).
+fn lsfg_reason_text(code: &str) -> String {
+    let key = match code {
+        "helper_missing" => "link.caps.lsfg.helper_missing",
+        "dll_missing" => "link.caps.lsfg.dll_missing",
+        "dll_unreadable" | "missing_spirv" => "link.caps.lsfg.dll_unreadable",
+        "no_vulkan" => "link.caps.lsfg.no_vulkan",
+        "device_unsupported" => "link.caps.lsfg.device_unsupported",
+        "engine_unavailable" => "link.caps.lsfg.engine_unavailable",
+        _ => "link.caps.lsfg.probe_failed",
+    };
+    t(key)
 }
 
 /// Chip icon of a capability profile: supported, not supported, not measured yet.

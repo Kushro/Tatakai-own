@@ -17,7 +17,7 @@ use tk_link::discovery::Announcer;
 use tk_link::media::capabilities::Sustain;
 use tk_link::sessions::{CreateRequest, SourceRequest};
 use tk_link::{Device, LinkConfig, LinkError, LinkHandle, LinkHost, Vendor};
-use tk_ui::backend::{Backend, DeviceVm, LinkCapsVm, LinkStatusVm, PresenceVm, RemoteCommandVm, SendToDeviceVm, UiResult};
+use tk_ui::backend::{Anime4kNoteVm, Backend, DeviceVm, LinkCapsVm, LinkStatusVm, PresenceVm, RemoteCommandVm, SendToDeviceVm, UiResult};
 use tk_ui::model::{ErrorKind, Pairing, UiError};
 
 use super::LiveBackend;
@@ -684,8 +684,27 @@ impl LinkService {
                 .collect(),
             fingerprint: display_fingerprint(&h.ca_fingerprint()),
             lan_ip: h.local_addrs().iter().map(std::net::SocketAddr::ip).find(|ip| !ip.is_loopback()).map(|ip| ip.to_string()),
+            anime4k_note: anime4k_note(caps.gpu.vulkan, &self.anime4k_dir, &caps.profiles),
+            lsfg_reason: (!caps.lsfg.available).then(|| caps.lsfg.reason.clone().unwrap_or_else(|| "probe_failed".to_owned())),
         })
     }
+}
+
+/// Why the Anime4K profiles are missing or partial (BUG-048 / BUG-010), from what the PC has (`vulkan`, the shader
+/// files) and what tk-link offers.
+fn anime4k_note(vulkan: bool, dir: &std::path::Path, profiles: &[tk_link::media::capabilities::ProfileInfo]) -> Option<Anime4kNoteVm> {
+    use tk_link::media::anime4k::{Anime4kMode, Anime4kVariant, chain_present, shaders_present};
+    if !vulkan {
+        return Some(Anime4kNoteVm::NoVulkan);
+    }
+    let offered = |h: &str| profiles.iter().any(|p| p.upscale == "anime4k" && p.id.contains(h));
+    if !shaders_present(dir) || !profiles.iter().any(|p| p.upscale == "anime4k") {
+        return Some(Anime4kNoteVm::ShadersMissing);
+    }
+    if !chain_present(dir, Anime4kMode::A, Anime4kVariant::L) && !offered("2160") {
+        return Some(Anime4kNoteVm::LargeMissing);
+    }
+    None
 }
 
 #[cfg(test)]

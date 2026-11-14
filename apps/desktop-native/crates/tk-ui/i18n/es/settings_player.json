@@ -43,6 +43,8 @@
   "settings.player.mpv.redetect": "Detectar de nuevo",
   "settings.player.preset_hint_embedded": "Solo modo integrado: el build mejorado trae sus propios shaders y el mpv externo usa tu configuración. Se aplica al iniciar la reproducción; los presets más pesados necesitan una GPU capaz.",
   "settings.player.preset_hint_enhanced": "No aplica al Integrado mejorado: arranca con el perfil del build, y el botón Mejorar del reproductor cambia entre sus modos (Anime4K, Fidelity, ArtCNN) solo para esa reproducción. Este preajuste y «Anime4K alta calidad» son del modo Integrado (y de la generación de cuadros).",
+  "settings.player.shaders_missing": "Faltan shaders de escalado",
+  "settings.player.shaders_missing_hint": "Faltan {n} de los {total} archivos que usan los preajustes (Anime4K alta calidad, Fidelity, ArtCNN, NVScaler, CAS…): esos preajustes no se pueden aplicar hasta instalarlos. Se descargan verificados, unos MB.",
   "settings.player.auto_next": "Reproducir el siguiente episodio automáticamente",
   "settings.player.auto_next_hint": "Al terminar un episodio, una tarjeta cuenta hacia atrás y reproduce el siguiente. Desactivado: la tarjeta te espera.",
   "settings.player.auto_next_secs": "Cuenta regresiva",
