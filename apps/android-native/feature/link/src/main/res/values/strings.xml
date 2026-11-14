@@ -21,13 +21,16 @@
     <string name="linked_unreachable">PC out of reach</string>
     <string name="linked_unreachable_hint">Check that the PC is on, Tatakai is open and both devices are on the same network.</string>
     <string name="linked_fingerprint">CA fingerprint: %1$s</string>
+    <string name="linked_fingerprint_show">Show the full fingerprint</string>
+    <string name="linked_fingerprint_hide">Hide the full fingerprint</string>
     <string name="linked_last_seen">Last seen %1$s</string>
     <string name="linked_continue">Continue on the PC</string>
     <string name="linked_caps">This PC\'s capabilities</string>
     <string name="linked_caps_server">Server</string>
     <string name="linked_caps_frame_gen">Frame generation on the phone</string>
     <string name="linked_yes">Allowed</string>
-    <string name="linked_no">Not allowed</string>
+    <!-- BUG-089: client_fg "suppressed" = the PC does the frame generation, the phone adds none -->
+    <string name="linked_no">Only on the PC</string>
     <string name="linked_profile">Enhance profile</string>
     <string name="linked_profile_none">No enhancement</string>
     <string name="linked_profile_anime4k">Anime4K to %1$dp</string>

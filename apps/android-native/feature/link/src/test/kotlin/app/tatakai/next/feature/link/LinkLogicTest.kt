@@ -22,6 +22,14 @@ class LinkLogicTest {
         assertNull(LinkLogic.refOf("ext:a:b:c"))
     }
 
+    @Test fun theFingerprintFitsOneLine() {
+        // BUG-090: 16 groups of 4 (sha-256) took 3 lines of the main card
+        val full = "B452 3914 77AA 0C1D 9E2F 3344 5566 7788 99AA BBCC DDEE FF00 1122 3344 0A7C DF6D"
+        assertEquals("B452 3914 … 0A7C DF6D", LinkLogic.shortFingerprint(full))
+        assertEquals("B452 3914 … 0A7C DF6D", LinkLogic.shortFingerprint(full.replace(' ', ':')))
+        assertEquals("AB12 CD34", LinkLogic.shortFingerprint("AB12 CD34"))
+    }
+
     @Test fun enhanceUrlsMustBeCompleteHttpLinks() {
         // BUG-024
         assertTrue(LinkLogic.enhanceUrlValid("https://cdn.example.com/hls/master.m3u8"))

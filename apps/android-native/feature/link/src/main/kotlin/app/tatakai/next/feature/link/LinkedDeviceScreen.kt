@@ -7,6 +7,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,7 +55,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -361,14 +361,14 @@ private fun PairedContent(
     onContinue: () -> Unit,
     onRemote: (RemoteAction) -> Unit,
 ) {
-    StatusCard(state, paired, onRetry = onRetry, onContinue = onContinue)
+    StatusCard(state, paired, onRetry = onRetry, onContinue = onContinue, onForget = onForget)
     CapabilitiesPanel(state, onRetry = onRetry, onSelectProfile = onSelectProfile)
-    RemotePanel(state, onRemote = onRemote, onForget = onForget)
+    RemotePanel(state, onRemote = onRemote)
     EnhancePanel(state, onStart = onStart)
 }
 
 @Composable
-private fun StatusCard(state: LinkUiState, paired: LinkState.Paired, onRetry: () -> Unit, onContinue: () -> Unit) {
+private fun StatusCard(state: LinkUiState, paired: LinkState.Paired, onRetry: () -> Unit, onContinue: () -> Unit, onForget: () -> Unit) {
     val online = paired.reachable
     val device = state.device
     Surface(
@@ -391,10 +391,16 @@ private fun StatusCard(state: LinkUiState, paired: LinkState.Paired, onRetry: ()
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    device?.fingerprint?.let {
+                    device?.fingerprint?.let { fp ->
+                        // BUG-090: one line ("B452 3914 … DF6D"); a tap shows the whole fingerprint to compare with the PC
+                        var full by rememberSaveable { mutableStateOf(false) }
                         Text(
-                            stringResource(R.string.linked_fingerprint, it),
+                            stringResource(R.string.linked_fingerprint, if (full) fp else LinkLogic.shortFingerprint(fp)),
                             style = MaterialTheme.typography.bodySmall.copy(fontFamily = TatakaiFonts.jetBrainsMono),
+                            maxLines = if (full) Int.MAX_VALUE else 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .clickable(onClickLabel = stringResource(if (full) R.string.linked_fingerprint_hide else R.string.linked_fingerprint_show)) { full = !full },
                         )
                     }
                     device?.lastSeenMs?.let {
@@ -438,6 +444,9 @@ private fun StatusCard(state: LinkUiState, paired: LinkState.Paired, onRetry: ()
                     }
                 }
             }
+            // BUG-090: forgetting the PC belongs to this card (it was under the remote's transport buttons), as a
+            // secondary destructive action on its own line (393 dp: it does not fit next to "Continuar en la PC")
+            ForgetButton(onForget)
         }
     }
 }
@@ -502,7 +511,7 @@ private fun sustainText(profile: LinkProfile): String = stringResource(
 )
 
 @Composable
-private fun RemotePanel(state: LinkUiState, onRemote: (RemoteAction) -> Unit, onForget: () -> Unit) {
+private fun RemotePanel(state: LinkUiState, onRemote: (RemoteAction) -> Unit) {
     val remote = state.remote
     Panel(icon = Icons.Outlined.PhoneAndroid, title = stringResource(R.string.linked_remote)) {
         if (remote == null) {
@@ -537,7 +546,6 @@ private fun RemotePanel(state: LinkUiState, onRemote: (RemoteAction) -> Unit, on
                 Icon(Icons.Filled.SkipNext, contentDescription = stringResource(R.string.linked_remote_next))
             }
         }
-        ForgetButton(onForget)
     }
 }
 
@@ -648,9 +656,10 @@ private fun linkErrorText(context: android.content.Context, error: app.tatakai.n
 @Composable
 private fun ForgetButton(onForget: () -> Unit) {
     var confirming by rememberSaveable { mutableStateOf(false) }
-    OutlinedButton(onClick = { confirming = true }) {
+    // BUG-090: a secondary, destructive action (error-coloured text button) next to the card's main action
+    TextButton(onClick = { confirming = true }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
         Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
-        Text(stringResource(R.string.linked_forget), modifier = Modifier.padding(start = 8.dp))
+        Text(stringResource(R.string.linked_forget), modifier = Modifier.padding(start = 8.dp), maxLines = 1)
     }
     if (confirming) {
         AlertDialog(

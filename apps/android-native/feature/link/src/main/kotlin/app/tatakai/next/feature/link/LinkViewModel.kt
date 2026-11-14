@@ -314,6 +314,12 @@ internal object LinkLogic {
         return if (durationSec != null) "${fmt(positionSec)} / ${fmt(durationSec)}" else fmt(positionSec)
     }
 
+    /** BUG-090: the CA fingerprint in one line ("B452 3914 … 0A7C DF6D"); the full one is a tap away. */
+    fun shortFingerprint(fp: String): String {
+        val groups = fp.trim().split(Regex("[\\s:]+")).filter { it.isNotEmpty() }
+        return if (groups.size <= 4) groups.joinToString(" ") else (groups.take(2) + "…" + groups.takeLast(2)).joinToString(" ")
+    }
+
     /** PCs to list: the paired one (same host and port) is not offered again. */
     fun others(found: List<DiscoveredPc>, pairedHost: String?, pairedPort: Int?): List<DiscoveredPc> =
         found.filterNot { it.host == pairedHost && it.port == pairedPort }.distinctBy { it.instanceId ?: "${it.host}:${it.port}" }
