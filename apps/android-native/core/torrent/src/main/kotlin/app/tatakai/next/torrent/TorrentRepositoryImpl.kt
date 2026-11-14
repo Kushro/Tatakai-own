@@ -57,6 +57,7 @@ import app.tatakai.next.torrent.policy.preloadTarget
 import app.tatakai.next.torrent.policy.DeviceConditions
 import app.tatakai.next.torrent.policy.RunFacts
 import app.tatakai.next.torrent.policy.afterWatchAction
+import app.tatakai.next.torrent.policy.countsAsStreaming
 import app.tatakai.next.torrent.policy.backgroundAllowed
 import app.tatakai.next.torrent.policy.deadlineWindow
 import app.tatakai.next.torrent.policy.downloadedRanges
@@ -230,6 +231,7 @@ internal class TorrentRepositoryImpl(
                 val s = settings
                 val rt = runtime(id)
                 rt.endJob?.cancel()
+                rt.ended = false
                 rt.playing = true
                 val label = labelFor(media, episode, existing?.label)
                 labels.upsert(
@@ -300,6 +302,9 @@ internal class TorrentRepositoryImpl(
         // the run policy pauses it at once unless it is a kept / background download (it went on at full speed for 20 s and then
         // deleted what it had just downloaded). Playing it again within the grace sets `playing` back and resumes it.
         rt.playing = false
+        // BUG-021 (r2): the player's loopback reads take seconds to close and kept the torrent "streaming", so it still ran ~15 s
+        // at full speed. From now on they do not count; the tick below pauses it unless it is kept or a background download.
+        rt.ended = true
         tickSafely()
         rt.endJob = scope.launch {
             delay(BATCH_GRACE_MS)
@@ -1016,7 +1021,7 @@ internal class TorrentRepositoryImpl(
             )
             if (complete != t.completed) onCompletionChanged(t, handle, complete)
             val rt = runtimes[t.id]
-            val streaming = (rt?.openStreams() ?: 0) > 0
+            val streaming = countsAsStreaming(rt?.openStreams() ?: 0, rt?.ended == true)
             val playing = rt?.playing == true
             if (streaming && streamingTitle == null) streamingTitle = t.label?.title ?: info?.name()
             if (streaming && s.preloadNext && info != null && rt != null && tickCount % PRELOAD_EVERY_TICKS == 0L) {
@@ -1058,7 +1063,7 @@ internal class TorrentRepositoryImpl(
         if (tickCount % PERSIST_EVERY_TICKS == 0L) persistProgress()
         if (s.cacheLimitMib > 0 && tickCount % PERSIST_EVERY_TICKS == 0L) enforceCacheLimit(s, liveMap)
 
-        val anyStreaming = runtimes.values.any { it.openStreams() > 0 }
+        val anyStreaming = runtimes.values.any { countsAsStreaming(it.openStreams(), it.ended) }
         val anyPlaying = runtimes.values.any { it.playing }
         publishStatus(s, cond, running = true, anyStreaming = anyStreaming)
         val demand = anyStreaming || anyPlaying || downloads > 0
@@ -1458,6 +1463,8 @@ internal class TorrentRepositoryImpl(
     private class Runtime {
         val streams = ConcurrentHashMap<Int, AtomicInteger>()
         @Volatile var playing: Boolean = false
+        /** BUG-021: the player closed ([playbackEnded]); cleared by the next [play]. */
+        @Volatile var ended: Boolean = false
         @Volatile var userResumed: Boolean = false
         @Volatile var endJob: Job? = null
         /** Files already queued by the next-episode preload. */

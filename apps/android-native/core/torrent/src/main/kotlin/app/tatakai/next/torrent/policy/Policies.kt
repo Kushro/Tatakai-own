@@ -119,3 +119,10 @@ fun peerFlagLetters(
     if (fromDht) add("H")
     if (snubbed) add("S")
 }.joinToString(" ")
+
+/**
+ * BUG-021 (r2): whether a torrent counts as streaming for [shouldRun]. After the player closed ([playbackEnded]), the loopback reads it
+ * left open (Media3 / mpv connections that take seconds to close) no longer count, so a watch-and-delete torrent is paused at once
+ * instead of downloading ~15 s more at full speed before the grace deletes it. A new playback clears [playbackEnded].
+ */
+fun countsAsStreaming(openStreams: Int, playbackEnded: Boolean): Boolean = openStreams > 0 && !playbackEnded

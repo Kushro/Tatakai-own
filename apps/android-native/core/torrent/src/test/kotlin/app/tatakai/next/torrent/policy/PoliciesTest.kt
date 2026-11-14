@@ -156,4 +156,12 @@ class PoliciesTest {
         assertFalse(d.upnp)
         assertTrue(d.wifiOnly)
     }
+
+    @Test
+    fun `reads the closed player left open do not keep a torrent running`() {
+        // BUG-021 (r2): 428 -> 506 MB in the ~15 s after closing with "Borrar después de ver".
+        assertTrue(countsAsStreaming(openStreams = 2, playbackEnded = false))
+        assertFalse(countsAsStreaming(openStreams = 2, playbackEnded = true))
+        assertFalse(countsAsStreaming(openStreams = 0, playbackEnded = false))
+    }
 }
