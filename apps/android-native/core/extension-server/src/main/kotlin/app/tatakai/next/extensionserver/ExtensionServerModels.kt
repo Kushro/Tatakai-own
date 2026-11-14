@@ -71,6 +71,8 @@ data class ServerExtension(
     val enabled: Boolean = true,
     /** Source ids (or descriptors reduced to their id) the extension exposes. */
     val sources: List<JsonElement> = emptyList(),
+    /** BUG-055: SHA-256 (hex) of the PC's installed `bundle.js`; null on servers that do not send it. */
+    val bundleSha256: String? = null,
 )
 
 /** Per-provider progress line of `/resolve`. */

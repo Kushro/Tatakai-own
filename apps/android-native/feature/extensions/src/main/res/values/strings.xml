@@ -178,6 +178,13 @@
     <string name="extensions_server_version">v%1$s</string>
     <string name="extensions_server_newer">The PC has a newer version of %1$s (v%2$s; this phone has v%3$s). Searches through the PC use the new one; without the PC, this phone uses the old one. Update it here.</string>
     <string name="extensions_server_newer_update">Update</string>
+    <string name="extensions_server_pc_update">Update from the PC</string>
+    <string name="extensions_server_pc_updating">Updating…</string>
+    <string name="extensions_server_pc_update_err_unreachable">Could not download the extension from the PC. Check that it is on and on the same network.</string>
+    <string name="extensions_server_pc_update_err_gone">The PC no longer has this extension. Refresh the list.</string>
+    <string name="extensions_server_pc_update_err_old_pc">The PC's Tatakai cannot hand out extensions. Update Tatakai on the PC.</string>
+    <string name="extensions_server_pc_update_err_integrity">The PC's package failed verification (SHA-256): it was not installed.</string>
+    <string name="extensions_server_pc_update_err_install">Could not install the PC's package.</string>
     <string name="extensions_server_on">Enabled</string>
     <string name="extensions_server_off">Disabled</string>
     <string name="extensions_server_err_unreachable">Could not reach this PC. Check that it is on and on the same network.</string>

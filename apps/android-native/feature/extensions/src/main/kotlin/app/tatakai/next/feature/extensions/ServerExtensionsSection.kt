@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -14,6 +15,8 @@ import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Warning
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -105,6 +108,9 @@ internal fun LazyListScope.serverExtensionSections(
                         ext,
                         olderLocal = older,
                         onUpdate = older?.id?.takeIf { it in updatable }?.let { id -> { onUpdate(id) } },
+                        // BUG-055: install the PC's copy even without a repository.
+                        onUpdateFromPc = if (older != null && state.canInstall) ({ vm.updateFromPc(block.id, ext) }) else null,
+                        pcUpdate = state.pcUpdates[pcUpdateKey(block.id, ext.id)],
                     )
                 }
             }
@@ -136,7 +142,13 @@ private fun ServerHead(block: ServerExtensionsBlock, onRefresh: () -> Unit) {
 }
 
 @Composable
-private fun ServerExtensionRow(ext: ServerExtension, olderLocal: InstalledExtension?, onUpdate: (() -> Unit)?) {
+private fun ServerExtensionRow(
+    ext: ServerExtension,
+    olderLocal: InstalledExtension?,
+    onUpdate: (() -> Unit)?,
+    onUpdateFromPc: (() -> Unit)? = null,
+    pcUpdate: PcUpdate? = null,
+) {
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
         Column {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -170,11 +182,56 @@ private fun ServerExtensionRow(ext: ServerExtension, olderLocal: InstalledExtens
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.weight(1f),
                     )
-                    if (onUpdate != null) TextButton(onClick = onUpdate) { Text(stringResource(R.string.extensions_server_newer_update)) }
                 }
+                val running = pcUpdate == PcUpdate.Running
+                if (onUpdate != null || onUpdateFromPc != null) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    ) {
+                        if (onUpdate != null) {
+                            TextButton(onClick = onUpdate, enabled = !running) {
+                                Text(stringResource(R.string.extensions_server_newer_update), maxLines = 1)
+                            }
+                        }
+                        if (onUpdateFromPc != null) {
+                            FilledTonalButton(onClick = onUpdateFromPc, enabled = !running) {
+                                if (running) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Text(stringResource(R.string.extensions_server_pc_updating), modifier = Modifier.padding(start = 8.dp), maxLines = 1)
+                                } else {
+                                    Text(stringResource(R.string.extensions_server_pc_update), maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            val message = when (pcUpdate) {
+                is PcUpdate.Done -> stringResource(R.string.extensions_updated_to, pcUpdate.name, pcUpdate.version)
+                is PcUpdate.Failed -> stringResource(pcUpdateErrorRes(pcUpdate.error))
+                else -> null
+            }
+            if (message != null) {
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (pcUpdate is PcUpdate.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                )
             }
         }
     }
+}
+
+internal fun pcUpdateErrorRes(error: PcUpdateError): Int = when (error) {
+    PcUpdateError.UNREACHABLE -> R.string.extensions_server_pc_update_err_unreachable
+    PcUpdateError.UNAUTHORIZED -> R.string.extensions_server_err_unauthorized
+    PcUpdateError.NOT_ON_PC -> R.string.extensions_server_pc_update_err_gone
+    PcUpdateError.PC_TOO_OLD -> R.string.extensions_server_pc_update_err_old_pc
+    PcUpdateError.INTEGRITY -> R.string.extensions_server_pc_update_err_integrity
+    PcUpdateError.INSTALL -> R.string.extensions_server_pc_update_err_install
 }
 
 internal fun serverExtErrorRes(error: ServerExtError): Int = when (error) {

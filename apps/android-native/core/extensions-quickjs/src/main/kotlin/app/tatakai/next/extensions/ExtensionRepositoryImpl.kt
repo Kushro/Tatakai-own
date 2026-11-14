@@ -201,10 +201,27 @@ class ExtensionRepositoryImpl(
     }
 
     override suspend fun installFromUri(uri: String): Result<InstalledExtension> = withContext(io) {
+        val bytes = try {
+            openUri(uri).use { readCapped(it) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return@withContext Result.failure(AppException(AppError.Extension("", "Could not read the extension package"), e))
+        }
+        installBytes(bytes)
+    }
+
+    override suspend fun installFromBytes(bytes: ByteArray): Result<InstalledExtension> = withContext(io) {
+        if (bytes.size > KaiReader.MAX_TOTAL_BYTES) {
+            return@withContext Result.failure(AppException(AppError.Extension("", "Could not read the extension package")))
+        }
+        installBytes(bytes)
+    }
+
+    private suspend fun installBytes(bytes: ByteArray): Result<InstalledExtension> {
         ready.await()
         var id = ""
-        try {
-            val bytes = openUri(uri).use { readCapped(it) }
+        return try {
             val pkg = KaiReader.read(ByteArrayInputStream(bytes))
             id = pkg.manifest.id
             val sha = sha256Hex(bytes)

@@ -141,4 +141,14 @@ class ServerExtensionsViewModelTest {
         assertNull(olderLocalCopy(ServerExtension(id = "io.github.toko", name = "Toko", version = ""), mine))
         assertNull(olderLocalCopy(ServerExtension(id = "other", name = "Other", version = "9.0"), mine))
     }
+
+    @Test
+    fun aFailedPcDownloadSaysWhy() {
+        // BUG-055: a 401 / 404 / timeout ends in a message, never a crash.
+        assertEquals(PcUpdateError.UNAUTHORIZED, pcUpdateErrorOf(ExtensionServerException("device_not_authorized", 401)))
+        assertEquals(PcUpdateError.NOT_ON_PC, pcUpdateErrorOf(ExtensionServerException("extension_not_found", 404)))
+        assertEquals(PcUpdateError.PC_TOO_OLD, pcUpdateErrorOf(ExtensionServerException("http_404", 404)))
+        assertEquals(PcUpdateError.UNREACHABLE, pcUpdateErrorOf(ExtensionServerException(ExtensionServerException.UNREACHABLE)))
+        assertEquals(PcUpdateError.UNREACHABLE, pcUpdateErrorOf(IOException("timeout")))
+    }
 }

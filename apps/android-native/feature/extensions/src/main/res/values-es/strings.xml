@@ -179,6 +179,13 @@
     <string name="extensions_server_version">v%1$s</string>
     <string name="extensions_server_newer">La PC tiene una versión más nueva de %1$s (v%2$s; en este teléfono, v%3$s). Las búsquedas que pasan por la PC usan la nueva; sin la PC, este teléfono usa la vieja. Actualízala aquí.</string>
     <string name="extensions_server_newer_update">Actualizar</string>
+    <string name="extensions_server_pc_update">Actualizar desde la PC</string>
+    <string name="extensions_server_pc_updating">Actualizando…</string>
+    <string name="extensions_server_pc_update_err_unreachable">No se pudo bajar la extensión de la PC. Comprueba que esté encendida y en la misma red.</string>
+    <string name="extensions_server_pc_update_err_gone">La PC ya no tiene esta extensión. Actualiza la lista.</string>
+    <string name="extensions_server_pc_update_err_old_pc">La versión de Tatakai de la PC no permite bajar extensiones. Actualiza Tatakai en la PC.</string>
+    <string name="extensions_server_pc_update_err_integrity">El paquete de la PC no pasó la verificación (SHA-256): no se instaló.</string>
+    <string name="extensions_server_pc_update_err_install">No se pudo instalar el paquete de la PC.</string>
     <string name="extensions_server_on">Activada</string>
     <string name="extensions_server_off">Desactivada</string>
     <string name="extensions_server_err_unreachable">No se pudo conectar con esta PC. Comprueba que esté encendida y en la misma red.</string>

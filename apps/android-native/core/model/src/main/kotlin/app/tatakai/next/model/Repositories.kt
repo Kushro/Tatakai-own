@@ -158,6 +158,9 @@ interface SettingsRepository {
 interface ExtensionRepository {
     val installed: StateFlow<List<InstalledExtension>>
     suspend fun installFromUri(uri: String): Result<InstalledExtension>
+
+    /** BUG-055: installs a `.kai` held in memory (a package downloaded from the PC's extension server), like [installFromUri]. */
+    suspend fun installFromBytes(bytes: ByteArray): Result<InstalledExtension> = Result.failure(NotImplementedError("installFromBytes"))
     suspend fun setEnabled(id: String, enabled: Boolean)
     suspend fun remove(id: String)
     suspend fun resolveStreams(media: Media, episode: Int): List<StreamSource>

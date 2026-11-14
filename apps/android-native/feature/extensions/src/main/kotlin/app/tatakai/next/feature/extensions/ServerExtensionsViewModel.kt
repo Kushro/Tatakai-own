@@ -7,6 +7,8 @@ import app.tatakai.next.extensionserver.ExtensionServerConnection
 import app.tatakai.next.extensionserver.ExtensionServerException
 import app.tatakai.next.extensionserver.ExtensionServerRepository
 import app.tatakai.next.extensionserver.ServerExtension
+import app.tatakai.next.extensionserver.verifyServerPackage
+import app.tatakai.next.model.ExtensionRepository
 import app.tatakai.next.model.InstalledExtension
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -16,6 +18,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 // Parity wave B closure (16 §3.4, worker t; checklist server.api.extensions): the extensions installed on each linked PC server
 // (`GET /extensions`, or the owner-only fallback rebuilt from `/sources` in ExtensionServerRepositoryImpl.extensions), shown as a section
@@ -36,18 +39,38 @@ sealed interface ServerExtensionsLoad {
 
 data class ServerExtensionsBlock(val id: String, val name: String, val url: String, val load: ServerExtensionsLoad)
 
+/** BUG-055: why "Actualizar desde la PC" did not install (mapped to `extensions_server_pc_update_err_*`). */
+enum class PcUpdateError { UNREACHABLE, UNAUTHORIZED, NOT_ON_PC, PC_TOO_OLD, INTEGRITY, INSTALL }
+
+/** BUG-055: state of one "Actualizar desde la PC" (key [pcUpdateKey]). */
+sealed interface PcUpdate {
+    data object Running : PcUpdate
+    data class Done(val name: String, val version: String) : PcUpdate
+    data class Failed(val error: PcUpdateError) : PcUpdate
+}
+
+fun pcUpdateKey(serverId: String, extensionId: String) = "$serverId/$extensionId"
+
 data class ServerExtensionsUiState(
     /** False until the linked servers have been read from disk. */
     val loaded: Boolean = false,
     /** False when this build has no extension-server client (the section is hidden). */
     val available: Boolean = false,
     val servers: List<ServerExtensionsBlock> = emptyList(),
+    /** BUG-055: "Actualizar desde la PC" per [pcUpdateKey]. */
+    val pcUpdates: Map<String, PcUpdate> = emptyMap(),
+    /** False when this build cannot install packages (the button is hidden). */
+    val canInstall: Boolean = false,
 )
 
-class ServerExtensionsViewModel(private val repository: ExtensionServerRepository?) : ViewModel() {
+class ServerExtensionsViewModel(
+    private val repository: ExtensionServerRepository?,
+    /** BUG-055: the phone's installer, for "Actualizar desde la PC". */
+    private val extensions: ExtensionRepository? = null,
+) : ViewModel() {
     private val loads = MutableStateFlow<Map<String, ServerExtensionsLoad>>(emptyMap())
     private val jobs = mutableMapOf<String, Job>()
-    private val _state = MutableStateFlow(ServerExtensionsUiState(available = repository != null))
+    private val _state = MutableStateFlow(ServerExtensionsUiState(available = repository != null, canInstall = extensions != null))
     val state: StateFlow<ServerExtensionsUiState> = _state.asStateFlow()
 
     init {
@@ -75,6 +98,38 @@ class ServerExtensionsViewModel(private val repository: ExtensionServerRepositor
         repo.servers.value.filter { it.enabled && (id == null || it.id == id) }.forEach { fetch(it.id) }
     }
 
+    /**
+     * BUG-055: downloads the `.kai` of [ext] from server [serverId], checks it ([verifyServerPackage]: same id, `bundle.js` SHA-256 equal
+     * to what the server announced) and installs it with the phone's installer. Errors end in [PcUpdate.Failed], never in a crash.
+     */
+    fun updateFromPc(serverId: String, ext: ServerExtension) {
+        val repo = repository ?: return
+        val installer = extensions ?: return
+        val key = pcUpdateKey(serverId, ext.id)
+        if (_state.value.pcUpdates[key] == PcUpdate.Running) return
+        setPcUpdate(key, PcUpdate.Running)
+        viewModelScope.launch {
+            val result: PcUpdate = try {
+                val pkg = withTimeoutOrNull(PC_UPDATE_TIMEOUT_MS) { repo.extensionPackage(serverId, ext.id) }
+                when {
+                    pkg == null -> PcUpdate.Failed(PcUpdateError.UNREACHABLE)
+                    verifyServerPackage(pkg, ext.id, ext.bundleSha256) != null -> PcUpdate.Failed(PcUpdateError.INTEGRITY)
+                    else -> installer.installFromBytes(pkg.bytes).fold(
+                        onSuccess = { PcUpdate.Done(it.name.ifBlank { ext.name }, it.version) },
+                        onFailure = { PcUpdate.Failed(PcUpdateError.INSTALL) },
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                PcUpdate.Failed(pcUpdateErrorOf(e))
+            }
+            setPcUpdate(key, result)
+        }
+    }
+
+    private fun setPcUpdate(key: String, value: PcUpdate) = _state.update { it.copy(pcUpdates = it.pcUpdates + (key to value)) }
+
     private fun fetch(id: String) {
         val repo = repository ?: return
         jobs[id]?.cancel()
@@ -92,6 +147,8 @@ class ServerExtensionsViewModel(private val repository: ExtensionServerRepositor
     }
 
     internal companion object {
+        const val PC_UPDATE_TIMEOUT_MS = 60_000L
+
         /** Linked servers in their stored order with the state of their list; disabled ones never show a stale list. */
         fun blocksOf(servers: List<ExtensionServerConnection>, loads: Map<String, ServerExtensionsLoad>): List<ServerExtensionsBlock> =
             servers.map { c ->
@@ -116,6 +173,22 @@ fun serverExtErrorOf(e: Throwable): ServerExtError {
         else -> ServerExtError.OTHER
     }
 }
+
+/** BUG-055: a failed package download in words. A 404 that is not `extension_not_found` is a PC without the endpoint. */
+fun pcUpdateErrorOf(e: Throwable): PcUpdateError {
+    val x = e as? ExtensionServerException ?: return PcUpdateError.UNREACHABLE
+    return when {
+        x.unauthorized || x.code == ExtensionServerException.AUTHENTICATION_REQUIRED || x.code == ExtensionServerException.PAIRING_REQUIRED ->
+            PcUpdateError.UNAUTHORIZED
+        x.code == ExtensionServerException.UNREACHABLE -> PcUpdateError.UNREACHABLE
+        x.code == EXTENSION_NOT_FOUND -> PcUpdateError.NOT_ON_PC
+        x.status == 404 || x.status == 405 -> PcUpdateError.PC_TOO_OLD
+        x.code == ExtensionServerException.TOO_LARGE -> PcUpdateError.INTEGRITY
+        else -> PcUpdateError.UNREACHABLE
+    }
+}
+
+private const val EXTENSION_NOT_FOUND = "extension_not_found"
 
 /** `kind` of a server extension is a comma list (`watch,read`); the distinct, non-blank parts in order. */
 fun serverExtensionKinds(kind: String): List<String> = kind.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
