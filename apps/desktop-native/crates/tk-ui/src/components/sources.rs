@@ -271,7 +271,8 @@ pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>
     let disabled = !source.ext_enabled;
     let icon = match source.kind {
         SourceKindVm::Web => "language",
-        SourceKindVm::Torrent => "download",
+        // BUG-054: the type icon is not an action; the download arrow is only the "Download for later" button.
+        SourceKindVm::Torrent => "magnet",
     };
     let name = format!("{} · {}", source.ext_name, source.label);
     let kind_text = t(&format!("src.{kind}"));
@@ -617,20 +618,26 @@ pub fn SourcePicker(
                     div { class: "tk-slist", role: "radiogroup", "aria-label": "{list_label}",
                         for s in shown.iter() {
                             div { key: "{s.id}", class: "tk-srow-wrap",
+                                "data-download": "{on_download.is_some() && s.kind == SourceKindVm::Torrent && s.ext_enabled}",
                                 SourceRow {
                                     source: s.clone(),
                                     selected: s.picked || (!any_picked && s.recommended),
                                     on_pick: move |id: String| on_pick.call(id),
                                 }
                                 if let Some(handler) = on_download.filter(|_| s.kind == SourceKindVm::Torrent && s.ext_enabled) {
+                                    // BUG-054: drawn inside the card (top right, CSS), as a sibling of the row button
+                                    // so pressing it never picks the source.
                                     IconButton {
                                         icon: "download".to_string(),
                                         label: download_label.clone(),
-                                        variant: IconButtonVariant::Tonal,
+                                        variant: IconButtonVariant::Standard,
                                         class: "tk-srow-wrap__dl".to_string(),
                                         onclick: {
                                             let sid = s.id.clone();
-                                            move |_| handler.call(sid.clone())
+                                            move |e: MouseEvent| {
+                                                e.stop_propagation();
+                                                handler.call(sid.clone())
+                                            }
                                         },
                                     }
                                 }

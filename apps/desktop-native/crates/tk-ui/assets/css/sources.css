@@ -56,9 +56,10 @@
   .tk-sfilters__group { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* Row + "Download for later" (torrent rows when the caller passes on_download; integration wave 3). */
-.tk-srow-wrap { display: flex; gap: var(--tk-space-8); align-items: flex-start; }
-.tk-srow-wrap > .tk-srow { flex: 1 1 auto; min-width: 0; }
-.tk-srow-wrap__dl { flex: none; margin-top: var(--tk-space-12); }
+/* Row + "Download for later" (torrent rows when the caller passes on_download; integration wave 3). BUG-054: the
+   button sits inside the card's top-right corner (the row keeps room for it) instead of floating in the margin. */
+.tk-srow-wrap { position: relative; }
+.tk-srow-wrap[data-download="true"] > .tk-srow { padding-inline-end: 56px; }
+.tk-srow-wrap__dl { position: absolute; top: 6px; inset-inline-end: 6px; }
 /* UX review #17: what the side panel says while extensions resolve. */
 .tk-srow__resolving { display: flex; align-items: center; gap: var(--tk-space-8); color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
