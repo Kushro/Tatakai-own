@@ -238,7 +238,7 @@ private fun ModeBanner(mode: SourceMode, choosing: Boolean, onOpenSettings: () -
             Spacer(Modifier.width(12.dp))
             Text(
                 if (choosing) {
-                    stringResource(R.string.src_picker_choose_first)
+                    stringResource(R.string.src_picker_manual_hint)
                 } else {
                     stringResource(
                         R.string.src_picker_mode_line,

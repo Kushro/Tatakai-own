@@ -104,7 +104,8 @@
     <string name="src_picker_title">Fuentes del episodio</string>
     <string name="src_picker_mode_line">%1$s · %2$s</string>
     <string name="src_picker_failover">Si falla, se prueba la siguiente de la lista</string>
-    <string name="src_picker_choose_first">Elige una fuente para este episodio</string>
+    <string name="src_picker_manual_hint">Selección manual: toca una fuente para reproducirla.</string>
+    <string name="player_no_source_yet">Todavía no hay una fuente elegida</string>
     <string name="src_picker_settings">Ajustes</string>
     <string name="src_picker_loading">Buscando fuentes…</string>
     <string name="src_picker_empty_title">No hay fuentes para este episodio</string>

@@ -283,7 +283,8 @@ private fun StatusBody(
             }
         }
         PlayerPhase.MANUAL -> Centered {
-            Text(stringResource(R.string.src_picker_choose_first), color = onColor, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
+            // BUG-079: a state line, not the sheet's words (the sheet opened on top repeated "Elige una fuente para este episodio").
+            Text(stringResource(R.string.player_no_source_yet), color = onColor, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
             FilledTonalButton(onClick = onPick) { Text(stringResource(R.string.player_pick_source)) }
         }
         PlayerPhase.NO_SOURCES -> Centered {
