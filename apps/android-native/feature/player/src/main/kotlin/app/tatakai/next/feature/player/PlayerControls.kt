@@ -121,6 +121,9 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -344,7 +347,10 @@ internal fun PlayerContent(
             )
 
             val resolving = state.phase == PlayerPhase.RESOLVING
-            if ((ps.isBuffering || resolving) && ps.error == null) {
+            val buffering = (ps.isBuffering || resolving) && ps.error == null
+            // BUG-106: with the controls up, Controls shows the spinner in the play button and the text above the transport row
+            // (centred here, the −10 / play / +10 row was drawn over it).
+            if (buffering && !(controlsVisible || keepUp)) {
                 BufferingOverlay(state, Modifier.align(Alignment.Center))
             }
             hud?.let { HudPill(it, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 16.dp)) }
@@ -372,6 +378,7 @@ internal fun PlayerContent(
                     session = session,
                     ps = ps,
                     state = state,
+                    buffering = buffering,
                     title = title,
                     onBack = onBack,
                     onPip = { activity?.let { enterPip(it) } },
@@ -580,11 +587,13 @@ private fun GestureLayer(session: PlayerSession, onToggleControls: () -> Unit, o
     )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun Controls(
     session: PlayerSession,
     ps: PlaybackState,
     state: PlayerUiState,
+    buffering: Boolean,
     title: String,
     onBack: () -> Unit,
     onPip: () -> Unit,
@@ -737,12 +746,14 @@ private fun Controls(
             FilledTonalIconButton(onClick = { session.seekBy(-SEEK_STEP_MS); onInteract() }, Modifier.size(56.dp)) {
                 Icon(Icons.Rounded.Replay10, stringResource(R.string.player_seek_back))
             }
-            FilledIconButton(onClick = { session.togglePlay(); onInteract() }, Modifier.size(80.dp), enabled = ps.started) {
-                Icon(
-                    if (ps.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    stringResource(if (ps.isPlaying) R.string.player_pause else R.string.player_play),
-                    Modifier.size(40.dp),
-                )
+            FilledIconButton(onClick = { session.togglePlay(); onInteract() }, Modifier.size(TRANSPORT_PLAY_DP), enabled = ps.started) {
+                val playLabel = stringResource(if (ps.isPlaying) R.string.player_pause else R.string.player_play)
+                if (buffering) {
+                    // BUG-106: the loading indicator takes the play button's place instead of sitting under the row
+                    LoadingIndicator(Modifier.size(48.dp).semantics { contentDescription = playLabel }, color = LocalContentColor.current)
+                } else {
+                    Icon(if (ps.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, playLabel, Modifier.size(40.dp))
+                }
             }
             FilledTonalIconButton(onClick = { session.seekBy(SEEK_STEP_MS); onInteract() }, Modifier.size(56.dp)) {
                 Icon(Icons.Rounded.Forward10, stringResource(R.string.player_seek_forward))
@@ -750,6 +761,12 @@ private fun Controls(
             if (state.hasNextEpisode && state.remoteless) {
                 IconButton(onClick = { onNext(); onInteract() }) { Icon(Icons.Rounded.SkipNext, stringResource(R.string.player_next), tint = on) }
             }
+        }
+
+        // BUG-106: the buffering text ("Tu PC está preparando el video desde este punto…") goes in the strip above the transport row,
+        // where neither the row nor the top bar covers it (below it there is no room in landscape before the seek bar).
+        if (buffering) {
+            BufferingOverlay(state, Modifier.aboveTransport().padding(horizontal = 16.dp), showIndicator = false)
         }
 
         // Seek bar + chips
@@ -922,3 +939,23 @@ private const val SEEK_STEP_MS = 10_000L
 private const val HOLD_SPEED = 2f
 private const val LOCK_BUTTON_TIMEOUT_MS = 2_500L
 private val SUBTITLE_MIME_TYPES = arrayOf("application/x-subrip", "text/vtt", "text/x-ssa", "text/plain", "application/octet-stream", "*/*")
+
+/** Size of the play button, the tallest control of the centred transport row. */
+private val TRANSPORT_PLAY_DP = 80.dp
+
+/** Space between the transport row and the buffering card above it. */
+private val TRANSPORT_GAP_DP = 12.dp
+
+/**
+ * BUG-106: lays the element out horizontally centred with its bottom edge [TRANSPORT_GAP_DP] above the centred transport row, whatever
+ * its height. Use it on a child of a full-size Box.
+ */
+private fun Modifier.aboveTransport(): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+    val width = constraints.maxWidth
+    val height = constraints.maxHeight
+    layout(width, height) {
+        val bottom = height / 2 - (TRANSPORT_PLAY_DP / 2 + TRANSPORT_GAP_DP).roundToPx()
+        placeable.place((width - placeable.width) / 2, (bottom - placeable.height).coerceAtLeast(0))
+    }
+}

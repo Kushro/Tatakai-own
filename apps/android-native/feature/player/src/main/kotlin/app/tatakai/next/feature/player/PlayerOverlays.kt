@@ -86,11 +86,17 @@ internal fun TorrentStatusText(t: TorrentUi, modifier: Modifier = Modifier) {
 /** Buffering / resolving overlay on top of a running engine (failover, torrent start, stalls). */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-internal fun BufferingOverlay(state: PlayerUiState, modifier: Modifier = Modifier) {
+internal fun BufferingOverlay(state: PlayerUiState, modifier: Modifier = Modifier, showIndicator: Boolean = true) {
     val scheme = MaterialTheme.colorScheme
+    // BUG-106: with the controls up the indicator lives in the play button and this card only carries the text, out of their way.
+    if (!showIndicator && !hasBufferingText(state)) return
     Surface(modifier, shape = RoundedCornerShape(24.dp), color = scheme.surfaceContainerHigh.copy(alpha = 0.85f), contentColor = scheme.onSurface) {
-        Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            LoadingIndicator(Modifier.size(48.dp))
+        Column(
+            if (showIndicator) Modifier.padding(20.dp) else Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (showIndicator) LoadingIndicator(Modifier.size(48.dp))
             val t = state.torrent
             if (t != null) {
                 TorrentStatusText(t)
@@ -99,11 +105,16 @@ internal fun BufferingOverlay(state: PlayerUiState, modifier: Modifier = Modifie
                 Text(if (name != null) stringResource(R.string.player_resolving_from, name) else stringResource(R.string.player_resolving))
             } else if (!state.remoteless) {
                 // BUG-095: a seek past what the PC already made restarts its engine there (up to ~15 s with A4K + LSFG)
-                Text(stringResource(R.string.player_link_preparing), Modifier.widthIn(max = 260.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
+                // One line in landscape (the card sits in the strip between the top bar and the transport row there)
+                Text(stringResource(R.string.player_link_preparing), Modifier.widthIn(max = 360.dp), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
 }
+
+/** Whether [BufferingOverlay] has something to say besides the spinner (torrent status, source being resolved, Link preparing). */
+internal fun hasBufferingText(state: PlayerUiState): Boolean =
+    state.torrent != null || state.phase == PlayerPhase.RESOLVING || !state.remoteless
 
 /** Short confirmation over the video ("Intro skipped", "Trying another source"); disappears by itself. */
 @Composable
