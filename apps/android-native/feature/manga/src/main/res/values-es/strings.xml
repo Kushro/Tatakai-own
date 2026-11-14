@@ -250,4 +250,6 @@
         <item quantity="one">%d seleccionado</item>
         <item quantity="other">%d seleccionados</item>
     </plurals>
+    <string name="manga_home_still_loading">Sigue cargando…</string>
+    <string name="manga_home_still_loading_slow">Sigue cargando: los catálogos están tardando en responder.</string>
 </resources>

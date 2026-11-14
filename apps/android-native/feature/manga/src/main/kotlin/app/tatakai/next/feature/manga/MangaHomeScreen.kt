@@ -53,6 +53,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -88,6 +89,7 @@ import coil3.compose.AsyncImage
 import org.koin.compose.viewmodel.koinViewModel
 import java.time.LocalDate
 import app.tatakai.next.ui.R as UiR
+import kotlinx.coroutines.delay
 
 /**
  * `Route.Manga(query)` (checklist manga.route / manga.home / manga.home.followed-updates / manga.search / manga.adult-gate): hero,
@@ -366,6 +368,9 @@ private fun HomeContent(
                 is LoadState.Err -> ErrorBlock(hero.cause, onRefresh)
             }
         }
+        // Desktop BUG-121 parity: a long wait in skeletons says so ("Sigue cargando…" at 6 s, the slow catalogs at 20 s).
+        val stillLoading = listOf(home.hero, home.trending, home.popular, home.topRated).any { it is LoadState.Loading }
+        if (stillLoading) item(key = "still-loading") { StillLoadingHint() }
         // Continue reading
         if (continueReading.isNotEmpty()) {
             item(key = "continue") {
@@ -507,5 +512,29 @@ internal fun ContinueCard(title: String, cover: String?, line: String, progress:
         }
         Text(title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
         Text(line, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+    }
+}
+
+/** Desktop parity (BUG-121): what a long wait in skeletons says, by elapsed time; null = nothing yet. Pure (unit-tested). */
+internal fun stillLoadingRes(elapsedMs: Long): Int? = when {
+    elapsedMs >= 20_000 -> R.string.manga_home_still_loading_slow
+    elapsedMs >= 6_000 -> R.string.manga_home_still_loading
+    else -> null
+}
+
+@Composable
+private fun StillLoadingHint() {
+    var elapsed by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(Unit) {
+        delay(6_000); elapsed = 6_000
+        delay(14_000); elapsed = 20_000
+    }
+    stillLoadingRes(elapsed)?.let { res ->
+        Text(
+            stringResource(res),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        )
     }
 }
