@@ -444,19 +444,64 @@ pub async fn local_stream(b: &LiveBackend, mut stream: StreamVm) -> StreamVm {
     if !prefs.local_proxy || !needs_local_proxy(&stream.headers, prefs.outbound_proxy.is_some()) {
         return stream;
     }
-    if !(stream.url.starts_with("http://") || stream.url.starts_with("https://")) {
+    if !is_http(&stream.url) {
         return stream;
     }
     let Some(h) = local_handle(b, &prefs).await else { return stream };
+    // BUG-101: external subtitles go through the same loopback proxy (and so the outbound proxy) as the video.
+    for sub in &mut stream.subtitles {
+        if is_http(&sub.url) {
+            let headers = subtitle_headers(&stream.url, &sub.url, &stream.headers);
+            sub.url = h.local_media_url(&sub.url, &headers);
+        }
+    }
     stream.url = h.local_media_url(&stream.url, &stream.headers);
     stream.headers = Vec::new();
     note_stream_kind(&stream.url, "proxy");
     stream
 }
 
+fn is_http(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
+/// `scheme://host[:port]` of an absolute URL, lowercased. Pure.
+fn origin_of(url: &str) -> Option<String> {
+    let (scheme, rest) = url.split_once("://")?;
+    let host = rest.split(['/', '?', '#']).next().filter(|h| !h.is_empty())?;
+    Some(format!("{scheme}://{host}").to_ascii_lowercase())
+}
+
+/// Headers for an external subtitle of a proxied stream: the stream's own on the same origin; on another origin
+/// only the harmless ones (no `Cookie` / `Authorization` / `Origin` sent across origins). Pure.
+fn subtitle_headers(stream_url: &str, sub_url: &str, headers: &[(String, String)]) -> Vec<(String, String)> {
+    if origin_of(stream_url).is_some() && origin_of(stream_url) == origin_of(sub_url) {
+        return headers.to_vec();
+    }
+    headers
+        .iter()
+        .filter(|(k, _)| !matches!(k.to_ascii_lowercase().as_str(), "cookie" | "authorization" | "origin"))
+        .cloned()
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subtitles_get_the_stream_headers_only_on_its_origin() {
+        let h = vec![("Referer".to_string(), "https://site.example/".to_string()), ("Cookie".to_string(), "a=1".to_string())];
+        let stream = "https://cdn.example/v/master.m3u8";
+        assert_eq!(subtitle_headers(stream, "https://CDN.example/v/subtitles/0_en.ass", &h), h);
+        assert_eq!(
+            subtitle_headers(stream, "https://subs.other.example/0_en.ass", &h),
+            vec![("Referer".to_string(), "https://site.example/".to_string())]
+        );
+        assert_eq!(origin_of("https://a.b:8443/x?y"), Some("https://a.b:8443".into()));
+        assert_eq!(origin_of("nope"), None);
+        assert!(is_http("http://x") && !is_http("file:///x.ass"));
+    }
 
     #[test]
     fn config_follows_the_prefs() {
