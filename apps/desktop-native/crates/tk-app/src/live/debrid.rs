@@ -379,7 +379,8 @@ fn status_for(order: &[DebridServiceVm], answers: &HashMap<(DebridServiceVm, Str
 
 /// Score of a cached row ranked like a web source (module docs).
 pub fn cached_score(score: f32, seeders: Option<u32>) -> f32 {
-    let s = seeders.unwrap_or(0);
+    // Unknown seeders added no seeder terms to `score` (BUG-030): nothing to undo.
+    let Some(s) = seeders else { return score + CACHED_BONUS };
     let mut v = score - s.min(500) as f32 / 50.0;
     if s < 20 {
         v += 20.0;
@@ -504,7 +505,7 @@ mod tests {
         assert!((cached_score(10.0, Some(5)) - (10.0 - 0.1 + 20.0 + 15.0)).abs() < 1e-4);
         // 1000 seeders: +10 in `score`
         assert!((cached_score(60.0, Some(1000)) - (60.0 - 10.0 + 15.0)).abs() < 1e-4);
-        assert!((cached_score(0.0, None) - 35.0).abs() < 1e-4);
+        assert!((cached_score(0.0, None) - 15.0).abs() < 1e-4, "unknown seeders: only the bonus");
     }
 
     #[test]

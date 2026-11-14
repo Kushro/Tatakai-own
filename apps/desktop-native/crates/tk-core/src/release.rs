@@ -133,12 +133,15 @@ pub fn parse_release(name: &str) -> ReleaseTags {
     if scene {
         text = text.replace('.', " ");
     }
+    // A trailing scene group sits before any trailing `(…)` / `[…]` notes: nyaa's VARYG names end with
+    // "…H.264-VARYG (Title, Dual-Audio, …)", whose last '-' is inside the notes (BUG-030).
+    let core_end = trailing_notes_start(&text);
     if tags.group.is_none()
-        && let Some(i) = text.rfind('-')
+        && let Some(i) = text[..core_end].rfind('-')
         && i > 0
         && !text[..i].ends_with(' ')
     {
-        let tail = text[i + 1..].trim();
+        let tail = text[i + 1..core_end].trim();
         let lower = tail.to_ascii_lowercase();
         if !tail.is_empty()
             && tail.len() <= 24
@@ -148,7 +151,9 @@ pub fn parse_release(name: &str) -> ReleaseTags {
             && !matches!(lower.as_str(), "dl" | "rip" | "raws" | "audio" | "sub" | "subs" | "bit" | "bits" | "ray" | "hen")
         {
             tags.group = Some(tail.to_owned());
+            let notes = text[core_end..].to_owned();
             text.truncate(i);
+            text.push_str(&notes);
         }
     }
 
@@ -626,6 +631,27 @@ fn leading_bracket(s: &str) -> Option<(&str, &str)> {
     Some((t[inner_start..end].trim(), &t[end + close.len_utf8()..]))
 }
 
+/// Byte index where the trailing bracketed notes of `text` start (`text.len()` when it does not end in one), e.g.
+/// `"A H.264-VARYG (B, C) [D]"` -> the index of `" (B"`.
+fn trailing_notes_start(text: &str) -> usize {
+    let mut end = text.trim_end().len();
+    loop {
+        let head = &text[..end];
+        let open = match head.chars().last() {
+            Some(')') => '(',
+            Some(']') => '[',
+            _ => break,
+        };
+        let Some(i) = head.rfind(open) else { break };
+        let before = text[..i].trim_end().len();
+        if before == 0 {
+            break;
+        }
+        end = before;
+    }
+    end
+}
+
 /// `[1080p]`, `[BD 1080p HEVC]`: a bracket made only of tag words is not a group.
 fn looks_like_tags(inner: &str) -> bool {
     let ws = words(inner);
@@ -884,6 +910,14 @@ mod tests {
         assert_eq!((t.season, t.episodes), (Some(1), Some((5, 5))));
         assert_eq!((t.source, t.codec, t.resolution), (Some(ReleaseSource::Web), Some(VideoCodec::H264), Quality::P1080));
         assert!(!t.batch);
+        // nyaa's VARYG names carry notes after the group (BUG-030).
+        let t = parse_release(
+            "Magical Explorer S01E05 Greetings Tsukuyomi Magic Academy 1080p CR WEB-DL DUAL AAC2.0 H.264-VARYG (Magical★Explorer, Dual-Audio, Multi-Subs)",
+        );
+        assert_eq!((t.group.as_deref(), t.title.as_deref()), (Some("VARYG"), Some("Magical Explorer")));
+        assert_eq!((t.episodes, t.resolution, t.codec), (Some((5, 5)), Quality::P1080, Some(VideoCodec::H264)));
+        assert_eq!(trailing_notes_start("A-B (x-y) [z]"), 3);
+        assert_eq!(trailing_notes_start("(only notes)"), "(only notes)".len());
         let t = parse_release("Sousou.no.Frieren.S01E05.1080p.NF.WEB.H264-GRP.mkv");
         assert_eq!((t.group.as_deref(), t.title.as_deref()), (Some("GRP"), Some("Sousou no Frieren")));
         assert_eq!((t.season, t.episodes, t.source), (Some(1), Some((5, 5)), Some(ReleaseSource::Web)));

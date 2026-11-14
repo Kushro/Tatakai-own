@@ -90,7 +90,7 @@ fn source_vm(c: SourceCandidate, score: f32, ext_enabled: bool, picked: Option<&
     let (latency_ms, size_bytes, seeders, leechers, info_hash) = (
         c.web.as_ref().and_then(|w| w.latency_ms),
         c.torrent.as_ref().and_then(|t| t.size_bytes),
-        c.torrent.as_ref().map(|t| t.seeders),
+        c.torrent.as_ref().and_then(|t| t.seeders),
         c.torrent.as_ref().map(|t| t.leechers),
         c.torrent.as_ref().map(|t| t.info_hash.clone()),
     );
@@ -177,7 +177,7 @@ mod tests {
         let mut torrent = web("nyaa", "Judas", Quality::P1080);
         torrent.kind = SourceKind::Torrent;
         torrent.web = None;
-        torrent.torrent = Some(TorrentInfo { info_hash: "cd".repeat(20), size_bytes: None, seeders: 50, leechers: 2, magnet: None });
+        torrent.torrent = Some(TorrentInfo { info_hash: "cd".repeat(20), size_bytes: None, seeders: Some(50), leechers: 2, magnet: None });
         torrent.tags = tk_core::release::parse_release("[Judas] Show S01 (BD 1080p HEVC x265 10bit Dual-Audio Multi-Subs) [Batch]");
         torrent.tags.seadex_best = true;
         let vms = ranked_vms(vec![torrent, web("a", "Alpha", Quality::P720)], &SourcePrefs::default(), |_| true, None);
@@ -205,7 +205,7 @@ mod tests {
         let mut torrent = web("nyaa", "SubsPlease", Quality::P1080);
         torrent.kind = SourceKind::Torrent;
         torrent.web = None;
-        torrent.torrent = Some(TorrentInfo { info_hash: "ab".repeat(20), size_bytes: Some(1 << 30), seeders: 300, leechers: 12, magnet: None });
+        torrent.torrent = Some(TorrentInfo { info_hash: "ab".repeat(20), size_bytes: Some(1 << 30), seeders: Some(300), leechers: 12, magnet: None });
         let list = vec![web("a", "Alpha", Quality::P480), web("a", "Beta", Quality::P1080), torrent];
         let picked = source_key(&list[0]);
         let vms = ranked_vms(list, &SourcePrefs::default(), |id| id != "nyaa", Some(&picked));

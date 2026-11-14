@@ -138,8 +138,9 @@ pub struct TorrentInfo {
     pub info_hash: String,
     #[serde(default)]
     pub size_bytes: Option<u64>,
+    /// `None` when the index does not say (SubsPlease's own feed): shown as unknown and not penalized (BUG-030).
     #[serde(default)]
-    pub seeders: u32,
+    pub seeders: Option<u32>,
     #[serde(default)]
     pub leechers: u32,
     #[serde(default)]
@@ -255,15 +256,20 @@ impl Default for SourcePrefs {
 
 /// `score` of `sources.js`:
 /// `reliability*50 ± 20 (preferred kind) + 6*min(rank,3) − 25 if below min_quality + 10 (sub_lang in subs)
-/// + 6 (dub_lang in dubs) + torrent: min(seeders,500)/50 − 20 if seeders < 20 | web: −min(latency,1000)/100
+/// + 6 (dub_lang in dubs) + torrent: min(seeders,500)/50 − 20 if seeders < 20 (known seeders only) | web: −min(latency,1000)/100
 /// − 1000 when the extension is disabled`.
 ///
 /// Wave 3 (docs/redesign/10 section 3), torrent release tags: `+ SEADEX_BEST_BONUS` (4) when `tags.seadex_best`.
-/// Small on purpose: it reorders otherwise close torrents but never beats a seeder or preference gap. (A batch bonus
-/// would need the requested episode, which `score` does not get; batches are ranked like any other torrent.)
+/// Small on purpose: it reorders otherwise close torrents but never beats a seeder or preference gap.
+/// QA round 1 (BUG-029): `− FOREIGN_DUB_PENALTY` when the only audio is another language, `− BATCH_PENALTY` for packs.
 /// Taken off an embed source (`WebInfo::embed`) so a direct HLS / MP4 of the same quality always wins
 /// (`sources.embed-sniffer.ranking`).
 pub const EMBED_PENALTY: f32 = 15.0;
+/// Taken off a source whose only audio is not the preferred one (and not dual audio): it ranks below any release with
+/// the preferred audio of similar quality (BUG-029).
+pub const FOREIGN_DUB_PENALTY: f32 = 15.0;
+/// Taken off a torrent season pack (`tags.batch`): close singles win, a well-seeded pack still beats a dead single.
+pub const BATCH_PENALTY: f32 = 5.0;
 
 pub fn score(c: &SourceCandidate, prefs: &SourcePrefs, ext_enabled: bool) -> f32 {
     let mut v = c.reliability * 50.0;
@@ -280,16 +286,27 @@ pub fn score(c: &SourceCandidate, prefs: &SourcePrefs, ext_enabled: bool) -> f32
     }
     if c.dubs.iter().any(|l| *l == prefs.dub_lang) {
         v += 6.0;
+    } else if !c.dubs.is_empty() && !c.tags.dual_audio {
+        // Only other audio (aniliberty's Russian-dubbed packs for a JA-audio user, BUG-029).
+        v -= FOREIGN_DUB_PENALTY;
     }
     match c.kind {
         SourceKind::Torrent => {
-            let seeders = c.torrent.as_ref().map_or(0, |t| t.seeders);
-            v += seeders.min(500) as f32 / 50.0;
-            if seeders < 20 {
-                v -= 20.0;
+            // Unknown seeders (the index does not report them) are neither a bonus nor the "< 20" penalty: SubsPlease's
+            // own feed has none and its releases are the best seeded (BUG-030).
+            if let Some(seeders) = c.torrent.as_ref().and_then(|t| t.seeders) {
+                v += seeders.min(500) as f32 / 50.0;
+                if seeders < 20 {
+                    v -= 20.0;
+                }
             }
             if c.tags.seadex_best {
                 v += SEADEX_BEST_BONUS;
+            }
+            // A season pack downloads (and must index) every episode to play one: the single release wins a close
+            // call (BUG-029).
+            if c.tags.batch {
+                v -= BATCH_PENALTY;
             }
         }
         SourceKind::Web => {
@@ -470,7 +487,7 @@ mod tests {
         assert_eq!(c.to_stream(), None);
         let mut t = SourceCandidate::from_stream(&stream(Some("720p")), "Nyaa");
         t.kind = SourceKind::Torrent;
-        t.torrent = Some(TorrentInfo { info_hash: "ab".repeat(20), size_bytes: None, seeders: 10, leechers: 1, magnet: None });
+        t.torrent = Some(TorrentInfo { info_hash: "ab".repeat(20), size_bytes: None, seeders: Some(10), leechers: 1, magnet: None });
         assert_eq!(t.to_stream(), None);
     }
 
@@ -504,7 +521,7 @@ mod tests {
         let mut t = SourceCandidate::from_stream(&stream(Some("1080p")), "Toko");
         t.kind = SourceKind::Torrent;
         t.web = None;
-        t.torrent = Some(TorrentInfo { info_hash: "ab".repeat(20), size_bytes: None, seeders: 100, leechers: 1, magnet: None });
+        t.torrent = Some(TorrentInfo { info_hash: "ab".repeat(20), size_bytes: None, seeders: Some(100), leechers: 1, magnet: None });
         let prefs = SourcePrefs::default();
         let plain = score(&t, &prefs, true);
         t.tags.seadex_best = true;
@@ -514,6 +531,47 @@ mod tests {
         let base = score(&w, &prefs, true);
         w.tags.seadex_best = true;
         assert!((score(&w, &prefs, true) - base).abs() < 1e-4);
+    }
+
+    fn torrent(seeders: Option<u32>) -> SourceCandidate {
+        let mut t = SourceCandidate::from_stream(&stream(Some("1080p")), "Toko");
+        t.kind = SourceKind::Torrent;
+        t.web = None;
+        t.subs.clear();
+        t.torrent = Some(TorrentInfo { info_hash: "ab".repeat(20), size_bytes: None, seeders, leechers: 0, magnet: None });
+        t
+    }
+
+    #[test]
+    fn unknown_seeders_are_not_penalized_like_zero() {
+        // BUG-030: SubsPlease's feed has no seeder counts.
+        let prefs = SourcePrefs::default();
+        let unknown = score(&torrent(None), &prefs, true);
+        assert!((score(&torrent(Some(0)), &prefs, true) - (unknown - 20.0)).abs() < 1e-4);
+        assert!(unknown > score(&torrent(Some(19)), &prefs, true));
+    }
+
+    #[test]
+    fn a_foreign_dub_pack_ranks_below_a_preferred_audio_single() {
+        // BUG-029: aniliberty "Pack 1-7 · Doblaje: RU" (reliability 92 %) above nyaa singles with JA audio.
+        let prefs = SourcePrefs::default(); // audio ja
+        let mut pack = torrent(Some(60));
+        pack.reliability = 0.92;
+        pack.dubs = vec!["ru".into()];
+        pack.tags.batch = true;
+        let mut single = torrent(Some(41));
+        single.reliability = 0.8;
+        single.dubs = vec!["ja".into()];
+        assert!(score(&single, &prefs, true) > score(&pack, &prefs, true));
+        // Dual audio with another language is not "foreign only".
+        let mut dual = torrent(Some(41));
+        dual.dubs = vec!["en".into()];
+        dual.tags.dual_audio = true;
+        assert!((score(&dual, &prefs, true) - score(&torrent(Some(41)), &prefs, true)).abs() < 1e-4);
+        // A pack loses only BATCH_PENALTY against the same single.
+        let mut batch = torrent(Some(41));
+        batch.tags.batch = true;
+        assert!((score(&torrent(Some(41)), &prefs, true) - score(&batch, &prefs, true) - BATCH_PENALTY).abs() < 1e-4);
     }
 
     #[test]
@@ -549,7 +607,7 @@ mod tests {
         // the penalty only touches web candidates: a torrent with a stray web.embed flag is unaffected
         let mut t = embed.clone();
         t.kind = SourceKind::Torrent;
-        t.torrent = Some(TorrentInfo { info_hash: "ab".repeat(20), size_bytes: None, seeders: 100, leechers: 1, magnet: None });
+        t.torrent = Some(TorrentInfo { info_hash: "ab".repeat(20), size_bytes: None, seeders: Some(100), leechers: 1, magnet: None });
         let mut t_plain = t.clone();
         t_plain.web.as_mut().unwrap().embed = false;
         assert!((score(&t, &prefs, true) - score(&t_plain, &prefs, true)).abs() < 1e-4);

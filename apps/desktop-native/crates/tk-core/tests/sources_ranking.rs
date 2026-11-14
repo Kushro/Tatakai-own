@@ -83,12 +83,14 @@ fn prefer_torrent() {
 
 #[test]
 fn prefer_web() {
-    // web +20, torrents -20: Alpha 100.7, Beta 96.9, Streamwish 89.9, Zulu 86.6, Ok.ru 73.8, Erai-raws 71.6,
-    // Varyg 64.56, SubsPlease 63.5, Judas 49.94, Fembed 28.5, Anon-uploader 1.62
+    // web +20, torrents -20: Alpha 100.7, Beta 96.9, Streamwish 89.9, Zulu 86.6, Erai-raws 71.6, Varyg 64.56,
+    // SubsPlease 63.5, Ok.ru 58.8, Judas 49.94, Fembed 28.5, Anon-uploader 1.62.
+    // QA BUG-029 (desktop): Ok.ru's only audio is ES for a JA-audio user, `- FOREIGN_DUB_PENALTY` (15) since the
+    // prototype's 73.8; the default order keeps it below Zulu anyway (53.8 -> 38.8).
     let prefs = SourcePrefs { prefer: Some(SourceKind::Web), ..SourcePrefs::default() };
     assert_eq!(
         order(&prefs, all_on),
-        ["Alpha", "Beta", "Streamwish", "Zulu", "Ok.ru", "Erai-raws", "Varyg", "SubsPlease", "Judas", "Fembed", "Anon-uploader"]
+        ["Alpha", "Beta", "Streamwish", "Zulu", "Erai-raws", "Varyg", "SubsPlease", "Ok.ru", "Judas", "Fembed", "Anon-uploader"]
     );
 }
 

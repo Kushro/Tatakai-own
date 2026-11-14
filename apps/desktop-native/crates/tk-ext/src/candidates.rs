@@ -139,7 +139,7 @@ fn map_one(ext_id: &str, ext_name: &str, s: &Value) -> Option<SourceCandidate> {
                 .or_else(|| size_of(&s["fileSize"]))
                 .or_else(|| size_of(&s["size"]))
                 .or_else(|| magnet.as_deref().and_then(magnet_length)),
-            seeders: count(&s["seeders"]),
+            seeders: (!s["seeders"].is_null()).then(|| count(&s["seeders"])),
             leechers: count(&s["leechers"]),
             magnet,
         };
@@ -363,11 +363,11 @@ mod tests {
         let t = c[0].torrent.as_ref().unwrap();
         assert_eq!((c[0].kind, c[0].label.as_str(), c[0].container.as_deref()), (SourceKind::Torrent, "SubsPlease", Some("H.264")));
         assert_eq!(t.info_hash, "abcdef0123456789abcdef0123456789abcdef01");
-        assert_eq!((t.seeders, t.leechers, t.size_bytes), (812, 41, Some(1_380_000_000)));
+        assert_eq!((t.seeders, t.leechers, t.size_bytes), (Some(812), 41, Some(1_380_000_000)));
         assert!(t.magnet.as_deref().is_some_and(|m| m.starts_with("magnet:")));
         assert!(c[0].web.is_none() && c[0].to_stream().is_none());
         let t = c[1].torrent.as_ref().unwrap();
-        assert_eq!((c[1].label.as_str(), t.seeders, t.leechers, t.size_bytes, t.magnet.clone()), ("nyaa", 6, 0, Some(1_900_000_000), None));
+        assert_eq!((c[1].label.as_str(), t.seeders, t.leechers, t.size_bytes, t.magnet.clone()), ("nyaa", Some(6), 0, Some(1_900_000_000), None));
         assert_eq!(c[1].note.as_deref(), Some("sin confirmar"));
     }
 
@@ -404,7 +404,7 @@ mod tests {
         let t = c[0].torrent.as_ref().unwrap();
         assert_eq!((c[0].label.as_str(), c[0].quality), ("SubsPlease", Quality::P1080));
         assert_eq!(t.info_hash, "abcdef0123456789abcdef0123456789abcdef01");
-        assert_eq!((t.seeders, t.leechers, t.size_bytes), (812, 41, Some(1_503_238_554)));
+        assert_eq!((t.seeders, t.leechers, t.size_bytes), (Some(812), 41, Some(1_503_238_554)));
         assert_eq!(c[0].tags.episodes, Some((5, 5)));
         assert_eq!(c[0].tags.group.as_deref(), Some("SubsPlease"));
         assert!(!c[0].tags.batch && !c[0].tags.seadex_best);
@@ -493,5 +493,7 @@ mod tests {
         assert_eq!(c[0].label, "SubsPlease");
         assert_eq!(c[0].quality, Quality::P1080);
         assert_eq!(c[0].torrent.as_ref().unwrap().size_bytes, Some(1_395_864_371));
+        // BUG-030: SubsPlease's feed reports no seeders: unknown, not 0.
+        assert_eq!(c[0].torrent.as_ref().unwrap().seeders, None);
     }
 }
