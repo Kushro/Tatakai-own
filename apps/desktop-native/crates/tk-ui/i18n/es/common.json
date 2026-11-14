@@ -101,6 +101,7 @@
   "ext.empty.title": "No hay extensiones instaladas",
   "ext.empty.body": "Instala un paquete .kai para empezar a ver.",
   "ext.enabled": "Activada",
+  "ext.use": "Usar {name}",
   "ext.remove": "Quitar extensión",
   "ext.remove.title": "¿Quitar esta extensión?",
   "ext.remove.body": "{name} se eliminará de esta PC.",

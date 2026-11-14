@@ -756,10 +756,10 @@ fn ExtensionRow(
                     span { class: "tk-ext__ver", "{version} · {ext.id}" }
                 }
                 div { class: "tk-ext__ctl",
-                    span { class: "tk-ext__ctllabel", {t("ext.enabled")} }
+                    span { class: "tk-ext__ctllabel", "aria-hidden": "true", {t("ext.enabled")} }
                     Switch {
                         checked: ext.enabled && can_enable,
-                        label: t("ext.enabled"),
+                        label: tf("ext.use", &[("name", &ext.name)]),
                         disabled: !can_enable,
                         on_toggle,
                     }
@@ -1440,8 +1440,8 @@ fn ServerRow(
                     span { class: "tk-ext__ver", "{s.url}" }
                 }
                 div { class: "tk-ext__ctl",
-                    span { class: "tk-ext__ctllabel", {t("ext.enabled")} }
-                    Switch { checked: s.enabled, label: t("ext.enabled"), on_toggle: toggle }
+                    span { class: "tk-ext__ctllabel", "aria-hidden": "true", {t("ext.enabled")} }
+                    Switch { checked: s.enabled, label: tf("ext.use", &[("name", &s.name)]), on_toggle: toggle }
                     IconButton { icon: "trash".to_string(), label: t("extserver.remove"), onclick: move |_| on_remove.call(for_remove.clone()) }
                 }
             }
@@ -1801,8 +1801,8 @@ fn StremioRow(
                     span { class: "tk-ext__ver", "{addon.manifest_url}" }
                 }
                 div { class: "tk-ext__ctl",
-                    span { class: "tk-ext__ctllabel", {t("ext.enabled")} }
-                    Switch { checked: addon.enabled, label: t("ext.enabled"), on_toggle: toggle }
+                    span { class: "tk-ext__ctllabel", "aria-hidden": "true", {t("ext.enabled")} }
+                    Switch { checked: addon.enabled, label: tf("ext.use", &[("name", &addon.name)]), on_toggle: toggle }
                     IconButton { icon: "trash".to_string(), label: t("stremio.remove"), onclick: move |_| on_remove.call(for_remove.clone()) }
                 }
             }
@@ -2179,8 +2179,8 @@ fn ProvidersPanel() -> Element {
                                         span { class: "tk-ext__ver", "{ext_id}" }
                                     }
                                     div { class: "tk-ext__ctl",
-                                        span { class: "tk-ext__ctllabel", {t("ext.enabled")} }
-                                        Switch { checked: enabled && can, label: t("ext.enabled"), disabled: !can, on_toggle: toggle }
+                                        span { class: "tk-ext__ctllabel", "aria-hidden": "true", {t("ext.enabled")} }
+                                        Switch { checked: enabled && can, label: tf("ext.use", &[("name", &ext_name)]), disabled: !can, on_toggle: toggle }
                                     }
                                 }
                                 div { class: "tk-ext__perms",

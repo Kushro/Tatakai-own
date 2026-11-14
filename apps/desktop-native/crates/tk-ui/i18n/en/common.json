@@ -101,6 +101,7 @@
   "ext.empty.title": "No extensions installed",
   "ext.empty.body": "Install a .kai package to start watching.",
   "ext.enabled": "Enabled",
+  "ext.use": "Use {name}",
   "ext.remove": "Remove extension",
   "ext.remove.title": "Remove this extension?",
   "ext.remove.body": "{name} will be deleted from this PC.",
