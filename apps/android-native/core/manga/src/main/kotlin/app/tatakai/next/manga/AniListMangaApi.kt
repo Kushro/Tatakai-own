@@ -57,10 +57,16 @@ data class MangaInfo(
     val characters: List<CharacterEdge> = emptyList(),
     val relations: List<MediaRelation> = emptyList(),
     val recommendations: List<Recommendation> = emptyList(),
-    /** "#12 Most popular all time" style labels (AniList `rankings`). */
-    val rankings: List<String> = emptyList(),
+    /** AniList `rankings` (BUG-111: kept as data so the page words them in the app's language). */
+    val rankings: List<MangaRanking> = emptyList(),
     val externalLinks: Map<String, String> = emptyMap(),
 )
+
+/**
+ * BUG-111: one AniList ranking: [type] `RATED` / `POPULAR`, all time or of [year]. [context] is AniList's English text
+ * ("highest rated all time"), only a fallback for an unknown type.
+ */
+data class MangaRanking(val rank: Int, val type: String, val allTime: Boolean, val year: Int?, val context: String)
 
 /** One row of the user's AniList manga list (`MediaListCollection(type: MANGA)`). */
 data class AniListReadRow(
@@ -358,11 +364,7 @@ mutation (${'$'}mediaId: Int, ${'$'}status: MediaListStatus, ${'$'}progress: Int
             val rankings = m.list("rankings").mapNotNull { r ->
                 val rank = r.int("rank") ?: return@mapNotNull null
                 val context = r.str("context") ?: return@mapNotNull null
-                val year = r.int("year")
-                buildString {
-                    append('#').append(rank).append(' ').append(context)
-                    if (!r.bool("allTime") && year != null) append(' ').append(year)
-                }
+                MangaRanking(rank, r.str("type").orEmpty().uppercase(), r.bool("allTime"), r.int("year"), context)
             }
             val links = m.list("externalLinks").mapNotNull { l ->
                 val site = l.str("site") ?: return@mapNotNull null

@@ -98,6 +98,7 @@ import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MangaChapter
 import app.tatakai.next.model.MangaChapterSource
 import app.tatakai.next.model.SourceProblem
+import app.tatakai.next.manga.MangaRanking
 import app.tatakai.next.model.MangaReaderArgs
 import app.tatakai.next.model.MatureContentMode
 import app.tatakai.next.model.Media
@@ -508,7 +509,7 @@ private fun Facts(info: MangaInfo, ui: MangaDetailsUi) {
             info.favourites?.let { ScoreBox(stringResource(R.string.manga_score_favourites), it.toString()) }
         }
         if (info.rankings.isNotEmpty()) {
-            FlowRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { info.rankings.take(4).forEach { Pill(it) } }
+            FlowRow(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) { info.rankings.take(4).forEach { Pill(rankingLabel(it)) } }
         }
     }
 }
@@ -630,6 +631,23 @@ private fun sourceChipLabel(s: MangaChapterSource): String = buildString {
     s.chapterCount?.let { append(" · ").append(it) }
     if (s.languages.isNotEmpty()) append(" · ").append(s.languages.take(3).joinToString("/").uppercase())
     append(" · ").append((s.reliability * 100).toInt()).append('%')
+}
+
+/** BUG-111: an AniList ranking in the app's language ("#97 mejor valorado de todos los tiempos", "#1 más popular de 2018"). */
+@Composable
+internal fun rankingLabel(r: MangaRanking): String {
+    val res = rankingLabelRes(r) ?: return "#${r.rank} ${r.context}"
+    return if (r.allTime) stringResource(res, r.rank) else stringResource(res, r.rank, r.year ?: 0)
+}
+
+/** The string of [r], or null when AniList sent a type (or a dated ranking without its year) this page does not word. */
+internal fun rankingLabelRes(r: MangaRanking): Int? = when {
+    r.type == "RATED" && r.allTime -> R.string.manga_ranking_rated_all_time
+    r.type == "POPULAR" && r.allTime -> R.string.manga_ranking_popular_all_time
+    r.year == null -> null
+    r.type == "RATED" -> R.string.manga_ranking_rated_year
+    r.type == "POPULAR" -> R.string.manga_ranking_popular_year
+    else -> null
 }
 
 /** BUG-099: "sin resultados" / "tiempo agotado" / "falló" (same words in the reader's source list). */

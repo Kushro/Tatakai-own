@@ -229,6 +229,11 @@
     <string name="manga_source_problem_not_found">no results</string>
     <string name="manga_source_problem_timeout">timed out</string>
     <string name="manga_source_problem_failed">failed</string>
+    <!-- BUG-111: AniList rankings -->
+    <string name="manga_ranking_rated_all_time">#%1$d highest rated all time</string>
+    <string name="manga_ranking_popular_all_time">#%1$d most popular all time</string>
+    <string name="manga_ranking_rated_year">#%1$d highest rated of %2$d</string>
+    <string name="manga_ranking_popular_year">#%1$d most popular of %2$d</string>
     <string name="manga_status_cancelled">Cancelled</string>
     <string name="manga_status_finished">Finished</string>
     <string name="manga_status_hiatus">Hiatus</string>
