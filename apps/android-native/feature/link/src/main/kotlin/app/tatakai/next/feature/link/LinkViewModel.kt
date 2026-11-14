@@ -320,6 +320,19 @@ internal object LinkLogic {
         return if (groups.size <= 4) groups.joinToString(" ") else (groups.take(2) + "…" + groups.takeLast(2)).joinToString(" ")
     }
 
+    /**
+     * BUG-105: the whole fingerprint for "Ver detalles", broken on purpose in rows of [perRow] groups ("B452 3914 77AA 0C1D", 19
+     * monospace characters: fits the card column at 393 dp) instead of wherever the text happened to wrap.
+     */
+    fun fingerprintRows(fp: String, perRow: Int = 4): List<String> =
+        fp.trim().split(Regex("[\\s:]+")).filter { it.isNotEmpty() }.chunked(perRow).map { it.joinToString(" ") }
+
+    /**
+     * BUG-104: the problem that belongs under the URL field (its supporting text, in red) — only "not a complete link". The PC's answers
+     * (could not open it, did not answer) are the single red line below the field, so the text is not shown twice.
+     */
+    fun fieldProblem(problem: EnhanceProblem?): EnhanceProblem? = problem?.takeIf { it == EnhanceProblem.INVALID_URL }
+
     /** PCs to list: the paired one (same host and port) is not offered again. */
     fun others(found: List<DiscoveredPc>, pairedHost: String?, pairedPort: Int?): List<DiscoveredPc> =
         found.filterNot { it.host == pairedHost && it.port == pairedPort }.distinctBy { it.instanceId ?: "${it.host}:${it.port}" }

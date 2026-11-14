@@ -30,6 +30,25 @@ class LinkLogicTest {
         assertEquals("AB12 CD34", LinkLogic.shortFingerprint("AB12 CD34"))
     }
 
+    @Test fun theFullFingerprintIsSplitInReadableRows() {
+        // BUG-105: 4 rows of 4 groups (19 monospace characters each), never cut mid-group
+        val full = "B452 3914 77AA 0C1D 9E2F 3344 5566 7788 99AA BBCC DDEE FF00 1122 3344 0A7C DF6D"
+        val rows = LinkLogic.fingerprintRows(full)
+        assertEquals(listOf("B452 3914 77AA 0C1D", "9E2F 3344 5566 7788", "99AA BBCC DDEE FF00", "1122 3344 0A7C DF6D"), rows)
+        assertEquals(rows, LinkLogic.fingerprintRows(full.replace(' ', ':')))
+        assertTrue(rows.all { it.length <= 19 })
+        // the short form keeps the last group whole (the one compared with the PC) and stays far under one line
+        assertTrue(LinkLogic.shortFingerprint(full).endsWith("DF6D"))
+        assertTrue(LinkLogic.shortFingerprint(full).length <= 22)
+    }
+
+    @Test fun onlyTheUrlProblemGoesUnderTheField() {
+        // BUG-104: "La PC no pudo abrir este enlace…" was both the field's supporting text and the red line below it
+        assertEquals(EnhanceProblem.INVALID_URL, LinkLogic.fieldProblem(EnhanceProblem.INVALID_URL))
+        for (p in EnhanceProblem.entries.filter { it != EnhanceProblem.INVALID_URL }) assertEquals(null, LinkLogic.fieldProblem(p), p.name)
+        assertEquals(null, LinkLogic.fieldProblem(null))
+    }
+
     @Test fun enhanceUrlsMustBeCompleteHttpLinks() {
         // BUG-024
         assertTrue(LinkLogic.enhanceUrlValid("https://cdn.example.com/hls/master.m3u8"))

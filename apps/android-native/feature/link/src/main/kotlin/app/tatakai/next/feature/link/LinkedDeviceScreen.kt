@@ -7,7 +7,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,6 +60,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -392,16 +394,31 @@ private fun StatusCard(state: LinkUiState, paired: LinkState.Paired, onRetry: ()
                         overflow = TextOverflow.Ellipsis,
                     )
                     device?.fingerprint?.let { fp ->
-                        // BUG-090: one line ("B452 3914 … DF6D"); a tap shows the whole fingerprint to compare with the PC
+                        // BUG-090 / BUG-105: the label in the normal font on its own line, and only the fingerprint in monospace below:
+                        // "B452 3914 … 0A7C DF6D" (~22 characters, far from the ~288 dp of the column, so the last group, the one compared
+                        // with the PC, is never cut). "Ver detalles" shows the whole one in rows of 4 groups, broken on purpose.
                         var full by rememberSaveable { mutableStateOf(false) }
-                        Text(
-                            stringResource(R.string.linked_fingerprint, if (full) fp else LinkLogic.shortFingerprint(fp)),
-                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = TatakaiFonts.jetBrainsMono),
-                            maxLines = if (full) Int.MAX_VALUE else 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier
-                                .clickable(onClickLabel = stringResource(if (full) R.string.linked_fingerprint_hide else R.string.linked_fingerprint_show)) { full = !full },
-                        )
+                        val mono = MaterialTheme.typography.bodySmall.copy(fontFamily = TatakaiFonts.jetBrainsMono)
+                        Column(Modifier.padding(top = 4.dp)) {
+                            Text(stringResource(R.string.linked_fingerprint_label), style = MaterialTheme.typography.bodySmall)
+                            if (full) {
+                                LinkLogic.fingerprintRows(fp).forEach { Text(it, style = mono, maxLines = 1, softWrap = false) }
+                            } else {
+                                Text(LinkLogic.shortFingerprint(fp), style = mono, maxLines = 1, softWrap = false)
+                            }
+                            TextButton(
+                                onClick = { full = !full },
+                                contentPadding = PaddingValues(horizontal = 0.dp),
+                                colors = ButtonDefaults.textButtonColors(contentColor = LocalContentColor.current),
+                            ) {
+                                Text(
+                                    stringResource(if (full) R.string.linked_fingerprint_hide else R.string.linked_fingerprint_show),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textDecoration = TextDecoration.Underline,
+                                )
+                            }
+                        }
                     }
                     device?.lastSeenMs?.let {
                         // Re-read every 30 s so "visto hace N min" stays true while the screen is open (link.last-seen).
@@ -624,10 +641,12 @@ private fun DiscoveredPairDialog(pc: DiscoveredPc, fingerprint: String?, onDismi
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.linked_discovered_pair_body), style = MaterialTheme.typography.bodyMedium)
-                Text(
-                    stringResource(R.string.linked_fingerprint, fingerprint ?: "?"),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = TatakaiFonts.jetBrainsMono),
-                )
+                // BUG-105: the same readable rows as the "PC conectada" card, to compare group by group with the PC
+                Column {
+                    Text(stringResource(R.string.linked_fingerprint_label), style = MaterialTheme.typography.bodySmall)
+                    val mono = MaterialTheme.typography.bodySmall.copy(fontFamily = TatakaiFonts.jetBrainsMono)
+                    (fingerprint?.let { LinkLogic.fingerprintRows(it) } ?: listOf("?")).forEach { Text(it, style = mono, maxLines = 1, softWrap = false) }
+                }
                 OutlinedTextField(
                     value = code,
                     onValueChange = { code = it.take(14) },
@@ -692,7 +711,8 @@ private fun EnhancePanel(state: LinkUiState, onStart: (String) -> Unit) {
             value = url,
             onValueChange = { url = it },
             label = { Text(stringResource(R.string.linked_enhance_url)) },
-            supportingText = { Text(problem ?: stringResource(R.string.linked_enhance_hint)) },
+            // BUG-104: only the URL's own problem goes under the field (red, with isError); the PC's answer is the red line below
+            supportingText = { Text(LinkLogic.fieldProblem(state.enhanceProblem)?.let { enhanceProblemText(it) } ?: stringResource(R.string.linked_enhance_hint)) },
             isError = state.enhanceProblem == EnhanceProblem.INVALID_URL,
             singleLine = true,
             keyboardOptions = KeyboardOptions(
@@ -704,7 +724,7 @@ private fun EnhancePanel(state: LinkUiState, onStart: (String) -> Unit) {
             keyboardActions = KeyboardActions(onGo = { if (canStart) onStart(url) }),
             modifier = Modifier.fillMaxWidth(),
         )
-        if (state.enhanceProblem != null && state.enhanceProblem != EnhanceProblem.INVALID_URL) {
+        if (state.enhanceProblem != null && LinkLogic.fieldProblem(state.enhanceProblem) == null) {
             Text(problem.orEmpty(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
         state.sessionError?.let {
