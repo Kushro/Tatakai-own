@@ -490,8 +490,9 @@ pub fn SourcePicker(
     let filters_open = show_filters();
     let filters_label = if active == 0 { t("src.filter.title") } else { tf("src.filter.title_n", &[("n", &active.to_string())]) };
     let count_text = tf("src.filter.count", &[("shown", &shown.len().to_string()), ("total", &ranked.len().to_string())]);
-    let banner_text = if manual && !any_picked {
-        t("src.choose_first")
+    // BUG-079 parity: Manual never fails over, so its banner says how the sheet works (as on Android).
+    let banner_text = if manual {
+        t("src.manual_hint")
     } else {
         format!("{} · {}", t(&format!("src.mode.{}", prefs.mode.id())), t("src.failover"))
     };

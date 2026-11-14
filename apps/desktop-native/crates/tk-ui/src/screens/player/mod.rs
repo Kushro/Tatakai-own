@@ -1357,7 +1357,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                                     span { "{text}" }
                                 }
                             } else if fs.phase == Phase::Manual {
-                                span { {t("src.choose_first")} }
+                                span { {t("src.no_pick_yet")} }
                             } else if ended {
                                 span { {t("player.external.ended")} }
                             } else {
@@ -1458,12 +1458,16 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     }
                 } else if fs.phase == Phase::Manual {
                     div { class: "tk-pc__center",
-                        Button {
-                            label: t("src.choose_first"),
-                            icon: "tune".to_string(),
-                            variant: ButtonVariant::Tonal,
-                            class: "tk-pc__choose".to_string(),
-                            onclick: move |_| picker_open.set(true),
+                        // BUG-079 parity: the state in words; the sheet's banner says how to pick.
+                        div { class: "tk-pc__wait",
+                            span { class: "tk-pc__tline", role: "status", {t("src.no_pick_yet")} }
+                            Button {
+                                label: t("src.choose"),
+                                icon: "tune".to_string(),
+                                variant: ButtonVariant::Tonal,
+                                class: "tk-pc__choose".to_string(),
+                                onclick: move |_| picker_open.set(true),
+                            }
                         }
                     }
                 }

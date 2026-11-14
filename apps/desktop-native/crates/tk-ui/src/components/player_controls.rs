@@ -371,12 +371,15 @@ pub fn PlayerControls(
                         }
                     },
                     Phase::Manual => rsx! {
-                        Button {
-                            label: t("src.choose_first"),
-                            icon: "tune".to_string(),
-                            variant: ButtonVariant::Tonal,
-                            class: "tk-pc__choose".to_string(),
-                            onclick: move |_| on_source.call(()),
+                        div { class: "tk-pc__wait",
+                            span { class: "tk-pc__tline", role: "status", {t("src.no_pick_yet")} }
+                            Button {
+                                label: t("src.choose"),
+                                icon: "tune".to_string(),
+                                variant: ButtonVariant::Tonal,
+                                class: "tk-pc__choose".to_string(),
+                                onclick: move |_| on_source.call(()),
+                            }
                         }
                     },
                     _ if buffering => rsx! {
