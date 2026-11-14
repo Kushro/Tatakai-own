@@ -65,6 +65,11 @@ data class ExtensionManifest(
 
     val networkPolicy: NetworkPolicy get() = NetworkPolicy.fromPermissions(permissions)
 
+    /** BUG-100: reads novels through `novel/chapters` / `novel/content` (desktop `is_novel_manifest`), not a `novel` custom source. */
+    val readsNovelsByRoute: Boolean
+        get() = (apiServer?.routesExplicit == true && apiServer.routes.any { it == "novel/chapters" || it == "novel/content" }) ||
+            (capabilities.contains("novel") && customSources.none { it.kind == "novel" })
+
     /**
      * BUG-099: reads manga through the `manga/chapters` / `manga/pages` routes (desktop `manifest_reads_manga`): the route is listed, or
      * the manga capability is declared without a `read` custom source (those go through `custom/search` / `custom/info`).

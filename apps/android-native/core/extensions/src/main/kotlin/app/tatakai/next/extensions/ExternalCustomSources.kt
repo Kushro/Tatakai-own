@@ -41,4 +41,11 @@ interface ExternalCustomSources {
     suspend fun mangaRouteChapters(extensionId: String, query: MangaRouteQuery): List<MangaRouteChapter> = emptyList()
 
     suspend fun mangaRoutePages(extensionId: String, chapterKey: String): List<ChapterPage> = emptyList()
+
+    /** BUG-100: the route-based novel extensions of this group (`novel/chapters`), kind `novel`; never throws. */
+    suspend fun novelRouteSources(): List<CustomSourceRef> = emptyList()
+
+    suspend fun novelRouteChapters(extensionId: String, query: MangaRouteQuery): List<MangaRouteChapter> = emptyList()
+
+    suspend fun novelRouteText(extensionId: String, chapterKey: String): List<ChapterPage> = emptyList()
 }

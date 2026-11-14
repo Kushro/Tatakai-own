@@ -6,6 +6,7 @@ import app.tatakai.next.model.ChapterPage
 import app.tatakai.next.model.Container
 import app.tatakai.next.model.CustomSourceRef
 import app.tatakai.next.model.MANGA_ROUTE_SOURCE
+import app.tatakai.next.model.NOVEL_ROUTE_SOURCE
 import app.tatakai.next.model.MangaRouteChapter
 import app.tatakai.next.model.MangaRouteQuery
 import app.tatakai.next.model.EmbedSniffException
@@ -928,6 +929,32 @@ class ExtensionRepositoryImpl(
         val m = mangaRouteManifest(extensionId)
         val body = callProvider(m, "manga/pages", ProviderParsers.mangaPagesParams(chapterKey), "pages")
         return ProviderParsers.pages("read", body)
+    }
+
+    override suspend fun novelRouteSources(): List<CustomSourceRef> {
+        ready.await()
+        val local = lock.withLock {
+            records.values.filter { it.runnable && it.manifest.readsNovelsByRoute }
+                .sortedWith(compareBy<Record> { it.manifest.priority }.thenBy { it.manifest.id })
+                .map { r -> CustomSourceRef(r.manifest.id, r.manifest.name, NOVEL_ROUTE_SOURCE, "novel", r.manifest.name) }
+        }
+        val remote = externalCustom.flatMap { group -> runCatchingNonCancel { group.novelRouteSources() }.orEmpty() }
+        val localIds = local.map { it.extensionId }.toSet()
+        return local + remote.filter { it.extensionId.substringAfterLast('/') !in localIds }
+    }
+
+    override suspend fun novelRouteChapters(extensionId: String, query: MangaRouteQuery): List<MangaRouteChapter> {
+        externalCustom.firstOrNull { it.owns(extensionId) }?.let { return it.novelRouteChapters(extensionId, query) }
+        val m = mangaRouteManifest(extensionId)
+        val body = callProvider(m, "novel/chapters", ProviderParsers.mangaRouteParams(query), "novel")
+        return ProviderParsers.mangaRouteChapters(m.id, body)
+    }
+
+    override suspend fun novelRouteText(extensionId: String, chapterKey: String): List<ChapterPage> {
+        externalCustom.firstOrNull { it.owns(extensionId) }?.let { return it.novelRouteText(extensionId, chapterKey) }
+        val m = mangaRouteManifest(extensionId)
+        val body = callProvider(m, "novel/content", ProviderParsers.mangaPagesParams(chapterKey), "text")
+        return ProviderParsers.novelContent(body)
     }
 
     private suspend fun mangaRouteManifest(extensionId: String): ExtensionManifest {

@@ -26,7 +26,9 @@ import app.tatakai.next.model.ListStatus
 import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.MangaRouteQuery
 import app.tatakai.next.model.MediaRef
+import app.tatakai.next.model.NOVEL_ROUTE_SOURCE
 import app.tatakai.next.model.MediaSearchQuery
 import app.tatakai.next.model.MediaSort
 import app.tatakai.next.model.MetadataRepository
@@ -188,9 +190,21 @@ class NovelRepositoryImpl(
         val key = mediaKey(ref) ?: return emptyList()
         val titles = titlesOf(ref, title)
         val custom = runCatching { extensions.customSources("novel") }.getOrDefault(emptyList())
+        val routes = runCatching { extensions.novelRouteSources() }.getOrDefault(emptyList())
         val counts = countStore.read()
         return coroutineScope {
-            custom.map { src ->
+            // BUG-100: Toko reads novels through `novel/chapters` (no `novel` custom source): one source per inner provider.
+            val routeJobs = routes.map { route ->
+                async {
+                    val list = withTimeoutOrNull(ROUTE_TIMEOUT_MS) {
+                        runCatching { routeChapters(route.extensionId, key, titles, refresh = false, ref = ref) }.getOrNull()
+                    }.orEmpty()
+                    NovelRoutes.sources(route, key, list).ifEmpty {
+                        listOf(NovelSourceSummary(route.extensionId, route.extensionName, NOVEL_ROUTE_SOURCE, null, emptyList(), 0))
+                    }
+                }
+            }
+            routeJobs.awaitAll().flatten() + custom.map { src ->
                 async {
                     val sk = sourceKey(src.extensionId, src.sourceId)
                     val itemId = withTimeoutOrNull(SOURCE_TIMEOUT_MS) {
@@ -231,6 +245,11 @@ class NovelRepositoryImpl(
         val itemId = source.itemId ?: return emptyList()
         val sk = sourceKey(source.extensionId, source.sourceId)
         if (!refresh) cachedChapters(sk, itemId)?.let { return markDownloaded(it) }
+        if (NovelRoutes.isRouteSource(source.sourceId)) {
+            val ref = refOf(itemId) ?: return emptyList()
+            val all = routeChapters(source.extensionId, itemId, titlesOf(ref, ""), refresh, ref)
+            return markDownloaded(all.filter { it.sourceId == source.sourceId })
+        }
         val info = extensions.providerInfo(source.extensionId, source.sourceId, itemId)
             ?: throw AppException(AppError.Extension(source.extensionId, "custom/info: nothing"))
         val list = info.entries
@@ -276,7 +295,7 @@ class NovelRepositoryImpl(
     override suspend fun text(chapter: NovelChapter): NovelChapterText {
         offlineText(downloadId(chapter))?.let { return it }
         val pages = try {
-            extensions.providerRead(chapter.extensionId, chapter.sourceId, chapter.itemId, chapter.id)
+            readPages(chapter)
         } catch (e: CancellationException) {
             throw e
         } catch (e: AppException) {
@@ -421,7 +440,7 @@ class NovelRepositoryImpl(
                     val next = downloadsState.value.firstOrNull { it.state == DownloadState.QUEUED } ?: break
                     setDownload(next.id) { it.copy(state = DownloadState.DOWNLOADING, error = null) }
                     try {
-                        val pages = extensions.providerRead(next.chapter.extensionId, next.chapter.sourceId, next.chapter.itemId, next.chapter.id)
+                        val pages = readPages(next.chapter)
                         val paragraphs = NovelText.fromPages(pages, ::fetchHtml)
                         if (paragraphs.isEmpty()) throw AppException(AppError.Extension(next.chapter.extensionId, "custom/read: no text"))
                         val body = ReaderJson.encodeToString(NovelChapterText.serializer(), NovelChapterText(next.chapter.id, next.chapter.title, paragraphs))
@@ -524,6 +543,48 @@ class NovelRepositoryImpl(
         return found
     }
 
+    /** `custom/read` of a custom source, or `novel/content` of a route-based one (BUG-100). */
+    private suspend fun readPages(chapter: NovelChapter): List<ChapterPage> =
+        if (NovelRoutes.isRouteSource(chapter.sourceId)) {
+            extensions.novelRouteText(chapter.extensionId, chapter.id)
+        } else {
+            extensions.providerRead(chapter.extensionId, chapter.sourceId, chapter.itemId, chapter.id)
+        }
+
+    /**
+     * BUG-100: every chapter a route-based novel extension has for [mediaKey] (all its providers), cached whole under
+     * `<ext>/novel-route` and per provider under its own source key. An empty answer is not cached.
+     */
+    private suspend fun routeChapters(extensionId: String, mediaKey: String, titles: List<String>, refresh: Boolean, ref: MediaRef?): List<NovelChapter> {
+        val aggregate = sourceKey(extensionId, NOVEL_ROUTE_SOURCE)
+        if (!refresh) cachedChapters(aggregate, mediaKey)?.let { return it }
+        // "Comprobar todas" refreshes every provider of the extension at once: one call answers them all.
+        val gate = routeGates.getOrPut("$aggregate|$mediaKey") { kotlinx.coroutines.sync.Mutex() }
+        return gate.withLock {
+            memoLock.withLock { chapterMemo["$aggregate|$mediaKey"] }?.takeIf { clock() - it.atMs < ROUTE_FRESH_MS }?.let { return@withLock it.chapters }
+            val answer = extensions.novelRouteChapters(extensionId, MangaRouteQuery(ref?.anilistId, ref?.malId, titles))
+            val list = NovelRoutes.chapters(extensionId, mediaKey, answer)
+            if (list.isNotEmpty()) {
+                storeChapters(aggregate, mediaKey, list)
+                list.groupBy { it.sourceId }.forEach { (sourceId, chapters) -> storeChapters(sourceKey(extensionId, sourceId), mediaKey, chapters) }
+            }
+            list
+        }
+    }
+
+    private val routeGates = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
+
+    private suspend fun storeChapters(sk: String, itemId: String, list: List<NovelChapter>) {
+        val cached = CachedNovelChapters(list, clock())
+        memoLock.withLock { chapterMemo["$sk|$itemId"] = cached }
+        countStore.update { it + ("$sk|$itemId" to list.size) }
+        runCatching {
+            val file = chapterFile(sk, itemId)
+            file.parentFile?.mkdirs()
+            file.writeText(ReaderJson.encodeToString(CachedNovelChapters.serializer(), cached))
+        }
+    }
+
     private suspend fun cachedChapters(sourceKey: String, itemId: String): List<NovelChapter>? {
         val key = "$sourceKey|$itemId"
         memoLock.withLock { chapterMemo[key] }?.let { if (clock() - it.atMs < CHAPTERS_TTL_MS) return it.chapters }
@@ -551,6 +612,9 @@ class NovelRepositoryImpl(
         private const val HERO_SIZE = 8
         private const val MAX_FOLLOWED = 12
         private const val SOURCE_TIMEOUT_MS = 15_000L
+        /** BUG-100: one `novel/chapters` call asks every inner provider (Toko: 8 s + title lookup; the PC adds its own hop). */
+        private const val ROUTE_TIMEOUT_MS = 30_000L
+        private const val ROUTE_FRESH_MS = 15_000L
         private const val CHAPTERS_TTL_MS = 6 * 60 * 60 * 1000L
         private const val MISS_TTL_MS = 24 * 60 * 60 * 1000L
         private const val UPDATE_TTL_MS = 7 * 24 * 60 * 60 * 1000L

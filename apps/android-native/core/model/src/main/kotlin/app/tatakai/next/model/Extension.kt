@@ -110,6 +110,9 @@ data class CustomSourceRef(
 /** [CustomSourceRef.sourceId] of a route-based manga extension ([ExtensionRepository.mangaRouteSources]). */
 const val MANGA_ROUTE_SOURCE: String = "manga-route"
 
+/** [CustomSourceRef.sourceId] of a route-based novel extension ([ExtensionRepository.novelRouteSources], BUG-100). */
+const val NOVEL_ROUTE_SOURCE: String = "novel-route"
+
 data class MangaRouteQuery(val anilistId: Int?, val malId: Int?, val titles: List<String>)
 
 /**

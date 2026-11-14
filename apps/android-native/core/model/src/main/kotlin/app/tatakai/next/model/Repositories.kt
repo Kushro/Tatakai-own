@@ -269,6 +269,18 @@ interface ExtensionRepository {
     /** `manga/pages` of a chapter of [mangaRouteChapters] ([MangaRouteChapter.key]). @throws AppException on failure. */
     suspend fun mangaRoutePages(extensionId: String, chapterKey: String): List<ChapterPage> = emptyList()
 
+    /**
+     * BUG-100: extensions that read novels through the `novel/chapters` / `novel/content` routes instead of a `novel` custom source
+     * (Toko 4.x: Atsu, Wuxiaworld, NovelFire…), installed here or on a linked PC extension server. One row per extension, kind `novel`.
+     */
+    suspend fun novelRouteSources(): List<CustomSourceRef> = emptyList()
+
+    /** `novel/chapters` of one of [novelRouteSources] (same row shape as `manga/chapters`). @throws AppException on failure. */
+    suspend fun novelRouteChapters(extensionId: String, query: MangaRouteQuery): List<MangaRouteChapter> = emptyList()
+
+    /** `novel/content` of a chapter of [novelRouteChapters]: one [ChapterPage] per paragraph (its text in `url`). @throws AppException. */
+    suspend fun novelRouteText(extensionId: String, chapterKey: String): List<ChapterPage> = emptyList()
+
     fun providerBookmarks(): Flow<List<ProviderBookmark>> = emptyFlow()
 
     /** Adds / replaces a bookmark; [bookmark] with `completed = true` marks it done. */

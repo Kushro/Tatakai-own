@@ -151,11 +151,7 @@ object ProviderParsers {
      * else the `chapterKey` prefix (`mangadex:abc`), else [extensionId]. Duplicate keys of one provider are dropped.
      */
     fun mangaRouteChapters(extensionId: String, body: JsonElement?): List<MangaRouteChapter> {
-        val list: JsonArray = when (body) {
-            is JsonArray -> body
-            is JsonObject -> (body["results"] ?: body["chapters"] ?: body["result"] ?: body["data"]) as? JsonArray ?: return emptyList()
-            else -> return emptyList()
-        }
+        val list: JsonArray = routeRows(body, depth = 0) ?: return emptyList()
         val out = ArrayList<MangaRouteChapter>()
         val seen = HashSet<String>()
         fun add(o: JsonObject, parent: JsonObject?) {
@@ -171,7 +167,7 @@ object ProviderParsers {
                 volume = (o.volume("volume") ?: parent?.volume("volume")),
                 title = o.text("title") ?: parent?.text("title"),
                 lang = (o.text("language") ?: o.text("lang"))?.lowercase(java.util.Locale.ROOT)?.substringBefore('-')?.takeIf { it.length in 2..3 },
-                group = o.text("scanlator") ?: o.text("group"),
+                group = o.text("scanlator") ?: o.text("group") ?: o.text("translator"),
                 releasedAtMs = o.epochMs("releaseDate") ?: o.epochMs("date"),
             )
         }
@@ -181,6 +177,22 @@ object ProviderParsers {
             if (sources != null) sources.forEach { s -> (s as? JsonObject)?.let { add(it, e) } } else add(e, null)
         }
         return out
+    }
+
+    /**
+     * The row array of a chapters answer. Envelopes nest: the PC server's progressive `{ chapters: <answer>, partial }` around a debug
+     * variant's `{ results, diagnostics }`, or the host's `{ result: [...] }`.
+     */
+    private fun routeRows(body: JsonElement?, depth: Int): JsonArray? = when {
+        body is JsonArray -> body
+        body is JsonObject && depth < 3 -> listOf("results", "chapters", "result", "data").firstNotNullOfOrNull { k ->
+            when (val v = body[k]) {
+                is JsonArray -> v
+                is JsonObject -> routeRows(v, depth + 1)
+                else -> null
+            }
+        }
+        else -> null
     }
 
     /** `manga/chapters` params for [query] (as desktop `fetch_ext`): `anilistId`, `malId`, `title` (the first one) and `titles`. */
@@ -203,6 +215,32 @@ object ProviderParsers {
                 put("providerChapterId", JsonPrimitive(chapterKey.substringAfter(':')))
             },
         )
+    }
+
+    /**
+     * BUG-100: a `novel/content` answer (desktop `tk_core::novel::parse_content`): `paragraphs` of `{ index, text }` objects (Toko) or
+     * strings, a bare array, or an `html` / `content` / `text` string (split by [paragraphsOf] when it has HTML tags). One [ChapterPage]
+     * per paragraph, its text in `url`, in `index` order; blank paragraphs are dropped.
+     */
+    fun novelContent(body: JsonElement?): List<ChapterPage> {
+        val o = (body as? JsonObject)?.let { (it["result"] as? JsonObject) ?: it }
+        val list = (o?.get("paragraphs") as? JsonArray) ?: (body as? JsonArray) ?: ((body as? JsonObject)?.get("result") as? JsonArray)
+        if (list != null) {
+            return list.mapIndexedNotNull { i, p ->
+                val (index, text) = when (p) {
+                    is JsonPrimitive -> i.toDouble() to (p.contentOrNull ?: "")
+                    is JsonObject -> (p.number("index") ?: i.toDouble()) to (p.text("text") ?: "")
+                    else -> return@mapIndexedNotNull null
+                }
+                val clean = if (text.contains('<')) paragraphsOf(text).joinToString(" ") else text.trim().replace(Regex("\\s+"), " ")
+                clean.takeIf { it.isNotEmpty() }?.let { index to it }
+            }.sortedBy { it.first }.mapIndexed { i, (_, t) -> ChapterPage(i, t) }
+        }
+        for (field in listOf("html", "content", "text")) {
+            val s = o?.text(field) ?: continue
+            return paragraphsOf(s).mapIndexed { i, t -> ChapterPage(i, t) }
+        }
+        return emptyList()
     }
 
     /** Blank-line separated paragraphs (single newlines kept inside a paragraph); HTML `<p>` tags are split too. */

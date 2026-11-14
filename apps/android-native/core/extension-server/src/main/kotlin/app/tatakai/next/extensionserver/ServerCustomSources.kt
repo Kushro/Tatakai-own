@@ -11,6 +11,7 @@ import app.tatakai.next.model.ExtensionHomeRow
 import app.tatakai.next.model.MANGA_ROUTE_SOURCE
 import app.tatakai.next.model.MangaRouteChapter
 import app.tatakai.next.model.MangaRouteQuery
+import app.tatakai.next.model.NOVEL_ROUTE_SOURCE
 import app.tatakai.next.model.ProviderItem
 import app.tatakai.next.model.StreamSource
 import kotlinx.coroutines.CancellationException
@@ -49,7 +50,7 @@ class ServerCustomSources(
 
     override fun owns(extensionId: String): Boolean = extensionId.startsWith(ServerCandidates.EXT_PREFIX)
 
-    override suspend fun customSources(): List<CustomSourceRef> = rows().filterNot { (_, src) -> isMangaRoute(src) }.map { (conn, src) ->
+    override suspend fun customSources(): List<CustomSourceRef> = rows().filterNot { (_, src) -> isMangaRoute(src) || isNovelRoute(src) }.map { (conn, src) ->
         CustomSourceRef(
             extensionId = extensionIdOf(conn, src),
             extensionName = "${src.name.ifBlank { src.extensionId }} · ${conn.name}",
@@ -168,9 +169,39 @@ class ServerCustomSources(
         return ProviderParsers.pages("read", body)
     }
 
-    private suspend fun resolveMangaRoute(extensionId: String): Pair<ExtensionServerConnection, ServerSource> {
+    // ---- BUG-100: route-based novels (`<ext>~novel` variants: `novel/chapters` / `novel/content`, ops `novelChapters` / `novelContent`)
+
+    override suspend fun novelRouteSources(): List<CustomSourceRef> = runCatchingNonCancel {
+        rows().filter { (_, src) -> isNovelRoute(src) }.map { (conn, src) ->
+            val ext = src.extensionId.ifBlank { src.id.substringAfter('/').substringBefore('~') }
+            CustomSourceRef(
+                extensionId = extensionIdOf(conn, src),
+                extensionName = "${src.name.substringBefore(" · ").ifBlank { ext }} · ${conn.name}",
+                sourceId = NOVEL_ROUTE_SOURCE,
+                kind = "novel",
+                name = src.name.ifBlank { src.id },
+            )
+        }
+    }.orEmpty()
+
+    override suspend fun novelRouteChapters(extensionId: String, query: MangaRouteQuery): List<MangaRouteChapter> {
+        val (conn, src) = resolveMangaRoute(extensionId, ::isNovelRoute)
+        val body = invokeFirst(conn, src.id, listOf("novelChapters"), ProviderParsers.mangaRouteParams(query))
+        return ProviderParsers.mangaRouteChapters(extensionId.substringAfterLast('/'), body)
+    }
+
+    override suspend fun novelRouteText(extensionId: String, chapterKey: String): List<ChapterPage> {
+        val (conn, src) = resolveMangaRoute(extensionId, ::isNovelRoute)
+        val body = invokeFirst(conn, src.id, listOf("novelContent"), ProviderParsers.mangaPagesParams(chapterKey))
+        return ProviderParsers.novelContent(body)
+    }
+
+    private suspend fun resolveMangaRoute(
+        extensionId: String,
+        isRoute: (ServerSource) -> Boolean = ::isMangaRoute,
+    ): Pair<ExtensionServerConnection, ServerSource> {
         fun find(list: List<Pair<ExtensionServerConnection, ServerSource>>) =
-            list.firstOrNull { (conn, src) -> isMangaRoute(src) && extensionIdOf(conn, src) == extensionId }
+            list.firstOrNull { (conn, src) -> isRoute(src) && extensionIdOf(conn, src) == extensionId }
         return find(rows()) ?: run {
             cached = null
             find(rows())
@@ -266,6 +297,9 @@ class ServerCustomSources(
          * tk-server): it reads through `manga/chapters` / `manga/pages` (`/invoke` ops `chapters` / `pages`), not `custom/search`.
          */
         fun isMangaRoute(src: ServerSource): Boolean = src.kind == "read" && src.id.endsWith("~read")
+
+        /** BUG-100: the `~novel` variant of a `.kai` with the novel capability (`novel/chapters` / `novel/content`). */
+        fun isNovelRoute(src: ServerSource): Boolean = src.kind == "novel" && src.id.endsWith("~novel")
 
         /** The server refused the op name itself (not the data): try the next spelling. */
         fun refusedOp(e: ExtensionServerException): Boolean =
