@@ -370,6 +370,17 @@ pub fn SourceRow(source: SourceVm, selected: bool, on_pick: EventHandler<String>
     }
 }
 
+/// Picker order: best score first; in Manual mode the earlier pick goes on top, preselected (plan §11.1).
+pub fn picker_order(sources: &[SourceVm], manual: bool) -> Vec<SourceVm> {
+    let mut ranked = sources.to_vec();
+    ranked.sort_by(|a, b| b.score.total_cmp(&a.score));
+    if manual && let Some(i) = ranked.iter().position(|s| s.picked) {
+        let picked = ranked.remove(i);
+        ranked.insert(0, picked);
+    }
+    ranked
+}
+
 /// All sources of an episode in a side sheet, already ranked (`sources[0]` is the recommended one).
 /// Render it always; it shows nothing while `open` is false. Picking calls `on_pick(id)`; the caller
 /// closes it. The checked row is the `picked` one (or the recommended one when nothing is picked).
@@ -393,8 +404,8 @@ pub fn SourcePicker(
     let f = filters();
     let kind = f.kind.map_or("all", |k| k.id()).to_string();
     let any_picked = sources.iter().any(|s| s.picked);
-    let mut ranked = sources.clone();
-    ranked.sort_by(|a, b| b.score.total_cmp(&a.score));
+    let manual = prefs.mode == SourceModeVm::Manual;
+    let ranked = picker_order(&sources, manual);
     let opts = FilterOptions::of(&ranked);
     let shown: Vec<SourceVm> = f.apply(&ranked);
     let active = f.active();
@@ -402,7 +413,6 @@ pub fn SourcePicker(
     let filters_open = show_filters();
     let filters_label = if active == 0 { t("src.filter.title") } else { tf("src.filter.title_n", &[("n", &active.to_string())]) };
     let count_text = tf("src.filter.count", &[("shown", &shown.len().to_string()), ("total", &ranked.len().to_string())]);
-    let manual = prefs.mode == SourceModeVm::Manual;
     let banner_text = if manual && !any_picked {
         t("src.choose_first")
     } else {
@@ -752,6 +762,18 @@ mod tests {
     }
 
     use crate::backend::ReleaseTagsVm;
+
+    #[test]
+    fn manual_picker_lists_the_earlier_pick_first() {
+        let mut a = vm("A", SourceKindVm::Web, "1080p", 0.9, ReleaseTagsVm::default());
+        a.score = 2.0;
+        let mut b = vm("B", SourceKindVm::Web, "720p", 0.9, ReleaseTagsVm::default());
+        b.score = 1.0;
+        b.picked = true;
+        let ids = |v: Vec<SourceVm>| v.into_iter().map(|s| s.label).collect::<Vec<_>>();
+        assert_eq!(ids(picker_order(&[b.clone(), a.clone()], false)), ["A", "B"]);
+        assert_eq!(ids(picker_order(&[a, b], true)), ["B", "A"]);
+    }
 
     fn vm(label: &str, kind: SourceKindVm, quality: &str, reliability: f32, tags: ReleaseTagsVm) -> SourceVm {
         SourceVm {

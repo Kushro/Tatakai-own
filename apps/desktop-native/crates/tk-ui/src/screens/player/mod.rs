@@ -74,6 +74,11 @@ use self::flow::{
 };
 use self::torrent::{SEEK_MARKS_EVERY, TorrentSession, TorrentSlot, end_torrent, take_batch_next, torrent_line};
 
+/// `(media id, episode, source id)` chosen in the Details picker right before opening the player: in Manual mode
+/// that source plays at once, while a pick only remembered from an earlier playback is preselected (plan §11.1,
+/// BUG-052). Taken (and cleared) when the player builds its source list.
+pub static CONFIRMED_PICK: GlobalSignal<Option<(String, u32, String)>> = Signal::global(|| None);
+
 /// Reports the hole's geometry: `[left, top, width, height, devicePixelRatio]` in CSS pixels.
 const RECT_JS: &str = r#"
 const el = document.getElementById('tk-video-hole');
@@ -405,7 +410,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 }
 
                 let mode = settings.sources.mode;
+                let confirmed_pick = CONFIRMED_PICK.write().take().filter(|(m, e, _)| *m == id && *e == episode).map(|(_, _, s)| s);
                 let batch = take_batch_next(&backend, &id, episode);
+                let confirmed = batch.is_some();
                 let listed = match batch {
                     // Next episode of a batch: the same torrent, no source resolution (docs/redesign/10 section 5.5).
                     Some(next) => {
@@ -419,7 +426,12 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 };
                 let state = match listed {
                     // A remembered pick that no longer meets the preferences is ignored and forgotten (audit bug).
-                    Ok(list) => FlowState::new(list, mode, &settings.sources),
+                    // In Manual mode only a pick confirmed for this playback plays by itself (plan §11.1).
+                    Ok(list) => {
+                        let confirmed = confirmed
+                            || confirmed_pick.as_ref().is_some_and(|sid| list.iter().any(|s| s.picked && &s.id == sid));
+                        FlowState::with_confirmed(list, mode, &settings.sources, confirmed)
+                    }
                     Err(e) if e.kind == ErrorKind::NotWired => match backend.playback(&id, episode).await {
                         Ok(vm) => {
                             let list = legacy_sources(&vm);

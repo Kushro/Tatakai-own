@@ -361,6 +361,8 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                 if let Err(e) = backend.set_picked_source(&id, ep, Some(&source_id)).await {
                     tracing::warn!(detail = %e.detail, "saving the picked source failed");
                 }
+                // Chosen right now: Manual mode plays it without asking again (BUG-052).
+                *crate::screens::player::CONFIRMED_PICK.write() = Some((id.clone(), ep, source_id));
                 navigator.push(Route::PlayerPage { id, episode: ep });
             });
         }

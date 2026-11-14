@@ -120,15 +120,27 @@ pub struct FlowState {
     /// The remembered pick that `new` ignored because it no longer meets the preferences ([`drop_stale_pick`]);
     /// the screen forgets it with `Backend::set_picked_source(None)`.
     pub dropped_pick: Option<String>,
+    /// The pick was confirmed for this playback (picked in the player, in the Details picker right before
+    /// opening the player, or the next episode of a batch): Manual plays it. A pick merely remembered from an
+    /// earlier playback is only preselected (plan §11.1, BUG-052).
+    confirmed: bool,
     started: bool,
 }
 
 impl FlowState {
     /// `prefs` = `Settings::sources`: a remembered pick that no longer meets them is ignored (and reported in
     /// [`FlowState::dropped_pick`]); the recommended source plays and the old pick stays in the list as an option.
-    pub fn new(mut sources: Vec<SourceVm>, mode: SourceModeVm, prefs: &SourcePrefsVm) -> Self {
+    ///
+    /// In Manual mode a remembered pick does not play by itself: the picker opens with it preselected (plan §11.1).
+    pub fn new(sources: Vec<SourceVm>, mode: SourceModeVm, prefs: &SourcePrefsVm) -> Self {
+        Self::with_confirmed(sources, mode, prefs, false)
+    }
+
+    /// Like [`FlowState::new`]; `confirmed` = the `picked` source was chosen for this very playback (Details
+    /// picker, next episode of a batch), so Manual mode plays it at once.
+    pub fn with_confirmed(mut sources: Vec<SourceVm>, mode: SourceModeVm, prefs: &SourcePrefsVm, confirmed: bool) -> Self {
         let dropped_pick = drop_stale_pick(&mut sources, prefs);
-        let mut s = Self { sources, mode, dropped_pick, ..Self::default() };
+        let mut s = Self { sources, mode, dropped_pick, confirmed, ..Self::default() };
         s.begin();
         s
     }
@@ -153,11 +165,14 @@ impl FlowState {
             self.stop(UiError::new(ErrorKind::NoSource, ""));
             return;
         }
-        if let Some(i) = self.sources.iter().position(|s| s.picked) {
+        let manual = self.mode == SourceModeVm::Manual && !self.legacy;
+        if let Some(i) = self.sources.iter().position(|s| s.picked)
+            && (!manual || self.confirmed)
+        {
             self.enter(i);
             return;
         }
-        if self.mode == SourceModeVm::Manual && !self.legacy {
+        if manual {
             self.phase = Phase::Manual;
             return;
         }
@@ -219,6 +234,7 @@ impl FlowState {
             s.picked = s.id == id;
         }
         self.failed.retain(|f| f.id != id);
+        self.confirmed = true;
         self.enter(i);
         true
     }
@@ -753,11 +769,27 @@ mod tests {
     }
 
     #[test]
-    fn manual_mode_with_a_saved_pick_uses_it_directly() {
+    fn manual_mode_with_a_remembered_pick_asks_with_it_preselected() {
+        // Plan §11.1 (BUG-052): Manual always asks; the remembered pick stays marked so the picker lists it first.
         let mut v = list();
         v[4].picked = true;
-        let f = FlowState::new(v, SourceModeVm::Manual, &any());
-        assert_eq!(f.to_resolve(), Some(4));
+        let mut f = FlowState::new(v.clone(), SourceModeVm::Manual, &any());
+        assert_eq!(f.phase, Phase::Manual);
+        assert_eq!(f.to_resolve(), None);
+        assert!(f.sources[4].picked);
+        // A pick confirmed for this playback (Details picker, batch) plays at once.
+        let f2 = FlowState::with_confirmed(v, SourceModeVm::Manual, &any(), true);
+        assert_eq!(f2.to_resolve(), Some(4));
+        // Once picked in the player, Retry replays it instead of asking again.
+        assert!(f.pick("anipro|web|Beta"));
+        f.fail(f.attempt, err());
+        assert_eq!(f.phase, Phase::Error);
+        f.retry();
+        assert_eq!(f.to_resolve(), Some(2));
+        // Auto still plays the remembered pick.
+        let mut v = list();
+        v[4].picked = true;
+        assert_eq!(FlowState::new(v, SourceModeVm::Auto, &any()).to_resolve(), Some(4));
     }
 
     #[test]
