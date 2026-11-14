@@ -7,6 +7,7 @@
     <string name="library_explore">Explore anime</string>
     <!-- android wave (docs/redesign/12 §4 c): prototype screens.js S.library + torrents tab (11 §3.1) -->
     <string name="library_title">Library</string>
+    <string name="library_local_short">Local</string>
     <string name="library_local">Local on this device</string>
     <string name="library_tab_continue">Continue</string>
     <string name="library_tab_history">History</string>

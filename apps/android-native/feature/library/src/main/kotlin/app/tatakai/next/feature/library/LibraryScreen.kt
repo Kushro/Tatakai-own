@@ -31,7 +31,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -202,7 +202,15 @@ private fun LibraryHeader(state: LibraryUiState, onSyncNow: () -> Unit) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.library_title), style = MaterialTheme.typography.headlineMedium)
-                Pill(stringResource(R.string.library_local), tone = PillTone.PRIMARY)
+                // BUG-084: "Local en este dispositivo" was cut to "Local en est…" beside the title on a phone; there it says "Local"
+                // and the full text is its description.
+                val localFull = stringResource(R.string.library_local)
+                val compact = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < COMPACT_WIDTH_DP
+                Pill(
+                    if (compact) stringResource(R.string.library_local_short) else localFull,
+                    modifier = Modifier.semantics { contentDescription = localFull },
+                    tone = PillTone.PRIMARY,
+                )
             }
             Text(
                 state.lastSyncedAt?.let { stringResource(R.string.library_synced_at, relativeTime(it)) }
@@ -225,7 +233,8 @@ private fun LibraryHeader(state: LibraryUiState, onSyncNow: () -> Unit) {
 
 @Composable
 private fun LibraryTabs(selected: LibraryTab, activeDownloads: Int, onSelect: (LibraryTab) -> Unit) {
-    PrimaryTabRow(selectedTabIndex = selected.ordinal) {
+    // BUG-084: seven fixed tabs got ~56 dp each in portrait and split letter by letter ("Con/tinu/ar"); they scroll instead.
+    PrimaryScrollableTabRow(selectedTabIndex = selected.ordinal, edgePadding = 16.dp) {
         LibraryTab.entries.forEach { t ->
             Tab(
                 selected = t == selected,
@@ -239,11 +248,11 @@ private fun LibraryTabs(selected: LibraryTab, activeDownloads: Int, onSelect: (L
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Text(stringResource(t.labelRes()))
+                            Text(stringResource(t.labelRes()), maxLines = 1, softWrap = false)
                             Badge { Text(activeDownloads.toString()) }
                         }
                     } else {
-                        Text(stringResource(t.labelRes()))
+                        Text(stringResource(t.labelRes()), maxLines = 1, softWrap = false)
                     }
                 },
             )
@@ -366,3 +375,6 @@ private fun relativeTime(epochMs: Long): String {
 private fun DelayedLoading() {
     if (rememberAfterDelay()) LoadingState()
 }
+
+/** BUG-084: below this width (a phone in portrait, ~393 dp) the header pill uses its short label. */
+private const val COMPACT_WIDTH_DP = 600
