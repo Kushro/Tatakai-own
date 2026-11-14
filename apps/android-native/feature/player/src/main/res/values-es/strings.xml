@@ -40,6 +40,7 @@
     </plurals>
     <string name="player_error_decoder">Este teléfono no pudo decodificar el video de esta fuente.</string>
     <string name="player_switched_to_mpv">Este teléfono no decodifica este video por hardware: sigue con libmpv (software) y puede ir lento</string>
+    <string name="player_switched_to_media3">libmpv no pudo abrir este stream: sigue con Media3, sin mejora de escalado</string>
     <string name="player_shader_lighter">Anime4K no llega a tiempo real en este teléfono: se pasó a una versión más liviana</string>
     <string name="player_shader_off_slow">Anime4K no llega a tiempo real en este teléfono: se desactivó para este video</string>
     <string name="player_shader_off_battery">Batería por debajo del 20 %: Anime4K queda desactivado hasta que el teléfono cargue</string>

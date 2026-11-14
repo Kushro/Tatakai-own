@@ -217,6 +217,17 @@ class MpvEngine(context: Context) {
         if (now) start()
     }
 
+    /**
+     * BUG-059: give up on the current load when it produced no frame yet: stop mpv (FFmpeg may otherwise keep waiting on an HLS
+     * rendition that has no segments) and report [reason] as the load's error. No-op once playback started.
+     */
+    fun failStart(reason: String) {
+        if (released || _state.value.started) return
+        lastError = reason
+        mpv.command(arrayOf("stop"))
+        _state.update { it.copy(error = reason, buffering = false, playing = false) }
+    }
+
     fun play() {
         if (released) return
         if (_state.value.ended) seekTo(0.0)

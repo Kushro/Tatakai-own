@@ -109,7 +109,7 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
         delay(
             when (notice) {
                 PlayerNotice.AssSimplified, is PlayerNotice.StoredSourceIgnored, PlayerNotice.PretranslateUnavailable, PlayerNotice.SwitchedToMpv,
-                PlayerNotice.LinkSessionRenewed -> 5_000
+                PlayerNotice.SwitchedToMedia3, PlayerNotice.LinkSessionRenewed -> 5_000
                 is PlayerNotice.ScreenshotSaved -> 4_000
                 else -> FLASH_MS
             },
@@ -135,6 +135,7 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
         }
         PlayerNotice.PretranslateUnavailable -> stringResource(R.string.player_pretranslate_unavailable)
         PlayerNotice.SwitchedToMpv -> stringResource(R.string.player_switched_to_mpv)
+        PlayerNotice.SwitchedToMedia3 -> stringResource(R.string.player_switched_to_media3)
         is PlayerNotice.ShaderChanged -> stringResource(
             when (notice.kind) {
                 ShaderFallback.LIGHTER -> R.string.player_shader_lighter

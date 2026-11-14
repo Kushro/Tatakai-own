@@ -2,7 +2,10 @@
 package app.tatakai.next.player
 
 import kotlin.test.Test
+import app.tatakai.next.model.Container
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class DecodeRecoveryTest {
     @Test
@@ -29,5 +32,23 @@ class DecodeRecoveryTest {
     fun otherErrorsAndMpvErrorsAreLeftToTheSourceFlow() {
         assertEquals(DecodeRecovery.NONE, decodeRecovery(2001, true, true, true, 0), "network errors are not decoder errors")
         assertEquals(DecodeRecovery.NONE, decodeRecovery(-1, false, true, false, 0))
+    }
+
+    @Test
+    fun anMpvStartTimeoutMovesTheSourceToMedia3Once() {
+        // BUG-059: the PC's anizone HLS (15 audio renditions, one without segments) never starts in libmpv.
+        assertTrue(switchToMedia3OnStall(MPV_START_TIMEOUT_CODE, onMpv = true, remote = false, triedMedia3 = false))
+        assertFalse(switchToMedia3OnStall(MPV_START_TIMEOUT_CODE, onMpv = true, remote = false, triedMedia3 = true), "only once per source")
+        assertFalse(switchToMedia3OnStall(MPV_START_TIMEOUT_CODE, onMpv = true, remote = true, triedMedia3 = false), "Link already uses Media3")
+        assertFalse(switchToMedia3OnStall(-1, onMpv = true, remote = false, triedMedia3 = false), "other mpv errors fail the source")
+        assertFalse(switchToMedia3OnStall(MPV_START_TIMEOUT_CODE, onMpv = false, remote = false, triedMedia3 = false))
+    }
+
+    @Test
+    fun torrentStreamsAreNotWatchedByTheStartTimeout() {
+        assertTrue(mpvStartWatched(Container.HLS, torrent = false))
+        assertTrue(mpvStartWatched(Container.MP4, torrent = false))
+        assertFalse(mpvStartWatched(Container.PROGRESSIVE, torrent = true))
+        assertFalse(mpvStartWatched(Container.MP4, torrent = true))
     }
 }

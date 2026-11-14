@@ -82,6 +82,7 @@ import app.tatakai.next.player.ShaderFallback
 import app.tatakai.next.player.PlaybackError
 import app.tatakai.next.player.decodesInHardware
 import app.tatakai.next.player.decodeRecovery
+import app.tatakai.next.player.switchToMedia3OnStall
 import app.tatakai.next.player.DeviceCodecs
 import app.tatakai.next.player.DecodeRecovery
 import kotlinx.coroutines.CancellationException
@@ -207,6 +208,9 @@ sealed interface PlayerNotice {
 
     /** BUG-020: Media3 could not decode this video; it plays with libmpv (software decoding, may be slow). */
     data object SwitchedToMpv : PlayerNotice
+
+    /** BUG-059: libmpv showed no frame of this stream in time; it plays with Media3 (no shader upscaling). */
+    data object SwitchedToMedia3 : PlayerNotice
 
     /** BUG-043 / BUG-006: libmpv changed the shader preset by itself (too slow, or low battery). */
     data class ShaderChanged(val kind: ShaderFallback) : PlayerNotice
@@ -370,6 +374,9 @@ class PlayerViewModel(
     private var shaderNoticeSeq = 0
     private var decodeRetries = 0
     private var decodeRetryKey: String? = null
+
+    /** BUG-059: URL of the source already moved from libmpv to Media3 (it is not moved twice). */
+    private var media3TriedFor: String? = null
     private var autoSkippedIntro = false
     private var nextDismissed = false
     private var assNoticeShown = false
@@ -860,6 +867,7 @@ class PlayerViewModel(
         if (err != null) {
             if (handledErrorLoad != st.loadId) {
                 handledErrorLoad = st.loadId
+                if (recoverMpvStall(err)) return
                 if (recoverDecode(err)) return
                 if (f != null && playbackInFlow()) {
                     if (playback != null) endTorrent(completed = false)
@@ -941,21 +949,38 @@ class PlayerViewModel(
         }
     }
 
+    /**
+     * BUG-059: libmpv gave up on a stream that showed no frame in time (an HLS master whose renditions are not all ready, seen with the
+     * PC's extension-server sources): the same source plays with Media3, which opens only the renditions it needs. Returns true when the
+     * error was handled here.
+     */
+    private fun recoverMpvStall(err: PlaybackError): Boolean {
+        val src = currentSource ?: return false
+        if (!switchToMedia3OnStall(err.code, engine == PlayerEngine.MPV, args.remoteSessionId != null, media3TriedFor == src.url)) return false
+        media3TriedFor = src.url
+        val position = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs.takeIf { it > 0 }
+        switchEngine(PlayerEngine.MEDIA3, src, position, PlayerNotice.SwitchedToMedia3)
+        return true
+    }
+
     /** Replaces the Media3 session with a libmpv one and reloads [src] at [positionMs] (BUG-020). */
-    private fun switchToMpv(src: PlayableSource, positionMs: Long?) {
+    private fun switchToMpv(src: PlayableSource, positionMs: Long?) = switchEngine(PlayerEngine.MPV, src, positionMs, PlayerNotice.SwitchedToMpv)
+
+    /** Replaces the session with one of [target] for the rest of this player (the setting is not changed) and reloads [src]. */
+    private fun switchEngine(target: PlayerEngine, src: PlayableSource, positionMs: Long?, notice: PlayerNotice) {
         sessionJob?.cancel()
         sessionJob = null
         session?.release()
         session = null
-        engine = PlayerEngine.MPV
+        engine = target
         // loadId is per session: the new one starts again from 1.
         loadsIssued = 0
         handledErrorLoad = 0
         handledStartLoad = 0
         secondaryDecidedLoad = -1
         shaderNoticeSeq = 0
-        _state.update { it.copy(engine = PlayerEngine.MPV, session = null) }
-        _notices.trySend(PlayerNotice.SwitchedToMpv)
+        _state.update { it.copy(engine = target, session = null) }
+        _notices.trySend(notice)
         loadIntoSession(src, startOverride = positionMs ?: args.startMs)
     }
 

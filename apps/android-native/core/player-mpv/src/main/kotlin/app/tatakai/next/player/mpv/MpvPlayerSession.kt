@@ -18,11 +18,14 @@ import app.tatakai.next.player.PlaybackState
 import app.tatakai.next.player.PlayerSession
 import app.tatakai.next.player.PlayerSessionFactory
 import app.tatakai.next.player.SessionTicker
+import app.tatakai.next.player.MPV_START_TIMEOUT_CODE
+import app.tatakai.next.player.MPV_START_TIMEOUT_MS
 import app.tatakai.next.player.ShaderFallback
 import app.tatakai.next.player.ShaderNotice
 import app.tatakai.next.player.SubtitleExtras
 import app.tatakai.next.player.SubtitleFonts
 import app.tatakai.next.player.SubtitleOption
+import app.tatakai.next.player.mpvStartWatched
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -75,6 +78,7 @@ class MpvPlayerSession(
     private val appContext = context.applicationContext
     private var noticeSeq = 0
     private var governorJob: Job? = null
+    private var startWatch: Job? = null
 
     private fun battery(): BatteryInfo? = runCatching {
         val intent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return@runCatching null
@@ -148,7 +152,7 @@ class MpvPlayerSession(
                     subtitleIsAss = subs.any { it.selected && it.ass },
                     audioTracks = m.audio.map { t -> AudioOption(t.id, t.title ?: t.lang ?: "#${t.id}", t.lang, t.selected) },
                     fullAss = true,
-                    error = m.error?.let { PlaybackError(-1, it, exhausted = true) },
+                    error = m.error?.let { PlaybackError(if (it == START_TIMEOUT) MPV_START_TIMEOUT_CODE else -1, it, exhausted = true) },
                     subText = m.subText,
                     subtitleDelayMs = m.subDelayMs,
                     loop = m.loop,
@@ -168,6 +172,21 @@ class MpvPlayerSession(
         ActivePlayback.publish(adapter)
         governor.reset()
         engine.load(source.url, source.headers, startMs.coerceAtLeast(0) / 1000.0, source.subtitles.map { it.url })
+        // BUG-059: a network stream that shows no frame in time is given up (the view-model moves it to Media3).
+        startWatch?.cancel()
+        startWatch = if (mpvStartWatched(source.container, source.torrent)) {
+            val loadId = engine.state.value.loadId
+            scope.launch {
+                delay(MPV_START_TIMEOUT_MS)
+                val m = engine.state.value
+                if (!released && m.loadId == loadId && !m.started && m.error == null) {
+                    android.util.Log.w("mpv", "no frame after ${MPV_START_TIMEOUT_MS / 1000} s: giving up on this load")
+                    engine.failStart(START_TIMEOUT)
+                }
+            }
+        } else {
+            null
+        }
     }
 
     override fun play() = engine.play()
@@ -240,6 +259,7 @@ class MpvPlayerSession(
         released = true
         ticker.stop()
         governorJob?.cancel()
+        startWatch?.cancel()
         mirror.cancel()
         if (ActivePlayback.player.value === adapter) ActivePlayback.publish(null)
         adapter.detach()
@@ -248,6 +268,9 @@ class MpvPlayerSession(
 }
 
 private const val BATTERY_CHECK_MS = 60_000L
+
+/** mpv error text of a load given up by the start watchdog (BUG-059). */
+private const val START_TIMEOUT = "start timeout"
 
 /** Koin-bound factory of mpv sessions (see `mpvPlayerModule`). [preset] is read at creation time. */
 @UnstableApi

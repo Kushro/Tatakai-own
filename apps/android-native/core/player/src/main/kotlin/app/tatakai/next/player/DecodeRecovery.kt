@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.player
 
+import app.tatakai.next.model.Container
+
 // BUG-020 / BUG-042 (plan §11.2): what the player does when the engine reports a decoder error, before the source counts as failed.
 // Pure, unit tested; the view-model applies it.
 
@@ -34,3 +36,25 @@ fun decodeRecovery(code: Int, onMedia3: Boolean, mpvAvailable: Boolean, hardware
 }
 
 const val MAX_SILENT_RETRIES = 1
+
+// BUG-059: libmpv (FFmpeg's HLS demuxer) opens every rendition of a master playlist before the first frame and waits for all of them. A
+// stream whose renditions are still being produced upstream (seen through the PC's extension-server proxy: 15 audio renditions, one
+// without segments for ~95 s) leaves mpv at "0:00 / --:--" forever, while Media3 picks one rendition and plays. The mpv session gives
+// up after [MPV_START_TIMEOUT_MS] with [MPV_START_TIMEOUT_CODE]; the view-model then plays the same source with Media3.
+
+/** [PlaybackError.code] of an mpv load that produced no frame within [MPV_START_TIMEOUT_MS]. */
+const val MPV_START_TIMEOUT_CODE = -2
+
+/** How long a network (non-torrent) stream may take in libmpv before its first frame. */
+const val MPV_START_TIMEOUT_MS = 25_000L
+
+/** Whether an mpv load of a source of [container] (a torrent loopback stream when [torrent]) is watched by [MPV_START_TIMEOUT_MS]. */
+fun mpvStartWatched(container: Container, torrent: Boolean): Boolean =
+    !torrent && container != Container.PROGRESSIVE
+
+/**
+ * Whether an mpv error moves the same source to Media3 (BUG-059): only the start timeout, outside a Link session (those already play in
+ * Media3), with Media3 not tried yet for this source.
+ */
+fun switchToMedia3OnStall(code: Int, onMpv: Boolean, remote: Boolean, triedMedia3: Boolean): Boolean =
+    onMpv && code == MPV_START_TIMEOUT_CODE && !remote && !triedMedia3
