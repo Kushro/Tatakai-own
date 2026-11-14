@@ -202,6 +202,20 @@ sealed interface PlayerNotice {
 
     /** BUG-020: Media3 could not decode this video; it plays with libmpv (software decoding, may be slow). */
     data object SwitchedToMpv : PlayerNotice
+    /** BUG-038: the PC had closed the Link session; a new one continues at the same position. */
+    data object LinkSessionRenewed : PlayerNotice
+}
+
+/** BUG-038 / BUG-026: why a Link (PC) playback stopped, for an error screen in words (no Media3 codes, no "Extensions"). */
+enum class RemoteFailure {
+    /** The PC did not answer (network cut, PC asleep): playback resumes by itself when the network returns. */
+    CONNECTION_LOST,
+
+    /** The PC closed the session and it cannot be recreated here (the PC sent it): send it again from the PC. */
+    SESSION_ENDED,
+
+    /** The PC answered with an error for a session it still has. */
+    PC_ERROR,
 }
 
 data class PlayerUiState(
@@ -236,6 +250,8 @@ data class PlayerUiState(
     val canPickSource: Boolean = false,
     /** Not a Link (remote) session: episode navigation is available. */
     val remoteless: Boolean = true,
+    /** BUG-038 / BUG-026: set with phase ERROR when a Link session failed. */
+    val remoteFailure: RemoteFailure? = null,
     // --- parity wave A (worker p) ---
     val hasPrevEpisode: Boolean = false,
     val sleep: SleepUi? = null,
@@ -327,6 +343,9 @@ class PlayerViewModel(
     private var playback: TorrentPlayback? = null
     private var meteredAccepted = false
     private var loadsIssued = 0
+    /** BUG-038: the Link session being played; a renewed session replaces [PlayerArgs.remoteSessionId]. */
+    private var remoteId: String? = args.remoteSessionId
+    private var remoteRecovery: Job? = null
     private var handledErrorLoad = 0
     private var handledStartLoad = 0
 
@@ -394,7 +413,7 @@ class PlayerViewModel(
 
     private fun start() {
         viewModelScope.launch {
-            val remoteId = args.remoteSessionId
+            val remoteId = this@PlayerViewModel.remoteId
             if (remoteId != null) {
                 val src = RemotePlayback.source(remote, remoteId, args.title)
                 if (src == null) {
@@ -781,7 +800,7 @@ class PlayerViewModel(
     private fun ensureSession(): PlayerSession {
         session?.let { return it }
         val factory: PlayerSessionFactory = if (engine == PlayerEngine.MPV) mpvFactory ?: media3 else media3
-        val s = factory.create(viewModelScope, listener(args.remoteSessionId), args.remoteSessionId != null)
+        val s = factory.create(viewModelScope, listener(), args.remoteSessionId != null)
         s.setSubtitleStyle(settings.subtitleStyle)
         prefs?.subtitleExtras?.value?.let { s.setSubtitleExtras(it) }
         s.setPreferredLanguages(settings.sourcePrefs.subLang, settings.sourcePrefs.dubLang)
@@ -820,6 +839,8 @@ class PlayerViewModel(
                 if (f != null && playbackInFlow()) {
                     if (playback != null) endTorrent(completed = false)
                     fail(f.attempt, FailKind.PLAYBACK, "${err.name} (${err.code})")
+                } else if (remoteId != null) {
+                    recoverRemote(auto = true)
                 } else {
                     _state.update { it.copy(phase = PlayerPhase.ERROR, error = AppError.Unknown(err.name)) }
                 }
@@ -915,11 +936,11 @@ class PlayerViewModel(
     /** The current load belongs to the source flow (not a direct torrent / local / remote load). */
     private fun playbackInFlow(): Boolean = flow?.phase.let { it == FlowPhase.BUFFERING || it == FlowPhase.PLAYING || it == FlowPhase.RESOLVING }
 
-    private fun listener(remoteId: String?) = object : PlaybackListener {
+    private fun listener() = object : PlaybackListener {
         override fun onProgress(positionMs: Long, durationMs: Long, force: Boolean) = recordProgress(positionMs, durationMs, force)
 
         override fun onHeartbeat(positionMs: Long, paused: Boolean) {
-            val id = remoteId ?: return
+            val id = remoteId ?: return // read on every beat: a renewed session (BUG-038) takes over
             detached.launch { remote.heartbeat(id, positionMs / 1000.0, paused) }
         }
     }
@@ -996,9 +1017,52 @@ class PlayerViewModel(
         if (web != null) pickSource(web.key) else fail(f.attempt, FailKind.METERED_DECLINED, "metered")
     }
 
+    /**
+     * BUG-038: a Link session failed (or Retry on it). The PC is asked whether the session still exists: gone + started by this
+     * phone -> a NEW session with the same source and profile at the current position; gone + sent by the PC -> "send it again";
+     * alive -> reload it (auto: show the error, Retry reloads); PC unreachable -> "connection lost" (resumes when the network returns).
+     */
+    private fun recoverRemote(auto: Boolean) {
+        val id = remoteId ?: return
+        if (remoteRecovery?.isActive == true) return
+        remoteRecovery = viewModelScope.launch {
+            val positionMs = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs
+            when (remote.sessionAlive(id)) {
+                false -> if (remote.canRenew(id)) {
+                    _state.update { it.copy(phase = PlayerPhase.BUFFERING, error = null, remoteFailure = null) }
+                    remote.renew(id, positionMs / 1000.0).fold(
+                        onSuccess = { renewed ->
+                            remoteId = renewed.sessionId
+                            val src = RemotePlayback.source(remote, renewed.sessionId, args.title)
+                            if (src == null) {
+                                _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
+                            } else {
+                                _notices.trySend(PlayerNotice.LinkSessionRenewed)
+                                loadIntoSession(src, startOverride = positionMs)
+                            }
+                        },
+                        onFailure = { e -> remoteError(RemoteFailure.PC_ERROR, e.asAppError()) },
+                    )
+                } else {
+                    remoteError(RemoteFailure.SESSION_ENDED, null)
+                }
+                true -> if (auto) remoteError(RemoteFailure.PC_ERROR, null) else start()
+                null -> if (auto) remoteError(RemoteFailure.CONNECTION_LOST, AppError.Offline) else start()
+            }
+        }
+    }
+
+    private fun remoteError(kind: RemoteFailure, error: AppError?) {
+        _state.update { it.copy(phase = PlayerPhase.ERROR, error = error, remoteFailure = kind) }
+    }
+
     fun retry() {
         val f = flow
-        _state.update { it.copy(error = null, noFileTorrentId = null) }
+        _state.update { it.copy(error = null, noFileTorrentId = null, remoteFailure = null) }
+        if (remoteId != null && f == null) {
+            recoverRemote(auto = false)
+            return
+        }
         if (f != null) {
             f.retry()
             advance()
@@ -1422,7 +1486,7 @@ class PlayerViewModel(
         session = null
         val completed = lastDurationMs > 0 && lastPositionMs >= lastDurationMs * COMPLETED_FRACTION
         endTorrent(completed)
-        args.remoteSessionId?.let { id -> detached.launch { link.stop(id) } }
+        remoteId?.let { id -> detached.launch { link.stop(id) } }
     }
 
     private fun Throwable.asAppError(): AppError = (this as? AppException)?.error ?: AppError.Unknown(message ?: javaClass.simpleName)

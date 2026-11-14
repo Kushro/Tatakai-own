@@ -49,6 +49,22 @@ interface RemotePlaybackAccess {
 
     /** `POST /v1/sessions/{id}/position` (call every `heartbeatIntervalSecs`, 4 s). */
     suspend fun heartbeat(sessionId: String, positionSecs: Double, paused: Boolean): Result<Unit>
+
+    /**
+     * BUG-038: `GET /v1/sessions/{id}`: true while the PC still has the session, false once it closed it (`session_gone` /
+     * `session_not_found`, e.g. 120 s without heartbeat), null when the PC cannot be asked (offline, other error).
+     */
+    suspend fun sessionAlive(sessionId: String): Boolean? = null
+
+    /** Whether [renew] can recreate [sessionId]: this phone started it, so it knows its source and profile (not a PC hand-off). */
+    fun canRenew(sessionId: String): Boolean = false
+
+    /**
+     * BUG-038 / BUG-022: a NEW session with the source of [sessionId], starting at [startSecs], with [profileId] (null = the
+     * profile [sessionId] used). The old one is closed (best effort) and forgotten.
+     */
+    suspend fun renew(sessionId: String, startSecs: Double, profileId: String? = null): Result<RemoteSession> =
+        Result.failure(UnsupportedOperationException("renew"))
 }
 
 /**
@@ -104,6 +120,11 @@ class LinkRepositoryImpl(
 
     @Volatile private var connection: Connection? = null
     private val sessions = ConcurrentHashMap<String, RemoteSession>()
+
+    /** Source and profile of the sessions this phone started ([renew]); PC hand-offs have none. */
+    private data class Origin(val source: SessionSource, val profile: String?)
+
+    private val origins = ConcurrentHashMap<String, Origin>()
 
     // ------------------------------------------------------------------ parity wave B: discovery, remote control, hand-off, events
 
@@ -209,6 +230,7 @@ class LinkRepositoryImpl(
                 lastSeenPersistedMs = now
                 _linkedDevice.value = readLinkedDevice()
                 sessions.clear()
+                origins.clear()
                 connection = null
                 _state.value = LinkState.Paired(stored.toPc(), reachable = true)
                 Result.success(stored.toPc())
@@ -248,7 +270,11 @@ class LinkRepositoryImpl(
             is LinkSource.Url -> SessionSource.Url(source.url, source.headers)
         }
         // android wave: the profile chosen on the Linked screen applies when the caller has no explicit one
-        c.createSession(wire, profileId ?: _linkedDevice.value?.preferredProfile).map { dto ->
+        create(c, wire, profileId ?: _linkedDevice.value?.preferredProfile, startSecs = null)
+    }
+
+    private suspend fun create(c: LinkClient, wire: SessionSource, profile: String?, startSecs: Double?): LinkResult<RemoteSession> =
+        c.createSession(wire, profile, startSecs = startSecs).map { dto ->
             RemoteSession(
                 sessionId = dto.sessionId,
                 generation = dto.generation,
@@ -256,12 +282,40 @@ class LinkRepositoryImpl(
                 durationSecs = dto.durationSecs,
                 heartbeatIntervalSecs = dto.heartbeatIntervalSecs,
                 idleTimeoutSecs = dto.idleTimeoutSecs,
-            ).also { sessions[it.sessionId] = it }
+            ).also {
+                sessions[it.sessionId] = it
+                origins[it.sessionId] = Origin(wire, profile)
+            }
         }
+
+    override suspend fun sessionAlive(sessionId: String): Boolean? = withContext(io) {
+        val c = connectionOrNull()?.client ?: return@withContext null
+        when (val r = c.sessionState(sessionId)) {
+            is LinkResult.Ok -> true
+            is LinkResult.Failure -> {
+                val e = r.error
+                if (e is LinkError.Api && (e.error == LinkApiError.SessionGone || e.error == LinkApiError.SessionNotFound)) false else null
+            }
+        }
+    }
+
+    override fun canRenew(sessionId: String): Boolean = origins.containsKey(sessionId)
+
+    override suspend fun renew(sessionId: String, startSecs: Double, profileId: String?): Result<RemoteSession> {
+        val origin = origins[sessionId] ?: return Result.failure(LinkError.Api(LinkApiError.SessionGone).toAppException())
+        val result = call { c -> create(c, origin.source, profileId ?: origin.profile, startSecs.coerceAtLeast(0.0)) }
+        if (result.isSuccess) {
+            sessions.remove(sessionId)
+            origins.remove(sessionId)
+            // the PC already replaced it (one session per device); the DELETE only matters if it did not
+            connectionOrNull()?.client?.let { c -> withContext(io) { c.deleteSession(sessionId) } }
+        }
+        return result
     }
 
     override suspend fun stop(sessionId: String) {
         sessions.remove(sessionId)
+        origins.remove(sessionId)
         val c = connectionOrNull()?.client ?: return
         withContext(io) { c.deleteSession(sessionId) } // best effort: the PC closes idle sessions after 120 s anyway
     }
@@ -275,6 +329,7 @@ class LinkRepositoryImpl(
                 c.forgetSelf() // best effort; if the PC is offline the certificate stays valid there until revoked in its UI
             }
             sessions.clear()
+            origins.clear()
             connection?.http?.connectionPool?.evictAll()
             connection = null
             vault.clear()

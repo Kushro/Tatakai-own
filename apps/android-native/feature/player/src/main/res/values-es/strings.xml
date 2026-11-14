@@ -48,6 +48,11 @@
     <string name="player_fail_metered">omitida con datos móviles</string>
     <string name="player_fail_resolve">la extensión no dio un stream reproducible</string>
     <string name="player_use_web">Usar la mejor fuente web</string>
+    <string name="player_link_lost_title">Se perdió la conexión con tu PC</string>
+    <string name="player_link_lost">La reproducción seguirá sola cuando vuelva la red. También puedes tocar Reintentar.</string>
+    <string name="player_link_ended">La PC cerró esta sesión porque estuvo un rato sin conexión. Vuelve a enviar el episodio desde la PC.</string>
+    <string name="player_link_pc_error">Tu PC no pudo seguir con esta sesión. Toca Reintentar para abrirla de nuevo.</string>
+    <string name="player_link_renewed">La sesión con tu PC había vencido: se abrió una nueva en el mismo punto.</string>
     <string name="player_go_extensions">Ir a Extensiones</string>
     <string name="player_open_linked">Dispositivo enlazado</string>
     <string name="player_no_sources_title">No hay fuentes para este episodio</string>

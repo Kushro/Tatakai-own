@@ -107,7 +107,8 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
     LaunchedEffect(notice) {
         delay(
             when (notice) {
-                PlayerNotice.AssSimplified, is PlayerNotice.StoredSourceIgnored, PlayerNotice.PretranslateUnavailable, PlayerNotice.SwitchedToMpv -> 5_000
+                PlayerNotice.AssSimplified, is PlayerNotice.StoredSourceIgnored, PlayerNotice.PretranslateUnavailable, PlayerNotice.SwitchedToMpv,
+                PlayerNotice.LinkSessionRenewed -> 5_000
                 is PlayerNotice.ScreenshotSaved -> 4_000
                 else -> FLASH_MS
             },
@@ -133,6 +134,7 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
         }
         PlayerNotice.PretranslateUnavailable -> stringResource(R.string.player_pretranslate_unavailable)
         PlayerNotice.SwitchedToMpv -> stringResource(R.string.player_switched_to_mpv)
+        PlayerNotice.LinkSessionRenewed -> stringResource(R.string.player_link_renewed)
     }
     val scheme = MaterialTheme.colorScheme
     Surface(modifier.widthIn(max = 560.dp).padding(horizontal = 16.dp), shape = RoundedCornerShape(50), color = scheme.inverseSurface, contentColor = scheme.inverseOnSurface) {
@@ -229,8 +231,18 @@ internal fun PlaybackErrorView(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = scheme.error, modifier = Modifier.size(56.dp))
-        Text(stringResource(R.string.player_error_title), style = MaterialTheme.typography.titleLarge, color = scheme.onBackground)
+        val remote = state.remoteFailure
+        Text(
+            stringResource(if (remote == RemoteFailure.CONNECTION_LOST) R.string.player_link_lost_title else R.string.player_error_title),
+            style = MaterialTheme.typography.titleLarge,
+            color = scheme.onBackground,
+        )
         val cause = when {
+            // BUG-026 / BUG-038: a Link session explains itself in words (no Media3 code)
+            remote == RemoteFailure.CONNECTION_LOST -> stringResource(R.string.player_link_lost)
+            remote == RemoteFailure.SESSION_ENDED -> stringResource(R.string.player_link_ended)
+            remote == RemoteFailure.PC_ERROR -> stringResource(R.string.player_link_pc_error)
+            !state.remoteless -> stringResource(R.string.player_link_pc_error)
             noFile != null -> stringResource(R.string.player_torrent_no_file_cause)
             state.failed.isEmpty() && state.error != null -> state.error.userMessage()
             // BUG-020: never "no other source" while the list still has sources to try.
@@ -269,7 +281,8 @@ internal fun PlaybackErrorView(
         if (noFile != null) {
             FilledTonalButton(onClick = { onOpenTorrent(noFile) }) { Text(stringResource(R.string.player_torrent_pick_file)) }
         }
-        TextButton(onClick = onOpenExtensions) { Text(stringResource(R.string.player_go_extensions)) }
+        // Extensions play no part in a Link session (BUG-026)
+        if (state.remoteless) TextButton(onClick = onOpenExtensions) { Text(stringResource(R.string.player_go_extensions)) }
     }
 }
 

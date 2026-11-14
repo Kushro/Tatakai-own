@@ -47,6 +47,11 @@
     <string name="player_fail_metered">skipped on mobile data</string>
     <string name="player_fail_resolve">the extension gave no playable stream</string>
     <string name="player_use_web">Use the best web source</string>
+    <string name="player_link_lost_title">Lost the connection to your PC</string>
+    <string name="player_link_lost">Playback continues by itself when the network is back. You can also tap Retry.</string>
+    <string name="player_link_ended">The PC closed this session after a while without connection. Send the episode again from the PC.</string>
+    <string name="player_link_pc_error">Your PC could not continue this session. Tap Retry to open it again.</string>
+    <string name="player_link_renewed">The session with your PC had expired: a new one opened at the same point.</string>
     <string name="player_go_extensions">Go to Extensions</string>
     <string name="player_open_linked">Linked device</string>
     <string name="player_no_sources_title">No sources for this episode</string>
