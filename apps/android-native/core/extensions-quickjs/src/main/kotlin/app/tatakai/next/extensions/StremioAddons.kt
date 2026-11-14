@@ -223,7 +223,7 @@ object StremioWire {
                         quality = if (quality == Quality.UNKNOWN) tags.resolution else quality,
                         reliability = INITIAL_RELIABILITY,
                         note = fileIdx?.let { "file $it" },
-                        torrent = TorrentInfo(infoHash = infoHash, seeders = SEEDERS.find(titleText)?.groupValues?.get(1)?.toIntOrNull() ?: 0, magnet = magnet),
+                        torrent = TorrentInfo(infoHash = infoHash, seeders = SEEDERS.find(titleText)?.groupValues?.get(1)?.toIntOrNull(), magnet = magnet),
                         tags = tags,
                     )
                 }

@@ -193,6 +193,33 @@ class CandidatesTest {
     }
 
     @Test
+    fun theSameReleaseFromTwoIndexesIsOneRowWithTheKnownCounts() {
+        // BUG-030 (port of desktop 9a490efa): Toko lists SubsPlease releases from its subplease feed (no seeders) and from nyaa.
+        val magnet = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=%5BSubsPlease%5D%20Show%20-%2006%20%281080p%29.mkv"
+        val c = Candidates.mapCandidates(
+            "toko",
+            "Toko",
+            body(
+                """{"sources":[
+                {"source":"subplease","sourceType":"torrent","torrentTitle":"Show - 06","url":"$magnet"},
+                {"source":"nyaa","sourceType":"torrent","torrentTitle":"[SubsPlease] Show - 06 (1080p) [AB].mkv","url":"$magnet",
+                 "seeders":212,"leechers":7,"fileSize":"1.3 GiB"}
+                ]}""",
+            ),
+        )
+        assertEquals(1, c.size)
+        val t = c[0].torrent!!
+        assertEquals(212, t.seeders)
+        assertEquals(7, t.leechers)
+        assertTrue(t.sizeBytes != null)
+        // Alone, SubsPlease's feed entry has unknown seeders, not 0.
+        val alone = Candidates.mapCandidates(
+            "toko", "Toko", body("""{"sources":[{"source":"subplease","sourceType":"torrent","torrentTitle":"Show - 06","url":"$magnet"}]}"""),
+        )
+        assertEquals(null, alone[0].torrent!!.seeders)
+    }
+
+    @Test
     fun repeatedLabelsGetUniqueKeys() {
         val labels = Candidates.mapCandidates(
             "e", "E",

@@ -77,8 +77,10 @@ class SourceRankingTest {
 
     @Test
     fun preferWeb() {
+        // BUG-029 (same as desktop tests/sources_ranking.rs): Ok.ru's only audio is ES for a JA-audio user, - FOREIGN_DUB_PENALTY (73.8 ->
+        // 58.8), so it moves below the torrents.
         assertEquals(
-            listOf("Alpha", "Beta", "Streamwish", "Zulu", "Ok.ru", "Erai-raws", "Varyg", "SubsPlease", "Judas", "Fembed", "Anon-uploader"),
+            listOf("Alpha", "Beta", "Streamwish", "Zulu", "Erai-raws", "Varyg", "SubsPlease", "Ok.ru", "Judas", "Fembed", "Anon-uploader"),
             order(SourcePrefs(prefer = SourceKind.WEB)),
         )
     }
@@ -119,6 +121,37 @@ class SourceRankingTest {
         assertTrue(abs(score(slow, prefs, true) - 58f) < 1e-4f) // capped at 1000 ms
         val order = rank(listOf(slow, slow.copy(label = "Beta"), slow.copy(label = "Gamma")), prefs) { true }.map { it.first.label }
         assertEquals(listOf("Alpha", "Beta", "Gamma"), order)
+    }
+
+    private fun torrent(seeders: Int?) = web().copy(
+        kind = SourceKind.TORRENT,
+        web = null,
+        subs = emptyList(),
+        torrent = TorrentInfo(infoHash = "ab".repeat(20), seeders = seeders),
+    )
+
+    @Test
+    fun unknownSeedersAreNotPenalizedLikeZero() {
+        // BUG-030: SubsPlease's feed has no seeder counts.
+        val prefs = SourcePrefs()
+        val unknown = score(torrent(null), prefs, true)
+        assertTrue(abs(score(torrent(0), prefs, true) - (unknown - 20f)) < 1e-4f)
+        assertTrue(unknown > score(torrent(19), prefs, true))
+    }
+
+    @Test
+    fun aForeignDubPackRanksBelowAPreferredAudioSingle() {
+        // BUG-029: aniliberty "Pack 1-7 · Doblaje: RU" (reliability 92 %) above nyaa singles with JA audio.
+        val prefs = SourcePrefs() // audio ja
+        val pack = torrent(60).let { it.copy(reliability = 0.92f, dubs = listOf("ru"), tags = it.tags.copy(batch = true)) }
+        val single = torrent(41).copy(reliability = 0.8f, dubs = listOf("ja"))
+        assertTrue(score(single, prefs, true) > score(pack, prefs, true))
+        // Dual audio with another language is not "foreign only".
+        val dual = torrent(41).let { it.copy(dubs = listOf("en"), tags = it.tags.copy(dualAudio = true)) }
+        assertTrue(abs(score(dual, prefs, true) - score(torrent(41), prefs, true)) < 1e-4f)
+        // A pack loses only BATCH_PENALTY against the same single.
+        val batch = torrent(41).let { it.copy(tags = it.tags.copy(batch = true)) }
+        assertTrue(abs(score(torrent(41), prefs, true) - score(batch, prefs, true) - BATCH_PENALTY) < 1e-4f)
     }
 
     @Test

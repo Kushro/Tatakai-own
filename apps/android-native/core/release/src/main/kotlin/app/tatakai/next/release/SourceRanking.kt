@@ -30,9 +30,19 @@ const val DEBRID_CACHED_BONUS: Float = 10f
 const val EMBED_PENALTY: Float = 15f
 
 /**
+ * QA round 1, BUG-029 (port of desktop 7ea82a73): taken off a source whose only audio is not the preferred one (and not dual audio), so it
+ * ranks below any release with the preferred audio of similar quality.
+ */
+const val FOREIGN_DUB_PENALTY: Float = 15f
+
+/** BUG-029: taken off a torrent season pack (`tags.batch`): close singles win, a well-seeded pack still beats a dead single. */
+const val BATCH_PENALTY: Float = 5f
+
+/**
  * `reliability*50 ± 20 (preferred kind) + 6*min(rank,3) − 25 if below minQuality + 10 (subLang in subs) + 6 (dubLang in dubs)
- * + torrent: min(seeders,500)/50 − 20 if seeders < 20 + SEADEX_BEST_BONUS if tags.seadexBest | web: −min(latency,1000)/100
- * − 1000 when the extension is disabled`. Desktop has NO batch bonus (score does not get the episode); neither does this port.
+ * − FOREIGN_DUB_PENALTY if the only audio is another language (not dual audio)
+ * + torrent: min(seeders,500)/50 − 20 if seeders < 20 (known seeders only) + SEADEX_BEST_BONUS if tags.seadexBest − BATCH_PENALTY if
+ * tags.batch | web: −min(latency,1000)/100 − 1000 when the extension is disabled`.
  */
 fun score(c: SourceCandidate, prefs: SourcePrefs, extEnabled: Boolean): Float {
     var v = c.reliability * 50f
@@ -43,17 +53,28 @@ fun score(c: SourceCandidate, prefs: SourcePrefs, extEnabled: Boolean): Float {
     v += minOf(q, 3).toFloat() * 6f
     if (q < prefs.minQuality.rank()) v -= 25f
     if (c.subs.any { it == prefs.subLang }) v += 10f
-    if (c.dubs.any { it == prefs.dubLang }) v += 6f
+    if (c.dubs.any { it == prefs.dubLang }) {
+        v += 6f
+    } else if (c.dubs.isNotEmpty() && !c.tags.dualAudio) {
+        // Only other audio (aniliberty's Russian-dubbed packs for a JA-audio user, BUG-029).
+        v -= FOREIGN_DUB_PENALTY
+    }
     when (c.kind) {
         SourceKind.TORRENT -> {
             if (debridCached) {
                 v += DEBRID_CACHED_BONUS
             } else {
-                val seeders = c.torrent?.seeders ?: 0
-                v += minOf(seeders, 500).toFloat() / 50f
-                if (seeders < 20) v -= 20f
+                // Unknown seeders (the index does not report them) are neither a bonus nor the "< 20" penalty: SubsPlease's own feed has
+                // none and its releases are the best seeded (BUG-030).
+                val seeders = c.torrent?.seeders
+                if (seeders != null) {
+                    v += minOf(seeders, 500).toFloat() / 50f
+                    if (seeders < 20) v -= 20f
+                }
             }
             if (c.tags.seadexBest) v += SEADEX_BEST_BONUS
+            // A season pack downloads (and must index) every episode to play one: the single release wins a close call (BUG-029).
+            if (c.tags.batch) v -= BATCH_PENALTY
         }
         SourceKind.WEB -> {
             // not measured yet = no penalty

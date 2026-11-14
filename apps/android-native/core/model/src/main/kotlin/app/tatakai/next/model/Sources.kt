@@ -67,7 +67,8 @@ data class TorrentInfo(
     /** Hex v1 info-hash (40 chars, lowercase). */
     val infoHash: String,
     val sizeBytes: Long? = null,
-    val seeders: Int = 0,
+    /** Null when the index does not say (SubsPlease's own feed): shown as unknown and not penalized (BUG-030, same as desktop). */
+    val seeders: Int? = null,
     val leechers: Int = 0,
     val magnet: String? = null,
 )

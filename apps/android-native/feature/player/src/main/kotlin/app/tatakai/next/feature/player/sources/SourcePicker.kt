@@ -466,7 +466,8 @@ private fun Facts(source: RankedSource) {
         facts += stringResource(R.string.src_picker_group) to c.label
         c.torrent?.sizeBytes?.let { facts += stringResource(R.string.src_picker_size) to formatBytes(it) }
         c.torrent?.let {
-            facts += stringResource(R.string.src_picker_seeders) to it.seeders.toString()
+            // Unknown seeders (SubsPlease's feed, BUG-030) omit the row instead of claiming 0.
+            it.seeders?.let { n -> facts += stringResource(R.string.src_picker_seeders) to n.toString() }
             facts += stringResource(R.string.src_picker_leechers) to it.leechers.toString()
         }
     }

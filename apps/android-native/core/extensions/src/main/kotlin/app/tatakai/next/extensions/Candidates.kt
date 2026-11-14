@@ -15,6 +15,7 @@ import app.tatakai.next.release.langCodes
 import app.tatakai.next.release.parseRelease
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -69,6 +70,23 @@ object Candidates {
         for (el in list) {
             val s = el as? JsonObject ?: continue
             var c = mapOne(extId, extName, s) ?: continue
+            // BUG-030 (port of desktop 9a490efa): the same release from two indexes (SubsPlease's feed and nyaa) is one row, with the
+            // counts the other entry knew (SubsPlease's feed has no seeders).
+            val t = c.torrent
+            val dup = t?.let { out.indexOfFirst { o -> o.torrent?.infoHash == it.infoHash } } ?: -1
+            if (t != null && dup >= 0) {
+                val prev = out[dup]
+                val p = prev.torrent!!
+                out[dup] = prev.copy(
+                    torrent = p.copy(
+                        seeders = listOfNotNull(p.seeders, t.seeders).maxOrNull(),
+                        leechers = maxOf(p.leechers, t.leechers),
+                        sizeBytes = p.sizeBytes ?: t.sizeBytes,
+                        magnet = p.magnet ?: t.magnet,
+                    ),
+                )
+                continue
+            }
             if (taken(out, c.kind, c.label)) {
                 val q = c.quality.label()
                 val withQ = "${c.label} $q"
@@ -119,7 +137,7 @@ object Candidates {
             val torrent = TorrentInfo(
                 infoHash = infoHash,
                 sizeBytes = sizeOf(s["sizeBytes"]) ?: sizeOf(s["fileSize"]) ?: sizeOf(s["size"]),
-                seeders = count(s["seeders"]),
+                seeders = s["seeders"]?.takeIf { it is JsonPrimitive && it !is JsonNull }?.let(::count), // absent / null = unknown (BUG-030)
                 leechers = count(s["leechers"]),
                 magnet = magnet,
             )
