@@ -1516,6 +1516,16 @@ mod tests {
     }
 
     #[test]
+    fn the_sending_title_wraps_instead_of_cutting_the_device_name() {
+        // BUG-116: "Enviando a moto g51 5G…" beside "Cancelar" in the 360 px side column: two lines, never an ellipsis
+        let css = include_str!("../../assets/css/details.css");
+        let rule = css.lines().find(|l| l.starts_with(".tk-details__sending-title {")).expect("sending title rule");
+        assert!(!rule.contains("nowrap") && !rule.contains("ellipsis"), "{rule}");
+        assert!(rule.contains("-webkit-line-clamp: 2") && rule.contains("white-space: normal"), "{rule}");
+        assert!(css.contains(".tk-details__sending > .tk-btn { flex: none; }"));
+    }
+
+    #[test]
     fn pills_skip_watched_on_the_resume_episode() {
         assert_eq!(episode_pills(&ep(3, 1.0, true), 5, false), vec![("details.filler", Tone::Warn), ("details.watched", Tone::Ok)]);
         assert!(episode_pills(&ep(5, 1.0, false), 5, false).is_empty());

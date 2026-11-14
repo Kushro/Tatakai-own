@@ -164,6 +164,8 @@ button.tk-drelated__row:hover { background: var(--md-sys-color-surface-container
 .tk-details__sending { display: flex; align-items: center; gap: var(--tk-space-12); padding: var(--tk-space-8); border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-high); }
 .tk-details__sending > .tk-loading { flex: none; }
 .tk-details__sending-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.tk-details__sending-title { font-size: var(--md-sys-typescale-title-small-size); font-weight: var(--md-sys-typescale-title-small-weight-emphasized); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* BUG-116: up to two lines, so the device name ("Enviando a moto g51 5G…") is never cut beside "Cancelar" */
+.tk-details__sending-title { font-size: var(--md-sys-typescale-title-small-size); font-weight: var(--md-sys-typescale-title-small-weight-emphasized); white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.tk-details__sending > .tk-btn { flex: none; }
 .tk-drel:disabled { opacity: .6; cursor: default; }
 .tk-drel:disabled:hover { background: transparent; }
