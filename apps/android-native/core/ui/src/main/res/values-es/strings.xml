@@ -105,4 +105,24 @@
     <string name="download_state_broken">Archivo roto</string>
     <string name="nav_profile">Perfil</string>
     <string name="src_embed">Embed</string>
+    <!-- BUG-072: AniList genres, same words as the desktop (search.genre.*) -->
+    <string name="genre_action">Acción</string>
+    <string name="genre_adventure">Aventura</string>
+    <string name="genre_comedy">Comedia</string>
+    <string name="genre_drama">Drama</string>
+    <string name="genre_ecchi">Ecchi</string>
+    <string name="genre_fantasy">Fantasía</string>
+    <string name="genre_horror">Terror</string>
+    <string name="genre_mahou_shoujo">Chicas mágicas</string>
+    <string name="genre_mecha">Mecha</string>
+    <string name="genre_music">Música</string>
+    <string name="genre_mystery">Misterio</string>
+    <string name="genre_psychological">Psicológico</string>
+    <string name="genre_romance">Romance</string>
+    <string name="genre_sci_fi">Ciencia ficción</string>
+    <string name="genre_slice_of_life">Recuentos de la vida</string>
+    <string name="genre_sports">Deportes</string>
+    <string name="genre_supernatural">Sobrenatural</string>
+    <string name="genre_thriller">Suspense</string>
+    <string name="genre_hentai">Hentai</string>
 </resources>

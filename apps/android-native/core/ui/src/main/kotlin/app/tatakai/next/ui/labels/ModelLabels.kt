@@ -102,3 +102,34 @@ fun ChapterKind.labelRes(): Int = when (this) {
     ChapterKind.MANGA -> R.string.chapter_kind_manga
     ChapterKind.NOVEL -> R.string.chapter_kind_novel
 }
+
+/**
+ * BUG-072 (UX-13): an AniList genre ("Action", "Sci-Fi", "Slice of Life") as a string resource, with the desktop's words
+ * (`tk-ui` i18n `search.genre.*`); null for a genre without a translation (shown as AniList sends it).
+ */
+fun genreLabelRes(genre: String): Int? = when (genre.trim().lowercase().replace(' ', '_').replace('-', '_')) {
+    "action" -> R.string.genre_action
+    "adventure" -> R.string.genre_adventure
+    "comedy" -> R.string.genre_comedy
+    "drama" -> R.string.genre_drama
+    "ecchi" -> R.string.genre_ecchi
+    "fantasy" -> R.string.genre_fantasy
+    "horror" -> R.string.genre_horror
+    "mahou_shoujo" -> R.string.genre_mahou_shoujo
+    "mecha" -> R.string.genre_mecha
+    "music" -> R.string.genre_music
+    "mystery" -> R.string.genre_mystery
+    "psychological" -> R.string.genre_psychological
+    "romance" -> R.string.genre_romance
+    "sci_fi" -> R.string.genre_sci_fi
+    "slice_of_life" -> R.string.genre_slice_of_life
+    "sports" -> R.string.genre_sports
+    "supernatural" -> R.string.genre_supernatural
+    "thriller" -> R.string.genre_thriller
+    "hentai" -> R.string.genre_hentai
+    else -> null
+}
+
+/** BUG-072: [genreLabelRes] in the UI language, or the genre as AniList sends it. */
+@androidx.compose.runtime.Composable
+fun genreLabel(genre: String): String = genreLabelRes(genre)?.let { androidx.compose.ui.res.stringResource(it) } ?: genre

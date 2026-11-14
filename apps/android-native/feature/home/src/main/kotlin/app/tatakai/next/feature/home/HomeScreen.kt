@@ -15,6 +15,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -197,87 +205,101 @@ internal fun HomeContent(
     val gate = rememberMatureGate(state.discover.matureContent)
     val discover = state.discover
     Scaffold(modifier = modifier, contentWindowInsets = screenInsets) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                top = padding.calculateTopPadding(),
-                bottom = 24.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item(key = "greeting", contentType = "greeting") {
-                Greeting(state.providers, unreadNotifications, actions)
-            }
-            item(key = "search", contentType = "search") {
-                SearchEntry(onClick = actions.onSearchClick)
-            }
-            if (state.isEmpty) {
-                item(key = "empty", contentType = "empty") {
-                    EmptyState(
-                        icon = Icons.Outlined.TravelExplore,
-                        title = stringResource(R.string.home_empty_title),
-                        message = stringResource(R.string.home_empty_body),
+        val listState = rememberLazyListState()
+        val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
+        Box(Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = PaddingValues(
+                    top = padding.calculateTopPadding(),
+                    bottom = 24.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item(key = "greeting", contentType = "greeting") {
+                    Greeting(state.providers, unreadNotifications, actions)
+                }
+                item(key = "search", contentType = "search") {
+                    SearchEntry(onClick = actions.onSearchClick)
+                }
+                if (state.isEmpty) {
+                    item(key = "empty", contentType = "empty") {
+                        EmptyState(
+                            icon = Icons.Outlined.TravelExplore,
+                            title = stringResource(R.string.home_empty_title),
+                            message = stringResource(R.string.home_empty_body),
+                        )
+                    }
+                    return@LazyColumn
+                }
+                item(key = "hero", contentType = "hero") {
+                    HeroSection(
+                        hero = state.hero,
+                        onMediaClick = actions.onMediaClick,
+                        onWatch = actions.onWatch,
+                        onRetry = { actions.onRetry(HERO_FEED) },
                     )
                 }
-                return@LazyColumn
-            }
-            item(key = "hero", contentType = "hero") {
-                HeroSection(
-                    hero = state.hero,
-                    onMediaClick = actions.onMediaClick,
-                    onWatch = actions.onWatch,
-                    onRetry = { actions.onRetry(HERO_FEED) },
-                )
-            }
-            if (state.continueWatching.isNotEmpty()) {
-                item(key = "continue", contentType = "continue") {
-                    ContinueWatchingRow(
-                        state.continueWatching,
-                        onClick = { entry ->
-                            val provider = HomeLogic.parseProviderHistoryId(entry.animeId)
-                            if (provider != null) {
-                                actions.onResumeProviderItem?.invoke(entry)
-                                    ?: actions.onOpenProviderItem(provider.first, provider.second, provider.third)
-                            } else {
-                                actions.onContinueClick(entry)
-                            }
-                        },
-                        onSeeAll = actions.onOpenLibrary,
+                if (state.continueWatching.isNotEmpty()) {
+                    item(key = "continue", contentType = "continue") {
+                        ContinueWatchingRow(
+                            state.continueWatching,
+                            onClick = { entry ->
+                                val provider = HomeLogic.parseProviderHistoryId(entry.animeId)
+                                if (provider != null) {
+                                    actions.onResumeProviderItem?.invoke(entry)
+                                        ?: actions.onOpenProviderItem(provider.first, provider.second, provider.third)
+                                } else {
+                                    actions.onContinueClick(entry)
+                                }
+                            },
+                            onSeeAll = actions.onOpenLibrary,
+                        )
+                    }
+                }
+                discover.activity?.takeIf { it.total > 0 }?.let { activity ->
+                    item(key = "downloading", contentType = "downloading") { DownloadingRow(activity) }
+                }
+                homeDiscoverTop(discover, gate, actions)
+                val genres = discover.genreCloud.ifEmpty { state.genres }
+                if (genres.isNotEmpty()) {
+                    item(key = "genres", contentType = "genres") {
+                        GenreChips(genres, actions.onOpenGenre)
+                    }
+                }
+                items(state.rows, key = { it.kind.name }, contentType = { "row" }) { row ->
+                    FeedRowSection(
+                        row = row,
+                        gate = gate,
+                        onMediaClick = actions.onMediaClick,
+                        onRetry = { actions.onRetry(row.kind) },
+                        onSeeAll = { actions.onOpenFeed(row.kind) },
                     )
                 }
-            }
-            discover.activity?.takeIf { it.total > 0 }?.let { activity ->
-                item(key = "downloading", contentType = "downloading") { DownloadingRow(activity) }
-            }
-            homeDiscoverTop(discover, gate, actions)
-            val genres = discover.genreCloud.ifEmpty { state.genres }
-            if (genres.isNotEmpty()) {
-                item(key = "genres", contentType = "genres") {
-                    GenreChips(genres, actions.onOpenGenre)
+                homeDiscoverBottom(discover, gate, actions)
+                item(key = "extension-rows", contentType = "extension-rows") {
+                    // Composed only when scrolled into view: the lazy request of customHomeRows() (07 §1, prototype IntersectionObserver).
+                    LaunchedEffect(Unit) { actions.onLoadExtensionRows() }
+                    ExtensionRows(
+                        state.extensionRows,
+                        names = discover.extensionNames,
+                        onRetry = actions.onLoadExtensionRows,
+                        onOpenProvider = actions.onOpenProvider,
+                        onItemClick = actions.onOpenProviderItem,
+                    )
                 }
+                homeGenreRows(discover, gate, actions, fallbackGenres = genres)
             }
-            items(state.rows, key = { it.kind.name }, contentType = { "row" }) { row ->
-                FeedRowSection(
-                    row = row,
-                    gate = gate,
-                    onMediaClick = actions.onMediaClick,
-                    onRetry = { actions.onRetry(row.kind) },
-                    onSeeAll = { actions.onOpenFeed(row.kind) },
+            // BUG-062 (UX-03): once the list scrolls, the status bar gets the surface behind it ("ONE PIECE" under the clock).
+            AnimatedVisibility(scrolled, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .windowInsetsTopHeight(WindowInsets.statusBars)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
                 )
             }
-            homeDiscoverBottom(discover, gate, actions)
-            item(key = "extension-rows", contentType = "extension-rows") {
-                // Composed only when scrolled into view: the lazy request of customHomeRows() (07 §1, prototype IntersectionObserver).
-                LaunchedEffect(Unit) { actions.onLoadExtensionRows() }
-                ExtensionRows(
-                    state.extensionRows,
-                    names = discover.extensionNames,
-                    onRetry = actions.onLoadExtensionRows,
-                    onOpenProvider = actions.onOpenProvider,
-                    onItemClick = actions.onOpenProviderItem,
-                )
-            }
-            homeGenreRows(discover, gate, actions, fallbackGenres = genres)
         }
     }
 }

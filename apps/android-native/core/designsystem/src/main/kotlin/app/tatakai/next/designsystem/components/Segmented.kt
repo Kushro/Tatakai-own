@@ -4,7 +4,9 @@ package app.tatakai.next.designsystem.components
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,9 +47,17 @@ fun <T> Segmented(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
     small: Boolean = false,
+    /** BUG-053: only the icons show; the label becomes the button's description (every option needs an icon). */
+    iconOnly: Boolean = false,
+    /**
+     * BUG-069: take the whole width with equal parts instead of a horizontal scroll (which could not share the width and cut "App
+     * externa"). For up to four short options; more options belong in a menu.
+     */
+    fillWidth: Boolean = false,
 ) {
-    Row(modifier.horizontalScroll(rememberScrollState())) {
-        SingleChoiceSegmentedButtonRow {
+    val rowModifier = if (fillWidth) modifier.fillMaxWidth() else modifier.horizontalScroll(rememberScrollState())
+    Row(rowModifier) {
+        SingleChoiceSegmentedButtonRow(if (fillWidth) Modifier.fillMaxWidth() else Modifier) {
             options.forEachIndexed { index, option ->
                 val isSelected = option.value == selected
                 SegmentedButton(
@@ -56,21 +66,28 @@ fun <T> Segmented(
                     shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
                     enabled = option.enabled,
                     contentPadding = if (small) SMALL_PADDING else SegmentedButtonDefaults.ContentPadding,
-                    modifier = if (option.description != null) {
-                        Modifier.semantics { contentDescription = "${option.label}. ${option.description}" }
-                    } else {
-                        Modifier
-                    },
+                    // Icon-only buttons keep a 48 dp touch target.
+                    modifier = (if (fillWidth) Modifier.weight(1f) else Modifier)
+                        .then(if (iconOnly) Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp) else Modifier)
+                        .then(
+                        when {
+                            option.description != null -> Modifier.semantics { contentDescription = "${option.label}. ${option.description}" }
+                            iconOnly -> Modifier.semantics { contentDescription = option.label }
+                            else -> Modifier
+                        },
+                    ),
                     icon = {
                         val icon = option.icon
-                        if (icon != null && !isSelected) {
+                        if (iconOnly && icon != null) {
+                            Icon(icon, contentDescription = null, modifier = Modifier.size(SegmentedButtonDefaults.IconSize))
+                        } else if (icon != null && !isSelected) {
                             Icon(icon, contentDescription = null, modifier = Modifier.size(SegmentedButtonDefaults.IconSize))
                         } else {
                             SegmentedButtonDefaults.Icon(isSelected)
                         }
                     },
                     label = {
-                        Text(
+                        if (!iconOnly) Text(
                             option.label,
                             style = if (small) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
                             maxLines = 1,

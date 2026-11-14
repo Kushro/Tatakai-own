@@ -117,13 +117,13 @@
     <string name="details_role_main">Principal</string>
     <string name="details_role_supporting">Secundario</string>
     <string name="details_role_background">De fondo</string>
-    <string name="details_episode_search">Buscar episodio por número o título</string>
+    <string name="details_episode_search">Buscar episodio</string>
     <string name="details_episode_search_clear">Borrar la búsqueda de episodios</string>
     <string name="details_episode_search_empty_title">Ningún episodio coincide</string>
     <string name="details_episode_search_empty">Nada coincide con \"%1$s\".</string>
     <string name="details_unaired">Aún no emitido</string>
     <string name="details_episode_unaired_cd">Episodio %1$d, aún no emitido</string>
-    <string name="details_view_list">Lista</string>
+    <string name="details_view_list">Con miniaturas</string>
     <string name="details_view_compact">Compacta</string>
     <string name="details_facts">Ficha técnica</string>
     <string name="details_fact_format">Formato</string>

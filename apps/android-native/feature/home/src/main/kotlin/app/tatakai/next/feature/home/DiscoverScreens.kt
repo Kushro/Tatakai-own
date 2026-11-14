@@ -25,8 +25,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.outlined.BookmarkAdd
-import androidx.compose.material.icons.outlined.Bookmark
+import androidx.compose.material.icons.outlined.NotificationAdd
+import androidx.compose.material.icons.outlined.NotificationsActive
 import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Notifications
@@ -240,7 +240,8 @@ private fun CalendarRow(ep: AiringEpisode, time: String, tracked: Boolean, follo
             }
             IconButton(onClick = onToggleFollow) {
                 Icon(
-                    if (followed) Icons.Outlined.Bookmark else Icons.Outlined.BookmarkAdd,
+                    // BUG-064: "Seguir" (airing calendar + notices) is not the list button's bookmark.
+                    if (followed) Icons.Outlined.NotificationsActive else Icons.Outlined.NotificationAdd,
                     contentDescription = stringResource(if (followed) R.string.home_unfollow else R.string.home_follow),
                 )
             }
@@ -415,7 +416,7 @@ fun FollowShowRow(media: Media, modifier: Modifier = Modifier) {
                 }
                 if (following) {
                     OutlinedButton(onClick = { scope.launch { runCatching { airing.unfollow(media.ref) } } }) {
-                        Icon(Icons.Outlined.Bookmark, contentDescription = null)
+                        Icon(Icons.Outlined.NotificationsActive, contentDescription = null)
                         Text(stringResource(R.string.home_following), Modifier.padding(start = 6.dp))
                     }
                 } else {
@@ -423,7 +424,7 @@ fun FollowShowRow(media: Media, modifier: Modifier = Modifier) {
                         askPermission()
                         scope.launch { runCatching { airing.follow(media, remind = true) } }
                     }) {
-                        Icon(Icons.Outlined.BookmarkAdd, contentDescription = null)
+                        Icon(Icons.Outlined.NotificationAdd, contentDescription = null)
                         Text(stringResource(R.string.home_follow), Modifier.padding(start = 6.dp))
                     }
                 }
@@ -457,5 +458,5 @@ internal fun ProgressLine(progress: Float) {
 /** Assist chip helper (genre cloud). */
 @Composable
 internal fun GenreChip(genre: String, onClick: () -> Unit) {
-    AssistChip(onClick = onClick, label = { Text(genre) })
+    AssistChip(onClick = onClick, label = { Text(app.tatakai.next.ui.labels.genreLabel(genre)) }) // BUG-072
 }

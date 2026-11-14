@@ -23,6 +23,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.layout.windowInsetsTopHeight
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -298,28 +317,68 @@ internal fun DetailsContent(
     actions: DetailsActions,
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
+    // BUG-062 / BUG-078: the list scrolled past the header (title + "Continuar" button).
+    val pastHeader by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
+    val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
+    val density = LocalDensity.current
+    var toolbarHeight by remember { mutableStateOf(0.dp) }
     Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         LoadStateContent(state = state.media, onRetry = actions.onRetry) { media ->
-            if (state.adultGate) AdultGate(actions) else DetailsBody(media, state, actions)
+            if (state.adultGate) {
+                AdultGate(actions)
+            } else {
+                // BUG-063: the list reserves the floating toolbar's measured height (plus its margins and the navigation bar), so
+                // the last card is never under it.
+                val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                DetailsBody(media, state, actions, listState, bottomPadding = toolbarHeight + 32.dp + navBottom)
+            }
         }
-        IconButton(onClick = actions.onBack, modifier = Modifier.statusBarsPadding().padding(4.dp)) {
+        // BUG-062 (UX-03): edge-to-edge without a backdrop let the content and the back arrow collide with the clock; once the list
+        // scrolls, the status bar gets the surface behind it.
+        AnimatedVisibility(scrolled, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .windowInsetsTopHeight(WindowInsets.statusBars)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
+            )
+        }
+        // The back arrow has its own container, readable on a light banner and over moving content.
+        FilledTonalIconButton(
+            onClick = actions.onBack,
+            modifier = Modifier.statusBarsPadding().padding(4.dp),
+            colors = IconButtonDefaults.filledTonalIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.7f)),
+        ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back))
         }
         val loaded = (state.media as? LoadState.Ok)?.value
         if (loaded != null && !state.adultGate) {
-            // Floating toolbar (prototype `.ftb`): the main actions stay at hand while the episode list scrolls.
-            TatakaiFloatingToolbar(
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp),
+            // Floating toolbar (prototype `.ftb`): the main actions stay at hand while the episode list scrolls. BUG-078 / BUG-056:
+            // it shows up only once the header (with its own "Continuar" button) left the screen, so it neither repeats that button
+            // nor covers the title (in landscape the header takes almost the whole height).
+            AnimatedVisibility(
+                visible = pastHeader,
+                enter = fadeIn() + slideInVertically { it },
+                exit = fadeOut() + slideOutVertically { it },
+                modifier = Modifier.align(Alignment.BottomCenter),
             ) {
-                TextButton(onClick = actions.onWatch) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                    Text(watchLabel(state), modifier = Modifier.padding(start = 6.dp))
+                TatakaiFloatingToolbar(
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(16.dp)
+                        .onSizeChanged { toolbarHeight = with(density) { it.height.toDp() } },
+                ) {
+                    TextButton(onClick = actions.onWatch) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Text(watchLabel(state), modifier = Modifier.padding(start = 6.dp), maxLines = 1)
+                    }
+                    IconButton(onClick = actions.onSendToDevice) {
+                        Icon(Icons.Outlined.Cast, contentDescription = stringResource(R.string.details_send_device))
+                    }
+                    DownloadMenuButton(state, actions, icon = Icons.Outlined.Download)
+                    ListButton(media = loaded, compact = true)
                 }
-                IconButton(onClick = actions.onSendToDevice) {
-                    Icon(Icons.Outlined.Cast, contentDescription = stringResource(R.string.details_send_device))
-                }
-                DownloadMenuButton(state, actions, icon = Icons.Outlined.Download)
-                ListButton(media = loaded, compact = true)
             }
         }
     }
@@ -333,7 +392,7 @@ internal fun watchLabel(state: DetailsUiState): String = when {
 
 /** Phone: one column (header, source panel, tabs). Wide (≥ 840 dp): tabs on the left, source + send panels on the right. */
 @Composable
-private fun DetailsBody(media: Media, state: DetailsUiState, actions: DetailsActions) {
+private fun DetailsBody(media: Media, state: DetailsUiState, actions: DetailsActions, listState: LazyListState, bottomPadding: Dp) {
     var tab by rememberSaveable { mutableIntStateOf(DetailsTab.EPISODES.ordinal) }
     var range by rememberSaveable(media.ref) { mutableIntStateOf((state.continueEpisode - 1).coerceAtLeast(0) / RANGE_SIZE) }
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -341,7 +400,7 @@ private fun DetailsBody(media: Media, state: DetailsUiState, actions: DetailsAct
         val selectedTab = DetailsTab.entries[tab]
         if (wide) {
             Row(Modifier.fillMaxSize()) {
-                LazyColumn(Modifier.weight(1f).fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+                LazyColumn(Modifier.weight(1f).fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = bottomPadding)) {
                     detailsItems(media, state, actions, selectedTab, { tab = it.ordinal }, range, { range = it }, includePanel = false)
                 }
                 Column(
@@ -351,7 +410,7 @@ private fun DetailsBody(media: Media, state: DetailsUiState, actions: DetailsAct
                         .verticalScroll(rememberScrollState())
                         .statusBarsPadding()
                         .padding(16.dp)
-                        .padding(bottom = 96.dp),
+                        .padding(bottom = bottomPadding),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     SourcePanelCard(state, actions)
@@ -359,7 +418,7 @@ private fun DetailsBody(media: Media, state: DetailsUiState, actions: DetailsAct
                 }
             }
         } else {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = bottomPadding)) {
                 detailsItems(media, state, actions, selectedTab, { tab = it.ordinal }, range, { range = it }, includePanel = true)
             }
         }

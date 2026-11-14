@@ -96,6 +96,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import app.tatakai.next.ui.labels.genreLabel
 import androidx.compose.ui.unit.dp
 import app.tatakai.next.designsystem.components.EmptyState
 import app.tatakai.next.designsystem.components.ErrorState
@@ -359,7 +360,7 @@ private fun MetadataChips(media: Media, details: MediaDetails?, actions: Details
             )
         }
         media.genres.forEach { genre ->
-            AssistChip(onClick = { actions.onOpenGenre(genre) }, label = { Text(genre) })
+            AssistChip(onClick = { actions.onOpenGenre(genre) }, label = { Text(genreLabel(genre)) }) // BUG-072
         }
     }
 }
@@ -565,7 +566,7 @@ private fun EpisodeToolbar(state: DetailsUiState, actions: DetailsActions) {
             } else {
                 null
             },
-            placeholder = { Text(stringResource(R.string.details_episode_search)) },
+            placeholder = { Text(stringResource(R.string.details_episode_search), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             modifier = Modifier.weight(1f),
         )
         Segmented(
@@ -576,6 +577,8 @@ private fun EpisodeToolbar(state: DetailsUiState, actions: DetailsActions) {
             selected = state.episodeView,
             onSelect = actions.onEpisodeView,
             small = true,
+            // BUG-053: with words the selector took half the row and the placeholder wrapped into 4 lines on a 393 dp phone.
+            iconOnly = true,
         )
     }
 }
@@ -768,11 +771,15 @@ private fun DetailsEpisodeRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (episode.isFiller || watched || unaired || downloaded) {
+            // BUG-073 (UX-14): each state once. "Visto" only without the check button (which already says it), "Aún no emitido"
+            // only when there is no "Se emite el <fecha>" line.
+            val unairedPill = unaired && episode.airDate == null
+            val watchedPill = watched && (unaired || onToggleWatched == null)
+            if (episode.isFiller || watchedPill || unairedPill || downloaded) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (unaired) Pill(stringResource(R.string.details_unaired), tone = PillTone.NEUTRAL)
+                    if (unairedPill) Pill(stringResource(R.string.details_unaired), tone = PillTone.NEUTRAL)
                     if (episode.isFiller) Pill(stringResource(R.string.details_filler), tone = PillTone.WARN)
-                    if (watched) Pill(stringResource(R.string.details_watched), tone = PillTone.OK)
+                    if (watchedPill) Pill(stringResource(R.string.details_watched), tone = PillTone.OK)
                     if (downloaded) Pill(stringResource(UiR.string.download_state_completed), tone = PillTone.NEUTRAL)
                 }
             }
