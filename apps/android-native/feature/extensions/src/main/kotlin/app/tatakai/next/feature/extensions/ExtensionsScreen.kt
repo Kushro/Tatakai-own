@@ -248,7 +248,13 @@ fun ExtensionsScreen(
                     onRemoveRepo = { removeRepo = it },
                     onRemoveAddon = { removeAddon = it },
                 )
-                serverExtensionSections(serverState, serverExtensions)
+                serverExtensionSections(
+                    serverState,
+                    serverExtensions,
+                    local = state.items,
+                    updatable = hubState.updates.map { it.id }.toSet(),
+                    onUpdate = { hub.update(it) },
+                )
             }
         }
     }

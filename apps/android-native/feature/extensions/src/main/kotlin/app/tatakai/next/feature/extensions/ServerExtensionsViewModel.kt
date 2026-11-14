@@ -7,6 +7,7 @@ import app.tatakai.next.extensionserver.ExtensionServerConnection
 import app.tatakai.next.extensionserver.ExtensionServerException
 import app.tatakai.next.extensionserver.ExtensionServerRepository
 import app.tatakai.next.extensionserver.ServerExtension
+import app.tatakai.next.model.InstalledExtension
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -118,3 +119,29 @@ fun serverExtErrorOf(e: Throwable): ServerExtError {
 
 /** `kind` of a server extension is a comma list (`watch,read`); the distinct, non-blank parts in order. */
 fun serverExtensionKinds(kind: String): List<String> = kind.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
+/**
+ * BUG-016: the local copy of a PC extension is older than the PC's (Toko 4.5.5 here, 4.6.0 on the PC): the phone's own results come from the
+ * old build. Matched by id, else by name (case-insensitive); returns the local version when the PC's [pc] is newer, else null. The wire has no
+ * package hash, so the same version with other contents is not detectable from here.
+ */
+fun olderLocalCopy(pc: ServerExtension, local: List<InstalledExtension>): InstalledExtension? {
+    if (pc.version.isBlank()) return null
+    val mine = local.firstOrNull { it.id == pc.id }
+        ?: local.firstOrNull { pc.name.isNotBlank() && it.name.equals(pc.name, ignoreCase = true) }
+        ?: return null
+    return mine.takeIf { compareVersions(pc.version, it.version) > 0 }
+}
+
+/** Numeric dotted-version compare (`v` prefix, pre-release and build suffixes ignored; missing parts are 0). */
+internal fun compareVersions(a: String, b: String): Int {
+    fun parts(v: String) = v.trim().removePrefix("v").removePrefix("V").substringBefore('-').substringBefore('+')
+        .split('.').map { p -> p.takeWhile { it.isDigit() }.toIntOrNull() ?: 0 }
+    val pa = parts(a)
+    val pb = parts(b)
+    for (i in 0 until maxOf(pa.size, pb.size)) {
+        val c = pa.getOrElse(i) { 0 }.compareTo(pb.getOrElse(i) { 0 })
+        if (c != 0) return c
+    }
+    return 0
+}

@@ -177,6 +177,8 @@
     </plurals>
     <string name="extensions_server_refresh">Actualizar las extensiones de %1$s</string>
     <string name="extensions_server_version">v%1$s</string>
+    <string name="extensions_server_newer">La PC tiene una versión más nueva de %1$s (v%2$s; en este teléfono, v%3$s). Las búsquedas que pasan por la PC usan la nueva; sin la PC, este teléfono usa la vieja. Actualízala aquí.</string>
+    <string name="extensions_server_newer_update">Actualizar</string>
     <string name="extensions_server_on">Activada</string>
     <string name="extensions_server_off">Desactivada</string>
     <string name="extensions_server_err_unreachable">No se pudo conectar con esta PC. Comprueba que esté encendida y en la misma red.</string>

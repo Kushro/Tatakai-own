@@ -176,6 +176,8 @@
     </plurals>
     <string name="extensions_server_refresh">Refresh extensions of %1$s</string>
     <string name="extensions_server_version">v%1$s</string>
+    <string name="extensions_server_newer">The PC has a newer version of %1$s (v%2$s; this phone has v%3$s). Searches through the PC use the new one; without the PC, this phone uses the old one. Update it here.</string>
+    <string name="extensions_server_newer_update">Update</string>
     <string name="extensions_server_on">Enabled</string>
     <string name="extensions_server_off">Disabled</string>
     <string name="extensions_server_err_unreachable">Could not reach this PC. Check that it is on and on the same network.</string>

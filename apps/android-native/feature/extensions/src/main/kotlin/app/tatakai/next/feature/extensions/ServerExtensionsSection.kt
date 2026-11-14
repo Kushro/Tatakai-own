@@ -13,11 +13,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,12 +33,20 @@ import app.tatakai.next.designsystem.components.Pill
 import app.tatakai.next.designsystem.components.PillTone
 import app.tatakai.next.designsystem.components.rememberAfterDelay
 import app.tatakai.next.extensionserver.ServerExtension
+import app.tatakai.next.model.InstalledExtension
 import app.tatakai.next.ui.R as UiR
 
 // Parity wave B closure (16 §3.4, worker t; checklist server.api.extensions): "Extensions on your PC" section of Extensions, one block per
 // linked extension server with the list its `GET /extensions` returns. Pairing and removing servers stay in Linked devices.
 
-internal fun LazyListScope.serverExtensionSections(state: ServerExtensionsUiState, vm: ServerExtensionsViewModel) {
+internal fun LazyListScope.serverExtensionSections(
+    state: ServerExtensionsUiState,
+    vm: ServerExtensionsViewModel,
+    // BUG-016: the phone's installed extensions, to say when the PC has a newer copy; [updatable] ids have a repository update.
+    local: List<InstalledExtension> = emptyList(),
+    updatable: Set<String> = emptySet(),
+    onUpdate: (String) -> Unit = {},
+) {
     if (!state.available) return
     item(key = "srvext-head", contentType = "head") {
         SectionHead(stringResource(R.string.extensions_server_title), stringResource(R.string.extensions_server_hint))
@@ -90,7 +100,12 @@ internal fun LazyListScope.serverExtensionSections(state: ServerExtensionsUiStat
                 }
             } else {
                 items(load.extensions, key = { "srvext:${block.id}/${it.id}" }, contentType = { "server-ext" }) { ext ->
-                    ServerExtensionRow(ext)
+                    val older = olderLocalCopy(ext, local)
+                    ServerExtensionRow(
+                        ext,
+                        olderLocal = older,
+                        onUpdate = older?.id?.takeIf { it in updatable }?.let { id -> { onUpdate(id) } },
+                    )
                 }
             }
         }
@@ -121,25 +136,43 @@ private fun ServerHead(block: ServerExtensionsBlock, onRefresh: () -> Unit) {
 }
 
 @Composable
-private fun ServerExtensionRow(ext: ServerExtension) {
+private fun ServerExtensionRow(ext: ServerExtension, olderLocal: InstalledExtension?, onUpdate: (() -> Unit)?) {
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(Icons.Outlined.Extension, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(ext.name.ifBlank { ext.id }, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val meta = listOfNotNull(
-                    ext.version.takeIf { it.isNotBlank() }?.let { stringResource(R.string.extensions_server_version, it) },
-                    ext.ecosystem.takeIf { it.isNotBlank() },
-                    serverExtensionKinds(ext.kind).takeIf { it.isNotEmpty() }?.map { stringResource(providerKindRes(it)) }?.joinToString(", "),
-                ).joinToString(" · ")
-                if (meta.isNotEmpty()) {
-                    Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Column {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Outlined.Extension, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(ext.name.ifBlank { ext.id }, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val meta = listOfNotNull(
+                        ext.version.takeIf { it.isNotBlank() }?.let { stringResource(R.string.extensions_server_version, it) },
+                        ext.ecosystem.takeIf { it.isNotBlank() },
+                        serverExtensionKinds(ext.kind).takeIf { it.isNotEmpty() }?.map { stringResource(providerKindRes(it)) }?.joinToString(", "),
+                    ).joinToString(" · ")
+                    if (meta.isNotEmpty()) {
+                        Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Pill(
+                    stringResource(if (ext.enabled) R.string.extensions_server_on else R.string.extensions_server_off),
+                    tone = if (ext.enabled) PillTone.OK else PillTone.NEUTRAL,
+                )
+            }
+            if (olderLocal != null) {
+                // BUG-016: the local copy is older, so what this phone finds on its own (PC off) comes from the old build.
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(Icons.Outlined.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                    Text(
+                        stringResource(R.string.extensions_server_newer, ext.name.ifBlank { olderLocal.name }, ext.version, olderLocal.version),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (onUpdate != null) TextButton(onClick = onUpdate) { Text(stringResource(R.string.extensions_server_newer_update)) }
                 }
             }
-            Pill(
-                stringResource(if (ext.enabled) R.string.extensions_server_on else R.string.extensions_server_off),
-                tone = if (ext.enabled) PillTone.OK else PillTone.NEUTRAL,
-            )
         }
     }
 }

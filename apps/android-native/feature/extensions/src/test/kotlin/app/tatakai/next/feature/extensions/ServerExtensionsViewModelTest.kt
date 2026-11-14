@@ -7,6 +7,8 @@ import app.tatakai.next.extensionserver.ExtensionServerRepository
 import app.tatakai.next.extensionserver.PairingLink
 import app.tatakai.next.extensionserver.ServerExtension
 import app.tatakai.next.extensionserver.ServerStatus
+import app.tatakai.next.model.ExtensionCompat
+import app.tatakai.next.model.InstalledExtension
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,6 +23,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -121,5 +124,21 @@ class ServerExtensionsViewModelTest {
     fun kindsAreSplitAndDeduplicated() {
         assertEquals(listOf("watch", "read"), serverExtensionKinds(" watch,read, watch ,,"))
         assertTrue(serverExtensionKinds("").isEmpty())
+    }
+
+    @Test
+    fun olderLocalCopyFlagsOnlyANewerPcVersion() {
+        // BUG-016: Toko 4.5.5 on the phone, 4.6.0 on the PC.
+        fun local(id: String, name: String, version: String) = InstalledExtension(
+            id = id, name = name, version = version, type = "kai", permissions = emptyList(), compat = ExtensionCompat.FULL, enabled = true,
+        )
+        val mine = listOf(local("io.github.toko", "Toko", "4.5.5"), local("latino", "Latino", "1.0.1"))
+        assertEquals("4.5.5", olderLocalCopy(ServerExtension(id = "io.github.toko", name = "Toko", version = "4.6.0"), mine)?.version)
+        // Matched by name when the ids differ.
+        assertEquals("4.5.5", olderLocalCopy(ServerExtension(id = "toko-pc", name = "toko", version = "v4.10"), mine)?.version)
+        assertNull(olderLocalCopy(ServerExtension(id = "latino", name = "Latino", version = "1.0.1"), mine))
+        assertNull(olderLocalCopy(ServerExtension(id = "io.github.toko", name = "Toko", version = "4.5.0"), mine))
+        assertNull(olderLocalCopy(ServerExtension(id = "io.github.toko", name = "Toko", version = ""), mine))
+        assertNull(olderLocalCopy(ServerExtension(id = "other", name = "Other", version = "9.0"), mine))
     }
 }
