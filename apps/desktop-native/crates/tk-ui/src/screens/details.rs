@@ -213,13 +213,14 @@ async fn ls_get(key: &str) -> Option<String> {
 }
 
 /// `(i18n key, tone)` of the pills of an episode row. The current (resume) episode never shows
-/// "Watched". `EpisodeVm` has no recap flag yet, so "Recap" is never produced.
-pub fn episode_pills(e: &EpisodeVm, resume: u32) -> Vec<(&'static str, Tone)> {
+/// "Watched", and neither does a row with the "mark watched" check (`with_check`: the filled check already says
+/// it, BUG-073). `EpisodeVm` has no recap flag yet, so "Recap" is never produced.
+pub fn episode_pills(e: &EpisodeVm, resume: u32, with_check: bool) -> Vec<(&'static str, Tone)> {
     let mut out = Vec::new();
     if e.is_filler {
         out.push(("details.filler", Tone::Warn));
     }
-    if e.watched >= WATCHED_AT && e.number != resume {
+    if e.watched >= WATCHED_AT && e.number != resume && !with_check {
         out.push(("details.watched", Tone::Ok));
     }
     out
@@ -1229,10 +1230,12 @@ fn EpisodeList(
                     let (id, n) = (id.clone(), e.number);
                     let unaired = is_unaired(&e, next_airing, now);
                     let mut pills: Vec<(String, Tone)> = Vec::new();
-                    if unaired {
+                    // BUG-073: an unaired episode with a date already says "Airs on …" in its meta line.
+                    if unaired && e.air_date.is_none() {
                         pills.push((t("details.unaired"), Tone::Primary));
                     }
-                    pills.extend(episode_pills(&e, resume).into_iter().map(|(k, tone)| (t(k), tone)));
+                    let with_check = on_toggle.is_some() && !unaired;
+                    pills.extend(episode_pills(&e, resume, with_check).into_iter().map(|(k, tone)| (t(k), tone)));
                     let seen = e.watched >= WATCHED_AT;
                     rsx! {
                         div { key: "{n}", class: "tk-dep-wrap", "data-watched": "{seen}",
@@ -1360,9 +1363,11 @@ mod tests {
 
     #[test]
     fn pills_skip_watched_on_the_resume_episode() {
-        assert_eq!(episode_pills(&ep(3, 1.0, true), 5), vec![("details.filler", Tone::Warn), ("details.watched", Tone::Ok)]);
-        assert!(episode_pills(&ep(5, 1.0, false), 5).is_empty());
-        assert!(episode_pills(&ep(6, 0.5, false), 5).is_empty());
+        assert_eq!(episode_pills(&ep(3, 1.0, true), 5, false), vec![("details.filler", Tone::Warn), ("details.watched", Tone::Ok)]);
+        assert!(episode_pills(&ep(5, 1.0, false), 5, false).is_empty());
+        assert!(episode_pills(&ep(6, 0.5, false), 5, false).is_empty());
+        // BUG-073: with the "mark watched" check the pill would repeat it.
+        assert_eq!(episode_pills(&ep(3, 1.0, true), 5, true), vec![("details.filler", Tone::Warn)]);
     }
 
     #[test]
