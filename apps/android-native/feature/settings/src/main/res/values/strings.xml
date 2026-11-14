@@ -26,12 +26,12 @@
     <string name="settings_engine">Engine</string>
     <string name="settings_engine_media3">Media3</string>
     <string name="settings_engine_mpv">libmpv</string>
-    <string name="settings_engine_external">External app</string>
+    <string name="settings_engine_external">External</string>
     <string name="settings_engine_media3_hint">Default. ASS subtitles are shown simplified.</string>
     <string name="settings_engine_mpv_hint">libmpv with Tatakai controls. Full ASS subtitles and upscaling presets.</string>
     <string name="settings_engine_external_hint">Opens mpv-android, VLC or another player with the stream and its headers.</string>
     <string name="settings_external_app">External player</string>
-    <string name="settings_external_app_hint">Used when the engine is External app.</string>
+    <string name="settings_external_app_hint">Used when the engine is External.</string>
     <string name="settings_external_chooser">Ask every time</string>
     <string name="settings_external_mpv">mpv-android</string>
     <string name="settings_external_vlc">VLC</string>

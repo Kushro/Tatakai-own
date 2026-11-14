@@ -26,12 +26,12 @@
     <string name="settings_engine">Motor</string>
     <string name="settings_engine_media3">Media3</string>
     <string name="settings_engine_mpv">libmpv</string>
-    <string name="settings_engine_external">App externa</string>
+    <string name="settings_engine_external">Externa</string>
     <string name="settings_engine_media3_hint">Predeterminado. Los subtítulos ASS se muestran simplificados.</string>
     <string name="settings_engine_mpv_hint">libmpv con los controles de Tatakai. Subtítulos ASS completos y preajustes de escalado.</string>
     <string name="settings_engine_external_hint">Abre mpv-android, VLC u otro reproductor con el stream y sus cabeceras.</string>
     <string name="settings_external_app">Reproductor externo</string>
-    <string name="settings_external_app_hint">Se usa cuando el motor es App externa.</string>
+    <string name="settings_external_app_hint">Se usa cuando el motor es Externa.</string>
     <string name="settings_external_chooser">Preguntar siempre</string>
     <string name="settings_external_mpv">mpv-android</string>
     <string name="settings_external_vlc">VLC</string>

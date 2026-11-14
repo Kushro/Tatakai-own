@@ -2,6 +2,12 @@
 
 package app.tatakai.next.feature.settings
 
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import android.content.Context
 import android.os.Build
 import androidx.compose.foundation.BorderStroke
@@ -213,6 +219,8 @@ internal fun PlayerSection(state: SettingsUiState, vm: SettingsViewModel, onOpen
             ),
             selected = s.playerEngine,
             onSelect = vm::setPlayerEngine,
+            // BUG-069: three short options share the width ("App exter…" was cut by the scrolling row).
+            fillWidth = true,
         )
     }
     if (s.playerEngine == PlayerEngine.EXTERNAL) {
@@ -236,6 +244,7 @@ internal fun PlayerSection(state: SettingsUiState, vm: SettingsViewModel, onOpen
                 selected = s.externalPlayerPackage,
                 onSelect = vm::setExternalPlayerPackage,
                 small = true,
+                fillWidth = true,
             )
         }
     }
@@ -244,12 +253,8 @@ internal fun PlayerSection(state: SettingsUiState, vm: SettingsViewModel, onOpen
         if (s.playerEngine != PlayerEngine.MPV) append(' ').append(stringResource(R.string.settings_preset_mpv_only))
     }
     SettingRow(stringResource(R.string.settings_preset), presetHint, stack = true) {
-        Segmented(
-            options = PRESETS.map { SegmentedOption(it, stringResource(presetLabelRes(it)), description = stringResource(presetHintRes(it))) },
-            selected = s.playerPreset,
-            onSelect = vm::setPlayerPreset,
-            small = true,
-        )
+        // BUG-069 (UX-10): six presets do not fit a segmented row (it ran past the card); a menu with each preset's hint.
+        PresetMenu(selected = s.playerPreset, onSelect = vm::setPlayerPreset)
     }
     SettingRow(stringResource(R.string.settings_source_mode), stringResource(R.string.settings_source_mode_hint), stack = true) {
         Segmented(
@@ -259,6 +264,7 @@ internal fun PlayerSection(state: SettingsUiState, vm: SettingsViewModel, onOpen
             ),
             selected = prefs.mode,
             onSelect = vm::setSourceMode,
+            fillWidth = true,
         )
     }
     SettingRow(stringResource(R.string.settings_prefer), stack = true) {
@@ -765,4 +771,39 @@ private fun loadLicenses(context: Context): LoadState<List<String>> = try {
     LoadState.Ok(paragraphs)
 } catch (e: java.io.IOException) {
     LoadState.Err(AppError.Unknown(e.message ?: "IOException"))
+}
+
+/** BUG-069: the shader preset as a dropdown (label + hint per option) instead of a segmented row that did not fit. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PresetMenu(selected: String, onSelect: (String) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = open, onExpandedChange = { open = it }) {
+        OutlinedTextField(
+            value = stringResource(presetLabelRes(selected)),
+            onValueChange = {},
+            readOnly = true,
+            singleLine = true,
+            supportingText = { Text(stringResource(presetHintRes(selected)), maxLines = 2) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
+            modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+        )
+        ExposedDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            PRESETS.forEach { preset ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(stringResource(presetLabelRes(preset)), maxLines = 1)
+                            Text(
+                                stringResource(presetHintRes(preset)),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    onClick = { open = false; onSelect(preset) },
+                )
+            }
+        }
+    }
 }
