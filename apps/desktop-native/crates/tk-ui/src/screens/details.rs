@@ -29,6 +29,7 @@ use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
 use crate::model::{EPISODE_RANGE, UiError, episode_ranges, format_time, range_index_for};
 use crate::screens::extensions::rel_time;
+pub(crate) use extra::{country_label, source_label};
 use extra::{
     AdultGate, CharactersTab, FactsSheet, Recommendations, RelatedTab, WatchOrder, airing_label, share_url,
 };

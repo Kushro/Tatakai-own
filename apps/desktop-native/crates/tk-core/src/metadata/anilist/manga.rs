@@ -43,7 +43,7 @@ relations {{ edges {{ relationType node {{ ...mediaCard {MANGA_FIELDS} }} }} }} 
 characters(sort: [ROLE, RELEVANCE, ID], perPage: 25) {{ edges {{ role node {{ id name {{ full }} image {{ medium }} }} }} }} \
 staff(sort: [RELEVANCE, ID], perPage: 12) {{ edges {{ role node {{ id name {{ full }} image {{ medium }} }} }} }} \
 recommendations(perPage: 12, sort: [RATING_DESC, ID]) {{ nodes {{ mediaRecommendation {{ ...mediaCard {MANGA_FIELDS} }} }} }} \
-externalLinks {{ site url }} }} }}"
+externalLinks {{ site url }} rankings {{ rank type allTime year context }} }} }}"
     )
 }
 

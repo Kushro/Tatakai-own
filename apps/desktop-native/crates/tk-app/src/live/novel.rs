@@ -92,17 +92,18 @@ pub fn anilist_id(id: &str) -> UiResult<u64> {
         .map_err(|_| other(format!("invalid novel id {id}")))
 }
 
-/// Poster card of a novel: the shared mapping (title language) with a novel subtitle (`2010 - 16 vol`).
+/// Poster card of a novel: the shared mapping (title language) with a novel subtitle (`2010 - 16 volúmenes`).
 pub fn novel_vm(info: &NovelInfo) -> MediaVm {
     let mut vm = to_vm(&info.media);
     let mut parts = Vec::new();
     if let Some(y) = info.media.year {
         parts.push(y.to_string());
     }
+    // BUG-120: words in the app's language ("16 volúmenes", "232 capítulos"), not "vol" / "ch".
     if let Some(v) = info.volumes {
-        parts.push(format!("{v} vol"));
+        parts.push(tk_ui::i18n::tn("manga.card.volumes", v as usize));
     } else if let Some(c) = info.chapters {
-        parts.push(format!("{c} ch"));
+        parts.push(tk_ui::i18n::tn("manga.card.chapters", c as usize));
     }
     vm.subtitle = parts.join(" - ");
     vm
@@ -976,7 +977,7 @@ mod tests {
         assert_eq!(chapter_params(&info_of(&[]), false)["title"], "Overlord");
         let vm = novel_vm(&i);
         assert_eq!(vm.id, "85737");
-        assert_eq!(vm.subtitle, "2010 - 16 vol");
+        assert_eq!(vm.subtitle, format!("2010 - {}", tk_ui::i18n::tn("manga.card.volumes", 16)));
     }
 
     #[test]

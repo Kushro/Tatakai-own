@@ -206,7 +206,7 @@ fn info_of(media: &Media, lang: &str, chapters: Option<u32>) -> TitleInfo {
     }
 }
 
-/// `2019 - 120 ch` style subtitle; 18+ titles start with [`ADULT_BADGE`].
+/// `2019 - 120 capítulos` style subtitle; 18+ titles start with [`ADULT_BADGE`].
 fn subtitle(adult: bool, year: Option<i32>, chapters: Option<u32>, volumes: Option<u32>) -> String {
     let mut parts = Vec::new();
     if adult {
@@ -215,10 +215,11 @@ fn subtitle(adult: bool, year: Option<i32>, chapters: Option<u32>, volumes: Opti
     if let Some(y) = year {
         parts.push(y.to_string());
     }
+    // BUG-120: "232 capítulos" (same text as Android), not the English "232 ch".
     if let Some(c) = chapters {
-        parts.push(format!("{c} ch"));
+        parts.push(tk_ui::i18n::tn("manga.card.chapters", c as usize));
     } else if let Some(v) = volumes {
-        parts.push(format!("{v} vol"));
+        parts.push(tk_ui::i18n::tn("manga.card.volumes", v as usize));
     }
     parts.join(" - ")
 }
@@ -748,8 +749,28 @@ async fn details_anilist(b: &LiveBackend, id: &str, al: u32, lang: &str) -> UiRe
         facts,
         synonyms: x.synonyms.clone(),
         source_ids,
+        rankings: rankings_of(&raw),
         media,
     })
+}
+
+/// AniList `rankings` of a details answer (BUG-118), worded by the page.
+fn rankings_of(raw: &Value) -> Vec<tk_ui::model::manga::RankingVm> {
+    raw["rankings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| {
+            let rank = u32::try_from(r["rank"].as_u64()?).ok().filter(|n| *n > 0)?;
+            Some(tk_ui::model::manga::RankingVm {
+                rank,
+                kind: r["type"].as_str().unwrap_or_default().to_ascii_uppercase(),
+                all_time: r["allTime"].as_bool().unwrap_or(false),
+                year: r["year"].as_i64().and_then(|y| i32::try_from(y).ok()),
+                context: r["context"].as_str().unwrap_or_default().to_owned(),
+            })
+        })
+        .collect()
 }
 
 async fn details_mangadex(b: &LiveBackend, id: &str, md: &str, lang: &str) -> UiResult<MangaDetailsVm> {
@@ -793,6 +814,7 @@ async fn details_mangadex(b: &LiveBackend, id: &str, md: &str, lang: &str) -> Ui
         facts,
         synonyms: m.alt_titles.iter().take(8).cloned().collect(),
         source_ids: vec![("mangadex".into(), m.id.clone())],
+        rankings: Vec::new(),
     })
 }
 
@@ -2046,8 +2068,15 @@ mod tests {
 
     #[test]
     fn subtitles_and_names() {
-        assert_eq!(subtitle(true, Some(2020), Some(12), None), "18+ - 2020 - 12 ch");
-        assert_eq!(subtitle(false, None, None, Some(3)), "3 vol");
+        let ch = tk_ui::i18n::tn("manga.card.chapters", 12);
+        assert_eq!(subtitle(true, Some(2020), Some(12), None), format!("18+ - 2020 - {ch}"));
+        assert_eq!(subtitle(false, None, None, Some(3)), tk_ui::i18n::tn("manga.card.volumes", 3));
+        // BUG-120: words, not the English abbreviation.
+        use tk_ui::i18n::{Lang, lookup};
+        assert_eq!(lookup(Lang::Es, "manga.card.chapters"), "{n} capítulos");
+        assert_eq!(lookup(Lang::Es, "manga.card.chapters.one"), "{n} capítulo");
+        assert_eq!(lookup(Lang::Es, "manga.card.volumes"), "{n} volúmenes");
+        assert!(!ch.ends_with(" ch"));
         assert_eq!(safe_name("a/b:c?"), "a_b_c_");
         assert_eq!(safe_name("..."), "untitled");
         assert_eq!(safe_name(&"x".repeat(200)).len(), 80);

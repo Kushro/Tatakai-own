@@ -125,7 +125,7 @@ fn format_label(format: &str) -> String {
     }
 }
 
-fn source_label(source: &str) -> String {
+pub(crate) fn source_label(source: &str) -> String {
     match source {
         "ORIGINAL" => t("details.source.original"),
         "MANGA" => t("details.source.manga"),
@@ -159,7 +159,7 @@ fn season_label(season: &str, year: Option<i32>) -> String {
     }
 }
 
-fn country_label(code: &str) -> String {
+pub(crate) fn country_label(code: &str) -> String {
     match code {
         "JP" => t("details.country.jp"),
         "KR" => t("details.country.kr"),

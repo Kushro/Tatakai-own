@@ -79,6 +79,60 @@ fn label_or(key: &str, raw: &str) -> String {
     if text == key { raw.to_owned() } else { text }
 }
 
+/// BUG-118: an author as `Name (role in the app's language)`.
+pub(crate) fn author_label(author: &str) -> String {
+    let (name, role) = crate::model::manga::split_author(author);
+    let Some(role) = role else { return author.to_owned() };
+    let Some(key) = crate::model::manga::staff_role_key(role) else { return author.to_owned() };
+    let rest = role.find('(').map(|i| role[i..].trim()).unwrap_or("");
+    let base = t(key);
+    if rest.is_empty() { format!("{name} ({base})") } else { format!("{name} ({base} {rest})") }
+}
+
+/// BUG-118: an AniList ranking in the app's language ("#97 mejor valorado de todos los tiempos").
+fn ranking_label(r: &crate::model::manga::RankingVm) -> String {
+    let rank = r.rank.to_string();
+    match crate::model::manga::ranking_key(r) {
+        Some((key, true)) => tf(key, &[("n", &rank), ("year", &r.year.unwrap_or_default().to_string())]),
+        Some((key, false)) => tf(key, &[("n", &rank)]),
+        None => format!("#{rank} {}", r.context),
+    }
+}
+
+/// BUG-118: a fact value as the page shows it: AniList codes worded (`ORIGINAL` -> "Original", `JP` -> "Japón"),
+/// counts with a thousands separator.
+fn fact_value(key: &str, value: &str) -> String {
+    match key {
+        "source" => crate::screens::details::source_label(value),
+        "origin" => {
+            let code = match value.to_ascii_uppercase().as_str() {
+                "JA" => "JP".to_owned(),
+                "KO" => "KR".to_owned(),
+                "ZH" => "CN".to_owned(),
+                "ZH-HK" => "TW".to_owned(),
+                other => other.to_owned(),
+            };
+            crate::screens::details::country_label(&code)
+        }
+        "popularity" | "favourites" => value.parse::<u64>().map(group_thousands).unwrap_or_else(|_| value.to_owned()),
+        _ => value.to_owned(),
+    }
+}
+
+/// `337460` -> "337.460" in Spanish, "337,460" in English.
+fn group_thousands(n: u64) -> String {
+    let sep = if crate::i18n::lang() == crate::i18n::Lang::Es { '.' } else { ',' };
+    let s = n.to_string();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, c) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            out.push(sep);
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Chapters of the view ("best source" merged rows or one provider), sorted and filtered.
 fn visible_rows(providers: &[ChapterProviderVm], selected: &str, lang: &str, source: Option<&str>, asc: bool, filter: &str) -> Vec<MergedChapterVm> {
     let mut rows: Vec<MergedChapterVm> = if selected.is_empty() {
@@ -360,7 +414,14 @@ fn Header(
                     }
                 }
                 if !vm.authors.is_empty() {
-                    p { class: "tk-muted tk-manga__authors", "{vm.authors.join(\" · \")}" }
+                    p { class: "tk-muted tk-manga__authors", {vm.authors.iter().map(|a| author_label(a)).collect::<Vec<_>>().join(" · ")} }
+                }
+                if !vm.rankings.is_empty() {
+                    div { class: "tk-chips", "data-rankings": "{vm.rankings.len()}",
+                        for (i , r) in vm.rankings.iter().take(4).enumerate() {
+                            InfoChip { key: "{i}", text: ranking_label(r), icon: if r.kind == "RATED" { "star".to_string() } else { "heart".to_string() } }
+                        }
+                    }
                 }
                 div { class: "tk-dhead__actions",
                     Button {
@@ -843,7 +904,7 @@ fn InfoPanel(vm: MangaDetailsVm) -> Element {
                         for (k , v) in vm.facts.clone() {
                             div { key: "{k}", class: "tk-manga__fact", "data-fact": "{k}",
                                 dt { {label_or(&format!("manga.details.fact.{k}"), &k)} }
-                                dd { "{v}" }
+                                dd { {fact_value(&k, &v)} }
                             }
                         }
                     }
@@ -879,7 +940,7 @@ fn InfoPanel(vm: MangaDetailsVm) -> Element {
                     h3 { class: "tk-panel__title", {t("manga.details.authors")} }
                     ul { class: "tk-manga__plain-list",
                         for a in vm.authors.clone() {
-                            li { key: "{a}", "{a}" }
+                            li { key: "{a}", {author_label(&a)} }
                         }
                     }
                 }
@@ -1025,6 +1086,21 @@ fn RelationRow(rel: RelatedVm, on_open: EventHandler<RelatedVm>) -> Element {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn facts_and_authors_are_shown_in_the_apps_words() {
+        // BUG-118: AniList codes worded, counts grouped, staff roles translated (language-agnostic checks).
+        assert_eq!(fact_value("source", "ORIGINAL"), t("details.source.original"));
+        assert_eq!(fact_value("origin", "JP"), t("details.country.jp"));
+        assert_eq!(fact_value("origin", "JA"), t("details.country.jp"));
+        assert_ne!(fact_value("popularity", "337460"), "337460");
+        assert_eq!(fact_value("publisher", "Shueisha"), "Shueisha");
+        assert_eq!(author_label("Tatsuki Fujimoto (Story & Art)"), format!("Tatsuki Fujimoto ({})", t("manga.role.story_art")));
+        assert_eq!(author_label("A (Story (ch 1-20))"), format!("A ({} (ch 1-20))", t("manga.role.story")));
+        assert_eq!(author_label("B (Touch-up Art)"), "B (Touch-up Art)");
+        assert_eq!(crate::i18n::lookup(crate::i18n::Lang::Es, "manga.role.story_art"), "Guion y dibujo");
+    }
+
     use super::*;
     use crate::model::manga::read_fraction;
 

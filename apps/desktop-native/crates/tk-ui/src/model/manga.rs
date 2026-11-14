@@ -519,6 +519,61 @@ pub struct MangaDetailsVm {
     pub synonyms: Vec<String>,
     /// AniList / MangaDex / MangaUpdates ids as `(site, id)` for the "open on" links.
     pub source_ids: Vec<(String, String)>,
+    /// AniList rankings (BUG-118), worded by the page ("#97 mejor valorado de todos los tiempos").
+    pub rankings: Vec<RankingVm>,
+}
+
+/// One AniList ranking (`rankings { rank type allTime year context }`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RankingVm {
+    pub rank: u32,
+    /// `RATED` | `POPULAR` (others are shown with AniList's `context`).
+    pub kind: String,
+    pub all_time: bool,
+    pub year: Option<i32>,
+    /// AniList's English text ("highest rated all time"): only the fallback for an unknown kind.
+    pub context: String,
+}
+
+/// i18n key of a ranking and whether it takes the year (`None`: AniList's own words). Pure; same rules as Android
+/// (BUG-111 `rankingLabelRes`).
+pub fn ranking_key(r: &RankingVm) -> Option<(&'static str, bool)> {
+    match (r.kind.as_str(), r.all_time, r.year) {
+        ("RATED", true, _) => Some(("manga.details.ranking.rated_all_time", false)),
+        ("POPULAR", true, _) => Some(("manga.details.ranking.popular_all_time", false)),
+        ("RATED", false, Some(_)) => Some(("manga.details.ranking.rated_year", true)),
+        ("POPULAR", false, Some(_)) => Some(("manga.details.ranking.popular_year", true)),
+        _ => None,
+    }
+}
+
+/// An AniList staff role of a manga / novel in the app's language (BUG-118, Android `staffRoleLabelRes`): the part
+/// before a parenthesis is translated ("Story (ch 1-20)" -> "Guion (ch 1-20)"); `None` when there is no
+/// translation (shown as it comes).
+pub fn staff_role_key(role: &str) -> Option<&'static str> {
+    let base = role.split('(').next().unwrap_or(role).trim().to_ascii_lowercase();
+    Some(match base.as_str() {
+        "story & art" | "story and art" => "manga.role.story_art",
+        "story" => "manga.role.story",
+        "art" => "manga.role.art",
+        "original story" => "manga.role.original_story",
+        "original creator" => "manga.role.original_creator",
+        "character design" => "manga.role.character_design",
+        "illustration" => "manga.role.illustration",
+        "assistant" => "manga.role.assistant",
+        "translator" => "manga.role.translator",
+        "lettering" => "manga.role.lettering",
+        "editing" | "editor" => "manga.role.editing",
+        _ => return None,
+    })
+}
+
+/// `"Name (Role)"` (AniList staff as the backend sends it) -> `(name, role)`. Pure.
+pub fn split_author(author: &str) -> (&str, Option<&str>) {
+    match author.find(" (") {
+        Some(i) if author.ends_with(')') => (&author[..i], Some(&author[i + 2..author.len() - 1])),
+        _ => (author, None),
+    }
 }
 
 
@@ -761,6 +816,24 @@ pub fn read_fraction(p: &ReadProgressVm) -> f64 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn rankings_and_staff_roles_are_worded_by_the_app() {
+        // BUG-118: same rules as Android (BUG-111 / BUG-098).
+        let r = |kind: &str, all_time: bool, year: Option<i32>| RankingVm { rank: 1, kind: kind.into(), all_time, year, context: String::new() };
+        assert_eq!(ranking_key(&r("RATED", true, None)), Some(("manga.details.ranking.rated_all_time", false)));
+        assert_eq!(ranking_key(&r("POPULAR", true, Some(2018))), Some(("manga.details.ranking.popular_all_time", false)));
+        assert_eq!(ranking_key(&r("POPULAR", false, Some(2018))), Some(("manga.details.ranking.popular_year", true)));
+        assert_eq!(ranking_key(&r("RATED", false, None)), None);
+        assert_eq!(ranking_key(&r("TRENDING", true, None)), None);
+        assert_eq!(staff_role_key("Story & Art"), Some("manga.role.story_art"));
+        assert_eq!(staff_role_key("Story (ch 1-20)"), Some("manga.role.story"));
+        assert_eq!(staff_role_key("Touch-up Art"), None);
+        assert_eq!(split_author("Tatsuki Fujimoto (Story & Art)"), ("Tatsuki Fujimoto", Some("Story & Art")));
+        assert_eq!(split_author("A (Story (ch 1-20))"), ("A", Some("Story (ch 1-20)")));
+        assert_eq!(split_author("Only Name"), ("Only Name", None));
+    }
+
     use super::*;
 
     #[test]

@@ -155,7 +155,11 @@ fn DetailsBody(vm: NovelDetailsVm) -> Element {
             .map(|n| (t("novel.details.chapters"), n.to_string())),
         vm.volumes_total
             .map(|n| (t("novel.details.volumes"), n.to_string())),
-        (!vm.authors.is_empty()).then(|| (t("novel.details.authors"), vm.authors.join(", "))),
+        // BUG-118: roles in the app's language ("Guion y dibujo"), like the manga page.
+        (!vm.authors.is_empty()).then(|| {
+            let names: Vec<String> = vm.authors.iter().map(|a| crate::screens::manga::details::author_label(a)).collect();
+            (t("novel.details.authors"), names.join(", "))
+        }),
     ]
     .into_iter()
     .flatten()
