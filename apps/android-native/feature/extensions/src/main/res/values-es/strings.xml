@@ -24,6 +24,10 @@
     <string name="extensions_now_enabled">%1$s activada</string>
     <string name="extensions_now_disabled">%1$s desactivada</string>
     <string name="extensions_permissions">Permisos</string>
+    <string name="extensions_perm_accesses">Accede a</string>
+    <string name="extensions_perm_network">Internet</string>
+    <string name="extensions_perm_storage">Guarda datos</string>
+    <string name="extensions_perm_torrent">Usa torrents</string>
     <string name="extensions_no_permissions">Sin permisos especiales</string>
     <string name="extensions_more">+%1$d</string>
     <string name="extensions_compat_full">Completa</string>
@@ -33,8 +37,8 @@
     <string name="extensions_compat_partial_hint">Funciona la búsqueda y los streams; el catálogo personalizado se omite.</string>
     <string name="extensions_compat_reason">Detalle técnico: %1$s</string>
     <string name="extensions_version">Versión %1$s</string>
-    <string name="extensions_kind_torrent">Torrent</string>
-    <string name="extensions_kind_onlinestream">Streaming</string>
+    <string name="extensions_kind_torrent">Torrents</string>
+    <string name="extensions_kind_onlinestream">Streams web</string>
     <string name="extensions_kind_custom">Personalizada</string>
     <string name="extensions_updated">Actualizada %1$s</string>
     <string name="extensions_hash">SHA-256 %1$s</string>
@@ -111,7 +115,7 @@
     <string name="extensions_providers_title">Proveedores</string>
     <string name="extensions_providers_hint">Catálogos de las extensiones con fuentes propias, incluidas las del servidor de tu PC.</string>
     <string name="extensions_providers_empty">Ninguna extensión instalada ofrece catálogo propio.</string>
-    <string name="extensions_provider_kind_watch">Ver</string>
+    <string name="extensions_provider_kind_watch">Anime</string>
     <string name="extensions_provider_kind_read">Manga</string>
     <string name="extensions_provider_kind_novel">Novela</string>
     <string name="extensions_provider_search">Buscar en este proveedor</string>

@@ -425,7 +425,9 @@ private fun ExtensionCard(
                         Pill(stringResource(ext.compat.labelRes()), tone = ext.compat.tone())
                     }
                     Text(
-                        "${stringResource(R.string.extensions_version, ext.version)} · ${stringResource(kindRes(ext.type))} · ${ext.id}",
+                        // BUG-075: no raw id and no "custom" kind in the card, as on the desktop.
+                        listOfNotNull(stringResource(R.string.extensions_version, ext.version), kindRes(ext.type)?.let { stringResource(it) })
+                            .joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -479,8 +481,10 @@ private fun ExtensionCard(
 @Composable
 private fun Permissions(permissions: List<String>) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // BUG-075: over a row of sites only, "Accede a" reads better than "Permisos".
+        val onlySites = permissions.isNotEmpty() && permissions.all { it.startsWith(DOMAIN_PERMISSION) }
         Text(
-            stringResource(R.string.extensions_permissions),
+            stringResource(if (onlySites) R.string.extensions_perm_accesses else R.string.extensions_permissions),
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -488,7 +492,7 @@ private fun Permissions(permissions: List<String>) {
             if (permissions.isEmpty()) {
                 InfoChip(stringResource(R.string.extensions_no_permissions))
             } else {
-                permissions.take(MAX_PERMISSION_CHIPS).forEach { p -> InfoChip(p, icon = permissionIcon(p)) }
+                permissions.take(MAX_PERMISSION_CHIPS).forEach { p -> InfoChip(permissionText(p), icon = permissionIcon(p)) }
                 if (permissions.size > MAX_PERMISSION_CHIPS) InfoChip(stringResource(R.string.extensions_more, permissions.size - MAX_PERMISSION_CHIPS))
             }
         }
@@ -609,6 +613,31 @@ private fun LogLine(entry: ExtensionLogEntry) {
 
 private const val MAX_PERMISSION_CHIPS = 6
 
+private const val DOMAIN_PERMISSION = "network:domain:"
+
+/** BUG-075 (UX-16): what a permission id means for the user, or null to show it as it is (same words as the desktop's `perm_label`). */
+internal enum class PermissionLabel { NETWORK, STORAGE, TORRENT }
+
+/** `network:domain:az-animex.com` -> the host; other `network*` / `storage*` / `torrent*` -> a word; anything else -> null. */
+internal fun permissionLabel(p: String): Pair<PermissionLabel?, String?> = when {
+    p.startsWith(DOMAIN_PERMISSION) -> null to p.removePrefix(DOMAIN_PERMISSION)
+    p.startsWith("network") -> PermissionLabel.NETWORK to null
+    p.startsWith("storage") -> PermissionLabel.STORAGE to null
+    p.startsWith("torrent") -> PermissionLabel.TORRENT to null
+    else -> null to null
+}
+
+@Composable
+private fun permissionText(p: String): String {
+    val (kind, host) = permissionLabel(p)
+    return host ?: when (kind) {
+        PermissionLabel.NETWORK -> stringResource(R.string.extensions_perm_network)
+        PermissionLabel.STORAGE -> stringResource(R.string.extensions_perm_storage)
+        PermissionLabel.TORRENT -> stringResource(R.string.extensions_perm_torrent)
+        null -> p
+    }
+}
+
 private fun permissionIcon(p: String): ImageVector = when {
     p.startsWith("network") -> Icons.Outlined.Language
     p.startsWith("storage") -> Icons.Outlined.Storage
@@ -627,9 +656,10 @@ private fun ExtensionCompat.tone(): PillTone = when (this) {
     ExtensionCompat.UNSUPPORTED -> PillTone.ERR
 }
 
-private fun kindRes(type: String): Int = when (type) {
+/** BUG-075: "Torrents" / "Streams web"; a custom extension says nothing (its description does). */
+private fun kindRes(type: String): Int? = when (type) {
     "torrent" -> R.string.extensions_kind_torrent
-    "custom" -> R.string.extensions_kind_custom
+    "custom" -> null
     else -> R.string.extensions_kind_onlinestream
 }
 

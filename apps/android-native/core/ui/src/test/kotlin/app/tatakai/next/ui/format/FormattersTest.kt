@@ -1,5 +1,6 @@
 package app.tatakai.next.ui.format
 
+import java.util.Locale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -7,17 +8,20 @@ class FormattersTest {
 
     @Test
     fun `bytes use decimal units with three significant digits like desktop`() {
-        assertEquals("999 B", formatBytes(999))
-        assertEquals("1.20 kB", formatBytes(1_200))
-        assertEquals("38.4 MB", formatBytes(38_400_000))
-        assertEquals("1.38 GB", formatBytes(1_380_000_000))
-        assertEquals("0 B", formatBytes(-5))
+        assertEquals("999 B", formatBytes(999, Locale.ROOT))
+        assertEquals("1.20 kB", formatBytes(1_200, Locale.ROOT))
+        assertEquals("38.4 MB", formatBytes(38_400_000, Locale.ROOT))
+        assertEquals("1.38 GB", formatBytes(1_380_000_000, Locale.ROOT))
+        assertEquals("0 B", formatBytes(-5, Locale.ROOT))
+        // BUG-074: Spanish UI -> decimal comma, like the desktop.
+        assertEquals("1,45 GB", formatBytes(1_450_000_000, Locale.forLanguageTag("es")))
+        assertEquals("4,2 MB/s", formatRate(4_200_000, Locale.forLanguageTag("es")))
     }
 
     @Test
     fun `rates and durations`() {
-        assertEquals("0 B/s", formatRate(0))
-        assertEquals("4.2 MB/s", formatRate(4_200_000))
+        assertEquals("0 B/s", formatRate(0, Locale.ROOT))
+        assertEquals("4.2 MB/s", formatRate(4_200_000, Locale.ROOT))
         assertEquals("23:45", formatDuration(23 * 60 + 45))
         assertEquals("1:23:45", formatDuration(3600 + 23 * 60 + 45))
         assertEquals("0:00", formatDuration(-1))
