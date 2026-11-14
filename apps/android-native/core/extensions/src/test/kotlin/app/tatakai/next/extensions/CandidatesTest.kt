@@ -243,4 +243,18 @@ class CandidatesTest {
         assertNull(Candidates.sizeOf(JsonPrimitive("12 parsecs")))
         assertEquals(5L, Candidates.sizeOf(JsonPrimitive(5)))
     }
+
+    @Test
+    fun theTorrentRouteRunsFirst() {
+        // BUG-016: same order as the desktop host; each route then gets its own budget.
+        assertEquals(listOf("torrent", "stream"), Candidates.runOrder(listOf("stream", "torrent")))
+        assertEquals(listOf("stream"), Candidates.runOrder(listOf("stream")))
+    }
+
+    @Test
+    fun aBundleCallMayOutlastAProviderTimeout() {
+        // BUG-016: Toko's providers get providerOptions.timeoutMs = 20 s each (plus retries); its torrent route takes ~30 s.
+        assertTrue(JsEngine.CALL_TIMEOUT_MS >= 40_000)
+        assertTrue(JsEngine.CALL_TIMEOUT_MS > ExtensionHost.DEFAULT_PROVIDER_TIMEOUT_MS)
+    }
 }

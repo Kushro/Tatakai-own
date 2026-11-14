@@ -46,7 +46,7 @@ interface JsSession : AutoCloseable {
 
     /**
      * Calls `instance[method](...args)`. With [collectChunks] an extra `onChunk(value)` function is appended to the arguments
-     * and its values are returned in [JsInvocation.chunks]. Enforces the 15 s budget and the [MEMORY_LIMIT_BYTES] limit.
+     * and its values are returned in [JsInvocation.chunks]. Enforces the [JsEngine.CALL_TIMEOUT_MS] budget and the [MEMORY_LIMIT_BYTES] limit.
      * @throws ExtError.Timeout, ExtError.OutOfMemory (the session must then be closed), ExtError.BundleError, ExtError.PermissionDenied
      */
     suspend fun invoke(method: String, args: List<JsonElement>, collectChunks: Boolean = false): JsInvocation
@@ -60,7 +60,16 @@ interface JsEngine {
     suspend fun open(manifest: ExtensionManifest, bundle: String, host: JsHost): JsSession
 
     companion object {
-        const val CALL_TIMEOUT_MS = 15_000L
+        /**
+         * Budget of one bundle call that does not open the hidden browser. BUG-016: aggregating bundles run dozens of providers at
+         * once, each bounded by `providerOptions.timeoutMs` (20 s) plus retries: Toko's torrent route takes ~30 s (31 s on the PC), so
+         * the 15 s it had always cut it and the phone never listed a torrent of its own. The desktop host allows 40 s
+         * (`tk-ext` `runtime.rs` `CALL_TIMEOUT`); a phone runs QuickJS slower, hence a little more.
+         */
+        const val CALL_TIMEOUT_MS = 45_000L
+
+        /** Budget to evaluate and instantiate a bundle ([JsEngine.open]). */
+        const val OPEN_TIMEOUT_MS = 15_000L
         /**
          * 256 MiB, as in contracts/extension-host/globals.v1.md: Toko's stream route (cheerio over many provider pages) runs
          * out at 64 MiB on a device and lists 13 sources at 256.

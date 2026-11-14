@@ -37,7 +37,7 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
 /**
- * `quickjs-kt` 1.0.15 implementation of [JsEngine]: ONE runtime per extension, [JsEngine.MEMORY_LIMIT_BYTES] memory limit, 15 s per host call, the globals of
+ * `quickjs-kt` 1.0.15 implementation of [JsEngine]: ONE runtime per extension, [JsEngine.MEMORY_LIMIT_BYTES] memory limit, [JsEngine.CALL_TIMEOUT_MS] per host call, the globals of
  * contracts/extension-host/globals.v1.md provided by `tatakai/host-prelude.js` on top of a handful of `__host_*` bridge functions.
  * Everything crossing the bridge is a JSON string, so no QuickJS object marshalling is relied upon.
  */
@@ -62,11 +62,11 @@ class QuickJsEngine(
         try {
             qjs.memoryLimit = JsEngine.MEMORY_LIMIT_BYTES
             qjs.maxStackSize = MAX_STACK_BYTES
-            // With a browser the interrupt budget is the 90 s of a browser call; the 15 s of a plain call is then enforced by the
+            // With a browser the interrupt budget is the 90 s of a browser call; the budget of a plain call is then enforced by the
             // watchdog in QuickJsSession.invoke.
             qjs.evaluationTimeoutMillis = if (bridge != null) BrowserPolicy.CALL_BUDGET_WITH_BROWSER_MS else JsEngine.CALL_TIMEOUT_MS
             session.bind()
-            withTimeout(JsEngine.CALL_TIMEOUT_MS) {
+            withTimeout(JsEngine.OPEN_TIMEOUT_MS) {
                 if (bridge != null) {
                     // A JSON string literal is a valid JS string literal (domains are [a-z0-9.-] only).
                     qjs.evaluate<Any?>(
@@ -184,7 +184,7 @@ internal class QuickJsSession(
                     }
                 } else {
                     // A call that opened a browser may run up to CALL_BUDGET_WITH_BROWSER_MS (Cloudflare solve); any other call keeps the
-                    // 15 s budget, enforced by this watchdog because the interrupt budget of the runtime is the long one.
+                    // CALL_TIMEOUT_MS budget, enforced by this watchdog because the interrupt budget of the runtime is the long one.
                     coroutineScope {
                         val eval = async { qjs.evaluate<String?>("await __tk_call(\"$method\", __host_args(), $collectChunks)", "call.js") }
                         val watchdog = launch {

@@ -46,6 +46,9 @@ object Candidates {
         return out
     }
 
+    /** Order in which one extension's [candidateRoutes] run (they share one session): `torrent` first, as the desktop host does. */
+    fun runOrder(routes: List<String>): List<String> = routes.filter { it == "torrent" } + routes.filter { it != "torrent" }
+
     /** Whether the bundle text mentions the identifier `torrentAll` (word-bounded; `$` counts as an identifier character). */
     fun exposesTorrentAll(bundle: String): Boolean {
         val kw = "torrentAll"

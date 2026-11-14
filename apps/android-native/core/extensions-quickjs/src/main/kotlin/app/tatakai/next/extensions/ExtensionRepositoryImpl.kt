@@ -400,12 +400,13 @@ class ExtensionRepositoryImpl(
         val fresh = ArrayList<SourceCandidate>()
         coroutineScope {
             snapshot.forEach { (m, routes) ->
-                // Routes of one extension are serialized by the host, so each one may wait for the others.
-                val budget = budgetMs(m) * routes.size
+                // Routes of one extension are serialized by the host: they run one after the other here, each with its own budget
+                // (BUG-016: a shared budget let the slow stream route eat the torrent route's time). Torrent first, as on the desktop
+                // (`tk-ext` host.rs `resolve`).
                 val withPrefs = withPreferences(m, params)
-                routes.forEach { route ->
-                    launch(io) {
-                        val list = candidatesOf(m, route, withPrefs, budget)
+                launch(io) {
+                    for (route in Candidates.runOrder(routes)) {
+                        val list = candidatesOf(m, route, withPrefs, budgetMs(m))
                         if (list.isNotEmpty()) {
                             val all = acc.withLock {
                                 fresh += list
@@ -1153,7 +1154,8 @@ class ExtensionRepositoryImpl(
         (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()?.takeIf { it.isNotEmpty() }
 
     companion object {
-        const val EXTENSION_BUDGET_MS = 25_000L
+        /** One route of an extension without the hidden browser: the bundle call's budget plus the session start (BUG-016). */
+        const val EXTENSION_BUDGET_MS = JsEngine.CALL_TIMEOUT_MS + JsEngine.OPEN_TIMEOUT_MS
         /** parity wave B: catalog file (repositories, bookmarks, kill switch, preferences) inside the extensions root. */
         const val CATALOG_FILE = ".catalog.json"
         /** [preferenceValues] value of a SECRET key that holds something (the secret itself never leaves SecretStore). */
