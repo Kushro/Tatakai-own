@@ -856,7 +856,12 @@ pub fn SearchPage() -> Element {
             SkeletonGrid { count: 12 }
         },
         (_, Phase::Failed(e)) => rsx! {
-            ErrorState { error: e.clone(), on_retry: move |_| run.call(false) }
+            ErrorState {
+                error: e.clone(),
+                // BUG-027: the extension is still looking the titles up; it is not "nothing matches".
+                title: e.detail.starts_with(crate::model::EXT_SEARCH_TIMEOUT).then(|| t("search.ext_timeout")),
+                on_retry: move |_| run.call(false),
+            }
         },
         (Some(req), Phase::Ready) => {
             let items = page_state.items.clone();

@@ -1,5 +1,6 @@
 {
   "search.placeholder": "Buscar anime",
+  "search.ext_timeout": "La extensión tardó demasiado en revisar los resultados. Reintenta: la segunda búsqueda suele ser inmediata.",
   "search.hint": "Pulsa Ctrl+K para buscar desde cualquier lugar",
   "search.empty.title": "Busca un anime",
   "search.empty.body": "Escribe al menos dos letras. Los resultados vienen de tus fuentes de metadatos.",

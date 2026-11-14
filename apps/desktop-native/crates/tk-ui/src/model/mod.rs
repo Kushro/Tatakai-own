@@ -60,6 +60,9 @@ pub struct PaletteInfo {
 pub const PALETTES: [PaletteInfo; 20] = home::ALL_PALETTES;
 
 pub const DEFAULT_PALETTE: &str = "tatakai-violet";
+/// `UiError::detail` prefix of an extension search whose checks ran out of time (BUG-027): the search screen says
+/// the extension is slow and offers a retry instead of "nothing matches".
+pub const EXT_SEARCH_TIMEOUT: &str = "timeout: ";
 /// Metadata providers known to tk-core (default priority order).
 /// Metadata provider ids in default priority order. Wave B adds MAL, Shikimori and Tenrai (worker b; plan 14
 /// section 0.1 #13) and the manga-only MangaDex / MangaUpdates (worker l); `tk_core::MetadataRouter::with_defaults`

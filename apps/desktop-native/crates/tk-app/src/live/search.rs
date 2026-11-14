@@ -361,11 +361,24 @@ pub async fn search_in_extension(b: &LiveBackend, ext_id: &str, query: &str, pag
     if let Some(route) = probe_route(&manifest) {
         match b.router.search(MediaKind::Anime, &query, page).await {
             Ok(p) => {
-                for m in probe(&host, ext_id, route, p.items).await {
+                let probed = probe(&host, ext_id, route, p.items).await;
+                for m in probed.playable {
                     let vm = to_vm(&m);
                     if !vm.id.is_empty() && !out.iter().any(|x| x.id == vm.id) {
                         out.push(vm);
                     }
+                }
+                // BUG-027: a probe that ran out of time is not "nothing matches": the extension is still resolving
+                // (Toko takes > 25 s on a title's first lookup). With nothing confirmed, report it so the screen
+                // offers a retry (by then the extension has the title cached).
+                if out.is_empty() && probed.timed_out > 0 {
+                    return Err(ext_err(format!(
+                        "{}{} took longer than {} s to check {} title(s); try again",
+                        tk_ui::model::EXT_SEARCH_TIMEOUT,
+                        manifest.name,
+                        PROBE_TIMEOUT.as_secs(),
+                        probed.timed_out
+                    )));
                 }
             }
             Err(e) => failures.push(e.to_string()),
@@ -389,8 +402,28 @@ async fn read_manifest(host: &ExtensionHost, ext_id: &str) -> UiResult<Manifest>
     Manifest::parse(&text).map_err(ext_err)
 }
 
+/// Result of [`probe`]: the playable titles, in order, and how many probes ran out of time.
+struct Probed {
+    playable: Vec<Media>,
+    timed_out: usize,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ProbeResult {
+    Playable,
+    NotPlayable,
+    TimedOut,
+}
+
+fn probed(items: Vec<Media>, results: &[ProbeResult]) -> Probed {
+    let timed_out = results.iter().filter(|r| **r == ProbeResult::TimedOut).count();
+    let playable =
+        items.into_iter().zip(results).filter(|(_, r)| **r == ProbeResult::Playable).map(|(m, _)| m).collect();
+    Probed { playable, timed_out }
+}
+
 /// The titles of `items` (first [`PROBE_PER_PAGE`]) for which `route` returns at least one source, in order.
-async fn probe(host: &Arc<ExtensionHost>, ext_id: &str, route: &'static str, items: Vec<Media>) -> Vec<Media> {
+async fn probe(host: &Arc<ExtensionHost>, ext_id: &str, route: &'static str, items: Vec<Media>) -> Probed {
     let items: Vec<Media> = items.into_iter().take(PROBE_PER_PAGE).collect();
     let mut set = tokio::task::JoinSet::new();
     for (i, m) in items.iter().enumerate() {
@@ -398,24 +431,28 @@ async fn probe(host: &Arc<ExtensionHost>, ext_id: &str, route: &'static str, ite
         let ext_id = ext_id.to_owned();
         let params = probe_params(m);
         set.spawn(async move {
-            let ok = match tokio::time::timeout(PROBE_TIMEOUT, host.call(&ext_id, route, params)).await {
-                Ok(Ok(v)) => v["sources"].as_array().is_some_and(|a| !a.is_empty()),
+            let r = match tokio::time::timeout(PROBE_TIMEOUT, host.call(&ext_id, route, params)).await {
+                Ok(Ok(v)) if v["sources"].as_array().is_some_and(|a| !a.is_empty()) => ProbeResult::Playable,
+                Ok(Ok(_)) => ProbeResult::NotPlayable,
                 Ok(Err(e)) => {
                     tracing::debug!(extension = %ext_id, error = %e, "probe failed");
-                    false
+                    ProbeResult::NotPlayable
                 }
-                Err(_) => false,
+                Err(_) => {
+                    tracing::info!(extension = %ext_id, "probe timed out");
+                    ProbeResult::TimedOut
+                }
             };
-            (i, ok)
+            (i, r)
         });
     }
-    let mut playable = vec![false; items.len()];
+    let mut results = vec![ProbeResult::NotPlayable; items.len()];
     while let Some(r) = set.join_next().await {
-        if let Ok((i, true)) = r {
-            playable[i] = true;
+        if let Ok((i, r)) = r {
+            results[i] = r;
         }
     }
-    items.into_iter().zip(playable).filter(|(_, ok)| *ok).map(|(m, _)| m).collect()
+    probed(items, &results)
 }
 
 /// `Backend::feed` (feed ids of `tk_ui::screens::browse::FeedId`).
@@ -541,6 +578,15 @@ mod tests {
     use super::*;
     use tk_core::MediaRef;
     use tk_ui::screens::browse::TrendWindow;
+
+    #[test]
+    fn timed_out_probes_are_counted_not_dropped_silently() {
+        use ProbeResult::*;
+        let p = probed(vec![media(1), media(2), media(3)], &[TimedOut, Playable, NotPlayable]);
+        assert_eq!(p.playable.iter().map(|m| m.title.as_str()).collect::<Vec<_>>(), ["T2"]);
+        assert_eq!(p.timed_out, 1);
+        assert_eq!(probed(vec![media(1)], &[NotPlayable]).timed_out, 0);
+    }
 
     fn media(id: u32) -> Media {
         Media {

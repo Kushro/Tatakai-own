@@ -1,5 +1,6 @@
 {
   "search.placeholder": "Search anime",
+  "search.ext_timeout": "The extension took too long to check the results. Try again: the second search is usually instant.",
   "search.hint": "Press Ctrl+K to search from anywhere",
   "search.empty.title": "Search for an anime",
   "search.empty.body": "Type at least two letters. Results come from your metadata sources.",
