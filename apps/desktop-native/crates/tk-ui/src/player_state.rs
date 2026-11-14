@@ -138,8 +138,12 @@ impl FlowState {
 
     /// Like [`FlowState::new`]; `confirmed` = the `picked` source was chosen for this very playback (Details
     /// picker, next episode of a batch), so Manual mode plays it at once.
+    ///
+    /// The stale-pick rule ([`drop_stale_pick`]) is Auto's only: in Manual the user's pick is never dropped, it goes
+    /// on top of the picker, preselected (plan §11.1, BUG-052), and a pick confirmed for this playback plays.
     pub fn with_confirmed(mut sources: Vec<SourceVm>, mode: SourceModeVm, prefs: &SourcePrefsVm, confirmed: bool) -> Self {
-        let dropped_pick = drop_stale_pick(&mut sources, prefs);
+        let dropped_pick =
+            if mode == SourceModeVm::Manual || confirmed { None } else { drop_stale_pick(&mut sources, prefs) };
         let mut s = Self { sources, mode, dropped_pick, confirmed, ..Self::default() };
         s.begin();
         s
@@ -1020,12 +1024,27 @@ mod tests {
         assert!(!f.has_pick());
         assert_eq!(f.to_resolve(), Some(0), "the recommended source plays");
         assert!(f.sources.iter().any(|s| s.id == "nyaa|torrent|RuDub"), "the old pick stays as an option");
-        // In Manual mode the user is asked again instead of replaying the stale pick.
+        // A pick confirmed for this playback (Details picker) plays even in Auto.
         let mut v = list();
         v[4].picked = true; // 480p, below the default 720p minimum
-        let f = FlowState::new(v, SourceModeVm::Manual, &prefs);
-        assert_eq!(f.dropped_pick.as_deref(), Some("toko|web|Ok.ru"));
+        let f = FlowState::with_confirmed(v, SourceModeVm::Auto, &prefs, true);
+        assert_eq!((f.dropped_pick.clone(), f.to_resolve()), (None, Some(4)));
+    }
+
+    #[test]
+    fn manual_never_drops_the_users_pick() {
+        // BUG-052 (plan §11.1): in Manual a remembered pick that misses the prefs stays picked (on top of the picker,
+        // preselected) and is not forgotten; one picked in the Details picker right before plays.
+        let prefs = SourcePrefsVm::default();
+        let mut v = list();
+        v[4].picked = true; // 480p, below the default 720p minimum
+        let f = FlowState::new(v.clone(), SourceModeVm::Manual, &prefs);
+        assert_eq!(f.dropped_pick, None);
         assert_eq!(f.phase, Phase::Manual);
+        assert!(f.sources[4].picked, "still preselected");
+        assert_eq!(crate::components::sources::picker_order(&f.sources, true)[0].id, "toko|web|Ok.ru", "on top of the picker");
+        let f = FlowState::with_confirmed(v, SourceModeVm::Manual, &prefs, true);
+        assert_eq!((f.dropped_pick.clone(), f.to_resolve()), (None, Some(4)));
     }
 
     #[test]
