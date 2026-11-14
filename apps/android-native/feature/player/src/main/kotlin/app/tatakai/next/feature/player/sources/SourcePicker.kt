@@ -454,7 +454,6 @@ private fun TagChipView(chip: TagChip) {
 @Composable
 private fun Facts(source: RankedSource) {
     val c = source.candidate
-    val none = stringResource(R.string.src_picker_none)
     val facts = mutableListOf<Pair<String, String>>()
     if (c.kind == SourceKind.WEB) {
         facts += stringResource(R.string.src_picker_server) to c.label
@@ -471,8 +470,10 @@ private fun Facts(source: RankedSource) {
             facts += stringResource(R.string.src_picker_leechers) to it.leechers.toString()
         }
     }
-    facts += stringResource(R.string.src_picker_subs) to (langsLabel(c.subs) ?: none)
-    facts += stringResource(R.string.src_picker_dubs) to (langsLabel(c.dubs) ?: none)
+    // BUG-004: no language list is not "none": a "Multi-sub" release has several, and otherwise the source simply did not say.
+    val unknown = stringResource(R.string.src_picker_unknown)
+    facts += stringResource(R.string.src_picker_subs) to (langsLabel(c.subs) ?: if (c.tags.multiSub) stringResource(R.string.src_picker_several) else unknown)
+    facts += stringResource(R.string.src_picker_dubs) to (langsLabel(c.dubs) ?: if (c.tags.dualAudio) stringResource(R.string.src_picker_several) else unknown)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         facts.forEach { (k, v) ->
             Column {
