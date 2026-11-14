@@ -256,7 +256,10 @@ img { display: block; max-width: 100%; }
 .tk-iconbtn:disabled { opacity: 0.38; }
 
 /* connected button group / segmented */
-.tk-seg { display: inline-flex; gap: 2px; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.tk-seg { display: inline-flex; gap: 2px; max-width: 100%; overflow-x: auto; scrollbar-width: thin; }
+/* BUG-069: a group with many options (presets) wraps; each option is its own rounded pill so rows read well. */
+.tk-seg[data-many="true"] { flex-wrap: wrap; overflow: visible; gap: 4px; }
+.tk-seg[data-many="true"] .tk-seg__item, .tk-seg[data-many="true"] .tk-seg__item:first-child, .tk-seg[data-many="true"] .tk-seg__item:last-child { border-radius: var(--md-sys-shape-corner-small); }
 .tk-seg__item {
   height: 40px; padding: 0 var(--tk-space-16); display: inline-flex; align-items: center; gap: var(--tk-space-8); white-space: nowrap;
   border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);

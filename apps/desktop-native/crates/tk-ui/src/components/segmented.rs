@@ -6,6 +6,9 @@ use dioxus::prelude::*;
 /// One segment: `(id, already-translated label)`.
 pub type SegOption = (String, String);
 
+/// Above this many options the group wraps (`data-many`, BUG-069).
+pub const MANY_OPTIONS: usize = 5;
+
 /// Next enabled index from `from` in direction `step` (wrapping); `None` if nothing is enabled.
 pub fn step_enabled(enabled: &[bool], from: usize, step: isize) -> Option<usize> {
     let n = enabled.len();
@@ -37,9 +40,13 @@ pub fn Segmented(
     let current = options.iter().position(|(id, _)| *id == selected).unwrap_or(0);
     let ids: Vec<String> = options.iter().map(|(id, _)| id.clone()).collect();
     let small = if small { "tk-seg--sm" } else { "" };
+    // BUG-069: more options than fit a connected group (presets: 9+) wrap onto more rows instead of scrolling
+    // out of sight behind a hidden scrollbar.
+    let many = options.len() > MANY_OPTIONS;
     rsx! {
         div {
             class: "tk-seg {small}",
+            "data-many": "{many}",
             role: "radiogroup",
             "aria-label": "{label}",
             onkeydown: move |e| {
