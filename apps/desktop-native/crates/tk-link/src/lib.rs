@@ -63,6 +63,21 @@ use tk_core::net::{Policy, SafeHttp};
 
 pub const DEFAULT_PORT: u16 = 47321;
 
+/// BUG-039: a device seen this recently counts as connected (two long-poll rounds of `GET /v1/events` + slack).
+pub const ONLINE_WINDOW_SECS: i64 = 2 * control::EVENTS_MAX_WAIT_SECS as i64 + 15;
+
+/// Devices with a session plus the active ones seen within [`ONLINE_WINDOW_SECS`] of `now`. Pure.
+pub fn online_ids(with_session: Vec<String>, devices: &[Device], now: i64) -> Vec<String> {
+    let mut out = with_session;
+    for d in devices {
+        let recent = d.last_seen_at.is_some_and(|t| now.saturating_sub(t) <= ONLINE_WINDOW_SECS && t <= now + 5);
+        if recent && d.is_active(now) && !out.contains(&d.id) {
+            out.push(d.id.clone());
+        }
+    }
+    out
+}
+
 /// What the host application provides: the optional user library folder, the FFmpeg location and (for the
 /// extension-permission intersection of the `url` source) the permissions of installed extensions.
 pub trait LinkHost: Send + Sync + 'static {
@@ -440,9 +455,12 @@ impl LinkHandle {
         self.state.manager.active_count()
     }
 
-    /// Device ids with a live transcoding session right now ("Connected now" in the app).
+    /// Device ids connected now ("Conectado ahora" in the app). BUG-039: a phone with a live transcoding session, or
+    /// one whose last authenticated request (the `GET /v1/events` long-poll it keeps open while the app is in the
+    /// foreground, every [`control::EVENTS_MAX_WAIT_SECS`] s at most) is at most [`ONLINE_WINDOW_SECS`] old.
     pub fn online_device_ids(&self) -> Vec<String> {
-        self.state.manager.device_ids()
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        online_ids(self.state.manager.device_ids(), &self.state.devices.list(), now)
     }
 
     /// Stop listening and close every session without consuming the handle (for a handle shared through `Arc`).
@@ -460,5 +478,25 @@ impl LinkHandle {
             let _ = t.await;
         }
         drop(self.fetcher);
+    }
+}
+
+#[cfg(test)]
+mod online_tests {
+    use super::*;
+
+    fn dev(id: &str, seen: Option<i64>) -> Device {
+        Device { id: id.into(), name: id.into(), fingerprint: String::new(), created_at: 0, not_after: 10_000, revoked_at: None, platform: String::new(), last_seen_at: seen }
+    }
+
+    #[test]
+    fn a_phone_long_polling_events_is_online_without_a_session() {
+        let devices = vec![dev("tab", Some(1_000 - 19 * 3600)), dev("moto", Some(990)), dev("never", None)];
+        assert_eq!(online_ids(vec![], &devices, 1_000), vec!["moto".to_owned()]);
+        assert_eq!(online_ids(vec!["tab".into()], &devices, 1_000), vec!["tab".to_owned(), "moto".to_owned()], "a session counts too, once");
+        assert!(online_ids(vec![], &devices, 990 + ONLINE_WINDOW_SECS + 1).is_empty(), "stale after the window");
+        let mut revoked = dev("old", Some(999));
+        revoked.revoked_at = Some(500);
+        assert!(online_ids(vec![], &[revoked], 1_000).is_empty());
     }
 }

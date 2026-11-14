@@ -225,11 +225,14 @@ pub fn episode_pills(e: &EpisodeVm, resume: u32) -> Vec<(&'static str, Tone)> {
     out
 }
 
-/// The requested device, else the first one connected now, else the first paired one.
+/// The requested device, else the one connected now seen most recently, else the one seen most recently (BUG-039:
+/// never a tablet last seen 19 h ago over the phone that is connected), else the first paired one.
 pub fn pick_device(list: &[DeviceVm], wanted: Option<&str>) -> Option<DeviceVm> {
+    let latest = |online: bool| list.iter().filter(|d| !online || d.online).max_by_key(|d| d.last_seen_unix.unwrap_or(i64::MIN));
     wanted
         .and_then(|id| list.iter().find(|d| d.id == id))
-        .or_else(|| list.iter().find(|d| d.online))
+        .or_else(|| latest(true))
+        .or_else(|| list.iter().filter(|d| d.last_seen_unix.is_some()).max_by_key(|d| d.last_seen_unix))
         .or_else(|| list.first())
         .cloned()
 }
@@ -384,20 +387,33 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
         }
     });
 
-    // No paired device: go pair one (Link) instead of opening an empty dialog.
-    let ask_send = use_callback(move |device: Option<String>| {
-        let target = match &*link.read() {
-            Some(Ok(st)) => pick_device(&st.devices, device.as_deref()),
-            _ => None,
-        };
-        match target {
-            Some(d) => {
+    // No paired device: go pair one (Link) instead of opening an empty dialog. BUG-039: when the Link status is not
+    // loaded yet (or was never asked this session), ask for it now instead of jumping to the Link page.
+    let ask_send = use_callback({
+        let backend = backend.clone();
+        move |device: Option<String>| {
+            let target = match &*link.read() {
+                Some(Ok(st)) => pick_device(&st.devices, device.as_deref()),
+                _ => None,
+            };
+            if let Some(d) = target {
                 send_error.set(None);
                 send_target.set(Some(d));
+                return;
             }
-            None => {
-                navigator.push(Route::LinkPage {});
-            }
+            let backend = backend.clone();
+            spawn(async move {
+                match backend.link_status().await.ok().and_then(|st| pick_device(&st.devices, device.as_deref())) {
+                    Some(d) => {
+                        send_error.set(None);
+                        send_target.set(Some(d));
+                        link.restart();
+                    }
+                    None => {
+                        navigator.push(Route::LinkPage {});
+                    }
+                }
+            });
         }
     });
 
@@ -1414,5 +1430,19 @@ mod tests {
         assert_eq!(pick_device(&list, Some("zz")).unwrap().id, "b");
         assert_eq!(pick_device(&[dev("a", false)], None).unwrap().id, "a");
         assert!(pick_device(&[], None).is_none());
+    }
+
+    #[test]
+    fn device_choice_never_prefers_a_stale_device_bug_039() {
+        let mut tab = dev("tab", false);
+        tab.last_seen_unix = Some(1_000);
+        let mut moto = dev("moto", false);
+        moto.last_seen_unix = Some(70_000);
+        assert_eq!(pick_device(&[tab.clone(), moto.clone()], None).unwrap().id, "moto", "most recently seen when none is online");
+        let mut moto_on = moto.clone();
+        moto_on.online = true;
+        let mut other_on = dev("other", true);
+        other_on.last_seen_unix = Some(60_000);
+        assert_eq!(pick_device(&[tab, other_on, moto_on], None).unwrap().id, "moto", "the online one seen last");
     }
 }
