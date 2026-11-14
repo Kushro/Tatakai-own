@@ -9,6 +9,7 @@ import app.tatakai.next.link.AesGcmKeyCipher
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import mockwebserver3.MockResponse
@@ -200,6 +201,41 @@ class ExtensionServerRepositoryTest {
                 val elapsedMs = (System.nanoTime() - started) / 1_000_000
                 assertEquals(listOf("Fast"), list.map { it.label })
                 assertTrue(elapsedMs < 4_000, "bounded by the budget, took $elapsedMs ms")
+            }
+        }
+    }
+
+    @Test
+    fun aSlowServerKeepsResolvingAfterTheBudgetAndTheRequestIsShared() {
+        // BUG-011: Toko on the PC answered after 31 s; the phone cut at 30 s and asked again from scratch next time.
+        val resolves = AtomicInteger()
+        FakeServer { req ->
+            when (req.url.encodedPath) {
+                "/api/server/v1/health" -> ok(health())
+                "/api/server/v1/auth/pair" -> ok("""{"token":"t","role":"viewer","deviceId":"d"}""")
+                "/api/server/v1/resolve" -> {
+                    resolves.incrementAndGet()
+                    val o = "http://127.0.0.1:${req.url.port}"
+                    val fast = """{"url":"$o/api/server/v1/media/1","sourceType":"hls","sourceName":"Fast","providerKey":"srv-1/a"}"""
+                    val late = """{"url":"$o/api/server/v1/media/2","sourceType":"hls","sourceName":"Late","providerKey":"srv-1/b"}"""
+                    val first = """{"sources":[$fast],"statuses":[{"provider":"srv-1/a","status":"ok"},{"provider":"srv-1/b","status":"loading"}]}""" + "\n"
+                    val second = """{"sources":[$fast,$late],"statuses":[{"provider":"srv-1/a","status":"ok"},{"provider":"srv-1/b","status":"ok"}]}""" + "\n"
+                    MockResponse.Builder().code(200).addHeader("Content-Type", "application/x-ndjson")
+                        .body(first + second).throttleBody(first.toByteArray().size.toLong(), 2, TimeUnit.SECONDS).build()
+                }
+                else -> fail(404, "route_not_found")
+            }
+        }.use { s ->
+            runBlocking {
+                val r = repo()
+                r.connectWithLink(PairingLink(s.origin, "c"))
+                val source = ServerCandidateSource(r, client, budgetMs = 300)
+                assertEquals(listOf("Fast"), source.candidates(media, 1).map { it.label }, "Auto mode gets what arrived within the budget")
+                // The picker joins the same request and sees the late provider when it arrives.
+                val emissions = source.candidatesFlow(media, 1).toList()
+                assertEquals(listOf("Fast", "Late"), emissions.last().map { it.label })
+                assertEquals(listOf("Fast", "Late"), source.candidates(media, 1).map { it.label }, "the complete answer is cached")
+                assertEquals(1, resolves.get(), "one /resolve for the three calls")
             }
         }
     }

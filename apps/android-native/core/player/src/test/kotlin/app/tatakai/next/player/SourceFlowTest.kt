@@ -79,6 +79,23 @@ class SourceFlowTest {
     }
 
     @Test
+    fun lateSourcesJoinTheListWithoutDisturbingWhatPlays() {
+        // BUG-011: Toko's torrents from the PC arrive after the webstreams.
+        val f = SourceFlow(list().drop(1), SourceMode.AUTO)
+        assertEquals("toko|web|Alpha", f.toResolve()?.key)
+        val attempt = f.attempt
+        f.updateSources(list())
+        assertEquals("toko|web|Alpha", f.currentSource()?.key)
+        assertEquals(2 to 4, f.position())
+        assertEquals(attempt, f.attempt, "no new attempt")
+        // A Manual pick survives an update that does not carry it as picked.
+        val m = SourceFlow(list(), SourceMode.MANUAL)
+        m.pick("toko|web|Beta")
+        m.updateSources(list())
+        assertEquals("toko|web|Beta", m.sources.single { it.picked }.key)
+    }
+
+    @Test
     fun remainingCountsUntriedPlayableSources() {
         // BUG-020: "no other source" only when nothing is left to try.
         val f = SourceFlow(list(), SourceMode.MANUAL)

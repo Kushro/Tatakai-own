@@ -4,6 +4,7 @@ package app.tatakai.next.extensions
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.SourceCandidate
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 
 /**
@@ -16,6 +17,12 @@ import kotlinx.coroutines.flow.flowOf
  */
 interface ExternalCandidateSource {
     suspend fun candidates(media: Media, episode: Int): List<SourceCandidate>
+
+    /**
+     * BUG-011 / BUG-019: the same candidates as they arrive; every emission is this source's complete list so far, and the flow ends
+     * when the source has nothing more to add. Default: one emission of [candidates].
+     */
+    fun candidatesFlow(media: Media, episode: Int): Flow<List<SourceCandidate>> = flow { emit(candidates(media, episode)) }
 
     /** Whether this source currently has something to ask (e.g. at least one enabled linked server). */
     val available: Flow<Boolean> get() = flowOf(true)

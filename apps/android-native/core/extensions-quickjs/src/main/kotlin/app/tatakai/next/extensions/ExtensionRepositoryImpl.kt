@@ -48,8 +48,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.lastOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -294,9 +296,53 @@ class ExtensionRepositoryImpl(
             localCandidates(media, episode) to remote.await()
         }
         val (localRaw, localIds) = local
-        val raw = localRaw + ext
+        return rankAll(media, episode, localRaw + ext, localIds + ext.map { it.extId })
+    }
+
+    /**
+     * BUG-011 / BUG-019: [resolveCandidates] as the answers arrive. Each extension route and each linked server adds its candidates as
+     * soon as it answers and the whole list is ranked again, so the pickers show the fast sources at once and the slow ones (Toko on
+     * the PC: ~31 s on a first resolve) when they come, instead of a blank "Searching sources" for 1-2 minutes or a cut list.
+     */
+    override fun candidatesFlow(media: Media, episode: Int): Flow<List<RankedSource>> = channelFlow {
+        ready.await()
+        val gate = Mutex()
+        var local: List<SourceCandidate> = emptyList()
+        var localIds: Set<String> = emptySet()
+        val ext = Array(external.size) { emptyList<SourceCandidate>() }
+        var emitted = false
+        suspend fun publish() = gate.withLock {
+            val remote = ext.toList().flatten()
+            send(rankAll(media, episode, local + remote, localIds + remote.map { it.extId }))
+            emitted = true
+        }
+        coroutineScope {
+            launch {
+                localCandidatesFlow(media, episode).collect { (list, ids) ->
+                    gate.withLock {
+                        local = list
+                        localIds = ids
+                    }
+                    publish()
+                }
+            }
+            external.forEachIndexed { i, source ->
+                launch(io) {
+                    runCatchingNonCancel {
+                        source.candidatesFlow(media, episode).collect { list ->
+                            gate.withLock { ext[i] = list }
+                            publish()
+                        }
+                    }
+                }
+            }
+        }
+        if (!emitted) send(emptyList())
+    }
+
+    /** Reliabilities, embed filter and ranking of the raw candidates ([enabledIds] = runnable extensions + external sources). */
+    private suspend fun rankAll(media: Media, episode: Int, raw: List<SourceCandidate>, enabledIds: Set<String>): List<RankedSource> {
         if (raw.isEmpty()) return emptyList()
-        val enabledIds = localIds + ext.map { it.extId }
         val withReliability = raw.map { c ->
             val r = stats?.let { s -> runCatchingNonCancel { s.reliability(c.extId, c.label) } }
             if (r == null) c else c.copy(reliability = r)
@@ -321,7 +367,14 @@ class ExtensionRepositoryImpl(
     }
 
     /** Raw candidates of the installed, runnable extensions (cached, see [candidateCache]) and their ids. */
-    private suspend fun localCandidates(media: Media, episode: Int): Pair<List<SourceCandidate>, Set<String>> {
+    private suspend fun localCandidates(media: Media, episode: Int): Pair<List<SourceCandidate>, Set<String>> =
+        localCandidatesFlow(media, episode).lastOrNull() ?: (emptyList<SourceCandidate>() to emptySet())
+
+    /**
+     * [localCandidates] progressively: every emission is the list so far (one emission per answering route; a single one from the
+     * cache), with the ids of the runnable extensions. The complete list is cached when every route answered or ran out of time.
+     */
+    private fun localCandidatesFlow(media: Media, episode: Int): Flow<Pair<List<SourceCandidate>, Set<String>>> = channelFlow {
         var cacheKey = ""
         val snapshot: List<Pair<ExtensionManifest, List<String>>> = lock.withLock {
             val runnable = records.values.filter { it.runnable }
@@ -330,28 +383,47 @@ class ExtensionRepositoryImpl(
             runnable.map { it.manifest to Candidates.candidateRoutes(it.manifest, it.torrentAll) }
                 .filter { it.second.isNotEmpty() }
         }
-        if (snapshot.isEmpty()) return emptyList<SourceCandidate>() to emptySet()
+        if (snapshot.isEmpty()) {
+            send(emptyList<SourceCandidate>() to emptySet())
+            return@channelFlow
+        }
         val enabledIds = snapshot.map { it.first.id }.toSet()
         val cached = synchronized(candidateCache) {
             candidateCache[cacheKey]?.takeIf { clock() - it.first < CANDIDATE_CACHE_TTL_MS }?.second
         }
-        val raw: List<SourceCandidate> = cached ?: run {
-            val params = streamParams(media, episode)
-            coroutineScope {
-                snapshot.flatMap { (m, routes) ->
-                    // Routes of one extension are serialized by the host, so each one may wait for the others.
-                    val budget = budgetMs(m) * routes.size
-                    val withPrefs = withPreferences(m, params)
-                    routes.map { route -> async(io) { candidatesOf(m, route, withPrefs, budget) } }
-                }.awaitAll().flatten()
-            }.also { fresh ->
-                if (fresh.isNotEmpty()) synchronized(candidateCache) {
-                    candidateCache[cacheKey] = clock() to fresh
-                    while (candidateCache.size > CANDIDATE_CACHE_MAX) candidateCache.remove(candidateCache.keys.first())
+        if (cached != null) {
+            send(cached to enabledIds)
+            return@channelFlow
+        }
+        val params = streamParams(media, episode)
+        val acc = Mutex()
+        val fresh = ArrayList<SourceCandidate>()
+        coroutineScope {
+            snapshot.forEach { (m, routes) ->
+                // Routes of one extension are serialized by the host, so each one may wait for the others.
+                val budget = budgetMs(m) * routes.size
+                val withPrefs = withPreferences(m, params)
+                routes.forEach { route ->
+                    launch(io) {
+                        val list = candidatesOf(m, route, withPrefs, budget)
+                        if (list.isNotEmpty()) {
+                            val all = acc.withLock {
+                                fresh += list
+                                fresh.toList()
+                            }
+                            send(all to enabledIds)
+                        }
+                    }
                 }
             }
         }
-        return raw to enabledIds
+        val all = acc.withLock { fresh.toList() }
+        if (all.isNotEmpty()) synchronized(candidateCache) {
+            candidateCache[cacheKey] = clock() to all
+            while (candidateCache.size > CANDIDATE_CACHE_MAX) candidateCache.remove(candidateCache.keys.first())
+        }
+        // Always end on the complete list (also when nothing answered), so collectors know the ids.
+        send(all to enabledIds)
     }
 
     /** Candidates of every [external] source; a failing source contributes nothing (it never hides the extensions). */

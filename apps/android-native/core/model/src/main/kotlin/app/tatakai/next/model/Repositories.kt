@@ -171,6 +171,13 @@ interface ExtensionRepository {
      */
     suspend fun resolveCandidates(media: Media, episode: Int): List<RankedSource> = emptyList()
 
+    /**
+     * BUG-011 / BUG-019: [resolveCandidates] progressively. Every emission is the whole ranked list so far (same ranking, `recommended`
+     * and `picked` rules); the flow completes when every extension and linked server answered or ran out of time. Default: one
+     * emission of [resolveCandidates].
+     */
+    fun candidatesFlow(media: Media, episode: Int): Flow<List<RankedSource>> = kotlinx.coroutines.flow.flow { emit(resolveCandidates(media, episode)) }
+
     /** Player start / failure of a source ([sourceKey]): updates the reliability moving average. */
     suspend fun reportSourceResult(sourceKey: String, ok: Boolean) {}
 

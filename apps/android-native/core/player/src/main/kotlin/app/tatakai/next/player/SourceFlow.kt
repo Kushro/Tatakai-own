@@ -131,6 +131,20 @@ class SourceFlow(
     /** `(n, total)` for "Source n of total". */
     fun position(): Pair<Int, Int>? = current?.let { it + 1 to sources.size }
 
+    /**
+     * BUG-011 / BUG-019: a newer ranked list arrived (more extensions / linked servers answered). The source being resolved or played
+     * keeps playing (it stays in the list even if the new one lacks it), the user's pick is kept, and failures stay recorded. With no
+     * pick yet, the incoming `picked` flags (the remembered pick) are used.
+     */
+    fun updateSources(updated: List<RankedSource>) {
+        val cur = currentSource()
+        val pickedKey = sources.firstOrNull { it.picked }?.key
+        var list = if (pickedKey != null && updated.any { it.key == pickedKey }) updated.map { it.copy(picked = it.key == pickedKey) } else updated
+        if (cur != null && list.none { it.key == cur.key }) list = list + cur
+        sources = list
+        current = cur?.let { c -> list.indexOfFirst { it.key == c.key } }
+    }
+
     /** The user picked [key] (picker, "Use the best web source"): marks it as the pick and resolves it, whatever the mode. */
     fun pick(key: String): Boolean {
         val i = sources.indexOfFirst { it.key == key }

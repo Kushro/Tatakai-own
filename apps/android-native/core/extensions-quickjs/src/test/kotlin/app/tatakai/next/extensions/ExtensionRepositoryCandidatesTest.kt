@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -200,6 +201,44 @@ class ExtensionRepositoryCandidatesTest {
             assertEquals(setOf("x.toko", "server:srv-1/a"), all.map { it.candidate.extId }.toSet())
             assertTrue(all.all { it.extEnabled })
             assertTrue(all.zipWithNext().all { (a, b) -> a.score >= b.score })
+        } finally {
+            root.deleteRecursively() // temp dir created above
+        }
+    }
+
+    /** BUG-011 / BUG-019: the progressive flow shows the fast answers first and ends on the same list as resolveCandidates. */
+    @Test
+    fun candidatesFlowEmitsProgressivelyAndEndsOnTheFullList() = runBlocking {
+        val root = Files.createTempDirectory("tatakai-ext-flow").toFile()
+        try {
+            fun web(label: String) = SourceCandidate(
+                extId = "server:srv-1/a", extName = "Toko · Desk", kind = SourceKind.WEB, label = label,
+                quality = Quality.P1080, container = "HLS", web = WebInfo(url = "http://192.168.1.2:8787/api/server/v1/media/$label"),
+            )
+            val slowServer = object : ExternalCandidateSource {
+                override suspend fun candidates(media: Media, episode: Int) = listOf(web("Fast"), web("Late"))
+                override fun candidatesFlow(media: Media, episode: Int) = kotlinx.coroutines.flow.flow {
+                    emit(listOf(web("Fast")))
+                    kotlinx.coroutines.delay(50)
+                    emit(listOf(web("Fast"), web("Late")))
+                }
+            }
+            val repo = ExtensionRepositoryImpl(
+                rootDir = File(root, "installed"),
+                openUri = { File(it).inputStream() },
+                host = ExtensionHost(engine, { NoHost }),
+                io = Dispatchers.Unconfined,
+                settings = Settings(),
+                stats = Stats(),
+                external = listOf(slowServer),
+            )
+            repo.installFromUri(kai(root).path).getOrThrow()
+            val emissions = repo.candidatesFlow(media, 5).toList()
+            assertTrue(emissions.size >= 2, "one emission per answer, got ${emissions.size}")
+            assertTrue(emissions.first().size < emissions.last().size)
+            val full = repo.resolveCandidates(media, 5)
+            assertEquals(full.map { it.key }.toSet(), emissions.last().map { it.key }.toSet())
+            assertTrue(emissions.last().zipWithNext().all { (a, b) -> a.score >= b.score })
         } finally {
             root.deleteRecursively() // temp dir created above
         }

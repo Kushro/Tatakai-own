@@ -85,6 +85,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -454,26 +455,82 @@ class PlayerViewModel(
     private suspend fun loadCandidates(m: Media) {
         _state.update { it.copy(phase = PlayerPhase.LOADING, candidatesLoading = true, candidatesError = null) }
         val provider = args.provider
-        val ranked = try {
-            // parity wave B (t, ext.custom-providers.watch): a provider entry plays the extension's own sources.
-            if (provider != null) providerSources(extensions, provider) else extensions.resolveCandidates(m, args.episode)
+        if (provider != null) {
+            // parity wave B (t, ext.custom-providers.watch): a provider entry plays the extension's own sources (web only).
+            val ranked = try {
+                providerSources(extensions, provider)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _state.update { it.copy(phase = PlayerPhase.FAILED, candidatesLoading = false, candidatesError = e.asAppError(), error = e.asAppError()) }
+                return
+            }
+            startFlow(resolvePick(ranked, args.sourceKey, null, settings.sourcePrefs).sources)
+            _state.update { it.copy(candidatesLoading = false) }
+            return
+        }
+        val stored = mediaId?.let { id -> runCatching { stats?.pickedSource(id, args.episode) }.getOrNull() }
+        var noticeSent = false
+        fun prepare(ranked: List<RankedSource>): List<RankedSource> {
+            // Bug sources.remembered-vs-prefs: this session's pick always wins; the remembered one only while it fits the preferences.
+            val pick = resolvePick(rankForThisDevice(ranked), args.sourceKey, stored, settings.sourcePrefs)
+            if (pick.storedDiscarded && !noticeSent && ranked.any { it.key == stored }) {
+                noticeSent = true
+                mediaId?.let { id -> detached.launch { runCatching { stats?.clearPickedSource(id, args.episode) } } }
+                pick.mismatch?.let { _notices.trySend(PlayerNotice.StoredSourceIgnored(it)) }
+            }
+            return pick.sources
+        }
+        // BUG-011 / BUG-019: sources arrive progressively. Manual shows the picker with the first answers and fills it in; Auto starts
+        // when everything answered, or after AUTO_START_MS with what is there (later answers still join the list for the picker).
+        var latest: List<RankedSource> = emptyList()
+        val manual = settings.sourcePrefs.mode == SourceMode.MANUAL
+        val failure = try {
+            coroutineScope {
+                val timer = if (manual) null else launch {
+                    delay(AUTO_START_MS)
+                    if (flow == null && latest.isNotEmpty()) startFlow(markDebrid(latest, debrid))
+                }
+                extensions.candidatesFlow(m, args.episode).collect { partial ->
+                    latest = prepare(partial)
+                    val f = flow
+                    when {
+                        f != null -> {
+                            f.updateSources(latest)
+                            publishFlow()
+                        }
+                        manual && latest.isNotEmpty() -> startFlow(latest)
+                        else -> _state.update { it.copy(sources = latest, canPickSource = latest.isNotEmpty()) }
+                    }
+                }
+                timer?.cancel()
+            }
+            null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            _state.update { it.copy(phase = PlayerPhase.FAILED, candidatesLoading = false, candidatesError = e.asAppError(), error = e.asAppError()) }
+            e
+        }
+        // 15 §3.9: torrent rows as the linked debrid services see them (identity without an account).
+        val final = markDebrid(latest, debrid)
+        val f = flow
+        if (f != null) {
+            f.updateSources(final)
+            _state.update { it.copy(candidatesLoading = false) }
+            publishFlow()
             return
         }
-        val stored = if (provider != null) null else mediaId?.let { id -> runCatching { stats?.pickedSource(id, args.episode) }.getOrNull() }
-        // 15 §3.9: torrent rows as the linked debrid services see them (identity without an account). Provider sources are web only.
-        val marked = if (provider != null) ranked else rankForThisDevice(markDebrid(ranked, debrid))
-        // Bug sources.remembered-vs-prefs: this session's pick always wins; the remembered one only while it fits the preferences.
-        val pick = resolvePick(marked, args.sourceKey, stored, settings.sourcePrefs)
-        val sources = pick.sources
-        if (pick.storedDiscarded) {
-            mediaId?.let { id -> detached.launch { runCatching { stats?.clearPickedSource(id, args.episode) } } }
-            pick.mismatch?.let { _notices.trySend(PlayerNotice.StoredSourceIgnored(it)) }
+        if (final.isEmpty() && failure != null) {
+            _state.update { it.copy(phase = PlayerPhase.FAILED, candidatesLoading = false, candidatesError = failure.asAppError(), error = failure.asAppError()) }
+            return
         }
-        _state.update { it.copy(candidatesLoading = false, sources = sources, canPickSource = sources.isNotEmpty()) }
+        _state.update { it.copy(candidatesLoading = false) }
+        startFlow(final)
+    }
+
+    /** Creates the [SourceFlow] on [sources] (or shows "no sources") and starts it. */
+    private fun startFlow(sources: List<RankedSource>) {
+        _state.update { it.copy(sources = sources, canPickSource = sources.isNotEmpty()) }
         if (sources.isEmpty()) {
             _state.update { it.copy(phase = PlayerPhase.NO_SOURCES) }
             return
@@ -1374,6 +1431,8 @@ class PlayerViewModel(
         (e as? AppError.Unknown)?.msg?.takeIf { it.startsWith(NO_FILE_PREFIX) }?.removePrefix(NO_FILE_PREFIX)?.ifBlank { null }
 
     private companion object {
+        /** BUG-019: Auto mode starts with the sources that answered by then instead of waiting for the slowest extension. */
+        const val AUTO_START_MS = 30_000L
         const val MIN_COUNTDOWN_SECS = 3
         const val MAX_COUNTDOWN_SECS = 30
         const val SEEK_MARKS_POLL_MS = 2_500L

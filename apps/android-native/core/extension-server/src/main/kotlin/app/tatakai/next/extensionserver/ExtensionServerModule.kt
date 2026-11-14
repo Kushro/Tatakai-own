@@ -43,7 +43,8 @@ val extensionServerModule: Module = module {
             .followSslRedirects(false)
             .retryOnConnectionFailure(false)
             .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            // BUG-011: a provider on the PC can stay silent > 30 s between two /resolve snapshots (Toko: ~31 s on a first resolve).
+            .readTimeout(75, TimeUnit.SECONDS)
             .writeTimeout(15, TimeUnit.SECONDS)
             .callTimeout(0, TimeUnit.SECONDS)
             .build()
