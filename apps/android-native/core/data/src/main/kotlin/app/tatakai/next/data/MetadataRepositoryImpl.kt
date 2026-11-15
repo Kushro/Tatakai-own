@@ -31,7 +31,14 @@ import app.tatakai.next.model.Recommendation
 import app.tatakai.next.model.StaffEdge
 import app.tatakai.next.model.searchTitles
 import app.tatakai.next.model.withAltTitles
+import app.tatakai.next.model.inBackground
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -53,21 +60,75 @@ class MetadataRepositoryImpl(
     private val ttlHours: () -> Int = { DEFAULT_TTL_HOURS },
     /** BUG-144 parity: the title the user knows a series by (its newest watch-history row), for a fallback answer. */
     private val historyTitle: suspend (MediaRef) -> String? = { null },
+    /**
+     * 0.3.1: where stale-while-revalidate refreshes run (Home rows: a stale cached page is shown at once and refreshed here). Null =
+     * no SWR: a stale page is fetched before answering, as before.
+     */
+    private val refreshScope: CoroutineScope? = null,
 ) : MetadataRepository {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    /** 0.3.1: one lookup per key at a time (Details, episodes and the player asking for the same title at once share it). */
+    private val inflight = ConcurrentHashMap<String, CompletableDeferred<Any?>>()
+
+    @Suppress("UNCHECKED_CAST")
+    internal suspend fun <T> shared(key: String, block: suspend () -> T): T {
+        val mine = CompletableDeferred<Any?>()
+        val existing = inflight.putIfAbsent(key, mine)
+        if (existing != null) {
+            return try {
+                existing.await() as T
+            } catch (e: CancellationException) {
+                // the first caller was cancelled, not us: do the work ourselves
+                currentCoroutineContext().ensureActive()
+                block()
+            }
+        }
+        try {
+            val v = block()
+            mine.complete(v)
+            return v
+        } catch (e: Throwable) {
+            mine.completeExceptionally(e)
+            throw e
+        } finally {
+            inflight.remove(key, mine)
+        }
+    }
+
+    /**
+     * 0.3.1 stale-while-revalidate: a page younger than [ttlMs] is served; an older one (up to [SWR_MAX_AGE_MS]) is served at once
+     * and [fetch] refreshes it in [refreshScope] (background priority, one refresh per key); without one, [fetch] answers.
+     */
+    private suspend fun swrPage(key: String, ttlMs: Long, fetch: suspend () -> FeedPage): FeedPage {
+        cache.getFresh(key, ttlMs)?.let { raw -> decodePage(raw)?.let { return it } }
+        val scope = refreshScope
+        if (scope != null) {
+            cache.getFresh(key, SWR_MAX_AGE_MS)?.let { raw -> decodePage(raw) }?.let { stale ->
+                scope.launch {
+                    runCatching { shared("refresh:$key") { inBackground { fetch() } } }
+                        .onFailure { if (it is CancellationException) throw it }
+                }
+                return stale
+            }
+        }
+        return shared(key) { fetch() }
+    }
 
     @Serializable
     private data class CachedPage(val items: List<Media>, val page: Int, val hasNext: Boolean)
 
+    /** Home rows and the recommendation candidates: background priority, stale-while-revalidate. */
     override suspend fun feed(kind: MediaKind, feed: FeedKind, page: Int): FeedPage {
         val key = "feed:$kind:$feed:$page"
-        cache.getFresh(key, FEED_TTL_MS)?.let { raw -> decodePage(raw)?.let { return it } }
-        return try {
-            router.feed(kind, feed, page).value.also { cache.put(key, encodePage(it)) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            cache.getStale(key)?.let { decodePage(it) } ?: throw e.toAppException()
+        return swrPage(key, FEED_TTL_MS) {
+            try {
+                inBackground { router.feed(kind, feed, page) }.value.also { cache.put(key, encodePage(it)) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                cache.getStale(key)?.let { decodePage(it) } ?: throw e.toAppException()
+            }
         }
     }
 
@@ -91,6 +152,10 @@ class MetadataRepositoryImpl(
 
     override suspend fun media(kind: MediaKind, ref: MediaRef): Media? {
         val key = "media:$kind:${ref.anilistId}:${ref.malId}:${ref.kitsuId}"
+        return shared(key) { mediaUncached(key, kind, ref) }
+    }
+
+    private suspend fun mediaUncached(key: String, kind: MediaKind, ref: MediaRef): Media? {
         cache.getFresh(key, detailTtlMs())?.let { raw ->
             decodeMediaRow(raw, kind)?.let { row -> if (!row.degraded) return row.media }
         }
@@ -193,6 +258,14 @@ class MetadataRepositoryImpl(
         cache.getFresh(key, detailTtlMs())?.let { raw ->
             runCatching { json.decodeFromString(ser, raw) }.getOrNull()?.let { return it }
         }
+        return shared(key) {
+            cache.getFresh(key, detailTtlMs())?.let { raw -> runCatching { json.decodeFromString(ser, raw) }.getOrNull() }
+                ?: fetchEpisodes(key, ref)
+        }
+    }
+
+    private suspend fun fetchEpisodes(key: String, ref: MediaRef): List<Episode> {
+        val ser = ListSerializer(Episode.serializer())
         return try {
             router.episodes(ref).value.also { if (it.isNotEmpty()) cache.put(key, json.encodeToString(ser, it)) }
         } catch (e: CancellationException) {
@@ -211,7 +284,11 @@ class MetadataRepositoryImpl(
      */
     override suspend fun searchAdvanced(kind: MediaKind, query: MediaSearchQuery, page: Int): FeedPage {
         val key = "adv:$kind:${json.encodeToString(MediaSearchQuery.serializer(), query)}:$page"
-        cache.getFresh(key, FEED_TTL_MS)?.let { raw -> decodePage(raw)?.let { return it } }
+        // 0.3.1: Home's Upcoming / Favourites / Top 10 / genre rows are advanced searches: stale-while-revalidate like the feeds.
+        return swrPage(key, FEED_TTL_MS) { fetchAdvanced(key, kind, query, page) }
+    }
+
+    private suspend fun fetchAdvanced(key: String, kind: MediaKind, query: MediaSearchQuery, page: Int): FeedPage {
         return try {
             router.discover(kind, { it.items.isEmpty() }) { it.searchAdvanced(kind, query, page) }.value
                 .also { if (it.items.isNotEmpty()) cache.put(key, encodePage(it)) }
@@ -298,8 +375,22 @@ class MetadataRepositoryImpl(
         fun decode(raw: String): T? = runCatching { json.decodeFromString(serializer, raw) }.getOrNull()
         fun isEmpty(v: T?): Boolean = v == null || (v as? Collection<*>)?.isEmpty() == true || (v as? CharactersPage)?.items?.isEmpty() == true
         if (key != null) cache.getFresh(key, ttlMs)?.let { raw -> decode(raw)?.let { return it } }
+        if (key == null) return discoverFetch(null, serializer, empty, ::isEmpty, ::decode, call)
+        return shared(key) {
+            cache.getFresh(key, ttlMs)?.let { raw -> decode(raw) } ?: discoverFetch(key, serializer, empty, ::isEmpty, ::decode, call)
+        }
+    }
+
+    private suspend fun <T : Any> discoverFetch(
+        key: String?,
+        serializer: KSerializer<T>,
+        empty: T?,
+        isEmpty: (T?) -> Boolean,
+        decode: (String) -> T?,
+        call: suspend (DiscoverProvider) -> T?,
+    ): T? {
         return try {
-            router.discover(MediaKind.ANIME, ::isEmpty) { call(it) }.value
+            router.discover(MediaKind.ANIME, isEmpty) { call(it) }.value
                 .also { v -> if (key != null && v != null && !isEmpty(v)) cache.put(key, json.encodeToString(serializer, v)) }
         } catch (e: CancellationException) {
             throw e
@@ -329,7 +420,8 @@ class MetadataRepositoryImpl(
             ?.items?.map { AiringEpisode(it.media, it.episode, it.at) }
         cache.getFresh(key, FEED_TTL_MS)?.let { raw -> decode(raw)?.let { return it } }
         return try {
-            router.airingSchedule(fromEpochSec, toEpochSec, page).value.first.also { list ->
+            // 0.3.1: calendar, Home's latest episodes and the reminders worker are background traffic.
+            shared(key) { inBackground { router.airingSchedule(fromEpochSec, toEpochSec, page) } }.value.first.also { list ->
                 if (list.isNotEmpty()) {
                     cache.put(key, json.encodeToString(CachedAiring.serializer(), CachedAiring(list.map { CachedAiringRow(it.media, it.episode, it.airingAtEpochSec) })))
                 }
@@ -386,14 +478,14 @@ class MetadataRepositoryImpl(
     private fun Exception.toAppException(): AppException = when (this) {
         is AppException -> this
         is NoMetadataProviderException -> AppException(
-            rateLimitedProvider?.let { AppError.RateLimited(it) }
+            rateLimitedProvider?.let { AppError.RateLimited(it, rateLimitedWaitMs) }
                 ?: if (allOffline) AppError.Offline else AppError.Unknown(message.orEmpty()),
             this,
         )
         is ProviderException -> AppException(
             when {
                 status == 0 -> AppError.Offline
-                status == 402 || status == 429 -> AppError.RateLimited(provider)
+                status == 402 || status == 429 -> AppError.RateLimited(provider, retryAfterMs)
                 else -> AppError.Http(status)
             },
             this,
@@ -409,5 +501,7 @@ class MetadataRepositoryImpl(
         const val DEFAULT_TTL_HOURS = 24
         const val CATALOGUE_TTL_MS = 7L * 24 * 60 * 60_000
         const val STATUS_TICK_MS = 2_000L
+        /** 0.3.1: how old a cached Home row may be and still be shown while it refreshes (older = fetched first). */
+        const val SWR_MAX_AGE_MS = 24L * 60 * 60_000
     }
 }

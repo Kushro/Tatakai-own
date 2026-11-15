@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.social
 
+import app.tatakai.next.model.inBackground
 import android.Manifest
 import android.app.PendingIntent
 import android.content.Context
@@ -36,7 +37,10 @@ import java.util.concurrent.TimeUnit
 class SocialNotificationsWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params), KoinComponent {
     private val social: SocialRepository by inject()
 
-    override suspend fun doWork(): Result = try {
+    // 0.3.1: WorkManager jobs are background traffic for the AniList gateway (interactive requests go first).
+    override suspend fun doWork(): Result = inBackground { work() }
+
+    private suspend fun work(): Result = try {
         social.refreshUnread()
         val count = social.unreadCount.value
         val store = LastNotifiedStore(File(applicationContext.cacheDir, SocialRepositoryImpl.CACHE_DIR))

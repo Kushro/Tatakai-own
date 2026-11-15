@@ -3,6 +3,9 @@ package app.tatakai.next.social
 
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
+import app.tatakai.next.model.RateLimitHeaders
+import app.tatakai.next.model.RequestPriority
+import app.tatakai.next.model.currentRequestPriority
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -18,8 +21,9 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
 
-// Parity wave B (16 §3.7, worker t): the GraphQL transport and documents of the AniList social layer. AniList allows 90 requests per
-// minute; a 429 is retried once after `Retry-After` (capped), then surfaces as AppError.RateLimited("AniList").
+// Parity wave B (16 §3.7, worker t): the GraphQL transport and documents of the AniList social layer. A 429 is retried once after
+// `Retry-After` (capped), then surfaces as AppError.RateLimited("AniList", wait). 0.3.1: through the shared AniList gateway
+// (`:core:network`), which already retries short waits, a 429 it hands back (`X-Tatakai-AniList-Gateway`) surfaces at once.
 
 class AniListSocialApi(
     private val client: OkHttpClient,
@@ -33,29 +37,32 @@ class AniListSocialApi(
     suspend fun post(query: String, variables: JsonObject, token: String?): JsonObject {
         var attempt = 0
         while (true) {
-            val (code, retryAfter, text) = withContext(io) { execute(query, variables, token) }
+            val priority = currentRequestPriority()
+            val (code, retry, text) = withContext(io) { execute(query, variables, token, priority) }
+            val (retryAfter, viaGateway) = retry
             if (code == 429) {
                 val wait = retryAfter ?: DEFAULT_RETRY_SEC
-                if (attempt == 0 && wait <= maxRetryWaitSec) {
+                // 0.3.1: the shared AniList gateway already waited and retried a short Retry-After; never retry twice.
+                if (!viaGateway && attempt == 0 && wait <= maxRetryWaitSec) {
                     attempt++
                     delay(wait * 1000)
                     continue
                 }
-                throw AppException(AppError.RateLimited("AniList"))
+                throw AppException(AppError.RateLimited("AniList", wait * 1000))
             }
             val root = runCatching { json.parseToJsonElement(text) as? JsonObject }.getOrNull()
             val data = root?.obj("data")
             val errors = (root?.get("errors") as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
             if (code !in 200..299 || (data == null && errors.isNotEmpty())) {
                 val status = errors.firstNotNullOfOrNull { it.int("status") } ?: code.takeIf { it !in 200..299 } ?: 400
-                if (status == 429) throw AppException(AppError.RateLimited("AniList"))
+                if (status == 429) throw AppException(AppError.RateLimited("AniList", retryAfter?.let { it * 1000 }))
                 throw AppException(AppError.Http(status))
             }
             return data ?: throw AppException(AppError.Http(502))
         }
     }
 
-    private fun execute(query: String, variables: JsonObject, token: String?): Triple<Int, Long?, String> {
+    private fun execute(query: String, variables: JsonObject, token: String?, priority: RequestPriority): Triple<Int, Pair<Long?, Boolean>, String> {
         val body = buildJsonObject {
             put("query", query)
             put("variables", variables)
@@ -63,11 +70,14 @@ class AniListSocialApi(
         val request = Request.Builder().url(endpoint).post(body)
             .header("Accept", "application/json")
             .apply { if (token != null) header("Authorization", "Bearer $token") }
+            .tag(RequestPriority::class.java, priority)
             .build()
         try {
             client.newCall(request).execute().use { response ->
-                val retry = response.header("Retry-After")?.trim()?.toLongOrNull()
-                return Triple(response.code, retry, response.body.string())
+                val retry = RateLimitHeaders.retryAfterMs(response.header(RateLimitHeaders.RETRY_AFTER), System.currentTimeMillis())
+                    ?.let { (it + 999) / 1000 }
+                val viaGateway = response.header(RateLimitHeaders.GATEWAY) != null
+                return Triple(response.code, retry to viaGateway, response.body.string())
             }
         } catch (e: IOException) {
             throw AppException(AppError.Offline, e)

@@ -22,7 +22,7 @@ class TrendingFeed(private val router: MetadataRouter) {
             FeedPage(emptyList(), page, false)
         } else {
             throw AppException(
-                e.rateLimitedProvider?.let { AppError.RateLimited(it) } ?: if (e.allOffline) AppError.Offline else AppError.Unknown(e.message.orEmpty()),
+                e.rateLimitedProvider?.let { AppError.RateLimited(it, e.rateLimitedWaitMs) } ?: if (e.allOffline) AppError.Offline else AppError.Unknown(e.message.orEmpty()),
                 e,
             )
         }

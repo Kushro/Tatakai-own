@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.discover
 
+import app.tatakai.next.model.inBackground
 import app.tatakai.next.model.AppDataWiper
 import app.tatakai.next.model.AtlasPoint
 import app.tatakai.next.model.FeedKind
@@ -88,7 +89,13 @@ class RecsRepositoryImpl(
         withMedia.map { s -> s.copy(studios = studioFor[s.media.ref].orEmpty()) } to seenKeys
     }
 
-    private suspend fun compute(force: Boolean = false): Computed = lock.withLock {
+    /**
+     * 0.3.1: background traffic for the AniList gateway; the concurrent lookups below (signals' media, studios, the seeds'
+     * recommendations, the feeds) are coalesced by the provider's batcher into a few aliased requests.
+     */
+    private suspend fun compute(force: Boolean = false): Computed = inBackground { computeLocked(force) }
+
+    private suspend fun computeLocked(force: Boolean): Computed = lock.withLock {
         cache?.takeIf { !force && clock() - it.atMs < CACHE_MS }?.let { return@withLock it }
         val (signals, seenKeys) = signals()
         val profile = RecsEngine.profile(signals)

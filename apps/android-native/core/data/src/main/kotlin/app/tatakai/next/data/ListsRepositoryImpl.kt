@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.data
 
+import app.tatakai.next.model.inBackground
 import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -95,7 +96,10 @@ class WorkManagerListSyncScheduler(private val context: Context) : ListSyncSched
 class ListSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params), KoinComponent {
     private val lists: ListsRepository by inject()
 
-    override suspend fun doWork(): Result = try {
+    // 0.3.1: WorkManager jobs are background traffic for the AniList gateway (interactive requests go first).
+    override suspend fun doWork(): Result = inBackground { work() }
+
+    private suspend fun work(): Result = try {
         val control = lists as? ListsSyncControl
         if (control == null) {
             Result.success()

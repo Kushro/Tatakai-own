@@ -79,11 +79,15 @@ class MetadataRouter(
     }
 
     private fun recordError(id: String, e: Exception) {
-        val until = if (e is ProviderException && e.tripsCooldown) clock() + cooldownMs else null
+        // 0.3.1: a 429 cools the provider down for the wait it asked for (Retry-After / the gateway's budget), not a fixed time.
+        val until = if (e is ProviderException && e.tripsCooldown) clock() + cooldownFor(e) else null
         if (until != null) downUntil[id] = until
         val msg = errorLabel(e)
         _status.update { m -> m + (id to (m[id] ?: ProviderStatus(id, true)).copy(lastError = msg, cooldownUntilMs = until)) }
     }
+
+    private fun cooldownFor(e: ProviderException): Long =
+        e.retryAfterMs?.takeIf { e.status == 429 }?.coerceIn(MIN_COOLDOWN_MS, MAX_COOLDOWN_MS) ?: cooldownMs
 
     suspend fun feed(kind: MediaKind, feed: FeedKind, page: Int): Routed<FeedPage> =
         route(Capability.FEED, kind, { it.items.isEmpty() }) { it.feed(kind, feed, page) }
@@ -192,6 +196,9 @@ class MetadataRouter(
 
     companion object {
         const val DEFAULT_COOLDOWN_MS = 60_000L
+        /** Bounds of a `Retry-After` driven cool-down. */
+        const val MIN_COOLDOWN_MS = 1_000L
+        const val MAX_COOLDOWN_MS = 15L * 60_000
         private const val MAX_FILLERS = 3
         private const val TAG = "metadata"
 
