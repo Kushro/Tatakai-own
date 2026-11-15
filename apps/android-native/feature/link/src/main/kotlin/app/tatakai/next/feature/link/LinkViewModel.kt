@@ -67,7 +67,11 @@ data class LinkUiState(
     /** `GET /v1/player` (polled every 2 s while the screen is visible); null = nothing playing / no remote control on the PC. */
     val remote: RemotePlayerState? = null,
     val remoteBusy: Boolean = false,
-    /** "Continuar en la PC": the newest history row of this phone (null = nothing to hand over). */
+    /**
+     * "Continuar en la PC": the newest history row of this phone (null = nothing to hand over). BUG-136: the history is synced
+     * with the PC when the screen opens, and a PC hand-off of the same episode received after that row gives its position, so this
+     * and the "La PC te envió" card say the same point.
+     */
     val continueEntry: HistoryEntry? = null,
     val handingOff: Boolean = false,
     /** PCs announced over mDNS (link.discovery). */
@@ -103,7 +107,14 @@ class LinkViewModel(
     private val discovery: LinkDiscoveryAccess? = null,
     /** BUG-132: what the phone's H.264 decoder plays (null = unknown: every profile is offered). */
     private val decodeLimits: () -> VideoDecodeLimits? = { null },
+    /** BUG-136: epoch ms, to date a PC hand-off against the history rows (tests pass a fixed clock). */
+    private val nowMs: () -> Long = System::currentTimeMillis,
 ) : ViewModel() {
+
+    /** BUG-136: this phone's newest history row, and the pending PC hand-off with when it arrived. */
+    private var localContinue: HistoryEntry? = null
+    private var handoffAt: Pair<LinkHandoff, Long>? = null
+    private var historySynced = false
 
     private val _state = MutableStateFlow(
         LinkUiState(link = link.state.value, device = link.linkedDevice.value, selectedProfile = link.linkedDevice.value?.preferredProfile),
@@ -123,7 +134,10 @@ class LinkViewModel(
                         selectedProfile = if (s is LinkState.Unpaired) null else it.selectedProfile,
                     )
                 }
-                if (s is LinkState.Paired) loadCapabilities()
+                if (s is LinkState.Paired) {
+                    syncHistoryOnce()
+                    loadCapabilities()
+                }
             }
         }
         viewModelScope.launch {
@@ -132,16 +146,32 @@ class LinkViewModel(
             }
         }
         viewModelScope.launch {
-            link.pendingHandoff.collect { h -> _state.update { it.copy(pendingHandoff = h) } }
+            link.pendingHandoff.collect { h ->
+                handoffAt = h?.let { new -> handoffAt?.takeIf { it.first == new } ?: (new to nowMs()) }
+                _state.update { it.copy(pendingHandoff = h, continueEntry = LinkLogic.continuePoint(localContinue, handoffAt)) }
+                // BUG-136: the PC just moved: bring its history rows too
+                if (h != null) viewModelScope.launch { runCatchingApp { history?.syncNow()?.getOrThrow() } }
+            }
         }
         history?.let { h ->
             viewModelScope.launch {
-                h.continueWatching(1).catch { emit(emptyList()) }.collect { rows -> _state.update { it.copy(continueEntry = rows.firstOrNull()) } }
+                h.continueWatching(1).catch { emit(emptyList()) }.collect { rows ->
+                    localContinue = rows.firstOrNull()
+                    _state.update { it.copy(continueEntry = LinkLogic.continuePoint(localContinue, handoffAt)) }
+                }
             }
         }
         viewModelScope.launch {
             link.discover().catch { emit(emptyList()) }.collect { pcs -> _state.update { it.copy(discovered = pcs) } }
         }
+    }
+
+    /** BUG-136: once per screen, pull the PC's history (newest `watchedAt` wins) so "Continuar en la PC" is not behind the PC. */
+    private fun syncHistoryOnce() {
+        val h = history ?: return
+        if (historySynced) return
+        historySynced = true
+        viewModelScope.launch { runCatchingApp { h.syncNow().getOrThrow() } }
     }
 
     // ------------------------------------------------------------------ parity wave B (16 §3.11)
@@ -324,6 +354,18 @@ internal object LinkLogic {
     /** BUG-024: Link answers that mean "the PC could not use that link" (as opposed to the PC being unreachable). */
     fun enhanceRejected(error: LinkApiError?): Boolean =
         error == LinkApiError.RequestInvalid || error == LinkApiError.SourceUnavailable || error == LinkApiError.UrlSourceDenied
+
+    /**
+     * BUG-136: the point "Continuar en la PC" names: the phone's newest row [local], unless the PC handed off the same episode
+     * ([handoff], with when it arrived) after that row was written; then the PC's position is the newest one.
+     */
+    fun continuePoint(local: HistoryEntry?, handoff: Pair<LinkHandoff, Long>?): HistoryEntry? {
+        if (local == null || handoff == null) return local
+        val (h, at) = handoff
+        if (h.animeId != local.animeId || h.episode != local.episode) return local
+        if (at <= local.watchedAt.toEpochMilli()) return local
+        return local.copy(progressSec = h.positionSec)
+    }
 
     /** Player args of a PC -> phone hand-off: the Link session, from the PC's position. */
     fun handoffArgs(h: LinkHandoff): PlayerArgs = PlayerArgs(

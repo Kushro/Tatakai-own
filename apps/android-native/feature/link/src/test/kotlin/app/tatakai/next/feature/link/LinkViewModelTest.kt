@@ -4,6 +4,9 @@ import app.cash.turbine.test
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.DiscoveredPc
+import app.tatakai.next.model.HistoryEntry
+import app.tatakai.next.model.HistoryRepository
+import app.tatakai.next.model.LinkHandoff
 import app.tatakai.next.model.LinkCapabilities
 import app.tatakai.next.model.LinkProfile
 import app.tatakai.next.model.LinkRepository
@@ -22,6 +25,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import java.time.Instant
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -79,6 +83,68 @@ class LinkViewModelTest {
             preferred = profileId
             device.value = device.value?.copy(preferredProfile = profileId)
         }
+
+        val handoff = MutableStateFlow<LinkHandoff?>(null)
+        override val pendingHandoff get() = handoff
+    }
+
+    /** BUG-136: the phone's history; [syncNow] pulls the PC's row ([pcRow]) like HistorySyncer (newest watchedAt wins). */
+    private class FakeHistory(row: HistoryEntry?) : HistoryRepository {
+        val rows = MutableStateFlow(listOfNotNull(row))
+        var pcRow: HistoryEntry? = null
+        var syncs = 0
+        override fun continueWatching(limit: Int): Flow<List<HistoryEntry>> = rows
+        override suspend fun record(entry: HistoryEntry) { rows.value = listOf(entry) }
+        override fun progressFor(anilistId: Int): Flow<Map<Int, HistoryEntry>> = emptyFlow()
+        override suspend fun syncNow(): Result<Unit> {
+            syncs++
+            pcRow?.let { pc -> if (rows.value.none { it.watchedAt >= pc.watchedAt }) rows.value = listOf(pc) }
+            return Result.success(Unit)
+        }
+    }
+
+    private fun og4(progressSec: Int, watchedAtMs: Long) = HistoryEntry(
+        animeId = "170083", title = "Overgeared", poster = null, episodeId = "170083:4", episode = 4, progressSec = progressSec,
+        durationSec = 1420, completed = false, watchedAt = Instant.ofEpochMilli(watchedAtMs), anilistId = 170083, malId = null,
+    )
+
+    @Test
+    fun `opening the screen pulls the PC history so Continuar en la PC has the newest point`() = runTest {
+        // BUG-136 (r8): the phone had OG4 at 15:37, the PC moved it to 15:03 later
+        val history = FakeHistory(og4(937, 1_000L)).apply { pcRow = og4(903, 2_000L) }
+        val repo = FakeLink({ Result.success(pc) }, { Result.success(caps) })
+        repo.state.value = LinkState.Paired(pc, reachable = true)
+
+        val vm = LinkViewModel(repo, "Pixel", history = history)
+
+        assertEquals(1, history.syncs)
+        assertEquals(903, vm.state.value.continueEntry?.progressSec)
+    }
+
+    @Test
+    fun `a PC hand-off of the same episode gives Continuar en la PC its position`() = runTest {
+        val history = FakeHistory(og4(937, 1_000L))
+        val repo = FakeLink({ Result.success(pc) }, { Result.success(caps) })
+        repo.state.value = LinkState.Paired(pc, reachable = true)
+        val vm = LinkViewModel(repo, "Pixel", history = history, nowMs = { 5_000L })
+        assertEquals(937, vm.state.value.continueEntry?.progressSec)
+
+        repo.handoff.value = LinkHandoff("abcdef0123456789", animeId = "170083", episode = 4, positionSec = 903, title = "Overgeared")
+
+        assertEquals(903, vm.state.value.continueEntry?.progressSec)
+        assertEquals(903, vm.state.value.pendingHandoff?.positionSec)
+        assertEquals(2, history.syncs) // on open, and again when the PC sent it
+    }
+
+    @Test
+    fun `the phone's own newer row or another episode is not replaced by the hand-off`() {
+        val h = LinkHandoff("abcdef0123456789", animeId = "170083", episode = 4, positionSec = 903)
+        // the phone watched on after the hand-off arrived
+        assertEquals(1000, LinkLogic.continuePoint(og4(1000, 9_000L), h to 5_000L)?.progressSec)
+        // another episode of the same series
+        assertEquals(937, LinkLogic.continuePoint(og4(937, 1_000L), h.copy(episode = 5) to 5_000L)?.progressSec)
+        assertNull(LinkLogic.continuePoint(null, h to 5_000L))
+        assertEquals(903, LinkLogic.continuePoint(og4(937, 1_000L), h to 5_000L)?.progressSec)
     }
 
     @Test
