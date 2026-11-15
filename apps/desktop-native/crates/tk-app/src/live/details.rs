@@ -39,7 +39,7 @@ fn anilist() -> &'static AniList {
 }
 
 /// Stable cache key part of a ref: `a<id>` or `m<id>`.
-fn ref_key(r: &MediaRef) -> Option<String> {
+pub(super) fn ref_key(r: &MediaRef) -> Option<String> {
     match (r.anilist_id, r.mal_id) {
         (Some(a), _) => Some(format!("a{a}")),
         (None, Some(m)) => Some(format!("m{m}")),

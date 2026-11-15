@@ -275,10 +275,55 @@ fn complete_fallback(m: &mut Media, known: Option<&KnownMedia>, history: Option<
     if title.trim().is_empty() || m.titles.contains_key("english") {
         return;
     }
-    if !has(&m.titles, &title) {
+    // BUG-144: only the display keys count; Kitsu's `alt_N` ("OVERGEARED") is not shown, so it must not keep the
+    // history title out of `english` (the English display would fall to Kitsu's romaji, "Temppal…").
+    if !is_display_title(&m.titles, &title) {
         m.titles.insert("english".to_owned(), title.clone());
     }
     m.title = title;
+}
+
+/// Whether `v` is one of the shown titles (`english` / `romaji` / `native`, ignoring case). Pure.
+fn is_display_title(titles: &std::collections::BTreeMap<String, String>, v: &str) -> bool {
+    ["english", "romaji", "native"]
+        .iter()
+        .filter_map(|k| titles.get(*k))
+        .any(|x| x.trim().eq_ignore_ascii_case(v.trim()))
+}
+
+/// BUG-144: a `KnownMedia` from the raw AniList objects Details already cached for the series (`anilist.chain.<key>`:
+/// the card, with titles and poster; `anilist.extra.<key>`: titles), for a fallback answer without a stored complete
+/// answer, so AniList's romaji ("Tempal: Item no Chikara") reaches the extensions instead of Kitsu's. A missing
+/// English title / poster is taken from the history row (`(title, poster)`). `None` without AniList titles. Pure.
+fn known_from_anilist_raw(
+    chain: Option<&serde_json::Value>,
+    extra: Option<&serde_json::Value>,
+    history: Option<(String, Option<String>)>,
+) -> Option<KnownMedia> {
+    use tk_core::metadata::anilist::details::{media_titles, pick_title};
+    let mut titles = std::collections::BTreeMap::new();
+    let mut cover = None;
+    if let Some(c) = chain {
+        let card = tk_core::metadata::mapping::map_anilist_media(c);
+        titles = card.titles;
+        cover = card.cover;
+    }
+    for (k, v) in extra.map(media_titles).unwrap_or_default() {
+        titles.entry(k).or_insert(v);
+    }
+    if titles.is_empty() {
+        return None;
+    }
+    if let Some((title, poster)) = history {
+        if !title.trim().is_empty() && !titles.contains_key("english") && !is_display_title(&titles, &title) {
+            titles.insert("english".to_owned(), title);
+        }
+        if cover.is_none() {
+            cover = poster;
+        }
+    }
+    let title = pick_title(&titles, "english")?;
+    Some(KnownMedia { title, titles, cover })
 }
 
 /// Whether a list that expires (or expired) at `until` may still serve a picked web candidate at `now`. Pure.
@@ -398,12 +443,28 @@ impl LiveBackend {
         if !self.is_fallback(r, m) {
             return;
         }
-        let known = known_key(r).and_then(|k| self.store.cache_get::<KnownMedia>(&k).ok().flatten());
+        // BUG-144: titles do not go stale like the rest of an answer: an expired AniList row (the metadata lifetime
+        // passed) still beats the fallback's titles, so these reads ignore the expiry.
+        let any_age = |key: &str| self.store.cache_get_at::<serde_json::Value>(key, i64::MIN).ok().flatten();
         let history = || {
             self.progress(r).into_iter().find(|e| !e.title.trim().is_empty()).map(|e| (e.title, e.poster))
         };
-        let from = if known.is_some() { "anilist cache" } else { "history" };
-        let history = if known.is_none() { history() } else { None };
+        let mut known = known_key(r).and_then(|k| any_age(&k)).and_then(|v| serde_json::from_value::<KnownMedia>(v).ok());
+        let mut from = "anilist cache";
+        if known.is_none()
+            && let Some(key) = details::ref_key(r)
+        {
+            let chain = any_age(&format!("anilist.chain.{key}"));
+            let extra = any_age(&format!("anilist.extra.{key}"));
+            known = known_from_anilist_raw(chain.as_ref(), extra.as_ref(), history());
+            from = "anilist details cache";
+        }
+        let history = if known.is_none() {
+            from = "history";
+            history()
+        } else {
+            None
+        };
         complete_fallback(m, known.as_ref(), history);
         tracing::warn!(
             provider = %m.source_provider,
@@ -1946,6 +2007,80 @@ mod fallback_tests {
         let mut m = kitsu_og();
         complete_fallback(&mut m, None, None);
         assert_eq!(m, kitsu_og());
+    }
+
+    /// Overgeared as `map_kitsu_media` maps it (the `Media` of `tk-core` `mapping.rs`'s BUG-083 test): Kitsu's only
+    /// English spelling is `alt_1 = "OVERGEARED"`.
+    fn kitsu_og_mapped() -> Media {
+        let res = serde_json::json!({
+            "id": "50743",
+            "attributes": {
+                "canonicalTitle": "Temppal: Item no Chikara",
+                "titles": { "en_jp": "Temppal: Item no Chikara", "ja_jp": "テムパル～アイテムの力～" },
+                "abbreviatedTitles": ["OVERGEARED", "템빨", "TEMPPAL: ITEM NO CHIKARA", "OG", "AoT", "TEMPAL"]
+            }
+        });
+        let m = tk_core::metadata::mapping::map_kitsu_media(&serde_json::json!({}), &res);
+        assert_eq!(m.titles.get("alt_1").map(String::as_str), Some("OVERGEARED"));
+        m
+    }
+
+    /// The raw `anilist.chain.a212888` card Details caches (`CHAIN_QUERY`, `...mediaCard`).
+    fn anilist_og_chain() -> serde_json::Value {
+        serde_json::json!({
+            "id": 212888, "idMal": 59145, "type": "ANIME", "format": "ONA",
+            "title": { "romaji": "Tempal: Item no Chikara", "english": "Overgeared", "native": "テムパル～アイテムの力～" },
+            "coverImage": { "extraLarge": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx212888.jpg" },
+            "relations": { "edges": [] }
+        })
+    }
+
+    fn history_og() -> Option<(String, Option<String>)> {
+        Some(("Overgeared".into(), Some("https://anilist/poster.jpg".into())))
+    }
+
+    #[test]
+    fn bug144_the_history_title_is_english_despite_a_kitsu_alt_spelling() {
+        let mut m = kitsu_og_mapped();
+        complete_fallback(&mut m, None, history_og());
+        assert_eq!(super::details::display_title(&m, "english"), "Overgeared");
+        assert_eq!(m.titles.get("english").map(String::as_str), Some("Overgeared"));
+        assert_eq!(ext_titles(&m)[0], "Overgeared");
+        // the romaji preference still shows the romaji
+        assert_eq!(super::details::display_title(&m, "romaji"), "Temppal: Item no Chikara");
+    }
+
+    #[test]
+    fn bug144_a_history_title_equal_to_the_romaji_is_not_called_english() {
+        let mut m = kitsu_og_mapped();
+        complete_fallback(&mut m, None, Some(("temppal: item no chikara".into(), None)));
+        assert!(!m.titles.contains_key("english"));
+    }
+
+    #[test]
+    fn bug144_cached_anilist_titles_reach_the_extensions() {
+        let known = known_from_anilist_raw(Some(&anilist_og_chain()), None, history_og()).expect("AniList titles");
+        assert_eq!(known.cover.as_deref(), anilist_og().cover.as_deref(), "the AniList card's poster");
+        let mut m = kitsu_og_mapped();
+        complete_fallback(&mut m, Some(&known), None);
+        let t = ext_titles(&m);
+        assert_eq!(t[0], "Overgeared");
+        assert!(t.contains(&"Tempal: Item no Chikara".to_owned()), "{t:?}");
+        assert!(!t.contains(&"Temppal: Item no Chikara".to_owned()), "AniList's romaji wins on the same key: {t:?}");
+        assert_eq!(super::details::display_title(&m, "english"), "Overgeared");
+        assert_eq!(m.cover.as_deref(), anilist_og().cover.as_deref());
+    }
+
+    #[test]
+    fn bug144_details_extra_titles_complete_with_the_history() {
+        // `anilist.extra` has titles but no poster; an entry without English takes the history's.
+        let extra = serde_json::json!({ "id": 212888, "title": { "romaji": "Tempal: Item no Chikara", "native": "テムパル～アイテムの力～" } });
+        let known = known_from_anilist_raw(None, Some(&extra), history_og()).expect("AniList titles");
+        assert_eq!(known.title, "Overgeared");
+        assert_eq!(known.titles.get("romaji").map(String::as_str), Some("Tempal: Item no Chikara"));
+        assert_eq!(known.cover.as_deref(), Some("https://anilist/poster.jpg"));
+        assert_eq!(known_from_anilist_raw(None, None, history_og()), None);
+        assert_eq!(known_from_anilist_raw(None, Some(&serde_json::json!({})), history_og()), None);
     }
 
     #[test]
