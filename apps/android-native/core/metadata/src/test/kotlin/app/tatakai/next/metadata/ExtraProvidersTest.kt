@@ -132,9 +132,10 @@ class ExtraProvidersTest {
         val st = router.statusSnapshot(listOf("tenrai", "mal")).associateBy { it.id }
         assertTrue(st.getValue("tenrai").enabled)
         assertEquals("HTTP 429", st.getValue("tenrai").lastError)
-        assertEquals(1_000L + MetadataRouter.DEFAULT_COOLDOWN_MS, st.getValue("tenrai").cooldownUntilMs)
+        // 0.3.1: the cool-down lasts what Retry-After asked for (30 s), not the fixed 60 s
+        assertEquals(1_000L + 30_000L, st.getValue("tenrai").cooldownUntilMs)
         assertTrue(!st.getValue("mal").enabled)
-        now += MetadataRouter.DEFAULT_COOLDOWN_MS + 1
+        now += 30_000L + 1
         assertNull(router.statusSnapshot(listOf("tenrai")).single().cooldownUntilMs)
     }
 

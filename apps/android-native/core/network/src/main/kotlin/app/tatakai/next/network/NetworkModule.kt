@@ -18,11 +18,12 @@ const val PROP_APP_VERSION = "tatakai.appVersion"
  *
  * It deliberately has NO authentication interceptor: the AniList / MAL OAuth tokens live in :core:data (ListsRepositoryImpl adds
  * them per request to graphql.anilist.co / api.myanimelist.net only) and must never be attached to third-party hosts.
+ * 0.3.1: AniList requests go through the shared [AniListGateway] (concurrency cap, header-driven budget, 429 handling, dedupe).
  */
 object HttpClientFactory {
     const val CACHE_BYTES = 20L * 1024 * 1024
 
-    fun create(cacheDir: File?, appVersion: String = "dev"): OkHttpClient =
+    fun create(cacheDir: File?, appVersion: String = "dev", aniList: AniListGateway? = null): OkHttpClient =
         OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
@@ -30,6 +31,8 @@ object HttpClientFactory {
             .callTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .addInterceptor(UserAgentInterceptor("Tatakai/$appVersion (Android)"))
+            // 0.3.1: every AniList request of the app (metadata, lists, social, airing, manga, novels) shares this limiter.
+            .apply { if (aniList != null) addInterceptor(aniList) }
             .apply { if (cacheDir != null) cache(Cache(File(cacheDir, "http"), CACHE_BYTES)) }
             .build()
 }
@@ -46,10 +49,12 @@ class UserAgentInterceptor(private val userAgent: String) : Interceptor {
 }
 
 val networkModule: Module = module {
+    single { AniListGateway() }
     single<OkHttpClient> {
         HttpClientFactory.create(
             cacheDir = androidContext().cacheDir,
             appVersion = getPropertyOrNull<String>(PROP_APP_VERSION) ?: "dev",
+            aniList = get<AniListGateway>(),
         )
     }
 }

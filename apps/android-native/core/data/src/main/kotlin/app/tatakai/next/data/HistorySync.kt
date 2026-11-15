@@ -1,5 +1,6 @@
 package app.tatakai.next.data
 
+import app.tatakai.next.model.inBackground
 import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -187,7 +188,10 @@ class HistorySyncWorker(context: Context, params: WorkerParameters) : CoroutineW
     private val syncer: HistorySyncer by inject()
     private val scheduler: HistorySyncScheduler by inject()
 
-    override suspend fun doWork(): Result = try {
+    // 0.3.1: WorkManager jobs are background traffic for the AniList gateway (interactive requests go first).
+    override suspend fun doWork(): Result = inBackground { work() }
+
+    private suspend fun work(): Result = try {
         syncer.syncOnce()
         // Rows written while this pass ran: schedule the next coalesced window.
         if (syncer.hasPending()) scheduler.requestFollowUp()

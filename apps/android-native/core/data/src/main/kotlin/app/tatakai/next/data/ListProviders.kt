@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.data
 
+import app.tatakai.next.model.RateLimitHeaders
+import app.tatakai.next.model.RequestPriority
+import app.tatakai.next.model.currentRequestPriority
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.ListEntry
@@ -62,16 +65,25 @@ interface ListRemote {
 
 private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 
-internal suspend fun OkHttpClient.callText(request: Request, provider: String): String = withContext(Dispatchers.IO) {
+internal suspend fun OkHttpClient.callText(request: Request, provider: String): String {
+    // 0.3.1: the AniList gateway orders requests by this tag (list sync in WorkManager = background, edits = interactive).
+    val tagged = request.tag(RequestPriority::class.java)?.let { request }
+        ?: request.newBuilder().tag(RequestPriority::class.java, currentRequestPriority()).build()
+    return withContext(Dispatchers.IO) { tagged.callTextBlocking(this@callText, provider) }
+}
+
+private fun Request.callTextBlocking(client: OkHttpClient, provider: String): String {
     val response: Response = try {
-        newCall(request).execute()
+        client.newCall(this).execute()
     } catch (e: java.io.IOException) {
         throw AppException(AppError.Offline, e)
     }
-    response.use { r ->
+    return response.use { r ->
         val text = r.body.string()
         when {
-            r.code == 429 -> throw AppException(AppError.RateLimited(provider))
+            r.code == 429 -> throw AppException(
+                AppError.RateLimited(provider, RateLimitHeaders.retryAfterMs(r.header(RateLimitHeaders.RETRY_AFTER), System.currentTimeMillis())),
+            )
             !r.isSuccessful -> throw AppException(AppError.Http(r.code))
             else -> text
         }

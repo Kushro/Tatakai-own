@@ -11,7 +11,11 @@ import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.MetadataRepository
 import app.tatakai.next.model.PER_PAGE_AIRING
+import app.tatakai.next.model.inBackground
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -80,18 +84,30 @@ class AiringRepositoryImpl(
         if (toEpochSec <= fromEpochSec) return emptyList()
         val key = fromEpochSec to toEpochSec
         windowCache?.let { (k, at, list) -> if (k == key && clock() - at < WINDOW_CACHE_MS) return list }
-        val out = mutableListOf<AiringEpisode>()
-        for (page in 1..MAX_PAGES) {
-            val chunk = metadata.airingSchedule(fromEpochSec, toEpochSec, page)
-            out += chunk
-            // QA 0.3: the mapper drops rows (adult titles, rows without media), so a full AniList page can arrive with
-            // fewer than PER_PAGE_AIRING items; stopping on `< PER_PAGE_AIRING` cut the week after ~49 slots (Saturday
-            // and Sunday came out empty). Only a clearly short page ends the window.
-            if (chunk.isEmpty() || chunk.size < PER_PAGE_AIRING / 2) break
-        }
+        val out = inBackground { fetchPages(fromEpochSec, toEpochSec) }
         val result = AiringLogic.dedupe(out)
         windowCache = Triple(key, clock(), result)
         return result
+    }
+
+    /**
+     * The whole `[from, to)` range as one paginated `airingSchedules` query (perPage [PER_PAGE_AIRING]). 0.3.1: after the first
+     * page, the next ones are asked in waves of [AiringLogic.pageWaves] issued together, which the provider's batcher sends as one
+     * aliased request each (a busy month: 3 requests instead of 6).
+     */
+    private suspend fun fetchPages(fromEpochSec: Long, toEpochSec: Long): List<AiringEpisode> = coroutineScope {
+        val out = mutableListOf<AiringEpisode>()
+        for (wave in AiringLogic.pageWaves(MAX_PAGES)) {
+            val chunks = wave.map { page -> async { metadata.airingSchedule(fromEpochSec, toEpochSec, page) } }.awaitAll()
+            for (chunk in chunks) {
+                out += chunk
+                // QA 0.3: the mapper drops rows (adult titles, rows without media), so a full AniList page can arrive with
+                // fewer than PER_PAGE_AIRING items; stopping on `< PER_PAGE_AIRING` cut the week after ~49 slots (Saturday
+                // and Sunday came out empty). Only a clearly short page ends the window.
+                if (AiringLogic.endsWindow(chunk.size)) return@coroutineScope out
+            }
+        }
+        out
     }
 
     /** Refs of the shows whose new episodes matter: followed + WATCHING / REPEATING of the list. */
@@ -162,6 +178,13 @@ class AiringRepositoryImpl(
 internal object AiringLogic {
     fun dedupe(list: List<AiringEpisode>): List<AiringEpisode> =
         list.distinctBy { "${it.media.ref.anilistId}:${it.media.ref.malId}:${it.episode}" }.sortedBy { it.airingAtEpochSec }
+
+    /** Pages of a range asked together: page 1 alone (most weeks fit in it), then 2-3, then the rest up to [maxPages]. */
+    fun pageWaves(maxPages: Int): List<List<Int>> =
+        listOf(listOf(1), (2..3).toList(), (4..maxPages).toList()).map { w -> w.filter { it <= maxPages } }.filter { it.isNotEmpty() }
+
+    /** A page this short ends the window (see QA 0.3 above: rows the mapper dropped make a full page look shorter). */
+    fun endsWindow(size: Int): Boolean = size == 0 || size < PER_PAGE_AIRING / 2
 
     fun forTracked(schedule: List<AiringEpisode>, tracked: List<MediaRef>): List<AiringEpisode> =
         schedule.filter { ep -> tracked.any { AiringRepositoryImpl.sameTitle(it, ep.media.ref) } }
