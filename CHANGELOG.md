@@ -2,6 +2,33 @@
 
 Cambios de Tatakai Next (rama `main`). Tatakai Classic tiene su propio changelog en la rama `legacy`.
 
+## [0.3.0] - 2026-11-15
+
+Rediseño de la interfaz inspirado en lo que más gustaba de Hayase, con variantes configurables, y sincronización del historial de Link por dispositivo.
+
+**Diseño y estilo (Ajustes › Apariencia)**
+- Cuatro presets (Tatakai, Cine, Denso, Tranquilo) que aplican de una vez el diseño de Inicio, el estilo de tarjetas, el menú lateral, la densidad, las animaciones, la vista de episodios, de relacionados y del calendario. Cada opción se puede cambiar suelta.
+- Menú lateral con nombres o angosto (solo íconos), densidad cómoda o compacta, animaciones expresivas, sutiles o desactivadas, efectos de desenfoque opcionales.
+- Calendario y Para ti pasan a ser entradas del menú principal (en Android, en la barra de navegación).
+
+**Inicio**
+- Destacado: banner a todo el ancho con chips (episodios, formato, estado, temporada, puntaje), sinopsis, géneros, Continuar / Ver ahora y una barra que avanza sola y se pausa con el puntero encima. También Carrusel y Solo filas.
+- Tarjetas con detalle (punto de estado, año y formato), clásicas o solo póster; filas con flechas al pasar el puntero.
+- Más fluido: el carrusel ya no recalcula el layout de toda la página en cada giro, el desenfoque por tarjeta se quitó y las filas fuera de pantalla no se pintan hasta acercarse.
+
+**Detalle**
+- Episodios en Tarjetas (miniatura con duración y rating, sinopsis, fecha relativa, progreso), Lista o Compacta.
+- Relaciones como grafo de la franquicia con zoom, ajustar y pantalla completa, o como lista agrupada.
+- Personajes y Relaciones se cargan la primera vez que se abren.
+
+**Calendario**
+- Vistas Semana, Agenda, Mes y Hoy (línea de tiempo con la hora actual); la elegida se recuerda.
+
+**Tatakai Link: historial por dispositivo**
+- Cada dispositivo emparejado tiene un modo de historial: sincronización completa, solo recibir (lo que reproduce no se guarda en la PC; ideal para dispositivos de prueba) o pausada.
+- La PC registra de qué dispositivo vino cada episodio: "aportó N episodios" y "Borrar lo que aportó".
+- "Usar como fuente": ese dispositivo envía todo su historial, gana en la PC y los demás reemplazan el suyo. Necesita la app Android 0.3.0 en los teléfonos.
+
 ## [0.2.0] - 2026-11-15
 
 Versión de estabilidad: 14 rondas de pruebas de escritorio, Tatakai Link y Android (búsqueda, reproducción con y sin Anime4K/FSR y generación de cuadros, todos los reproductores, torrents y extensiones) y más de 140 problemas corregidos.
