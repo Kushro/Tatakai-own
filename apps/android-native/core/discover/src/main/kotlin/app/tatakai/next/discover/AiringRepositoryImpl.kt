@@ -84,7 +84,10 @@ class AiringRepositoryImpl(
         for (page in 1..MAX_PAGES) {
             val chunk = metadata.airingSchedule(fromEpochSec, toEpochSec, page)
             out += chunk
-            if (chunk.size < PER_PAGE_AIRING) break
+            // QA 0.3: the mapper drops rows (adult titles, rows without media), so a full AniList page can arrive with
+            // fewer than PER_PAGE_AIRING items; stopping on `< PER_PAGE_AIRING` cut the week after ~49 slots (Saturday
+            // and Sunday came out empty). Only a clearly short page ends the window.
+            if (chunk.isEmpty() || chunk.size < PER_PAGE_AIRING / 2) break
         }
         val result = AiringLogic.dedupe(out)
         windowCache = Triple(key, clock(), result)
