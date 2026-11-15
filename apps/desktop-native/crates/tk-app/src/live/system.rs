@@ -548,6 +548,19 @@ pub fn system_caps(_b: &LiveBackend) -> SystemCapsVm {
 
 /// Seconds of the metadata TTL cache chosen in Settings (`Settings::system.metadata_cache_ttl_hours`), for the
 /// `b.store.cache_put` calls of the metadata paths (details, characters, watch order).
+/// 0.3.1: the shared AniList gateway's counters for Settings > System.
+pub fn anilist_stats() -> tk_ui::backend::AniListStatsVm {
+    let s = tk_core::metadata::anilist::gateway::global().stats();
+    tk_ui::backend::AniListStatsVm {
+        total: s.total,
+        last_minute: s.last_minute,
+        rate_limited: s.rate_limited,
+        deduped: s.deduped,
+        wait_secs: s.wait_secs,
+        limit: s.limit,
+    }
+}
+
 pub fn metadata_ttl_secs(b: &LiveBackend) -> i64 {
     i64::from(crate::settings_store::load(&b.settings_file).system.metadata_cache_ttl_hours) * 3600
 }

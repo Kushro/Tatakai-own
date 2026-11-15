@@ -120,5 +120,9 @@
   "update.notes_title": "What's new in {version}",
   "update.open": "Open",
   "update.skip": "Skip this version",
-  "update.skipped": "This version will not be announced again"
+  "update.skipped": "This version will not be announced again",
+  "settings.system.anilist_requests": "AniList requests",
+  "settings.system.anilist_requests_hint": "Every request to AniList goes through one shared limiter that follows AniList's own rate limit.",
+  "settings.system.anilist_requests_line": "{total} sent · {minute} in the last minute (budget {limit}/min) · {limited} rate limited · {shared} shared",
+  "settings.system.anilist_requests_wait": "Waiting {secs} s before the next request"
 }

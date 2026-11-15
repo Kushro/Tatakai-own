@@ -34,6 +34,8 @@ mod novel;
 mod server;
 mod sniffer;
 mod social;
+/// 0.3.1: stale-while-revalidate over the SQLite cache (Home rows, Top 10, calendar).
+mod swr;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -76,6 +78,9 @@ pub struct LiveBackend {
     router: Arc<MetadataRouter>,
     /// `id -> (title, poster)` of titles opened this session, for history rows.
     titles: Mutex<HashMap<String, (String, Option<String>)>>,
+    /// 0.3.1: `id -> (when, media)` of `media()` answers from the primary provider, so Details + Episodes + Playback
+    /// of one title cost one request ([`MEDIA_MEMO_TTL`]; the store keeps them [`MEDIA_CACHE_SECS`]).
+    media_memo: Mutex<HashMap<String, (Instant, Media)>>,
     ext: ext::Extensions,
     link: link::LinkService,
     /// `(media id, episode) -> (expires at, candidates)`: `sources()` and `playback_source()` share one resolution
@@ -109,6 +114,11 @@ pub struct LiveBackend {
     /// Remote commands from paired phones (`tk-link` `/v1/control`), consumed by `wait_remote_command` (worker k).
     remote: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<RemoteCommandVm>>,
 }
+
+/// 0.3.1: `media()` answers are reused this long in memory...
+const MEDIA_MEMO_TTL: Duration = Duration::from_secs(10 * 60);
+/// ...and this long from the store (a new session opening the same title).
+const MEDIA_CACHE_SECS: i64 = 60 * 60;
 
 /// How long a resolved source list is reused before the extensions are asked again.
 const SOURCES_TTL: Duration = Duration::from_secs(5 * 60);
@@ -376,6 +386,7 @@ impl LiveBackend {
             store: store.clone(),
             router,
             titles: Mutex::new(HashMap::new()),
+            media_memo: Mutex::new(HashMap::new()),
             ext,
             link,
             candidates: Mutex::new(HashMap::new()),
@@ -491,14 +502,49 @@ impl LiveBackend {
         }
     }
 
+    /// 0.3.1: a primary-provider answer of `media()` remembered (memo + store).
+    fn cached_media(&self, id: &str, r: &MediaRef) -> Option<Media> {
+        if let Some((at, m)) = self.media_memo.lock().ok().and_then(|m| m.get(id).cloned())
+            && at.elapsed() < MEDIA_MEMO_TTL
+        {
+            return Some(m);
+        }
+        let key = details::ref_key(r).map(|k| format!("media.v1.{k}"))?;
+        let m = self.store.cache_get::<Media>(&key).ok().flatten()?;
+        if let Ok(mut memo) = self.media_memo.lock() {
+            memo.insert(id.to_owned(), (Instant::now(), m.clone()));
+        }
+        Some(m)
+    }
+
+    fn remember_media(&self, id: &str, r: &MediaRef, m: &Media) {
+        if m.source_provider != PRIMARY_METADATA {
+            return;
+        }
+        if let Ok(mut memo) = self.media_memo.lock() {
+            memo.retain(|_, (at, _)| at.elapsed() < MEDIA_MEMO_TTL);
+            memo.insert(id.to_owned(), (Instant::now(), m.clone()));
+        }
+        if let Some(key) = details::ref_key(r).map(|k| format!("media.v1.{k}"))
+            && let Err(e) = self.store.cache_put(&key, m, MEDIA_CACHE_SECS)
+        {
+            tracing::debug!(%e, key, "caching the media answer failed");
+        }
+    }
+
     async fn media(&self, id: &str) -> UiResult<(MediaRef, Media)> {
         let r = media_ref(id).ok_or_else(|| UiError::new(ErrorKind::Other, format!("invalid id {id}")))?;
+        if let Some(m) = self.cached_media(id, &r) {
+            self.remember_title(id, &m.title, m.cover.as_deref());
+            return Ok((r, m));
+        }
         let mut media = self
             .router
             .media(MediaKind::Anime, &r)
             .await
             .map_err(provider_err)?
             .ok_or_else(|| UiError::new(ErrorKind::Other, format!("{id} was not found")))?;
+        self.remember_media(id, &r, &media);
         self.remember_known(&r, &media);
         self.fill_known_for(&r, &mut media);
         self.remember_title(id, &media.title, media.cover.as_deref());
@@ -1256,6 +1302,9 @@ impl Backend for LiveBackend {
     fn system_caps(&self) -> SystemCapsVm {
         system::system_caps(self)
     }
+    fn anilist_stats(&self) -> Option<tk_ui::backend::AniListStatsVm> {
+        Some(system::anilist_stats())
+    }
     async fn autostart_enabled(&self) -> UiResult<bool> {
         system::autostart_enabled(self).await
     }
@@ -1374,10 +1423,13 @@ impl Backend for LiveBackend {
         home::genre_feed(self, genre, page).await
     }
     async fn followed_updates(&self) -> UiResult<Vec<LatestEpisodeVm>> {
-        home::followed_updates(self).await
+        tk_core::metadata::anilist::gateway::background(home::followed_updates(self)).await
     }
     async fn airing_schedule(&self, week_start_unix: i64) -> UiResult<Vec<AiringSlotVm>> {
         home::airing_schedule(self, week_start_unix).await
+    }
+    async fn airing_range(&self, from_unix: i64, to_unix: i64) -> UiResult<tk_ui::backend::AiringRangeVm> {
+        home::airing_range(self, from_unix, to_unix).await
     }
     async fn tracked_shows(&self) -> UiResult<Vec<MediaVm>> {
         home::tracked_shows(self).await
@@ -1392,22 +1444,22 @@ impl Backend for LiveBackend {
         home::reminders_due(self).await
     }
     async fn recommendations(&self, page: u32) -> UiResult<Vec<RecommendationVm>> {
-        home::recommendations(self, page).await
+        tk_core::metadata::anilist::gateway::background(home::recommendations(self, page)).await
     }
     async fn recs_feedback(&self, media_id: &str, feedback: RecsFeedbackVm) -> UiResult<()> {
         home::recs_feedback(self, media_id, feedback).await
     }
     async fn taste_profile(&self) -> UiResult<TasteProfileVm> {
-        home::taste_profile(self).await
+        tk_core::metadata::anilist::gateway::background(home::taste_profile(self)).await
     }
     async fn atlas_points(&self) -> UiResult<Vec<AtlasPointVm>> {
-        home::atlas_points(self).await
+        tk_core::metadata::anilist::gateway::background(home::atlas_points(self)).await
     }
     async fn torrent_activity(&self) -> UiResult<TorrentActivityVm> {
         home::torrent_activity(self).await
     }
     async fn provider_health(&self) -> UiResult<Vec<ProviderHealthVm>> {
-        home::provider_health(self).await
+        tk_core::metadata::anilist::gateway::background(home::provider_health(self)).await
     }
 
     // h: live/downloads.rs
@@ -1746,7 +1798,8 @@ impl Backend for LiveBackend {
         social::notifications(self, page, unread_only).await
     }
     async fn anilist_unread_count(&self) -> UiResult<u32> {
-        social::unread_count(self).await
+        // 0.3.1: polled by the rail badge: background priority.
+        tk_core::metadata::anilist::gateway::background(social::unread_count(self)).await
     }
     async fn anilist_mark_notifications_read(&self) -> UiResult<()> {
         social::mark_notifications_read(self).await

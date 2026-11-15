@@ -36,14 +36,14 @@ use tk_core::recs::{self, Candidate, Seen, TasteProfile};
 use tk_core::store::home::TrackedShowRow;
 use tk_core::{FeedKind, HistoryEntry, Media, MediaKind, MediaRef, ProviderError};
 use tk_ui::backend::{
-    AiringSlotVm, AtlasPointVm, BecauseVm, DetailsExtraVm, HeroVm, HomeVm, LatestEpisodeVm, MediaVm,
+    AiringRangeVm, AiringSlotVm, AtlasPointVm, BecauseVm, DetailsExtraVm, HeroVm, HomeVm, LatestEpisodeVm, MediaVm,
     ProviderHealthVm, RecommendationVm, RecsFeedbackVm, SearchPageVm, SectionVm, TasteProfileVm, TopRangeVm,
     TorrentActivityVm, TorrentStateVm, UiResult,
 };
 use tk_ui::model::home::{HomePrefs, NO_CLIENT_ID};
 use tk_ui::model::{ErrorKind, PROVIDERS, UiError};
 
-use crate::live::{LiveBackend, history_media, media_ref, provider_err, to_vm};
+use crate::live::{LiveBackend, history_media, media_ref, provider_err, swr, to_vm};
 use crate::settings_store;
 
 /// "Latest episodes" look back this far.
@@ -67,6 +67,14 @@ const REMINDER_GRACE_SECS: i64 = 15 * 60;
 /// "Because you watched": seeds and titles per seed.
 const BECAUSE_SEEDS: usize = 3;
 const BECAUSE_ITEMS: usize = 12;
+/// 0.3.1: "Because you watched" answers are kept this long per seed set.
+const BECAUSE_TTL_SECS: i64 = 30 * 60;
+/// 0.3.1: calendar weeks / months are kept this long (the schedule moves little within half an hour).
+const CALENDAR_TTL_SECS: i64 = 30 * 60;
+/// 0.3.1: pages read for a calendar month range (50 rows each).
+const MONTH_PAGES: u32 = 40;
+/// 0.3.1: the reminder poller (once a minute) reads this window ahead once per [`CALENDAR_TTL_SECS`].
+const REMINDER_WINDOW_SECS: i64 = 6 * 3600;
 /// History / list titles the taste profile reads.
 const TASTE_HISTORY: u32 = 400;
 const TASTE_MAX_TITLES: usize = 150;
@@ -356,47 +364,161 @@ fn probe_outcome(r: Result<(), ProviderError>, id: &str) -> Option<Result<(), St
 // Home
 // ---------------------------------------------------------------------------------------------
 
-/// `Backend::home`: the wave-0 rows plus Upcoming and Most favourite.
+/// The AniList rows of Home as cached (0.3.1, stale-while-revalidate for [`swr::HOME_FRESH_SECS`]).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct HomeRows {
+    trending: Vec<Media>,
+    airing: Vec<Media>,
+    seasonal: Vec<Media>,
+    popular: Vec<Media>,
+    top: Vec<Media>,
+    upcoming: Option<Vec<DatedMedia>>,
+    favourite: Option<Vec<DatedMedia>>,
+}
+
+type Row = Result<Vec<Media>, ProviderError>;
+type DatedRow = Option<Result<Vec<DatedMedia>, ProviderError>>;
+
+/// One fetch of the Home rows, each with its own outcome.
+struct HomeFetch {
+    feeds: [Row; 5],
+    upcoming: DatedRow,
+    favourite: DatedRow,
+}
+
+impl HomeFetch {
+    /// Cacheable only when every row answered and the feeds came from the primary provider (a Kitsu fallback answer
+    /// is not kept for 15 minutes).
+    fn rows(&self, primary: Option<&str>) -> Option<HomeRows> {
+        let feeds: Vec<&Vec<Media>> = self.feeds.iter().map(|r| r.as_ref().ok()).collect::<Option<_>>()?;
+        let from_primary = |items: &Vec<Media>| items.first().is_none_or(|m| Some(m.source_provider.as_str()) == primary);
+        if !feeds.iter().all(|f| from_primary(f)) {
+            return None;
+        }
+        let dated = |r: &DatedRow| -> Option<Option<Vec<DatedMedia>>> {
+            match r {
+                None => Some(None),
+                Some(Ok(v)) => Some(Some(v.clone())),
+                Some(Err(_)) => None,
+            }
+        };
+        Some(HomeRows {
+            trending: feeds[0].clone(),
+            airing: feeds[1].clone(),
+            seasonal: feeds[2].clone(),
+            popular: feeds[3].clone(),
+            top: feeds[4].clone(),
+            upcoming: dated(&self.upcoming)?,
+            favourite: dated(&self.favourite)?,
+        })
+    }
+}
+
+impl From<HomeRows> for HomeFetch {
+    fn from(r: HomeRows) -> Self {
+        Self {
+            feeds: [Ok(r.trending), Ok(r.airing), Ok(r.seasonal), Ok(r.popular), Ok(r.top)],
+            upcoming: r.upcoming.map(Ok),
+            favourite: r.favourite.map(Ok),
+        }
+    }
+}
+
+/// `(upcoming, favourite, adult)` of the Home key.
+fn home_key(upcoming: bool, favourite: bool, adult: bool) -> String {
+    format!("home.rows.v1.{}{}{}", u8::from(upcoming), u8::from(favourite), u8::from(adult))
+}
+
+/// The Home rows from AniList in ONE aliased request when AniList leads the priority and is not cooling down; a row
+/// the batch could not fill (or the whole batch failing) goes the old way, through the router and its fallbacks.
+async fn fetch_home(router: Arc<tk_core::metadata::MetadataRouter>, upcoming: bool, favourite: bool, adult: bool) -> HomeFetch {
+    let anilist_first = router.primary().as_deref() == Some("anilist") && !router.cooling_down().contains(&"anilist");
+    let batch = if anilist_first {
+        match anilist().home_batch(upcoming, favourite, adult).await {
+            Ok(b) => Some(b),
+            Err(e) => {
+                tracing::info!(error = %e, "batched Home query failed, asking row by row");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let feed = |f: FeedKind, got: Option<Result<tk_core::FeedPage, ProviderError>>| {
+        let router = router.clone();
+        async move {
+            match got {
+                Some(Ok(p)) if !p.items.is_empty() => Ok(p.items),
+                _ => router.feed(MediaKind::Anime, f, 1).await.map(|p| p.items),
+            }
+        }
+    };
+    let dated = |on: bool, got: Option<Option<Result<(Vec<DatedMedia>, bool), ProviderError>>>, fav: bool| async move {
+        if !on {
+            return None;
+        }
+        Some(match got.flatten() {
+            Some(Ok((items, _))) => Ok(items),
+            _ if fav => anilist().most_favourite(1, adult).await.map(|(i, _)| i),
+            _ => anilist().upcoming(1, adult).await.map(|(i, _)| i),
+        })
+    };
+    let (t, a, se, po, to, up, fa) = match batch {
+        Some(b) => (Some(b.trending), Some(b.airing), Some(b.seasonal), Some(b.popular), Some(b.top_rated), Some(b.upcoming), Some(b.favourite)),
+        None => (None, None, None, None, None, None, None),
+    };
+    let (t, a, se, po, to, up, fa) = tokio::join!(
+        feed(FeedKind::Trending, t),
+        feed(FeedKind::Airing, a),
+        feed(FeedKind::Seasonal, se),
+        feed(FeedKind::Popular, po),
+        feed(FeedKind::TopRated, to),
+        dated(upcoming, up, false),
+        dated(favourite, fa, true),
+    );
+    HomeFetch { feeds: [t, a, se, po, to], upcoming: up, favourite: fa }
+}
+
+/// `Backend::home`: the wave-0 rows plus Upcoming and Most favourite. 0.3.1: the stored rows at once (refreshed in
+/// the background past [`swr::HOME_FRESH_SECS`]); without them one batched AniList request (background priority).
 pub async fn home(b: &LiveBackend) -> UiResult<HomeVm> {
     let p = prefs(b);
     let adult = p.adult_in_rows();
-    let feed = |f| b.router.feed(MediaKind::Anime, f, 1);
-    let upcoming = async {
-        if p.show_upcoming {
-            Some(anilist().upcoming(1, adult).await)
-        } else {
-            None
+    let (show_up, show_fav) = (p.show_upcoming, p.show_most_favorite);
+    let key = home_key(show_up, show_fav, adult);
+    let fetched: HomeFetch = match swr::read::<HomeRows>(&b.store, &key) {
+        Some(s) => {
+            if swr::freshness(s.fetched_at, now_unix(), swr::HOME_FRESH_SECS) == swr::Freshness::Stale {
+                let (router, store, k) = (b.router.clone(), b.store.clone(), key.clone());
+                swr::spawn_refresh(key.clone(), async move {
+                    let primary = router.primary();
+                    if let Some(rows) = fetch_home(router, show_up, show_fav, adult).await.rows(primary.as_deref()) {
+                        swr::write(&store, &k, &rows);
+                    }
+                });
+            }
+            s.value.into()
+        }
+        None => {
+            let f = tk_core::metadata::anilist::gateway::background(fetch_home(b.router.clone(), show_up, show_fav, adult)).await;
+            if let Some(rows) = f.rows(b.router.primary().as_deref()) {
+                swr::write(&b.store, &key, &rows);
+            }
+            f
         }
     };
-    let favourite = async {
-        if p.show_most_favorite {
-            Some(anilist().most_favourite(1, adult).await)
-        } else {
-            None
-        }
-    };
-    let (trending, airing, seasonal, popular, top, upcoming, favourite) = tokio::join!(
-        feed(FeedKind::Trending),
-        feed(FeedKind::Airing),
-        feed(FeedKind::Seasonal),
-        feed(FeedKind::Popular),
-        feed(FeedKind::TopRated),
-        upcoming,
-        favourite
-    );
-    let section = |key: &str, r: Result<tk_core::FeedPage, ProviderError>| SectionVm {
+    let section = |key: &str, r: Row| SectionVm {
         title_key: key.to_owned(),
-        items: r
-            .map(|p| p.items.iter().map(to_vm).collect())
-            .map_err(provider_err),
+        items: r.map(|items| items.iter().map(to_vm).collect()).map_err(provider_err),
     };
-    let dated = |key: &str, r: Result<(Vec<DatedMedia>, bool), ProviderError>| SectionVm {
+    let dated = |key: &str, r: Result<Vec<DatedMedia>, ProviderError>| SectionVm {
         title_key: key.to_owned(),
-        items: r.map(|(items, _)| dated_vms(&items, adult)).map_err(provider_err),
+        items: r.map(|items| dated_vms(&items, adult)).map_err(provider_err),
     };
     let continue_watching = b.continue_vms(20);
+    let HomeFetch { feeds: [trending, airing, seasonal, popular, top], upcoming, favourite } = fetched;
     // 2026-11 UI refresh: the spotlight takes the first trending titles with their banner, synopsis and facts.
-    let hero = trending.as_ref().map(|p| hero_vms(&p.items)).unwrap_or_default();
+    let hero = trending.as_ref().map(|items| hero_vms(items)).unwrap_or_default();
     let mut sections = vec![
         section("feed.trending", trending),
         section("feed.airing", airing),
@@ -442,21 +564,38 @@ fn hero_vms(items: &[Media]) -> Vec<HeroVm> {
 
 pub async fn latest_episodes(b: &LiveBackend, page: u32) -> UiResult<Vec<LatestEpisodeVm>> {
     let adult = prefs(b).adult_in_rows();
-    let now = now_unix();
-    let p = anilist()
-        .airing_schedules(now - LATEST_WINDOW_SECS, now, None, true, page.max(1))
-        .await
-        .map_err(provider_err)?;
-    Ok(latest_vms(&p.rows, adult))
+    let page = page.max(1);
+    let fetch = move || async move {
+        let now = now_unix();
+        anilist()
+            .airing_schedules(now - LATEST_WINDOW_SECS, now, None, true, page)
+            .await
+            .map(|p| p.rows)
+            .map_err(provider_err)
+    };
+    // 0.3.1: the Home row (page 1) is stale-while-revalidate; "see more" pages are asked as before.
+    let rows = if page == 1 {
+        tk_core::metadata::anilist::gateway::background(swr::get(&b.store, "home.latest.v1", swr::HOME_FRESH_SECS, fetch)).await?
+    } else {
+        fetch().await?
+    };
+    Ok(latest_vms(&rows, adult))
 }
 
 pub async fn top10(b: &LiveBackend, range: TopRangeVm) -> UiResult<Vec<MediaVm>> {
     let adult = prefs(b).adult_in_rows();
-    let p = anilist()
-        .trending_since(now_unix() - range_secs(range), 1, adult)
-        .await
-        .map_err(provider_err)?;
-    Ok(top_n(&p.page.items, &p.adult_ids, adult, 10))
+    // 0.3.1: stale-while-revalidate (the 18+ flags travel with the rows, the filter runs on every read).
+    let key = format!("home.top10.v1.{}.{}", range_secs(range), u8::from(adult));
+    let (items, adult_ids) = tk_core::metadata::anilist::gateway::background(swr::get(&b.store, &key, swr::HOME_FRESH_SECS, move || async move {
+        let p = anilist()
+            .trending_since(now_unix() - range_secs(range), 1, adult)
+            .await
+            .map_err(provider_err)?;
+        Ok((p.page.items, p.adult_ids.into_iter().collect::<Vec<u32>>()))
+    }))
+    .await?;
+    let adult_ids: HashSet<u32> = adult_ids.into_iter().collect();
+    Ok(top_n(&items, &adult_ids, adult, 10))
 }
 
 pub async fn because_you_watched(b: &LiveBackend) -> UiResult<Vec<BecauseVm>> {
@@ -475,8 +614,27 @@ pub async fn because_you_watched(b: &LiveBackend) -> UiResult<Vec<BecauseVm>> {
     }
     let mut out = Vec::new();
     let mut last_err = None;
-    for (id, e) in seeds {
-        match anilist().recommendations_of(id).await {
+    // 0.3.1: the seeds' recommendations in ONE aliased request, kept 30 minutes per seed set.
+    let ids: Vec<u32> = seeds.iter().map(|(id, _)| *id).collect();
+    let key = format!("home.because.v1.{}", ids.iter().map(u32::to_string).collect::<Vec<_>>().join("-"));
+    let cached: Option<Vec<Vec<(Media, bool)>>> = b.store.cache_get(&key).ok().flatten();
+    let lists: Vec<Result<Vec<(Media, bool)>, ProviderError>> = match cached {
+        Some(c) if c.len() == ids.len() => c.into_iter().map(Ok).collect(),
+        _ => {
+            let r = tk_core::metadata::anilist::gateway::background(anilist().recommendations_of_many(&ids))
+                .await
+                .map_err(provider_err)?;
+            if r.iter().all(Result::is_ok) {
+                let ok: Vec<&Vec<(Media, bool)>> = r.iter().filter_map(|x| x.as_ref().ok()).collect();
+                if let Err(e) = b.store.cache_put(&key, &ok, BECAUSE_TTL_SECS) {
+                    tracing::debug!(%e, "caching because-you-watched failed");
+                }
+            }
+            r
+        }
+    };
+    for ((_, e), r) in seeds.into_iter().zip(lists) {
+        match r {
             Ok(list) => {
                 let items: Vec<MediaVm> = list
                     .iter()
@@ -511,7 +669,17 @@ pub async fn genres(b: &LiveBackend) -> UiResult<Vec<String>> {
     let all = match cached {
         Some(g) => g,
         None => {
-            let g = anilist().genres().await.map_err(provider_err)?;
+            // 0.3.1: also kept in the store, so a restart does not ask again.
+            let g = match b.store.cache_get::<Vec<String>>("anilist.genres.v1").ok().flatten() {
+                Some(g) if !g.is_empty() => g,
+                _ => {
+                    let g = tk_core::metadata::anilist::gateway::background(anilist().genres()).await.map_err(provider_err)?;
+                    if let Err(e) = b.store.cache_put("anilist.genres.v1", &g, GENRES_TTL.as_secs() as i64) {
+                        tracing::debug!(%e, "caching the genres failed");
+                    }
+                    g
+                }
+            };
             if let Ok(mut c) = CACHE.lock() {
                 *c = Some((Instant::now(), g.clone()));
             }
@@ -602,8 +770,7 @@ pub async fn followed_updates(b: &LiveBackend) -> UiResult<Vec<LatestEpisodeVm>>
     }
     let mut rows = Vec::new();
     for chunk in ids.chunks(50) {
-        let p = anilist()
-            .airing_schedules(since, now, Some(chunk), true, 1)
+        let p = tk_core::metadata::anilist::gateway::background(anilist().airing_schedules(since, now, Some(chunk), true, 1))
             .await
             .map_err(provider_err)?;
         rows.extend(p.rows);
@@ -649,6 +816,50 @@ pub async fn torrent_activity(b: &LiveBackend) -> UiResult<TorrentActivityVm> {
 // Calendar
 // ---------------------------------------------------------------------------------------------
 
+/// Window of tracked airings the reminder poller reads (0.3.1).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct ReminderWindow {
+    ids: Vec<u32>,
+    from: i64,
+    to: i64,
+    rows: Vec<AiringRow>,
+}
+
+/// Whether a stored window answers `[from, to]` for `ids`.
+fn window_covers(w: &ReminderWindow, ids: &[u32], from: i64, to: i64) -> bool {
+    w.ids == ids && w.from <= from && w.to >= to
+}
+
+/// Airings of `ids` in `[now - grace, to]`: from the stored window (read [`REMINDER_WINDOW_SECS`] ahead, kept
+/// [`CALENDAR_TTL_SECS`]) or asked again (background priority).
+async fn reminder_rows(b: &LiveBackend, ids: &[u32], now: i64, to: i64) -> UiResult<Vec<AiringRow>> {
+    const KEY: &str = "home.reminders.v1";
+    let from = now - REMINDER_GRACE_SECS;
+    if let Some(w) = b.store.cache_get::<ReminderWindow>(KEY).ok().flatten()
+        && window_covers(&w, ids, from, to)
+    {
+        return Ok(w.rows);
+    }
+    let w_to = to.max(now + REMINDER_WINDOW_SECS);
+    let mut rows = Vec::new();
+    for chunk in ids.chunks(50) {
+        for page in 1..=WEEK_PAGES {
+            let p = tk_core::metadata::anilist::gateway::background(anilist().airing_schedules(from, w_to, Some(chunk), false, page))
+                .await
+                .map_err(provider_err)?;
+            rows.extend(p.rows);
+            if !p.has_next {
+                break;
+            }
+        }
+    }
+    let w = ReminderWindow { ids: ids.to_vec(), from, to: w_to, rows };
+    if let Err(e) = b.store.cache_put(KEY, &w, CALENDAR_TTL_SECS) {
+        tracing::debug!(%e, "caching the reminder window failed");
+    }
+    Ok(w.rows)
+}
+
 fn tracked_rows(b: &LiveBackend) -> Vec<TrackedShowRow> {
     b.store.tracked_shows().unwrap_or_default()
 }
@@ -657,16 +868,20 @@ pub async fn airing_schedule(b: &LiveBackend, week_start_unix: i64) -> UiResult<
     let adult = prefs(b).adult_in_rows();
     let tracked = tracked_rows(b);
     let end = week_start_unix + 7 * 86_400 - 1;
+    let key = format!("calendar.week.v1.{week_start_unix}");
+    // 0.3.1: a week is kept half an hour; the month view's range answers also fill it (`airing_range`).
+    if let Some(rows) = b.store.cache_get::<Vec<AiringRow>>(&key).ok().flatten() {
+        return Ok(slots_from_rows(&rows, &tracked, adult));
+    }
     let mut rows = Vec::new();
     let mut failure = None;
+    let mut complete = false;
     for page in 1..=WEEK_PAGES {
-        match anilist()
-            .airing_schedules(week_start_unix, end, None, false, page)
-            .await
-        {
+        match tk_core::metadata::anilist::gateway::background(anilist().airing_schedules(week_start_unix, end, None, false, page)).await {
             Ok(p) => {
                 rows.extend(p.rows);
                 if !p.has_next {
+                    complete = true;
                     break;
                 }
             }
@@ -675,6 +890,11 @@ pub async fn airing_schedule(b: &LiveBackend, week_start_unix: i64) -> UiResult<
                 break;
             }
         }
+    }
+    if complete
+        && let Err(e) = b.store.cache_put(&key, &rows, CALENDAR_TTL_SECS)
+    {
+        tracing::debug!(%e, "caching the calendar week failed");
     }
     if rows.is_empty()
         && let Some(e) = failure
@@ -707,6 +927,67 @@ pub async fn airing_schedule(b: &LiveBackend, week_start_unix: i64) -> UiResult<
         return Ok(slots_from_rows(&rows, &tracked, adult));
     }
     Ok(slots_from_rows(&rows, &tracked, adult))
+}
+
+/// The rows of a range split into its 7-day weeks starting at `from_unix` (whole weeks inside `[from, to]` only).
+fn split_weeks(rows: &[AiringRow], from_unix: i64, to_unix: i64) -> Vec<(i64, Vec<AiringRow>)> {
+    let mut out = Vec::new();
+    let mut week = from_unix;
+    while week + 7 * 86_400 - 1 <= to_unix {
+        let end = week + 7 * 86_400 - 1;
+        out.push((week, rows.iter().filter(|r| (week..=end).contains(&r.at_unix)).cloned().collect()));
+        week += 7 * 86_400;
+    }
+    out
+}
+
+/// `Backend::airing_range` (0.3.1, the month view): `[from_unix, to_unix]` as ONE airing range read page after page
+/// (perPage 50) instead of one range per week; kept [`CALENDAR_TTL_SECS`]. A read that stopped early answers what
+/// arrived with `complete_until` = the last airing time read (the month view counts the weeks after it as missing).
+/// AniList failing on the first page: the week-by-week path (with its Tenrai fallback).
+pub async fn airing_range(b: &LiveBackend, from_unix: i64, to_unix: i64) -> UiResult<AiringRangeVm> {
+    let adult = prefs(b).adult_in_rows();
+    let tracked = tracked_rows(b);
+    let key = format!("calendar.range.v1.{from_unix}.{to_unix}");
+    if let Some(rows) = b.store.cache_get::<Vec<AiringRow>>(&key).ok().flatten() {
+        return Ok(AiringRangeVm { slots: slots_from_rows(&rows, &tracked, adult), complete_until: to_unix });
+    }
+    match tk_core::metadata::anilist::gateway::background(anilist().airing_range(from_unix, to_unix, MONTH_PAGES)).await {
+        Ok((rows, complete)) => {
+            let complete_until = if complete { to_unix } else { rows.last().map_or(from_unix, |r| r.at_unix) };
+            if complete {
+                if let Err(e) = b.store.cache_put(&key, &rows, CALENDAR_TTL_SECS) {
+                    tracing::debug!(%e, "caching the calendar range failed");
+                }
+                // The week view of any of these weeks needs no request of its own.
+                for (week, week_rows) in split_weeks(&rows, from_unix, to_unix) {
+                    let _ = b.store.cache_put(&format!("calendar.week.v1.{week}"), &week_rows, CALENDAR_TTL_SECS);
+                }
+            }
+            Ok(AiringRangeVm { slots: slots_from_rows(&rows, &tracked, adult), complete_until })
+        }
+        Err(e) => {
+            tracing::debug!(error = %e, "AniList airing range failed, asking week by week");
+            let mut slots = Vec::new();
+            let mut first_err = None;
+            let mut complete_until = to_unix;
+            let mut week = from_unix;
+            while week <= to_unix {
+                match airing_schedule(b, week).await {
+                    Ok(list) => slots.extend(list),
+                    Err(e) => {
+                        complete_until = complete_until.min(week);
+                        first_err.get_or_insert(e);
+                    }
+                }
+                week += 7 * 86_400;
+            }
+            match first_err {
+                Some(e) if slots.is_empty() => Err(e),
+                _ => Ok(AiringRangeVm { slots, complete_until }),
+            }
+        }
+    }
 }
 
 pub async fn tracked_shows(b: &LiveBackend) -> UiResult<Vec<MediaVm>> {
@@ -760,14 +1041,12 @@ pub async fn reminders_due(b: &LiveBackend) -> UiResult<Vec<AiringSlotVm>> {
     }
     let now = now_unix();
     let to = now + i64::from(p.reminder_minutes) * 60;
+    let rows = reminder_rows(b, &ids, now, to).await?;
     let mut due = Vec::new();
-    for chunk in ids.chunks(50) {
-        let page = anilist()
-            .airing_schedules(now - REMINDER_GRACE_SECS, to, Some(chunk), false, 1)
-            .await
-            .map_err(provider_err)?;
+    {
+        let rows: Vec<AiringRow> = rows.into_iter().filter(|r| (now - REMINDER_GRACE_SECS..=to).contains(&r.at_unix)).collect();
         // The user tracked these titles themselves: 18+ is not filtered.
-        for slot in slots_from_rows(&page.rows, &tracked, true) {
+        for slot in slots_from_rows(&rows, &tracked, true) {
             if b.store
                 .reminder_announced(&slot.media.id, slot.episode, now)
                 .map_err(store_err)?
@@ -1287,6 +1566,41 @@ mod tests {
             adult,
             popularity: 0,
         }
+    }
+
+    #[test]
+    fn home_rows_are_cached_only_when_complete_and_from_the_primary() {
+        let ok = |n: u32| Ok(vec![media(n, "x")]);
+        let full = HomeFetch { feeds: [ok(1), ok(2), ok(3), ok(4), ok(5)], upcoming: Some(Ok(vec![])), favourite: None };
+        let rows = full.rows(Some("anilist")).expect("cacheable");
+        assert_eq!((rows.trending[0].title.as_str(), rows.upcoming.map(|u| u.len()), rows.favourite.is_none()), ("x", Some(0), true));
+        // A failed row: not cached.
+        let failed = HomeFetch { feeds: [ok(1), Err(ProviderError::Http(500)), ok(3), ok(4), ok(5)], upcoming: None, favourite: None };
+        assert!(failed.rows(Some("anilist")).is_none());
+        let failed_dated = HomeFetch { feeds: [ok(1), ok(2), ok(3), ok(4), ok(5)], upcoming: Some(Err(ProviderError::Http(500))), favourite: None };
+        assert!(failed_dated.rows(Some("anilist")).is_none());
+        // A fallback provider's answer: not cached.
+        let mut kitsu = media(9, "k");
+        kitsu.source_provider = "kitsu".into();
+        let fallback = HomeFetch { feeds: [Ok(vec![kitsu]), ok(2), ok(3), ok(4), ok(5)], upcoming: None, favourite: None };
+        assert!(fallback.rows(Some("anilist")).is_none());
+        // Round trip through the stored form.
+        let back: HomeFetch = full.rows(Some("anilist")).unwrap().into();
+        assert!(back.feeds.iter().all(Result::is_ok));
+        assert_eq!(home_key(true, false, true), "home.rows.v1.101");
+    }
+
+    #[test]
+    fn reminder_window_and_week_split() {
+        let w = ReminderWindow { ids: vec![1, 2], from: 100, to: 1000, rows: vec![] };
+        assert!(window_covers(&w, &[1, 2], 100, 900));
+        assert!(!window_covers(&w, &[1, 2], 100, 1001));
+        assert!(!window_covers(&w, &[1, 2], 99, 900));
+        assert!(!window_covers(&w, &[1], 100, 900));
+        let wk = 7 * 86_400;
+        let rows = vec![row(1, 1, 10, false), row(2, 1, wk + 5, false), row(3, 1, 2 * wk + 5, false)];
+        let weeks = split_weeks(&rows, 0, 2 * wk - 1);
+        assert_eq!(weeks.iter().map(|(w, r)| (*w, r.len())).collect::<Vec<_>>(), vec![(0, 1), (wk, 1)]);
     }
 
     #[test]
