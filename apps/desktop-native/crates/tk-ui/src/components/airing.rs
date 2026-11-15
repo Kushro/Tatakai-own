@@ -407,7 +407,7 @@ mod tests {
 
     fn slot(id: &str, at: i64, tracked: bool) -> AiringSlotVm {
         AiringSlotVm {
-            media: MediaVm {
+            media: MediaVm { format: None, status: None, year: None,
                 id: id.into(),
                 title: id.into(),
                 cover: None,

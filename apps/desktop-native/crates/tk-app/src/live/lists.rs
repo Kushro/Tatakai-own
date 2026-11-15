@@ -279,7 +279,7 @@ fn complete_from(row: &mut ListEntryRow, from: &ListEntryRow) {
 
 fn media_vm(row: &ListEntryRow) -> MediaVm {
     let subtitle = row.episodes.map(|e| format!("{e} ep")).unwrap_or_default();
-    MediaVm {
+    MediaVm { format: None, status: None, year: None,
         id: row.media_id.clone(),
         title: if row.title.is_empty() { row.media_id.clone() } else { row.title.clone() },
         cover: row.poster.clone(),
@@ -323,7 +323,7 @@ fn is_pending(b: &LiveBackend, row: &ListEntryRow) -> bool {
 }
 
 fn favorite_vm(f: &FavoriteRow) -> MediaVm {
-    MediaVm {
+    MediaVm { format: None, status: None, year: None,
         id: f.media_id.clone(),
         title: if f.title.is_empty() { f.media_id.clone() } else { f.title.clone() },
         cover: f.poster.clone(),

@@ -697,7 +697,7 @@ mod tests {
 
     fn rel(relation: &str) -> RelatedVm {
         RelatedVm {
-            media: MediaVm {
+            media: MediaVm { format: None, status: None, year: None,
                 id: relation.into(),
                 title: relation.into(),
                 cover: None,

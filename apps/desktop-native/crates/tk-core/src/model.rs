@@ -72,6 +72,10 @@ pub struct Media {
     pub year: Option<i32>,
     pub score: Option<u32>,
     pub source_provider: String,
+    /// AniList format (`TV`, `TV_SHORT`, `MOVIE`, `OVA`, `ONA`, `SPECIAL`, `MUSIC`), when the provider gives it
+    /// (2026-11 UI refresh: card meta line, spotlight chips).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -91,7 +95,7 @@ pub struct Episode {
     pub runtime_min: Option<u32>,
     /// Viewer rating 0..10 (ani.zip `rating`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rating: Option<f32>,
+    pub rating: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

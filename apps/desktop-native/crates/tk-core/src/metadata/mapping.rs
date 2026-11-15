@@ -141,6 +141,7 @@ pub fn map_anilist_media(m: &Value) -> Media {
         year: m["seasonYear"].as_i64().and_then(|y| i32::try_from(y).ok()),
         score: u(&m["averageScore"]),
         source_provider: "anilist".into(),
+        format: s(&m["format"]),
     }
 }
 
@@ -186,7 +187,7 @@ pub fn map_anizip_episodes(raw: &Value) -> Vec<Episode> {
                         is_filler: false,
                         summary: clean(&e["overview"]).or_else(|| clean(&e["summary"])),
                         runtime_min: num(&e["runtime"]).or_else(|| num(&e["length"])).map(|m| m.round() as u32).filter(|m| *m > 0),
-                        rating: num(&e["rating"]).map(|r| r as f32).filter(|r| *r > 0.0 && *r <= 10.0),
+                        rating: num(&e["rating"]).filter(|r| *r > 0.0 && *r <= 10.0).map(|r| (r * 100.0).round() / 100.0),
                     })
                 })
                 .collect()
@@ -291,7 +292,7 @@ pub fn map_kitsu_media(doc: &Value, res: &Value) -> Media {
         .or_else(|| titles.get("romaji").cloned())
         .unwrap_or_default();
 
-    Media {
+    Media { format: None,
         media_ref: MediaRef { anilist_id: ext("anilist/anime"), mal_id: ext("myanimelist/anime"), kitsu_id: num_u32(&res["id"]) },
         kind: MediaKind::Anime,
         title,

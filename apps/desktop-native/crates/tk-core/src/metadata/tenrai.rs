@@ -104,7 +104,7 @@ pub fn map_jikan_entry(e: &Value, kind: MediaKind) -> Option<Media> {
         .or_else(|| e["aired"]["prop"]["from"]["year"].as_i64())
         .or_else(|| e["published"]["prop"]["from"]["year"].as_i64())
         .and_then(|y| i32::try_from(y).ok());
-    Some(Media {
+    Some(Media { format: None,
         media_ref: MediaRef {
             mal_id: Some(id),
             ..MediaRef::default()

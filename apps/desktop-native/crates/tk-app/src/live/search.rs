@@ -145,7 +145,7 @@ fn characters_vm(p: CharacterPage) -> SearchPageVm {
         items: p
             .items
             .into_iter()
-            .map(|c| MediaVm {
+            .map(|c| MediaVm { format: None, status: None, year: None,
                 id: c.id.to_string(),
                 title: c.name,
                 cover: c.image,
@@ -168,7 +168,7 @@ fn tags_vm(tags: Vec<MediaTag>) -> SearchPageVm {
             .into_iter()
             .map(|t| {
                 let flags = (if t.spoiler { TAG_SPOILER } else { 0 }) | (if t.adult { TAG_ADULT } else { 0 });
-                MediaVm { id: t.name.clone(), title: t.name, cover: None, color: None, subtitle: t.category, score: Some(flags) }
+                MediaVm { format: None, status: None, year: None, id: t.name.clone(), title: t.name, cover: None, color: None, subtitle: t.category, score: Some(flags) }
             })
             .collect(),
         page: 1,
@@ -195,7 +195,7 @@ pub(crate) fn map_custom_results(ext_id: &str, source_id: &str, body: &Value) ->
         .filter_map(|c| {
             let id = text(&c["id"]).or_else(|| c["id"].as_i64().map(|n| n.to_string()))?;
             let title = text(&c["title"])?;
-            Some(MediaVm {
+            Some(MediaVm { format: None, status: None, year: None,
                 id: ext_item_id(ext_id, source_id, &id),
                 title,
                 cover: text(&c["image"]).filter(|u| u.starts_with("https://") || u.starts_with("http://")),
@@ -280,7 +280,7 @@ fn image_matches(matches: Vec<Match>, titles: &[Media]) -> Vec<ImageMatchVm> {
                 .iter()
                 .find(|t| t.media_ref.anilist_id == Some(m.anilist_id))
                 .map(to_vm)
-                .unwrap_or_else(|| MediaVm {
+                .unwrap_or_else(|| MediaVm { format: None, status: None, year: None,
                     id: m.anilist_id.to_string(),
                     title: format!("AniList #{}", m.anilist_id),
                     cover: None,
@@ -598,7 +598,7 @@ mod tests {
     }
 
     fn media(id: u32) -> Media {
-        Media {
+        Media { format: None,
             media_ref: MediaRef::anilist(id),
             kind: MediaKind::Anime,
             title: format!("T{id}"),

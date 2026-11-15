@@ -504,7 +504,7 @@ mod tests {
     use crate::backend::MediaVm;
 
     fn media(id: &str) -> MediaVm {
-        MediaVm {
+        MediaVm { format: None, status: None, year: None,
             id: id.into(),
             title: id.into(),
             cover: None,

@@ -590,7 +590,7 @@ mod tests {
     }
 
     fn media(kind: MediaKind, id: u32) -> Media {
-        Media {
+        Media { format: None,
             media_ref: MediaRef {
                 anilist_id: Some(id),
                 mal_id: None,

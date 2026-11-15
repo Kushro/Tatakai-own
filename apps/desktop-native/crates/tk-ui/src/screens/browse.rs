@@ -466,7 +466,7 @@ mod tests {
     use crate::model::ErrorKind;
 
     fn m(id: &str) -> MediaVm {
-        MediaVm { id: id.into(), title: id.into(), cover: None, color: None, subtitle: String::new(), score: None }
+        MediaVm { format: None, status: None, year: None, id: id.into(), title: id.into(), cover: None, color: None, subtitle: String::new(), score: None }
     }
 
     fn page(ids: &[&str], has_next: bool) -> UiResult<SearchPageVm> {

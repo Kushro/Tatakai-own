@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn resolve_args_carry_the_anilist_id() {
-        let media = Media {
+        let media = Media { format: None,
             media_ref: tk_core::MediaRef::anilist(21),
             kind: tk_core::MediaKind::Anime,
             title: "One Piece".into(),

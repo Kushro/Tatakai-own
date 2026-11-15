@@ -69,7 +69,7 @@ pub fn map_shikimori_anime(a: &Value) -> Option<Media> {
         .cloned()
         .unwrap_or_default();
     let year = opt_str(&a["aired_on"]).and_then(|d| d.get(..4).and_then(|y| y.parse::<i32>().ok()));
-    Some(Media {
+    Some(Media { format: None,
         media_ref: MediaRef {
             mal_id: Some(id),
             ..MediaRef::default()

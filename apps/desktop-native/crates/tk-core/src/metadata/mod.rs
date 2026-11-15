@@ -261,7 +261,7 @@ mod tests {
     }
 
     fn media(title: &str, provider: &str) -> Media {
-        Media {
+        Media { format: None,
             media_ref: MediaRef::anilist(1),
             kind: MediaKind::Anime,
             title: title.into(),

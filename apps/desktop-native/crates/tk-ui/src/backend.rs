@@ -52,6 +52,13 @@ pub struct MediaVm {
     /// `2024 - 12 ep` style line, already formatted.
     pub subtitle: String,
     pub score: Option<u32>,
+    /// AniList status (`RELEASING`, `FINISHED`, `NOT_YET_RELEASED`, ...), when known (2026-11 UI refresh: the
+    /// status dot of the detailed cards).
+    pub status: Option<String>,
+    /// AniList format (`TV`, `MOVIE`, `ONA`, ...), when known.
+    pub format: Option<String>,
+    /// Season year, when known.
+    pub year: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -348,7 +348,7 @@ fn details_vm(b: &LiveBackend, r: &ProviderRef, info: &ProviderInfo) -> DetailsV
         .map(|g| g.split([',', '/', '·']).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned).collect())
         .unwrap_or_default();
     DetailsVm {
-        media: MediaVm {
+        media: MediaVm { format: None, status: None, year: None,
             id,
             title: info.title.clone(),
             cover: info.image.clone(),
@@ -500,7 +500,7 @@ async fn watch_candidates(b: &LiveBackend, id: &str, episode: u32, fresh: bool) 
 
 /// Synthetic `Media` of a provider title (the sniffer and the stream mapping want one).
 fn provider_media(r: &ProviderRef, info: &ProviderInfo) -> Media {
-    Media {
+    Media { format: None,
         media_ref: MediaRef::default(),
         kind: MediaKind::Anime,
         title: info.title.clone(),
@@ -968,7 +968,7 @@ pub async fn provider_item(b: &LiveBackend, ext_id: &str, item_key: &str) -> UiR
 /// Card of a bookmark: the subtitle names the extension, `✓` once completed.
 fn bookmark_vm(b: &LiveBackend, row: &ProviderBookmarkRow) -> MediaVm {
     let name = ext_name(b, &row.ext_id);
-    MediaVm {
+    MediaVm { format: None, status: None, year: None,
         id: row.media_id.clone(),
         title: row.title.clone(),
         cover: row.poster.clone(),

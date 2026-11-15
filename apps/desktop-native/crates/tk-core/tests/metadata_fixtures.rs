@@ -18,8 +18,32 @@ fn expected(key: &str) -> Value {
     read("expected.json")[key].clone()
 }
 
+/// Fields the desktop adds beyond the shared contract (2026-11 UI refresh: card format, episode synopsis / length /
+/// rating). The contract is also the Android oracle, so they are compared here only by leaving them out.
+const DESKTOP_ONLY: [&str; 4] = ["format", "summary", "runtimeMin", "rating"];
+
+fn strip(mut v: Value) -> Value {
+    match &mut v {
+        Value::Object(o) => {
+            for k in DESKTOP_ONLY {
+                o.remove(k);
+            }
+            for x in o.values_mut() {
+                *x = strip(x.take());
+            }
+        }
+        Value::Array(a) => {
+            for x in a.iter_mut() {
+                *x = strip(x.take());
+            }
+        }
+        _ => {}
+    }
+    v
+}
+
 fn page_json(p: &tk_core::FeedPage) -> Value {
-    serde_json::to_value(p).unwrap()
+    strip(serde_json::to_value(p).unwrap())
 }
 
 #[test]
@@ -34,17 +58,17 @@ fn anilist_trending_and_search_pages_match_expected() {
 fn anizip_ids_and_episodes_match_expected() {
     let raw = read("anizip-frieren.json");
     let got = json!({ "ids": map_anizip_ids(&raw), "episodes": map_anizip_episodes(&raw) });
-    assert_eq!(got, expected("anizip-frieren.json"));
+    assert_eq!(strip(got), expected("anizip-frieren.json"));
 }
 
 #[test]
 fn kitsu_list_and_episodes_match_expected() {
     let doc = read("kitsu-anime-list.json");
     let (items, has_next) = map_kitsu_list(&doc);
-    assert_eq!(json!({ "items": items, "hasNext": has_next }), expected("kitsu-anime-list.json"));
+    assert_eq!(strip(json!({ "items": items, "hasNext": has_next })), expected("kitsu-anime-list.json"));
 
     let eps = map_kitsu_episodes(&read("kitsu-episodes.json"));
-    assert_eq!(json!({ "episodes": eps }), expected("kitsu-episodes.json"));
+    assert_eq!(strip(json!({ "episodes": eps })), expected("kitsu-episodes.json"));
 }
 
 #[test]

@@ -226,7 +226,7 @@ fn is_tracked_vm(vm: &MediaVm, tracked: &[TrackedShowRow]) -> bool {
 }
 
 fn tracked_vm(r: &TrackedShowRow) -> MediaVm {
-    MediaVm {
+    MediaVm { format: None, status: None, year: None,
         id: r.media_id.clone(),
         title: r.title.clone(),
         cover: r.poster.clone(),
@@ -435,7 +435,7 @@ fn hero_vms(items: &[Media]) -> Vec<HeroVm> {
             season: m.season.clone(),
             year: m.year,
             episodes: m.episodes,
-            format: None,
+            format: m.format.clone(),
         })
         .collect()
 }
@@ -835,7 +835,7 @@ async fn taste(b: &LiveBackend) -> UiResult<Arc<Taste>> {
                 excluded.insert(id);
                 continue;
             }
-            let vm = MediaVm {
+            let vm = MediaVm { format: None, status: None, year: None,
                 id: row.media_id.clone(),
                 title: row.title.clone(),
                 cover: row.poster.clone(),
@@ -855,7 +855,7 @@ async fn taste(b: &LiveBackend) -> UiResult<Arc<Taste>> {
         if f.feedback == RecsFeedbackVm::Like.id()
             && let Ok(id) = f.media_id.parse::<u32>()
         {
-            let vm = MediaVm {
+            let vm = MediaVm { format: None, status: None, year: None,
                 id: f.media_id.clone(),
                 title: String::new(),
                 cover: None,
@@ -1260,7 +1260,7 @@ mod tests {
     use super::*;
 
     fn media(id: u32, title: &str) -> Media {
-        Media {
+        Media { format: None,
             media_ref: MediaRef::anilist(id),
             kind: MediaKind::Anime,
             title: title.into(),

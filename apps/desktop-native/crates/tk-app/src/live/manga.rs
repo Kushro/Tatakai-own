@@ -232,7 +232,7 @@ fn card_vm(c: &MangaCard, lang: &str) -> MediaVm {
         .map(|a| a.to_string())
         .unwrap_or_default();
     remember(&id, info_of(&c.media, lang, c.chapters));
-    MediaVm {
+    MediaVm { format: None, status: None, year: None,
         id,
         title: display(&c.media, lang),
         cover: c.media.cover.clone(),
@@ -251,7 +251,7 @@ fn md_vm(m: &MdManga, lang: &str) -> MediaVm {
     info.md_id = Some(m.id.clone());
     info.titles.extend(m.alt_titles.iter().take(6).cloned());
     remember(&id, info);
-    MediaVm {
+    MediaVm { format: None, status: None, year: None,
         id,
         title: display(&m.media, lang),
         cover: m.media.cover.clone(),
@@ -388,7 +388,7 @@ async fn home_row(b: &LiveBackend, id: &str, q: SearchQueryVm) -> SectionVm {
 
 fn media_of_row(id: &str, title: Option<&str>, poster: Option<&str>) -> MediaVm {
     let info = recall(id);
-    MediaVm {
+    MediaVm { format: None, status: None, year: None,
         id: id.to_owned(),
         title: title
             .map(str::to_owned)
@@ -1489,7 +1489,7 @@ fn anilist_token(b: &LiveBackend) -> Option<Token> {
 
 fn entry_vm(r: &ReadListRow) -> ListEntryVm {
     ListEntryVm {
-        media: MediaVm {
+        media: MediaVm { format: None, status: None, year: None,
             id: r.media_id.clone(),
             title: r.title.clone(),
             cover: r.poster.clone(),
