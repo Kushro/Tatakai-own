@@ -64,6 +64,16 @@ interface FeedCacheDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun put(row: FeedCacheRow)
 
+    /**
+     * BUG-144 parity: cached answers (pages of feeds / searches and `media:` rows) whose JSON matches [pattern] (a LIKE pattern such
+     * as `%"anilistId":212888,%`), newest first. Used only when a fallback provider answers, to find the primary's titles of a series.
+     */
+    @Query(
+        "SELECT * FROM feed_cache WHERE (key LIKE 'adv:%' OR key LIKE 'feed:%' OR key LIKE 'media:%') AND json LIKE :pattern " +
+            "ORDER BY fetchedAtMs DESC LIMIT :limit",
+    )
+    suspend fun containing(pattern: String, limit: Int): List<FeedCacheRow>
+
     @Query("DELETE FROM feed_cache WHERE fetchedAtMs < :olderThanMs")
     suspend fun purgeOlderThan(olderThanMs: Long)
 

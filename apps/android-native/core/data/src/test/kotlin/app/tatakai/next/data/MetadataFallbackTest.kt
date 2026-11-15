@@ -19,6 +19,7 @@ import app.tatakai.next.model.searchTitles
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.time.Instant
 import kotlin.test.Test
@@ -37,7 +38,18 @@ class MetadataFallbackTest {
         override suspend fun clear() = rows.clear()
         override suspend fun count(): Int = rows.size
         override suspend fun totalBytes(): Long = rows.values.sumOf { it.json.length.toLong() }
+        override suspend fun containing(pattern: String, limit: Int): List<FeedCacheRow> {
+            val needle = pattern.removePrefix("%").removeSuffix("%")
+            return rows.values
+                .filter { r -> listOf("adv:", "feed:", "media:").any { r.key.startsWith(it) } && r.json.contains(needle) }
+                .sortedByDescending { it.fetchedAtMs }
+                .take(limit)
+        }
     }
+
+    /** Same shape as MetadataRepositoryImpl's cached page. */
+    @Serializable
+    private data class Page(val items: List<Media>, val page: Int, val hasNext: Boolean)
 
     private class Fake(override val id: String, var answer: () -> Media?) : MetadataProvider {
         override val kinds = setOf(MediaKind.ANIME)
@@ -180,5 +192,66 @@ class MetadataFallbackTest {
         rows.clear()
         history.record(entry(1, kitsuOg.cover!!))
         assertEquals(kitsuOg.cover, rows.getValue("212888?ep=1").poster, "nothing better known: the fallback poster is used")
+    }
+
+    // --- BUG-144 parity: no complete entry, but AniList's titles of the series are known from another cached answer ---
+
+    private fun cachePage(key: String, vararg items: Media, at: Long = now - 30 * hour) {
+        val json = Json { encodeDefaults = true }
+        dao.rows[key] = FeedCacheRow(key, json.encodeToString(Page.serializer(), Page(items.toList(), 1, false)), at)
+    }
+
+    @Test
+    fun fallbackWithoutACompleteEntryShowsAndSendsAniListTitlesFromACachedSearch() = runBlocking<Unit> {
+        val other = anilistOg.copy(ref = MediaRef(2128880), title = "Not this one", titles = linkedMapOf("romaji" to "Wrong"))
+        cachePage("adv:ANIME:{\"query\":\"overgeared\"}:1", other, anilistOg)
+        cachePage("feed:ANIME:POPULAR:1", kitsuOg.copy(title = "Kitsu page", titles = emptyMap()), at = now)
+        anilist.answer = rateLimited
+
+        val m = repo.media(MediaKind.ANIME, ref)!!
+        assertEquals("Overgeared", m.title)
+        assertEquals("Overgeared", m.titles["english"], "English title language shows Overgeared")
+        assertEquals("Tempal: Item no Chikara", m.titles["romaji"], "Romaji shows AniList's spelling, not Kitsu's")
+        assertEquals(anilistOg.cover, m.cover)
+        assertEquals(
+            listOf("Overgeared", "Tempal: Item no Chikara", "テムパル～アイテムの力～", "Temppal: Item no Chikara"),
+            m.searchTitles(),
+            "AniList's titles go to the extensions first, Kitsu's spelling appended",
+        )
+        assertEquals("kitsu", m.sourceProvider)
+        assertTrue(dao.rows.getValue(key).json.contains("\"degraded\":true"), "still a 15 min row")
+    }
+
+    @Test
+    fun fallbackWithoutAnyAniListAnswerUsesTheHistoryTitle() = runBlocking<Unit> {
+        val repo = MetadataRepositoryImpl(router, FeedCache(dao) { now }, historyTitle = { r -> "Overgeared".takeIf { r == ref } })
+        anilist.answer = rateLimited
+
+        val m = repo.media(MediaKind.ANIME, ref)!!
+        assertEquals("Overgeared", m.title)
+        assertTrue(m.titles.isEmpty(), "no language is known for the history title: it is shown in every language")
+        assertEquals(listOf("Overgeared", "Temppal: Item no Chikara", "テムパル～アイテムの力～"), m.searchTitles())
+    }
+
+    @Test
+    fun theHistoryTitleIsTheNewestRowOfTheSeries() = runBlocking<Unit> {
+        val rows = listOf(
+            HistoryRow("212888?ep=3", "212888", "Tempal: Item no Chikara", null, 3, 60, 1440, false, 10L, 212888, null),
+            HistoryRow("212888?ep=4", "212888", "Overgeared", null, 4, 60, 1440, false, 20L, 212888, null),
+        )
+        val historyDao = object : HistoryDao() {
+            override fun observeRecent(limit: Int): Flow<List<HistoryRow>> = flowOf(rows)
+            override fun observeForAnime(anilistId: Int, animeId: String): Flow<List<HistoryRow>> =
+                flowOf(rows.filter { it.anilistId == anilistId || it.animeId == animeId })
+            override suspend fun get(episodeId: String): HistoryRow? = null
+            override suspend fun dirty(limit: Int): List<HistoryRow> = emptyList()
+            override suspend fun dirtyCount(): Int = 0
+            override suspend fun upsert(row: HistoryRow) {}
+            override suspend fun markSynced(episodeId: String, watchedAtMs: Long) {}
+            override suspend fun clear() {}
+            override suspend fun all(): List<HistoryRow> = rows
+        }
+        assertEquals("Overgeared", historyDao.newestTitle(ref))
+        assertEquals(null, historyDao.newestTitle(MediaRef(kitsuId = 50743)))
     }
 }

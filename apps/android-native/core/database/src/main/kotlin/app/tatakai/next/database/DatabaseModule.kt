@@ -49,6 +49,9 @@ class FeedCache(private val dao: FeedCacheDao, private val clock: () -> Long = S
 
     suspend fun put(key: String, json: String) = dao.put(FeedCacheRow(key, json, clock()))
 
+    /** BUG-144 parity: cached answers whose JSON contains [needle] (see [FeedCacheDao.containing]), newest first. */
+    suspend fun containing(needle: String, limit: Int = 20): List<FeedCacheRow> = dao.containing("%$needle%", limit)
+
     suspend fun purge(maxAgeMs: Long = 7L * 24 * 60 * 60 * 1000) = dao.purgeOlderThan(clock() - maxAgeMs)
 
     /** Number of cached responses and their size in bytes. */

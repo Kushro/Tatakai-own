@@ -51,6 +51,8 @@ class MetadataRepositoryImpl(
     private val cache: FeedCache,
     /** android wave: `AppSettings.metadataCacheTtlHours` (1..168) for details and episode lists; feeds keep [FEED_TTL_MS]. */
     private val ttlHours: () -> Int = { DEFAULT_TTL_HOURS },
+    /** BUG-144 parity: the title the user knows a series by (its newest watch-history row), for a fallback answer. */
+    private val historyTitle: suspend (MediaRef) -> String? = { null },
 ) : MetadataRepository {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -125,10 +127,64 @@ class MetadataRepositoryImpl(
         val synonyms = cache.getStale(refKey("details", ref))
             ?.let { raw -> runCatching { json.decodeFromString(MediaDetails.serializer(), raw) }.getOrNull() }
             ?.synonyms.orEmpty()
-        val merged = value.withAltTitles(previous?.media?.searchTitles().orEmpty() + synonyms)
+        // BUG-144 parity: the titles the user knows (the primary's own, from any cached answer of it; else the history's title) are
+        // shown and sent first; the fallback's spellings follow as alt titles.
+        val known = knownPrimaryMedia(kind, ref)
+        val historyTitle = if (known == null) runCatching { historyTitle(ref) }.getOrNull()?.takeIf { it.isNotBlank() } else null
+        val base = when {
+            known != null -> value.copy(
+                title = known.title,
+                titles = known.titles,
+                cover = known.cover ?: value.cover,
+                banner = known.banner ?: value.banner,
+                color = known.color ?: value.color,
+                altTitles = emptyList(),
+            ).withAltTitles(value.searchTitles())
+            // no language is known for it: it is the title shown in every language (Kitsu's titles stay as alt titles)
+            historyTitle != null -> value.copy(title = historyTitle, titles = emptyMap(), altTitles = emptyList()).withAltTitles(value.searchTitles())
+            else -> value
+        }
+        val merged = base.withAltTitles(previous?.media?.searchTitles().orEmpty() + synonyms)
         cache.put(key, encodeMediaRow(CachedMedia(merged, degraded = true)))
-        AppLog.i(TAG, "media $label: $fallbackFrom, $provider answered; cached ${FALLBACK_TTL_MS / 60_000} min (degraded)")
+        val titlesFrom = when {
+            known != null -> "cached ${known.sourceProvider} answer"
+            historyTitle != null -> "history"
+            else -> provider
+        }
+        AppLog.i(
+            TAG,
+            "media $label: $fallbackFrom, $provider answered; cached ${FALLBACK_TTL_MS / 60_000} min (degraded), " +
+                "titles from $titlesFrom: ${merged.title}",
+        )
         return merged
+    }
+
+    /**
+     * BUG-144 parity: the primary provider's own [Media] of [ref]'s series from another cached answer (a search / feed page or a
+     * `media:` row under another key), newest first, so a fallback answer can show and send the titles the user already saw.
+     */
+    private suspend fun knownPrimaryMedia(kind: MediaKind, ref: MediaRef): Media? {
+        val primary = router.primaryId(kind) ?: return null
+        val needle = ref.anilistId?.let { "\"anilistId\":$it," }
+            ?: ref.malId?.let { "\"malId\":$it," }
+            ?: ref.kitsuId?.let { "\"kitsuId\":$it}" }
+            ?: return null
+        val same: (MediaRef) -> Boolean = { r ->
+            when {
+                ref.anilistId != null -> r.anilistId == ref.anilistId
+                ref.malId != null -> r.malId == ref.malId
+                else -> r.kitsuId == ref.kitsuId
+            }
+        }
+        val rows = runCatching { cache.containing(needle) }.getOrDefault(emptyList())
+        for (row in rows) {
+            val candidates = decodePage(row.json)?.items
+                ?: decodeMediaRow(row.json, kind)?.takeIf { !it.degraded }?.media?.let(::listOf)
+                ?: continue
+            candidates.firstOrNull { it.kind == kind && it.sourceProvider == primary && same(it.ref) && it.title.isNotBlank() }
+                ?.let { return it }
+        }
+        return null
     }
 
     override suspend fun episodes(ref: MediaRef): List<Episode> {

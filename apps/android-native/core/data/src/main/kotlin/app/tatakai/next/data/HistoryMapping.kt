@@ -1,8 +1,11 @@
 package app.tatakai.next.data
 
+import app.tatakai.next.database.HistoryDao
 import app.tatakai.next.database.HistoryRow
 import app.tatakai.next.model.HistoryEntry
+import app.tatakai.next.model.MediaRef
 import app.tatakai.next.link.LinkHistoryRow
+import kotlinx.coroutines.flow.first
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
@@ -75,3 +78,16 @@ internal fun LinkHistoryRow.toRow(): HistoryRow = HistoryRow(
     malId = malId,
     syncedAtMs = null,
 )
+
+/**
+ * BUG-144 parity: the title of the newest watch-history row of [ref]'s series (the one "Continuar viendo" shows), or null. History
+ * rows key a series by its AniList id (`animeId` = the id) or by `mal:<id>`.
+ */
+internal suspend fun HistoryDao.newestTitle(ref: MediaRef): String? {
+    val anilistId = ref.anilistId?.takeIf { it > 0 }
+    val animeId = HistoryEntry.animeIdOf(anilistId, ref.malId) ?: return null
+    return observeForAnime(anilistId ?: -1, animeId).first()
+        .filter { it.title.isNotBlank() }
+        .maxByOrNull { it.watchedAtMs }
+        ?.title
+}

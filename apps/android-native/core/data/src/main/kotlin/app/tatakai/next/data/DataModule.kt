@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStoreFile
+import app.tatakai.next.database.HistoryDao
 import app.tatakai.next.metadata.ProviderPriority
 import app.tatakai.next.model.AppDataWiper
 import app.tatakai.next.model.AppLog
@@ -52,7 +53,13 @@ val dataModule: Module = module {
 
     single<MetadataRepository> {
         val settings = get<SettingsRepository>()
-        MetadataRepositoryImpl(get(), get(), ttlHours = { settings.settings.value.metadataCacheTtlHours })
+        val historyDao = get<HistoryDao>()
+        MetadataRepositoryImpl(
+            get(),
+            get(),
+            ttlHours = { settings.settings.value.metadataCacheTtlHours },
+            historyTitle = { ref -> historyDao.newestTitle(ref) },
+        )
     }
 
     single<HistorySyncScheduler> { WorkManagerHistorySyncScheduler(androidContext()) }
