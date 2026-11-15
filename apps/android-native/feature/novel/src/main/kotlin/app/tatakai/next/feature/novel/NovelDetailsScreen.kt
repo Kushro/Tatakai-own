@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.feature.novel
 
-import app.tatakai.next.ui.labels.staffRoleLabel
+import app.tatakai.next.ui.labels.StaffCredit
+import app.tatakai.next.ui.labels.TranslationCredit
+import app.tatakai.next.ui.labels.languageName
+import app.tatakai.next.ui.labels.shortNameList
+import app.tatakai.next.ui.labels.staffCredits
+import app.tatakai.next.ui.labels.staffRoleLabelRes
 import app.tatakai.next.ui.labels.genreLabel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,6 +21,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -68,6 +74,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -257,7 +264,10 @@ fun NovelDetailsScreen(
                                     Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                                 }
                             }
-                            Fact(stringResource(R.string.novel_fact_authors), info.value.authors.map { a -> a.staff.name to a.role?.trim()?.takeIf { it.isNotEmpty() }?.let { staffRoleLabel(it) } }.joinToString(", ") { (name, role) -> role?.let { "$name ($it)" } ?: name }) // BUG-114
+                            // BUG-114 / BUG-133: authors with their roles in Spanish (no AniList notes); translators apart, by language
+                            val credits = remember(info.value.authors) { staffCredits(info.value.authors) }
+                            Fact(stringResource(R.string.novel_fact_authors), authorsLine(credits.authors))
+                            credits.translations.forEach { group -> TranslationFact(group) }
                             Fact(stringResource(R.string.novel_fact_volumes), info.value.volumes?.toString())
                             Fact(stringResource(R.string.novel_fact_chapters), info.value.chapters?.toString())
                             Fact(stringResource(R.string.novel_fact_status), novelStatusLabel(info.value.status))
@@ -430,4 +440,42 @@ private fun NovelChapterRow(
         },
         modifier = Modifier.clickable { if (selecting) onToggle() else onOpen() },
     )
+}
+
+/** BUG-133: "Rifujin na Magonote (Guion), Sirotaka (Ilustración)": each author once, their base roles in Spanish. */
+@Composable
+private fun authorsLine(authors: List<StaffCredit>): String = authors.map { a ->
+    val roles = a.roles.map { r -> staffRoleLabelRes(r)?.let { stringResource(it) } ?: r }
+    if (roles.isEmpty()) a.name else "${a.name} (${roles.joinToString(", ")})"
+}.joinToString(", ")
+
+/**
+ * BUG-133: "Traducción al inglés: Kevin Frane, Paul Cuneo, Alyssa Orton-Niioka y 3 más" (or "Traducción: …" when AniList does not
+ * say the language); with more than three names a tap shows them all.
+ */
+@Composable
+private fun TranslationFact(group: TranslationCredit) {
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    val label = group.languageCode?.let { stringResource(R.string.novel_translation_language, languageName(it, locale)) }
+        ?: stringResource(R.string.novel_translation)
+    val (shown, more) = shortNameList(group.names)
+    var expanded by rememberSaveable(group) { mutableStateOf(false) }
+    val names = when {
+        expanded || more == 0 -> group.names.joinToString(", ")
+        else -> stringResource(R.string.novel_names_more, shown, more)
+    }
+    val text = androidx.compose.ui.text.buildAnnotatedString {
+        withStyle(MaterialTheme.typography.labelLarge.toSpanStyle().copy(color = MaterialTheme.colorScheme.onSurfaceVariant)) { append("$label: ") }
+        append(names)
+    }
+    val toggle = if (more > 0) {
+        Modifier
+            .heightIn(min = 48.dp)
+            .clickable(onClickLabel = stringResource(if (expanded) R.string.novel_show_fewer_names else R.string.novel_show_all_names)) { expanded = !expanded }
+    } else {
+        Modifier
+    }
+    Box(Modifier.fillMaxWidth().then(toggle).padding(vertical = 3.dp), contentAlignment = Alignment.CenterStart) {
+        Text(text, style = MaterialTheme.typography.bodyMedium)
+    }
 }

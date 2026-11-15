@@ -26,6 +26,12 @@
     <string name="novel_downloaded">Downloaded</string>
     <string name="novel_download_queued_snack">%1$d chapters queued for download</string>
     <string name="novel_fact_authors">Authors</string>
+    <!-- BUG-133: translators grouped by language, outside the authors line -->
+    <string name="novel_translation_language">%1$s translation</string>
+    <string name="novel_translation">Translation</string>
+    <string name="novel_names_more">%1$s and %2$d more</string>
+    <string name="novel_show_all_names">Show all</string>
+    <string name="novel_show_fewer_names">Show fewer</string>
     <string name="novel_fact_chapters">Chapters</string>
     <string name="novel_fact_end">Ended</string>
     <string name="novel_fact_origin">Origin</string>

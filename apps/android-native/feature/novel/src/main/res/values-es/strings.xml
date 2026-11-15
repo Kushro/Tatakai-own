@@ -26,6 +26,11 @@
     <string name="novel_downloaded">Descargado</string>
     <string name="novel_download_queued_snack">%1$d capítulos en cola de descarga</string>
     <string name="novel_fact_authors">Autores</string>
+    <string name="novel_translation_language">Traducción al %1$s</string>
+    <string name="novel_translation">Traducción</string>
+    <string name="novel_names_more">%1$s y %2$d más</string>
+    <string name="novel_show_all_names">Ver todos</string>
+    <string name="novel_show_fewer_names">Ver menos</string>
     <string name="novel_fact_chapters">Capítulos</string>
     <string name="novel_fact_end">Fin</string>
     <string name="novel_fact_origin">Origen</string>
