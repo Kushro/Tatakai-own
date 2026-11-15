@@ -51,7 +51,7 @@ format_not_in: [MUSIC]) { ...mediaCard isAdult startDate { year } studios(isMain
 tags { name rank isMediaSpoiler } } } }";
 
 /// One airing slot.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct AiringRow {
     pub media: Media,
     pub episode: u32,
@@ -63,14 +63,14 @@ pub struct AiringRow {
 }
 
 /// A page of [`AiringRow`]s.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct AiringPage {
     pub rows: Vec<AiringRow>,
     pub has_next: bool,
 }
 
 /// A title with its start date (`YYYY-MM-DD`, partial dates trimmed) and 18+ flag.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DatedMedia {
     pub media: Media,
     pub start_date: Option<String>,
@@ -295,39 +295,6 @@ pub fn airing_vars(
 }
 
 impl AniList {
-    /// POST without the card fragment (for queries that select no `...mediaCard`).
-    async fn post_bare(&self, query: &str, variables: Value) -> Result<Value, ProviderError> {
-        let resp = self
-            .client
-            .post(&self.endpoint)
-            .header("Accept", "application/json")
-            .json(&json!({ "query": query, "variables": variables }))
-            .send()
-            .await?;
-        let status = resp.status().as_u16();
-        if status == 429 {
-            return Err(ProviderError::RateLimited {
-                provider: "anilist".into(),
-            });
-        }
-        let body: Value = resp
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.without_url().to_string()))?;
-        if body["errors"]
-            .as_array()
-            .is_some_and(|e| e.iter().any(|x| x["status"] == 429))
-        {
-            return Err(ProviderError::RateLimited {
-                provider: "anilist".into(),
-            });
-        }
-        if !(200..300).contains(&status) && status != 404 {
-            return Err(ProviderError::Http(status));
-        }
-        Ok(body)
-    }
-
     /// Episodes airing in `[from_unix, to_unix]` (of `ids` when given; an empty `ids` answers nothing).
     pub async fn airing_schedules(
         &self,
@@ -342,12 +309,41 @@ impl AniList {
         }
         map_airing_page(
             &self
-                .post(
+                .post_lite(
                     AIRING_QUERY,
                     airing_vars(from_unix, to_unix, ids, newest_first, page),
                 )
                 .await?,
         )
+    }
+
+    /// 0.3.1: every episode airing in `[from_unix, to_unix]` (the calendar month): one range, read page after page
+    /// (perPage 50) instead of one range per week. Stops at `max_pages`; a failing page after the first ends the read
+    /// and the rows so far are returned with `complete = false` (they are time-ordered, so they cover the start of
+    /// the range).
+    pub async fn airing_range(
+        &self,
+        from_unix: i64,
+        to_unix: i64,
+        max_pages: u32,
+    ) -> Result<(Vec<AiringRow>, bool), ProviderError> {
+        let mut rows = Vec::new();
+        for page in 1..=max_pages.max(1) {
+            match self.airing_schedules(from_unix, to_unix, None, false, page).await {
+                Ok(p) => {
+                    rows.extend(p.rows);
+                    if !p.has_next {
+                        return Ok((rows, true));
+                    }
+                }
+                Err(e) if page == 1 => return Err(e),
+                Err(e) => {
+                    tracing::info!(error = %e, page, "airing range stopped early");
+                    return Ok((rows, false));
+                }
+            }
+        }
+        Ok((rows, false))
     }
 
     /// AniList's genre list.
@@ -369,7 +365,7 @@ impl AniList {
         if !adult {
             v["isAdult"] = false.into();
         }
-        map_dated_page(&self.post(SORTED_QUERY, v).await?)
+        map_dated_page(&self.post_lite(SORTED_QUERY, v).await?)
     }
 
     /// Not yet released titles, most popular first, with their expected start date.
@@ -389,7 +385,7 @@ impl AniList {
 
     /// Community recommendations of `anilist_id`, best rated first.
     pub async fn recommendations_of(&self, anilist_id: u32) -> Result<Vec<(Media, bool)>, ProviderError> {
-        map_recommendations(&self.post(RECS_QUERY, json!({ "id": anilist_id })).await?)
+        map_recommendations(&self.post_lite(RECS_QUERY, json!({ "id": anilist_id })).await?)
     }
 
     /// Genres / studios / year / tags of up to 50 titles.
@@ -420,7 +416,7 @@ impl AniList {
         if !adult {
             v["isAdult"] = false.into();
         }
-        map_discover_page(&self.post(DISCOVER_QUERY, v).await?)
+        map_discover_page(&self.post_lite(DISCOVER_QUERY, v).await?)
     }
 }
 

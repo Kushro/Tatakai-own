@@ -63,6 +63,11 @@ pub trait MetadataProvider: Send + Sync {
     async fn episodes(&self, _r: &MediaRef) -> Result<Vec<Episode>, ProviderError> {
         Err(ProviderError::Unsupported)
     }
+    /// 0.3.1: how long this failure should take the provider out of rotation, when the provider knows better than
+    /// the fixed [`COOLDOWN`] (AniList: exactly the `Retry-After` / `X-RateLimit-Reset` of its 429).
+    fn cooldown_for(&self, _err: &ProviderError) -> Option<Duration> {
+        None
+    }
 }
 
 pub struct MetadataRouter {
@@ -159,9 +164,11 @@ impl MetadataRouter {
         v
     }
 
-    fn mark_failure(&self, id: &'static str, err: &ProviderError) {
+    fn mark_failure(&self, p: &dyn MetadataProvider, err: &ProviderError) {
+        let id = p.id();
         if err.trips_cooldown() {
-            let until = self.now_ms() + self.cooldown.as_millis() as u64;
+            let d = p.cooldown_for(err).unwrap_or(self.cooldown);
+            let until = self.now_ms() + d.as_millis() as u64;
             if let Ok(mut m) = self.down_until.lock() {
                 m.insert(id, until);
             }
@@ -187,7 +194,7 @@ impl MetadataRouter {
         let mut empty: Option<T> = None;
         for p in candidates {
             let id = p.id();
-            match call(p).await {
+            match call(p.clone()).await {
                 Ok(v) => {
                     self.mark_ok(id);
                     if is_empty(&v) {
@@ -198,7 +205,7 @@ impl MetadataRouter {
                 }
                 Err(ProviderError::Unsupported) => {}
                 Err(e) => {
-                    self.mark_failure(id, &e);
+                    self.mark_failure(p.as_ref(), &e);
                     // BUG-143: visible at the default level, so a 429 behind a fallback answer can be diagnosed.
                     tracing::info!(provider = id, error = %e, "metadata provider failed, falling back");
                     last_err = Some(e);
@@ -391,5 +398,36 @@ mod tests {
         let err = r.feed(MediaKind::Manga, FeedKind::Trending, 1).await.unwrap_err();
         assert_eq!(err, ProviderError::Unsupported);
         assert_eq!(a.calls() + b.calls(), 0);
+    }
+
+    /// A provider that knows how long its rate limit lasts (AniList's `Retry-After`).
+    struct Hinted;
+
+    #[async_trait]
+    impl MetadataProvider for Hinted {
+        fn id(&self) -> &'static str {
+            "h"
+        }
+        fn kinds(&self) -> &[MediaKind] {
+            &[MediaKind::Anime]
+        }
+        async fn feed(&self, _k: MediaKind, _f: FeedKind, _p: u32) -> Result<FeedPage, ProviderError> {
+            Err(ProviderError::RateLimited { provider: "h".into() })
+        }
+        fn cooldown_for(&self, _e: &ProviderError) -> Option<Duration> {
+            Some(Duration::from_secs(7))
+        }
+    }
+
+    #[tokio::test]
+    async fn cools_down_for_the_wait_the_provider_reports() {
+        let b = Fake::new("b", Ok(vec![media("from b", "b")]));
+        let r = MetadataRouter::new(vec![Arc::new(Hinted), b.clone()], vec!["h".into(), "b".into()]);
+        r.feed(MediaKind::Anime, FeedKind::Trending, 1).await.unwrap();
+        assert_eq!(r.cooling_down(), vec!["h"]);
+        r.advance(Duration::from_secs(6));
+        assert_eq!(r.cooling_down(), vec!["h"]);
+        r.advance(Duration::from_secs(2));
+        assert!(r.cooling_down().is_empty());
     }
 }

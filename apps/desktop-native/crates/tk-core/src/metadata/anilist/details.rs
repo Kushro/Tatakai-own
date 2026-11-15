@@ -43,6 +43,24 @@ pub const CHAIN_QUERY: &str = "query ($id: Int, $idMal: Int) { Media(id: $id, id
 ...mediaCard startDate { year month day } relations { edges { relationType node { ...mediaCard \
 startDate { year month day } } } } } }";
 
+/// 0.3.1: [`CHAIN_QUERY`] two levels deep: the related titles come with their own relations, so one request walks
+/// two hops of the PREQUEL / SEQUEL chain ([`chain_children`] are cached as nodes of their own).
+pub const CHAIN_DEEP_QUERY: &str = "query ($id: Int, $idMal: Int) { Media(id: $id, idMal: $idMal, type: ANIME) { \
+...mediaCard startDate { year month day } relations { edges { relationType node { ...mediaCard \
+startDate { year month day } relations { edges { relationType node { ...mediaCard startDate { year month day } } } } } } } } }";
+
+/// The related titles of a [`CHAIN_DEEP_QUERY`] object that came with their own relations, as `(anilist id, raw
+/// node)` (each is a complete [`CHAIN_QUERY`]-shaped object). Only chain relations (PREQUEL / SEQUEL) and anime.
+pub fn chain_children(m: &Value) -> Vec<(u32, Value)> {
+    arr(&m["relations"]["edges"])
+        .iter()
+        .filter(|e| matches!(e["relationType"].as_str(), Some("PREQUEL" | "SEQUEL")))
+        .map(|e| &e["node"])
+        .filter(|n| n["type"] == "ANIME" && n["relations"]["edges"].is_array())
+        .filter_map(|n| Some((u(&n["id"]).filter(|id| *id != 0)?, n.clone())))
+        .collect()
+}
+
 /// Max PREQUEL / SEQUEL hops walked in each direction by the watch order.
 pub const MAX_CHAIN_HOPS: usize = 12;
 /// Max side entries (side stories, recaps) added to the watch order.
@@ -421,12 +439,33 @@ impl AniList {
         Ok(self.media_extra_raw(r).await?.as_ref().map(map_media_extra))
     }
 
+    /// Raw `Media` object of [`CHAIN_DEEP_QUERY`] (two hops); `Ok(None)` when unknown. Falls back to the one-level
+    /// [`CHAIN_QUERY`] when AniList refuses the deeper query (anything but a rate limit / transport failure).
+    pub async fn chain_node_deep_raw(&self, r: &MediaRef) -> Result<Option<Value>, ProviderError> {
+        if r.anilist_id.is_none() && r.mal_id.is_none() {
+            return Ok(None);
+        }
+        let body = match self.post_lite(CHAIN_DEEP_QUERY, id_vars(r)).await {
+            Ok(b) => b,
+            Err(e @ (ProviderError::RateLimited { .. } | ProviderError::Network(_))) => return Err(e),
+            Err(e) => {
+                tracing::debug!(error = %e, "deep chain query refused, asking one level");
+                return self.chain_node_raw(r).await;
+            }
+        };
+        let m = &body["data"]["Media"];
+        if m.is_null() && body["errors"].as_array().is_some_and(|e| e.iter().any(|x| x["status"] != 404)) {
+            return self.chain_node_raw(r).await;
+        }
+        Ok(if m.is_object() { Some(m.clone()) } else { None })
+    }
+
     /// Raw `Media` object of [`CHAIN_QUERY`]; `Ok(None)` when unknown.
     pub async fn chain_node_raw(&self, r: &MediaRef) -> Result<Option<Value>, ProviderError> {
         if r.anilist_id.is_none() && r.mal_id.is_none() {
             return Ok(None);
         }
-        let body = self.post(CHAIN_QUERY, id_vars(r)).await?;
+        let body = self.post_lite(CHAIN_QUERY, id_vars(r)).await?;
         let m = &body["data"]["Media"];
         Ok(if m.is_object() { Some(m.clone()) } else { None })
     }
@@ -435,6 +474,23 @@ impl AniList {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deep_chain_children_are_complete_chain_nodes() {
+        let deep = json!({ "id": 2, "type": "ANIME", "title": { "romaji": "S2" }, "relations": { "edges": [
+            { "relationType": "PREQUEL", "node": { "id": 1, "type": "ANIME", "title": { "romaji": "S1" },
+              "relations": { "edges": [{ "relationType": "SEQUEL", "node": { "id": 2, "type": "ANIME", "title": { "romaji": "S2" } } }] } } },
+            { "relationType": "SEQUEL", "node": { "id": 3, "type": "ANIME", "title": { "romaji": "S3" }, "relations": { "edges": [] } } },
+            { "relationType": "ADAPTATION", "node": { "id": 9, "type": "MANGA", "relations": { "edges": [] } } },
+            { "relationType": "SIDE_STORY", "node": { "id": 4, "type": "ANIME", "relations": { "edges": [] } } },
+            { "relationType": "SEQUEL", "node": { "id": 5, "type": "ANIME" } }
+        ] } });
+        let kids = chain_children(&deep);
+        assert_eq!(kids.iter().map(|(id, _)| *id).collect::<Vec<_>>(), vec![1, 3]);
+        let s1 = map_chain_node(&kids[0].1).unwrap();
+        assert_eq!(s1.edges.len(), 1);
+        assert_eq!(s1.media.title, "S1");
+    }
 
     fn card(id: u32, kind: &str, format: &str, year: i32) -> Value {
         json!({ "id": id, "type": kind, "format": format, "title": { "romaji": format!("T{id}") },
