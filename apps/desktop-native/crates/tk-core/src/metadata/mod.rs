@@ -111,6 +111,11 @@ impl MetadataRouter {
         }
     }
 
+    /// The provider asked first (the user's top priority): an answer from any other one is a fallback.
+    pub fn primary(&self) -> Option<String> {
+        self.priority.read().ok().and_then(|p| p.first().cloned())
+    }
+
     /// Clear all cool-downs (e.g. the user reordered sources or hit retry).
     pub fn reset_health(&self) {
         if let Ok(mut m) = self.down_until.lock() {
@@ -194,7 +199,8 @@ impl MetadataRouter {
                 Err(ProviderError::Unsupported) => {}
                 Err(e) => {
                     self.mark_failure(id, &e);
-                    tracing::debug!(provider = id, error = %e, "metadata provider failed, falling back");
+                    // BUG-143: visible at the default level, so a 429 behind a fallback answer can be diagnosed.
+                    tracing::info!(provider = id, error = %e, "metadata provider failed, falling back");
                     last_err = Some(e);
                 }
             }
@@ -294,6 +300,17 @@ mod tests {
             vec![b.clone() as Arc<dyn MetadataProvider>, a.clone() as Arc<dyn MetadataProvider>],
             vec!["a".into(), "b".into()],
         )
+    }
+
+    #[test]
+    fn primary_is_the_first_priority() {
+        let (a, b) = (Fake::new("a", Ok(Vec::new())), Fake::new("b", Ok(Vec::new())));
+        let r = router(&a, &b);
+        assert_eq!(r.primary().as_deref(), Some("a"));
+        r.set_priority(vec!["b".into()]);
+        assert_eq!(r.primary().as_deref(), Some("b"));
+        r.set_priority(Vec::new());
+        assert_eq!(r.primary(), None);
     }
 
     #[tokio::test]

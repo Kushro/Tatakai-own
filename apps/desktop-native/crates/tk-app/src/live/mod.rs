@@ -217,6 +217,70 @@ fn candidates_ttl(len: usize, partial: bool) -> Option<Duration> {
     }
 }
 
+/// The metadata provider whose answers are complete; any other one answering for an AniList / MAL id is a fallback.
+const PRIMARY_METADATA: &str = "anilist";
+
+/// BUG-143: titles + poster of the last complete (AniList) answer for one series, kept in the metadata cache.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct KnownMedia {
+    title: String,
+    titles: std::collections::BTreeMap<String, String>,
+    cover: Option<String>,
+}
+
+impl KnownMedia {
+    fn of(m: &Media) -> Self {
+        Self { title: m.title.clone(), titles: m.titles.clone(), cover: m.cover.clone() }
+    }
+}
+
+/// Cache key of `KnownMedia` (`media.known.a<id>` / `media.known.m<id>`); Kitsu-only refs have none.
+fn known_key(r: &MediaRef) -> Option<String> {
+    match (r.anilist_id, r.mal_id) {
+        (Some(a), _) => Some(format!("media.known.a{a}")),
+        (None, Some(m)) => Some(format!("media.known.m{m}")),
+        _ => None,
+    }
+}
+
+/// BUG-143: completes a fallback answer. With a complete entry its title leads (extensions search with the first
+/// title: Toko finds 25 OG4 torrents with "Overgeared" first, 13 with "Temppal" first), its titles win on the same
+/// key, the fallback only adds new keys / spellings, and its poster stays (the history row is written from it).
+/// Without one, the history's title (`(title, poster)`) leads when the fallback lacks an English title, and its
+/// poster stays. Pure.
+fn complete_fallback(m: &mut Media, known: Option<&KnownMedia>, history: Option<(String, Option<String>)>) {
+    let has = |titles: &std::collections::BTreeMap<String, String>, v: &str| {
+        titles.values().any(|x| x.trim().eq_ignore_ascii_case(v.trim()))
+    };
+    if let Some(k) = known {
+        let mut titles = k.titles.clone();
+        for (key, v) in std::mem::take(&mut m.titles) {
+            if !titles.contains_key(&key) && !v.trim().is_empty() && !has(&titles, &v) {
+                titles.insert(key, v);
+            }
+        }
+        m.titles = titles;
+        if !k.title.trim().is_empty() {
+            m.title = k.title.clone();
+        }
+        if k.cover.is_some() {
+            m.cover = k.cover.clone();
+        }
+        return;
+    }
+    let Some((title, poster)) = history else { return };
+    if poster.is_some() {
+        m.cover = poster;
+    }
+    if title.trim().is_empty() || m.titles.contains_key("english") {
+        return;
+    }
+    if !has(&m.titles, &title) {
+        m.titles.insert("english".to_owned(), title.clone());
+    }
+    m.title = title;
+}
+
 /// Whether a list that expires (or expired) at `until` may still serve a picked web candidate at `now`. Pure.
 fn within_stale_grace(until: Instant, now: Instant) -> bool {
     now < until + STALE_WEB_GRACE
@@ -312,16 +376,57 @@ impl LiveBackend {
         }
     }
 
-    /// BUG-002: a fallback provider (Kitsu while AniList is rate-limited) can lack the English title ("Temppal: Item
-    /// no Chikara" for Overgeared). The title this app already showed for that series (its playback history, written
-    /// from AniList data) fills the gap, so the title language setting still holds.
+    /// Whether `m` came from a fallback provider while the primary one (AniList) did not answer (rate limit, cool-down,
+    /// outage) for a title the primary one knows. Kitsu-only ids and a user priority without AniList first are not.
+    fn is_fallback(&self, r: &MediaRef, m: &Media) -> bool {
+        self.router.primary().as_deref() == Some(PRIMARY_METADATA)
+            && m.source_provider != PRIMARY_METADATA
+            && (r.anilist_id.is_some() || r.mal_id.is_some())
+    }
+
+    /// BUG-002 / BUG-143: a fallback provider (Kitsu while AniList is rate-limited) can lack the English title and
+    /// spell the romaji differently ("Temppal: Item no Chikara" for Overgeared): extensions then search with the wrong
+    /// title first (Toko: 0 torrents) and the history row would take Kitsu's title and poster. The last complete
+    /// AniList answer for that series (`media.known.*`, metadata cache lifetime) leads the titles and keeps its
+    /// poster; without one, the playback history's title and poster do. A fallback answer is never stored itself.
     pub(crate) fn fill_known_title(&self, m: &mut Media) {
-        if m.source_provider == "anilist" || m.titles.contains_key("english") {
+        let r = m.media_ref;
+        self.fill_known_for(&r, m);
+    }
+
+    fn fill_known_for(&self, r: &MediaRef, m: &mut Media) {
+        if !self.is_fallback(r, m) {
             return;
         }
-        let known = self.progress(&m.media_ref).into_iter().map(|e| e.title).find(|t| !t.trim().is_empty());
-        if let Some(t) = known.filter(|t| !m.titles.values().any(|v| v == t)) {
-            m.titles.insert("english".to_owned(), t);
+        let known = known_key(r).and_then(|k| self.store.cache_get::<KnownMedia>(&k).ok().flatten());
+        let history = || {
+            self.progress(r).into_iter().find(|e| !e.title.trim().is_empty()).map(|e| (e.title, e.poster))
+        };
+        let from = if known.is_some() { "anilist cache" } else { "history" };
+        let history = if known.is_none() { history() } else { None };
+        complete_fallback(m, known.as_ref(), history);
+        tracing::warn!(
+            provider = %m.source_provider,
+            cooling_down = ?self.router.cooling_down(),
+            titles_from = from,
+            title = %m.title,
+            "metadata fallback: AniList did not answer, completing {} with the known titles",
+            m.source_provider
+        );
+    }
+
+    /// BUG-143: a complete AniList answer is remembered (titles + poster) for the fallback answers that may follow.
+    fn remember_known(&self, r: &MediaRef, m: &Media) {
+        if m.source_provider != PRIMARY_METADATA {
+            return;
+        }
+        let Some(key) = known_key(r) else { return };
+        let k = KnownMedia::of(m);
+        if self.store.cache_get::<KnownMedia>(&key).ok().flatten().as_ref() == Some(&k) {
+            return;
+        }
+        if let Err(e) = self.store.cache_put(&key, &k, system::metadata_ttl_secs(self)) {
+            tracing::warn!(%e, key, "writing the known titles failed");
         }
     }
 
@@ -333,7 +438,8 @@ impl LiveBackend {
             .await
             .map_err(provider_err)?
             .ok_or_else(|| UiError::new(ErrorKind::Other, format!("{id} was not found")))?;
-        self.fill_known_title(&mut media);
+        self.remember_known(&r, &media);
+        self.fill_known_for(&r, &mut media);
         self.remember_title(id, &media.title, media.cover.as_deref());
         Ok((r, media))
     }
@@ -430,8 +536,10 @@ impl LiveBackend {
                     m.remember(key.clone(), &v);
                 }
                 // An empty listing (sites unreachable, proxy down: BUG-082) is not kept, so "Retry" asks again; a
-                // partial one only briefly.
-                if let Some(ttl) = candidates_ttl(v.len(), listing.partial)
+                // partial one only briefly. BUG-143: so is one asked with a fallback provider's titles (AniList
+                // rate-limited), so the next open asks again with AniList's.
+                let fallback = media_ref(id).is_some_and(|r| self.is_fallback(&r, media));
+                if let Some(ttl) = candidates_ttl(v.len(), listing.partial || fallback)
                     && let Ok(mut c) = self.candidates.lock()
                 {
                     let now = Instant::now();
@@ -1737,5 +1845,118 @@ mod route_change_tests {
         assert!(!retry_after_route_change(None, now));
         assert!(retry_after_route_change(Some(now), now + Duration::from_secs(20)));
         assert!(!retry_after_route_change(Some(now), now + NET_CHANGE_WINDOW));
+    }
+}
+
+#[cfg(test)]
+mod fallback_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn titles(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect()
+    }
+
+    /// Overgeared as Kitsu answers it while AniList is rate-limited (r12, BUG-143).
+    fn kitsu_og() -> Media {
+        Media {
+            media_ref: MediaRef { anilist_id: None, mal_id: None, kitsu_id: Some(50743) },
+            kind: MediaKind::Anime,
+            title: "Temppal: Item no Chikara".into(),
+            titles: titles(&[("romaji", "Temppal: Item no Chikara"), ("native", "テムパル～アイテムの力～")]),
+            cover: Some("https://media.kitsu.app/anime/50743/poster.jpg".into()),
+            banner: None,
+            color: None,
+            synopsis: None,
+            genres: Vec::new(),
+            episodes: Some(12),
+            status: None,
+            season: None,
+            year: None,
+            score: None,
+            source_provider: "kitsu".into(),
+        }
+    }
+
+    fn anilist_og() -> KnownMedia {
+        KnownMedia {
+            title: "Overgeared".into(),
+            titles: titles(&[
+                ("english", "Overgeared"),
+                ("romaji", "Tempal: Item no Chikara"),
+                ("native", "テムパル～アイテムの力～"),
+            ]),
+            cover: Some("https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx212888.jpg".into()),
+        }
+    }
+
+    /// The `titles` param the extension host sends (`tk_ext::host::stream_params`: title first, then the map).
+    fn ext_titles(m: &Media) -> Vec<String> {
+        let mut out = vec![m.title.clone()];
+        for t in m.titles.values() {
+            if !out.contains(t) {
+                out.push(t.clone());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn a_known_anilist_entry_leads_the_titles_and_keeps_its_poster() {
+        let mut m = kitsu_og();
+        complete_fallback(&mut m, Some(&anilist_og()), None);
+        assert_eq!(ext_titles(&m), ["Overgeared", "テムパル～アイテムの力～", "Tempal: Item no Chikara"]);
+        assert_eq!(m.cover.as_deref(), anilist_og().cover.as_deref());
+        // Still a fallback answer (not stored as known, short sources lifetime).
+        assert_eq!(m.source_provider, "kitsu");
+    }
+
+    #[test]
+    fn the_fallback_only_adds_new_keys() {
+        let mut m = kitsu_og();
+        m.titles.insert("alt_1".into(), "Overgeared".into());
+        m.titles.insert("alt_2".into(), "Tempal".into());
+        complete_fallback(&mut m, Some(&anilist_og()), None);
+        assert_eq!(m.titles.get("romaji").map(String::as_str), Some("Tempal: Item no Chikara"));
+        assert_eq!(m.titles.get("alt_2").map(String::as_str), Some("Tempal"));
+        assert!(!m.titles.contains_key("alt_1"), "same title as the English one");
+    }
+
+    #[test]
+    fn without_a_known_entry_the_history_title_and_poster_hold() {
+        let mut m = kitsu_og();
+        complete_fallback(&mut m, None, Some(("Overgeared".into(), Some("https://anilist/poster.jpg".into()))));
+        assert_eq!(ext_titles(&m)[0], "Overgeared");
+        assert!(ext_titles(&m).contains(&"Temppal: Item no Chikara".to_owned()));
+        assert_eq!(m.cover.as_deref(), Some("https://anilist/poster.jpg"));
+    }
+
+    #[test]
+    fn a_fallback_with_an_english_title_keeps_it() {
+        let mut m = kitsu_og();
+        m.titles.insert("english".into(), "Overgeared".into());
+        m.title = "Overgeared".into();
+        complete_fallback(&mut m, None, Some(("Otro".into(), None)));
+        assert_eq!(m.title, "Overgeared");
+        assert_eq!(m.cover.as_deref(), kitsu_og().cover.as_deref(), "no history poster: Kitsu's stays");
+    }
+
+    #[test]
+    fn nothing_known_leaves_the_fallback_as_is() {
+        let mut m = kitsu_og();
+        complete_fallback(&mut m, None, None);
+        assert_eq!(m, kitsu_og());
+    }
+
+    #[test]
+    fn known_keys_follow_the_ref() {
+        assert_eq!(known_key(&MediaRef::anilist(212888)).as_deref(), Some("media.known.a212888"));
+        assert_eq!(known_key(&MediaRef { mal_id: Some(7), ..MediaRef::default() }).as_deref(), Some("media.known.m7"));
+        assert_eq!(known_key(&MediaRef { kitsu_id: Some(4), ..MediaRef::default() }), None);
+    }
+
+    #[test]
+    fn a_fallback_listing_is_kept_briefly() {
+        assert_eq!(candidates_ttl(30, true), Some(PARTIAL_SOURCES_TTL));
     }
 }
