@@ -4,6 +4,10 @@ package app.tatakai.next.feature.home
 import app.tatakai.next.model.AiringEpisode
 import app.tatakai.next.model.AiringRepository
 import app.tatakai.next.model.AppError
+import app.tatakai.next.model.AppSettings
+import app.tatakai.next.model.CalendarView
+import app.tatakai.next.model.LookPrefs
+import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.AtlasPoint
 import app.tatakai.next.model.FollowedShow
 import app.tatakai.next.model.LoadState
@@ -84,6 +88,13 @@ class DiscoverViewModelsTest {
         }
     }
 
+    private class FakeSettings(initial: AppSettings) : SettingsRepository {
+        override val settings = MutableStateFlow(initial)
+        override suspend fun update(transform: (AppSettings) -> AppSettings) {
+            settings.value = transform(settings.value)
+        }
+    }
+
     private fun TestScope.subscribe(flow: Flow<*>) {
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { flow.collect {} }
     }
@@ -152,6 +163,34 @@ class DiscoverViewModelsTest {
 
         vm.setReminder(b.media.ref, false)
         assertEquals(listOf(b.media.ref to false), airing.reminders)
+    }
+
+    // ---- 2026-11 UI refresh: calendar views ---------------------------------------------------------------------------------
+
+    @Test
+    fun calendarViewsLoadTheirRangeAndRememberTheView() = runTest {
+        val airing = FakeAiring(emptyList())
+        val settings = FakeSettings(AppSettings(look = LookPrefs(calendarView = CalendarView.MONTH)))
+        val vm = CalendarViewModel(airing, null, zone = { utc }, today = { wednesday }, settings = settings)
+        subscribe(vm.state)
+        // November 2026: Monday Oct 26 .. Sunday Dec 6 = 6 weeks.
+        assertEquals(CalendarView.MONTH, vm.state.value.view)
+        assertEquals(LocalDate.of(2026, 10, 26), vm.state.value.weekStart)
+        assertEquals(42, assertIs<LoadState.Ok<List<CalendarDay>>>(vm.state.value.days).value.size)
+
+        vm.selectDay(LocalDate.of(2026, 11, 20))
+        assertEquals(1, airing.windows.size, "a day inside the grid does not reload")
+        assertEquals(LocalDate.of(2026, 11, 20), vm.state.value.anchor)
+
+        vm.setView(CalendarView.DAY)
+        assertEquals(LocalDate.of(2026, 11, 20), vm.state.value.weekStart)
+        assertEquals(epochOf(LocalDate.of(2026, 11, 20), 0) to epochOf(LocalDate.of(2026, 11, 21), 0), airing.windows.last())
+        assertEquals(CalendarView.DAY, settings.settings.value.look.calendarView, "the picked view is saved in Diseño y estilo")
+
+        vm.shift(1)
+        assertEquals(LocalDate.of(2026, 11, 21), vm.state.value.weekStart)
+        vm.goToday()
+        assertEquals(wednesday, vm.state.value.weekStart)
     }
 
     @Test

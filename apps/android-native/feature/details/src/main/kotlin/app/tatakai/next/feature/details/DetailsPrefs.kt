@@ -17,8 +17,11 @@ interface DetailsPrefs {
     fun setEpisodeView(view: EpisodeView)
 }
 
-/** LIST = thumbnails with title and pills (prototype `.ep`); COMPACT = dense number grid (classic compact mode). */
-enum class EpisodeView { LIST, COMPACT }
+/**
+ * 2026-11 UI refresh: the shared Diseño y estilo choice (CARDS = large cards with synopsis, LIST = rows with a small thumbnail,
+ * COMPACT = numbers and titles). The ids of the old private enum (LIST / COMPACT) are the same names, so stored values still read.
+ */
+typealias EpisodeView = app.tatakai.next.model.EpisodeView
 
 class SharedPrefsDetailsPrefs(context: Context) : DetailsPrefs {
     private val prefs = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)

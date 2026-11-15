@@ -113,15 +113,19 @@ sealed interface Route : NavKey {
     @Serializable data object Notifications : Route
 }
 
-/** Compact (bottom bar, 4 items): Inicio · Buscar · Biblioteca · Tú. Torrents is a tab inside Library (11 §3.1, 12 §0). */
-val TopLevelRoutesCompact: List<Route> = listOf(Route.Home, Route.Search, Route.Library, Route.You)
+/**
+ * Compact (bottom bar, 5 items): Inicio · Buscar · Calendario · Biblioteca · Tú. Torrents is a tab inside Library (11 §3.1, 12 §0).
+ * 2026-11 UI refresh: Calendario joins the bar (it left Settings / the Home row header); "Para ti" is the first row of Tú (the phone's
+ * "more" page) and still the header of its Home row, since a sixth bar item would not fit a 360 dp phone.
+ */
+val TopLevelRoutesCompact: List<Route> = listOf(Route.Home, Route.Search, Route.Calendar, Route.Library, Route.You)
 
 /**
- * Medium / expanded (rail): Inicio · Buscar · Biblioteca · Manga · Novelas · Descargas · Torrents · Extensiones · Enlace · Perfil · Ajustes
- * (desktop rail order; parity wave B adds Manga, Novelas, Descargas and Perfil).
+ * Medium / expanded (rail): Inicio · Buscar · Calendario · Para ti · Biblioteca · Manga · Novelas · Descargas · Torrents · Extensiones · Enlace · Perfil · Ajustes
+ * (desktop rail order; parity wave B adds Manga, Novelas, Descargas and Perfil; the 2026-11 UI refresh Calendario and Para ti).
  */
 val TopLevelRoutesWide: List<Route> = listOf(
-    Route.Home, Route.Search, Route.Library, Route.Manga(), Route.Novels(), Route.Downloads(), Route.Torrents(),
+    Route.Home, Route.Search, Route.Calendar, Route.ForYou, Route.Library, Route.Manga(), Route.Novels(), Route.Downloads(), Route.Torrents(),
     Route.Extensions, Route.Linked, Route.Profile(), Route.Settings,
 )
 
@@ -148,8 +152,9 @@ fun Route.topLevel(wide: Boolean): Route = when (this) {
     Route.Link, Route.Linked, Route.ExtensionServers -> if (wide) Route.Linked else Route.You
     Route.Settings, is Route.SettingsSection -> if (wide) Route.Settings else Route.You
     Route.You -> if (wide) Route.Settings else Route.You
-    // parity wave B (16 §3.12): compact = where the user came from (Home chips / You rows); wide = own rail destination.
-    Route.Calendar, Route.ForYou -> Route.Home
+    // 2026-11 UI refresh: Calendario is a destination everywhere; Para ti is a rail destination, the "Tú" page on phones.
+    Route.Calendar -> Route.Calendar
+    Route.ForYou -> if (wide) Route.ForYou else Route.You
     is Route.Downloads -> if (wide) Route.Downloads() else Route.You
     is Route.Manga, is Route.MangaReader -> if (wide) Route.Manga() else Route.Home
     is Route.Novels, is Route.NovelDetails, is Route.NovelReader -> if (wide) Route.Novels() else Route.Home

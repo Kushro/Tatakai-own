@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2026-11 UI refresh: Home spotlight and calendar views. -->
+<resources>
+    <string name="home_spot_continue">Continue · Ep %1$d</string>
+    <string name="home_spot_watch">Watch now</string>
+    <string name="home_spot_added">Added to your list as Planning</string>
+    <string name="home_spot_add_failed">Could not add it to your list</string>
+    <string name="home_spot_on_list">On your list</string>
+    <string name="home_spot_add">Add to your list</string>
+    <plurals name="home_spot_episodes">
+        <item quantity="one">%1$d episode</item>
+        <item quantity="other">%1$d episodes</item>
+    </plurals>
+    <string name="home_cal_today">Go to today</string>
+    <string name="home_cal_view_week">Week</string>
+    <string name="home_cal_view_agenda">Agenda</string>
+    <string name="home_cal_view_month">Month</string>
+    <string name="home_cal_view_day">Today</string>
+    <string name="home_cal_empty_day">No episodes this day</string>
+    <string name="home_cal_now">Now</string>
+    <plurals name="home_cal_episodes">
+        <item quantity="one">%1$d episode</item>
+        <item quantity="other">%1$d episodes</item>
+    </plurals>
+</resources>

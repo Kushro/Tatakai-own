@@ -1,6 +1,20 @@
 package app.tatakai.next.ui.media
 
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import app.tatakai.next.model.CardStyle
+import app.tatakai.next.model.Density
+import app.tatakai.next.ui.look.LocalLook
+import app.tatakai.next.ui.look.pressScale
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -18,7 +32,11 @@ import app.tatakai.next.model.Media
 import app.tatakai.next.model.TitleLanguage
 import java.util.Locale
 
-/** Poster + title (+ subtitle, + optional watch progress). Primitive overload so history entries can reuse it. */
+/**
+ * Poster + title (+ subtitle, + optional watch progress). Primitive overload so history entries can reuse it.
+ * 2026-11 UI refresh: [style] follows Diseño y estilo ([LocalLook]); [CardStyle.MINIMAL] shows the poster only (the title stays
+ * for TalkBack), the other two the title and [subtitle] ([CardStyle.DETAILED] adds the [statusDot] before the title).
+ */
 @Composable
 fun MediaCard(
     title: String,
@@ -27,12 +45,18 @@ fun MediaCard(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
     progress: Float? = null,
+    style: CardStyle = LocalLook.current.cardStyle,
+    statusDot: Color? = null,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val compact = LocalLook.current.density == Density.COMPACT
     Column(
         modifier
+            .pressScale(interaction)
             .clip(MaterialTheme.shapes.medium)
-            .clickable(onClick = onClick)
-            .padding(bottom = 4.dp),
+            .clickable(interactionSource = interaction, indication = LocalIndication.current, onClick = onClick)
+            .then(if (style == CardStyle.MINIMAL) Modifier.semantics(mergeDescendants = true) { contentDescription = title } else Modifier)
+            .padding(bottom = if (style == CardStyle.MINIMAL) 0.dp else 4.dp),
     ) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomStart) {
             MediaCover(url = coverUrl, modifier = Modifier.fillMaxWidth())
@@ -43,13 +67,27 @@ fun MediaCard(
                 )
             }
         }
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp),
-        )
+        if (style == CardStyle.MINIMAL) return@Column
+        Row(
+            Modifier.padding(top = if (compact) 4.dp else 6.dp, start = 2.dp, end = 2.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            if (style == CardStyle.DETAILED && statusDot != null) {
+                Box(
+                    Modifier
+                        .padding(top = 6.dp, end = 6.dp)
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(statusDot),
+                )
+            }
+            Text(
+                title,
+                style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         if (subtitle != null) {
             Text(
                 subtitle,
@@ -65,7 +103,8 @@ fun MediaCard(
 
 /**
  * [Media] overload: the title follows the user's preferred title language ([LocalTitleLanguage], provided by the app shell from
- * Settings › Metadatos) unless [titleLanguage] is passed explicitly.
+ * Settings › Metadatos) unless [titleLanguage] is passed explicitly. The fact line follows [style]: classic "2024 · 12 ep",
+ * detailed status dot + "2024 · TV".
  */
 @Composable
 fun MediaCard(
@@ -73,13 +112,20 @@ fun MediaCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     titleLanguage: TitleLanguage = LocalTitleLanguage.current,
+    style: CardStyle = LocalLook.current.cardStyle,
 ) {
     MediaCard(
         title = media.displayTitle(titleLanguage),
         coverUrl = media.cover,
         onClick = onClick,
         modifier = modifier,
-        subtitle = mediaSubtitle(media),
+        subtitle = when (style) {
+            CardStyle.CLASSIC -> classicFactsLine(media) ?: mediaSubtitle(media)
+            CardStyle.DETAILED -> detailedFactsLine(media) ?: mediaSubtitle(media)
+            CardStyle.MINIMAL -> null
+        },
+        style = style,
+        statusDot = mediaStatusKind(media.status)?.dotColor(),
     )
 }
 

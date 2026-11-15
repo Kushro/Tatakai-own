@@ -76,6 +76,9 @@ import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.ui.R as UiR
+import app.tatakai.next.model.Density
+import app.tatakai.next.model.HomeLayout
+import app.tatakai.next.ui.look.LocalLook
 import app.tatakai.next.ui.media.COVER_ASPECT_RATIO
 import app.tatakai.next.ui.media.LocalTitleLanguage
 import app.tatakai.next.ui.media.MediaCard
@@ -204,6 +207,10 @@ internal fun HomeContent(
 ) {
     val gate = rememberMatureGate(state.discover.matureContent)
     val discover = state.discover
+    // 2026-11 UI refresh: Diseño y estilo › Inicio (Destacado / Carrusel / Solo filas) and the greeting toggle.
+    val look = LocalLook.current
+    val layout = look.homeLayout
+    val spotlight = layout == HomeLayout.SPOTLIGHT && !state.isEmpty && state.hero !is LoadState.Err
     Scaffold(modifier = modifier, contentWindowInsets = screenInsets) { padding ->
         val listState = rememberLazyListState()
         val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
@@ -212,13 +219,26 @@ internal fun HomeContent(
                 modifier = Modifier.fillMaxSize(),
                 state = listState,
                 contentPadding = PaddingValues(
-                    top = padding.calculateTopPadding(),
+                    // The spotlight is drawn under the status bar (full bleed); the other layouts start below it.
+                    top = if (spotlight) 0.dp else padding.calculateTopPadding(),
                     bottom = 24.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(if (look.density == Density.COMPACT) 4.dp else 8.dp),
             ) {
+                if (spotlight) {
+                    item(key = "spotlight", contentType = "spotlight") {
+                        SpotlightSection(
+                            hero = state.hero,
+                            continueWatching = state.continueWatching,
+                            autoplayMs = look.heroAutoplayMs(),
+                            actions = actions,
+                            topPadding = padding.calculateTopPadding(),
+                            unread = unreadNotifications,
+                        )
+                    }
+                }
                 item(key = "greeting", contentType = "greeting") {
-                    Greeting(state.providers, unreadNotifications, actions)
+                    Greeting(state.providers, unreadNotifications, actions, showGreeting = look.showGreeting, showBell = !spotlight)
                 }
                 item(key = "search", contentType = "search") {
                     SearchEntry(onClick = actions.onSearchClick)
@@ -233,13 +253,16 @@ internal fun HomeContent(
                     }
                     return@LazyColumn
                 }
-                item(key = "hero", contentType = "hero") {
-                    HeroSection(
-                        hero = state.hero,
-                        onMediaClick = actions.onMediaClick,
-                        onWatch = actions.onWatch,
-                        onRetry = { actions.onRetry(HERO_FEED) },
-                    )
+                if (layout == HomeLayout.CAROUSEL || (layout == HomeLayout.SPOTLIGHT && !spotlight)) {
+                    item(key = "hero", contentType = "hero") {
+                        HeroSection(
+                            hero = state.hero,
+                            onMediaClick = actions.onMediaClick,
+                            onWatch = actions.onWatch,
+                            onRetry = { actions.onRetry(HERO_FEED) },
+                            autoplayMs = look.heroAutoplayMs(),
+                        )
+                    }
                 }
                 if (state.continueWatching.isNotEmpty()) {
                     item(key = "continue", contentType = "continue") {
@@ -268,7 +291,9 @@ internal fun HomeContent(
                         GenreChips(genres, actions.onOpenGenre)
                     }
                 }
-                items(state.rows, key = { it.kind.name }, contentType = { "row" }) { row ->
+                // Solo filas: no hero, so the trending feed becomes the first row.
+                val rows = if (layout == HomeLayout.ROWS) state.feeds else state.rows
+                items(rows, key = { it.kind.name }, contentType = { "row" }) { row ->
                     FeedRowSection(
                         row = row,
                         gate = gate,
@@ -305,7 +330,7 @@ internal fun HomeContent(
 }
 
 @Composable
-private fun Greeting(providers: List<String>, unread: Int, actions: HomeActions) {
+private fun Greeting(providers: List<String>, unread: Int, actions: HomeActions, showGreeting: Boolean = true, showBell: Boolean = true) {
     val hour = remember { LocalTime.now().hour }
     val greeting = stringResource(
         when {
@@ -319,9 +344,13 @@ private fun Greeting(providers: List<String>, unread: Int, actions: HomeActions)
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(greeting, style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-            NotificationBell(unread, actions.onOpenNotifications)
+        if (showGreeting || showBell) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) {
+                    if (showGreeting) Text(greeting, style = MaterialTheme.typography.headlineMedium)
+                }
+                if (showBell) NotificationBell(unread, actions.onOpenNotifications)
+            }
         }
         QuickChips(actions)
         if (providers.isNotEmpty()) {
@@ -377,6 +406,7 @@ private fun HeroSection(
     onMediaClick: (Media) -> Unit,
     onWatch: (Media) -> Unit,
     onRetry: () -> Unit,
+    autoplayMs: Long? = HERO_AUTOPLAY_MS,
 ) {
     when (hero) {
         LoadState.Loading -> if (rememberAfterDelay()) {
@@ -396,8 +426,9 @@ private fun HeroSection(
                 key = { mediaKey(it) },
                 modifier = Modifier.fillMaxWidth().height(HERO_HEIGHT),
                 // HeroCarousel already turns autoplay off with LocalReduceMotion; passing it here keeps the intent explicit.
-                autoplay = !LocalReduceMotion.current,
-                autoplayMillis = HERO_AUTOPLAY_MS,
+                // 2026-11 UI refresh: Diseño y estilo › Girar el banner / segundos por título.
+                autoplay = !LocalReduceMotion.current && autoplayMs != null,
+                autoplayMillis = autoplayMs ?: HERO_AUTOPLAY_MS,
             ) { media, index ->
                 HeroSlide(media, index, onMediaClick, onWatch)
             }
@@ -465,6 +496,38 @@ private fun HeroSlide(media: Media, index: Int, onMediaClick: (Media) -> Unit, o
                     Text(stringResource(R.string.home_details), modifier = Modifier.padding(start = 6.dp))
                 }
             }
+        }
+    }
+}
+
+/** Destacado: skeleton under the status bar while loading, the pager once the trending feed answers (errors fall back to the carousel). */
+@Composable
+private fun SpotlightSection(
+    hero: LoadState<List<Media>>,
+    continueWatching: List<HistoryEntry>,
+    autoplayMs: Long?,
+    actions: HomeActions,
+    topPadding: androidx.compose.ui.unit.Dp,
+    unread: Int,
+) {
+    when (hero) {
+        is LoadState.Ok -> if (hero.value.isNotEmpty()) {
+            Spotlight(
+                items = hero.value,
+                continueWatching = continueWatching,
+                autoplayMs = autoplayMs,
+                onOpen = actions.onMediaClick,
+                onWatch = actions.onWatch,
+                onContinue = actions.onContinueClick,
+                topEnd = { NotificationBell(unread, actions.onOpenNotifications) },
+            )
+        } else {
+            Box(Modifier.fillMaxWidth().height(topPadding))
+        }
+        else -> if (rememberAfterDelay()) {
+            SkeletonBox(Modifier.fillMaxWidth().height(SPOTLIGHT_SKELETON_HEIGHT), MaterialTheme.shapes.extraSmall)
+        } else {
+            Box(Modifier.fillMaxWidth().height(SPOTLIGHT_SKELETON_HEIGHT))
         }
     }
 }
@@ -673,6 +736,7 @@ internal fun FeedKind.labelRes(): Int = when (this) {
 }
 
 private val HERO_HEIGHT = 260.dp
+private val SPOTLIGHT_SKELETON_HEIGHT = 500.dp
 internal val CARD_WIDTH = 120.dp
 private val CONTINUE_WIDTH = 280.dp
 private const val SKELETON_COUNT = 6

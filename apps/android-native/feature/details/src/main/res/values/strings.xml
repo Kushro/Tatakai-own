@@ -123,7 +123,7 @@
     <string name="details_episode_search_empty">Nothing matches \"%1$s\".</string>
     <string name="details_unaired">Not aired yet</string>
     <string name="details_episode_unaired_cd">Episode %1$d, not aired yet</string>
-    <string name="details_view_list">With thumbnails</string>
+    <string name="details_view_list">List</string>
     <string name="details_view_compact">Compact</string>
     <string name="details_facts">Technical sheet</string>
     <string name="details_fact_format">Format</string>
@@ -190,4 +190,14 @@
     <string name="details_rel_compilation">Compilation</string>
     <string name="details_rel_contains">Contains</string>
     <string name="details_rel_other">Other</string>
+    <!-- 2026-11 UI refresh -->
+    <string name="details_view_cards">Cards</string>
+    <string name="details_relations_graph">Graph</string>
+    <string name="details_relations_list">List</string>
+    <string name="details_graph_zoom_in">Zoom in</string>
+    <string name="details_graph_zoom_out">Zoom out</string>
+    <string name="details_graph_fit">Fit to the view</string>
+    <string name="details_graph_this">This title</string>
+    <string name="details_graph_expand">Open the graph full screen</string>
+    <string name="details_graph_close">Close the graph</string>
 </resources>

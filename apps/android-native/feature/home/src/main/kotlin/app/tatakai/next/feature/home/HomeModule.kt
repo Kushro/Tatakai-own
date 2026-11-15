@@ -34,6 +34,6 @@ val homeModule = module {
             torrents = getOrNull<TorrentRepository>(),
         )
     }
-    viewModel { CalendarViewModel(airing = get(), lists = getOrNull()) }
+    viewModel { CalendarViewModel(airing = get(), lists = getOrNull(), settings = getOrNull()) }
     viewModel { ForYouViewModel(recs = get()) }
 }

@@ -1,5 +1,6 @@
 package app.tatakai.next.feature.details
 
+import app.tatakai.next.model.RelationsView
 import app.tatakai.next.feature.player.sources.rankForThisDevice
 import app.tatakai.next.link.LinkApiError
 import app.tatakai.next.link.LinkError
@@ -106,6 +107,8 @@ data class DetailsUiState(
     /** parity wave B (r, downloads.local-library.play-offline): episodes with a completed web download (marked, played offline). */
     val downloaded: Set<Int> = emptySet(),
     val episodeView: EpisodeView = EpisodeView.LIST,
+    /** 2026-11 UI refresh: Relacionados as a graph or a grouped list. */
+    val relationsView: RelationsView = RelationsView.GRAPH,
     /** The title's row of the local list mirror (AniList / MAL); null = not on the list (or no lists layer). */
     val listEntry: ListEntry? = null,
     /** BUG-039: "Volver a comprobar" of the send dialog is asking the PC. */
@@ -246,7 +249,7 @@ class DetailsViewModel(
     private val history: HistoryRepository,
     private val extensions: ExtensionRepository,
     private val link: LinkRepository,
-    settings: SettingsRepository? = null,
+    private val settings: SettingsRepository? = null,
     private val torrents: TorrentRepository? = null,
     private val stats: SourceStatsStore? = null,
     private val prefs: DetailsPrefs = InMemoryDetailsPrefs(),
@@ -256,7 +259,13 @@ class DetailsViewModel(
     private val lists: ListsRepository? = null,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(DetailsUiState(episodeView = prefs.episodeView()))
+    // 2026-11 UI refresh: the episode / relations views come from Diseño y estilo (the private pref only when no settings are bound).
+    private val _state = MutableStateFlow(
+        DetailsUiState(
+            episodeView = settings?.settings?.value?.look?.episodeView ?: prefs.episodeView(),
+            relationsView = settings?.settings?.value?.look?.relationsView ?: RelationsView.GRAPH,
+        ),
+    )
     val state: StateFlow<DetailsUiState> = _state.asStateFlow()
 
     private val _events = Channel<DetailsEvent>(Channel.BUFFERED)
@@ -296,7 +305,15 @@ class DetailsViewModel(
         if (settings != null) {
             viewModelScope.launch {
                 settings.settings.collect { s ->
-                    _state.update { it.copy(mode = s.sourcePrefs.mode, titleLanguage = s.titleLanguage, matureContent = s.matureContent) }
+                    _state.update {
+                        it.copy(
+                            mode = s.sourcePrefs.mode,
+                            titleLanguage = s.titleLanguage,
+                            matureContent = s.matureContent,
+                            episodeView = s.look.episodeView,
+                            relationsView = s.look.relationsView,
+                        )
+                    }
                     updateAdultGate()
                 }
             }
@@ -684,9 +701,16 @@ class DetailsViewModel(
 
     fun setEpisodeQuery(query: String) = _state.update { it.copy(episodeQuery = query) }
 
+    /** The page selector changes the view and remembers it (Diseño y estilo › Episodios, like the desktop). */
     fun setEpisodeView(view: EpisodeView) {
         prefs.setEpisodeView(view)
         _state.update { it.copy(episodeView = view) }
+        settings?.let { repo -> viewModelScope.launch { runCatching { repo.update { it.copy(look = it.look.copy(episodeView = view)) } } } }
+    }
+
+    fun setRelationsView(view: RelationsView) {
+        _state.update { it.copy(relationsView = view) }
+        settings?.let { repo -> viewModelScope.launch { runCatching { repo.update { it.copy(look = it.look.copy(relationsView = view)) } } } }
     }
 
     /** Related tab: relations, seasons / watch order and recommendations, each once (again after an error). */
