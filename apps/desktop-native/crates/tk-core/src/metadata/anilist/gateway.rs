@@ -414,8 +414,33 @@ fn is_mutation(query: &str) -> bool {
 pub fn operation_name(query: &str) -> &str {
     let rest = query.split_once('{').map_or("", |(_, r)| r).trim_start();
     let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_')).unwrap_or(rest.len());
-    &rest[..end]
+    let op = &rest[..end];
+    if op == "Page" {
+        // 0.3.1 QA: every list query is a `Page`; name the field inside it so the log tells them apart.
+        for (field, name) in PAGE_FIELDS.iter().zip(PAGE_OPS) {
+            if query.contains(&format!(" {field}(")) || query.contains(&format!(" {field} {{")) {
+                return name;
+            }
+        }
+    }
+    op
 }
+
+/// Fields of AniList's `Page` the app asks for, most specific first (`media` last: other fields contain media
+/// sub-selections).
+const PAGE_FIELDS: [&str; 9] =
+    ["airingSchedules", "airingTrends", "recommendations", "mediaList", "characters", "staff", "reviews", "activities", "media"];
+const PAGE_OPS: [&str; 9] = [
+    "Page.airingSchedules",
+    "Page.airingTrends",
+    "Page.recommendations",
+    "Page.mediaList",
+    "Page.characters",
+    "Page.staff",
+    "Page.reviews",
+    "Page.activities",
+    "Page.media",
+];
 
 struct Permit<'a>(&'a Gateway);
 
@@ -768,6 +793,11 @@ mod tests {
         assert_ne!(a, request_key("e", "query { Page { id } }", &json!({ "page": 1 }), Some("t")));
         assert_eq!(operation_name("query ($id: Int) { Media(id: $id) { id } }"), "Media");
         assert_eq!(operation_name("query { trending: Page { id } }"), "trending");
+        assert_eq!(
+            operation_name("query ($p: Int) { Page(page: $p, perPage: 50) { pageInfo { hasNextPage } airingSchedules(airingAt_greater: 1) { media { id } } } }"),
+            "Page.airingSchedules"
+        );
+        assert_eq!(operation_name("query { Page(page: 1) { pageInfo { total } media(id_in: [1]) { id } } }"), "Page.media");
         assert!(is_mutation("  mutation ($id: Int) { ToggleFollow(userId: $id) { id } }"));
         assert!(!is_mutation("query { Viewer { id } }"));
     }

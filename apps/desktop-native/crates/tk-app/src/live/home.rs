@@ -713,6 +713,22 @@ pub async fn genre_feed(b: &LiveBackend, genre: &str, page: u32) -> UiResult<Sea
         per_page: 24,
         ..SearchVars::default()
     };
+    // 0.3.1 QA: page 1 is a Home genre row (one more each time the end of Home shows): stale-while-revalidate and
+    // background priority. Later pages ("see all") are asked live.
+    if page.max(1) == 1 {
+        let key = format!("home.genre.v1.{genre}.{}", u8::from(adult));
+        let (items, adult_ids, has_next, total) =
+            tk_core::metadata::anilist::gateway::background(swr::get(&b.store, &key, swr::HOME_FRESH_SECS, move || {
+                let vars = vars.clone();
+                async move {
+                let r = anilist().search_filtered_page(&vars).await.map_err(provider_err)?;
+                Ok((r.page.items, r.adult_ids.into_iter().collect::<Vec<u32>>(), r.page.has_next, r.total))
+                }
+            }))
+            .await?;
+        let adult_ids: HashSet<u32> = adult_ids.into_iter().collect();
+        return Ok(SearchPageVm { items: top_n(&items, &adult_ids, adult, usize::MAX), page: 1, has_next, total });
+    }
     let r = anilist()
         .search_filtered_page(&vars)
         .await
@@ -1152,11 +1168,8 @@ async fn taste(b: &LiveBackend) -> UiResult<Arc<Taste>> {
             .then(a.0.cmp(&b.0))
     });
     ids.truncate(TASTE_MAX_TITLES);
-    let mut features: Vec<Candidate> = Vec::new();
     let all_ids: Vec<u32> = ids.iter().map(|(id, _)| *id).collect();
-    for chunk in all_ids.chunks(50) {
-        features.extend(anilist().features(chunk).await.map_err(provider_err)?);
-    }
+    let features = cached_features(b, &all_ids).await?;
     let by_id: HashMap<u32, &Candidate> = features.iter().map(|c| (c.anilist_id, c)).collect();
     let mut seen_rows = Vec::new();
     let mut seen_cards = Vec::new();
@@ -1196,6 +1209,61 @@ fn feedback_rows(b: &LiveBackend) -> Vec<(String, String, i64)> {
         .into_iter()
         .map(|r| (r.media_id, r.feedback, r.created_at))
         .collect()
+}
+
+/// Genres / studios / tags of seen titles barely change: 0.3.1 QA found the taste rebuild (every 10 min) asked
+/// AniList for all of them again (up to 150 ids = 3 pages) on each Home visit. Stored per title for a week.
+const FEATURES_TTL_SECS: i64 = 7 * 86_400;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct StoredFeatures {
+    genres: Vec<String>,
+    studios: Vec<String>,
+    year: Option<u16>,
+    tags: Vec<(String, u8)>,
+    mean_score: Option<u32>,
+}
+
+fn features_key(id: u32) -> String {
+    format!("recs.features.v1.{id}")
+}
+
+/// Features of `ids`: stored ones from the cache, the rest from AniList (50 per request), then stored.
+async fn cached_features(b: &LiveBackend, ids: &[u32]) -> UiResult<Vec<Candidate>> {
+    let mut out = Vec::with_capacity(ids.len());
+    let mut missing = Vec::new();
+    for id in ids {
+        match b.store.cache_get::<StoredFeatures>(&features_key(*id)).ok().flatten() {
+            Some(f) => out.push(Candidate {
+                anilist_id: *id,
+                genres: f.genres,
+                studios: f.studios,
+                year: f.year,
+                tags: f.tags,
+                mean_score: f.mean_score,
+            }),
+            None => missing.push(*id),
+        }
+    }
+    for chunk in missing.chunks(50) {
+        let fetched = tk_core::metadata::anilist::gateway::background(anilist().features(chunk))
+            .await
+            .map_err(provider_err)?;
+        for c in &fetched {
+            let f = StoredFeatures {
+                genres: c.genres.clone(),
+                studios: c.studios.clone(),
+                year: c.year,
+                tags: c.tags.clone(),
+                mean_score: c.mean_score,
+            };
+            if let Err(e) = b.store.cache_put(&features_key(c.anilist_id), &f, FEATURES_TTL_SECS) {
+                tracing::debug!(%e, "caching title features failed");
+            }
+        }
+        out.extend(fetched);
+    }
+    Ok(out)
 }
 
 /// One page of scored recommendations with the genres of each (for the Atlas).

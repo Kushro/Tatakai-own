@@ -406,11 +406,18 @@ pub fn AiringCalendar(
     let services = use_context::<Services>();
     let clock = use_local_clock();
     let layout = if compact { "compact" } else if agenda { "agenda" } else { "week" };
-    let mut schedule = use_resource(use_reactive((&week_start_unix,), {
+    let mut schedule = use_resource(use_reactive((&week_start_unix, &compact), {
         let backend = services.backend.clone();
-        move |(week,)| {
+        move |(week, compact)| {
             let backend = backend.clone();
-            async move { backend.airing_schedule(week).await }
+            async move {
+                if compact {
+                    // 0.3.1 QA: Home shows today and tomorrow only; asking the whole week cost up to 8 AniList pages.
+                    backend.airing_range(week, week + 2 * DAY - 1).await.map(|r| r.slots)
+                } else {
+                    backend.airing_schedule(week).await
+                }
+            }
         }
     }));
     // Follow / unfollow done here, so a toggle does not reload the whole week.
