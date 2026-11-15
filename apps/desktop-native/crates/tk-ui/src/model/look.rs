@@ -222,7 +222,7 @@ pub const HERO_INTERVAL_MIN: u8 = 4;
 pub const HERO_INTERVAL_MAX: u8 = 30;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, from = "LookPrefsWire")]
 pub struct LookPrefs {
     /// Last preset applied (shown as selected while the fields still match it).
     pub preset: LookPreset,
@@ -249,6 +249,70 @@ pub struct LookPrefs {
 impl Default for LookPrefs {
     fn default() -> Self {
         Self::preset(LookPreset::Tatakai)
+    }
+}
+
+/// What a settings file holds. `card_size` arrived in 0.3.2: a file written before has none, and then the size of
+/// its preset applies (a "Cinema" user keeps reading as Cinema instead of turning "Custom").
+#[derive(Deserialize)]
+#[serde(default)]
+struct LookPrefsWire {
+    preset: LookPreset,
+    home_layout: HomeLayout,
+    card_style: CardStyle,
+    card_size: Option<CardSize>,
+    rail_style: RailStyle,
+    density: Density,
+    motion: Motion,
+    glass: bool,
+    episode_view: EpisodeView,
+    relations_view: RelationsView,
+    calendar_view: CalendarView,
+    hero_autoplay: bool,
+    hero_interval_secs: u8,
+    show_greeting: bool,
+}
+
+impl Default for LookPrefsWire {
+    fn default() -> Self {
+        let d = LookPrefs::default();
+        Self {
+            preset: d.preset,
+            home_layout: d.home_layout,
+            card_style: d.card_style,
+            card_size: None,
+            rail_style: d.rail_style,
+            density: d.density,
+            motion: d.motion,
+            glass: d.glass,
+            episode_view: d.episode_view,
+            relations_view: d.relations_view,
+            calendar_view: d.calendar_view,
+            hero_autoplay: d.hero_autoplay,
+            hero_interval_secs: d.hero_interval_secs,
+            show_greeting: d.show_greeting,
+        }
+    }
+}
+
+impl From<LookPrefsWire> for LookPrefs {
+    fn from(w: LookPrefsWire) -> Self {
+        Self {
+            preset: w.preset,
+            home_layout: w.home_layout,
+            card_style: w.card_style,
+            card_size: w.card_size.unwrap_or_else(|| LookPrefs::preset(w.preset).card_size),
+            rail_style: w.rail_style,
+            density: w.density,
+            motion: w.motion,
+            glass: w.glass,
+            episode_view: w.episode_view,
+            relations_view: w.relations_view,
+            calendar_view: w.calendar_view,
+            hero_autoplay: w.hero_autoplay,
+            hero_interval_secs: w.hero_interval_secs,
+            show_greeting: w.show_greeting,
+        }
     }
 }
 
@@ -394,6 +458,15 @@ mod tests {
         assert!(a.contains(&("data-effects", "flat")));
         assert!(a.contains(&("data-card-size", "small")));
         assert!(LookPrefs::default().html_attrs().contains(&("data-card-size", "medium")));
+    }
+
+    #[test]
+    fn a_file_from_before_card_sizes_keeps_its_preset() {
+        let mut old = serde_json::to_value(LookPrefs::preset(LookPreset::Cinema)).unwrap();
+        old.as_object_mut().unwrap().remove("card_size");
+        let s: LookPrefs = serde_json::from_value(old).unwrap();
+        assert_eq!(s.card_size, LookPrefs::preset(LookPreset::Cinema).card_size);
+        assert_eq!(s.matching_preset(), Some(LookPreset::Cinema));
     }
 
     #[test]

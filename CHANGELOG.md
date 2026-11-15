@@ -2,6 +2,20 @@
 
 Cambios de Tatakai Next (rama `main`). Tatakai Classic tiene su propio changelog en la rama `legacy`.
 
+## [0.3.2] - 2026-11-15
+
+Tarjetas más legibles y arte de mejor calidad.
+
+**Tarjetas**
+- Tamaño de tarjeta configurable en Ajustes › Apariencia › Diseño y estilo: chica, mediana, grande o extra grande (también dentro de los presets; Cine usa grandes). Las grandes son horizontales, con título, estado, formato, año, episodios, puntaje, géneros y, en las filas de episodios, "Episodio N · hace X".
+- "Solo póster" muestra siempre el título (ya no hace falta pasar el puntero).
+
+**Arte**
+- El banner destacado y el fondo del Detalle usan el fanart en alta resolución de TVDB (vía ani.zip) y el logo del título cuando existen, en vez del banner de AniList de 1900×400. Los banners de baja resolución se recortan en lugar de estirarse.
+
+**Episodios**
+- La lista de episodios se completa con ani.zip por número: capturas, títulos, sinopsis, duración y rating. Antes, si Kitsu respondía solo con números (series nuevas), todas las miniaturas eran la misma imagen.
+
 ## [0.3.1] - 2026-11-15
 
 Uso de AniList más cuidadoso y rápido: menos pedidos, sin chocar con el límite y sin caer a Kitsu por un rato (lo que mostraba títulos raros).
