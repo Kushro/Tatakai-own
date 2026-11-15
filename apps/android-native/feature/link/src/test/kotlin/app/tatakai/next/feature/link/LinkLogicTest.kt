@@ -22,6 +22,13 @@ class LinkLogicTest {
         assertNull(LinkLogic.refOf("ext:a:b:c"))
     }
 
+    @Test fun theHandoffCardSaysHowOldTheSendIsAfterAMinute() {
+        // BUG-138: "desde 8:29 · hace 3 min" for a send tapped later; a fresh one only says "desde 8:29"
+        assertFalse(LinkLogic.handoffAgeShown(receivedAtMs = 0L, nowMs = 59_999L))
+        assertTrue(LinkLogic.handoffAgeShown(receivedAtMs = 0L, nowMs = 60_000L))
+        assertTrue(LinkLogic.handoffAgeShown(receivedAtMs = 0L, nowMs = 180_000L))
+    }
+
     @Test fun theFingerprintFitsOneLine() {
         // BUG-090: 16 groups of 4 (sha-256) took 3 lines of the main card
         val full = "B452 3914 77AA 0C1D 9E2F 3344 5566 7788 99AA BBCC DDEE FF00 1122 3344 0A7C DF6D"

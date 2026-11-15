@@ -195,19 +195,21 @@ class PlaybackController(
                 }
             }
             .build()
+        // BUG-138: a Link session the PC no longer has (404 / 410) fails at once until this load shows its first frame
+        val failEndedAtOnce = { !_state.value.started }
         val mediaSource = if (remote && source.container == Container.HLS && subs.isEmpty()) {
             // BUG-009 / BUG-023: a Link session without a known duration is a growing (EVENT) playlist that stops growing
             // while the PC waits for the playhead (pause, full buffer). Media3 calls a live playlist that has not changed
             // for 3.5 target durations (7 s) "stuck" and ends playback; the PC's playlist is only slow, so it gets a minute.
             HlsMediaSource.Factory(factory)
-                .setLoadErrorHandlingPolicy(RemoteLoadErrorPolicy())
+                .setLoadErrorHandlingPolicy(RemoteLoadErrorPolicy(failEndedAtOnce))
                 .setPlaylistTrackerFactory { dataSources, errors, parsers, cmcd, executor ->
                     DefaultHlsPlaylistTracker(dataSources, errors, parsers, cmcd, REMOTE_PLAYLIST_STUCK_COEFFICIENT, executor)
                 }
                 .createMediaSource(item)
         } else {
             DefaultMediaSourceFactory(factory)
-                .apply { if (remote) setLoadErrorHandlingPolicy(RemoteLoadErrorPolicy()) }
+                .apply { if (remote) setLoadErrorHandlingPolicy(RemoteLoadErrorPolicy(failEndedAtOnce)) }
                 .createMediaSource(item)
         }
         loaded = true

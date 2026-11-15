@@ -602,6 +602,7 @@ private fun HandoffCard(h: LinkHandoff, onPlay: () -> Unit, onDismiss: () -> Uni
                 listOfNotNull(
                     h.episode?.let { stringResource(R.string.linked_handoff_episode, it) },
                     stringResource(R.string.linked_handoff_from, LinkLogic.clock(h.positionSec, null)),
+                    handoffAge(h.receivedAtMs),
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -615,6 +616,21 @@ private fun HandoffCard(h: LinkHandoff, onPlay: () -> Unit, onDismiss: () -> Uni
         }
     }
 }
+
+/** BUG-138: "hace 3 min" of a send at least a minute old (refreshed every 30 s), null for a fresh or undated one. */
+@Composable
+private fun handoffAge(receivedAtMs: Long?): String? {
+    if (receivedAtMs == null) return null
+    val now by produceState(System.currentTimeMillis(), receivedAtMs) {
+        while (true) {
+            delay(HANDOFF_AGE_TICK_MS)
+            value = System.currentTimeMillis()
+        }
+    }
+    return if (LinkLogic.handoffAgeShown(receivedAtMs, now)) relativeTime(receivedAtMs, now) else null
+}
+
+private const val HANDOFF_AGE_TICK_MS = 30_000L
 
 /** PCs announcing `_tatakai-link._tcp` (link.discovery): "Emparejar" shows the fingerprint (TOFU) and asks the code the PC shows. */
 @Composable

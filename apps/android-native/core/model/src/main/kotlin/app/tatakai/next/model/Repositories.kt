@@ -353,6 +353,8 @@ data class LinkHandoff(
     val episode: Int? = null,
     val positionSec: Int = 0,
     val title: String? = null,
+    /** BUG-138: when this phone got the send (epoch ms), for "hace 3 min" on the card; null = unknown. */
+    val receivedAtMs: Long? = null,
 )
 
 private val NO_HANDOFF: StateFlow<LinkHandoff?> = MutableStateFlow<LinkHandoff?>(null).asStateFlow()

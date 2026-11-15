@@ -120,7 +120,7 @@ internal object LinkWireMapping {
     )
 
     /** A `handoff` event with a well-formed session id; anything else (unknown type, bad id) is dropped. */
-    fun handoff(dto: PhoneEventDto): app.tatakai.next.model.LinkHandoff? {
+    fun handoff(dto: PhoneEventDto, nowMs: Long = System.currentTimeMillis()): app.tatakai.next.model.LinkHandoff? {
         if (dto.type != ControlWire.EVENT_HANDOFF) return null
         val id = dto.sessionId?.takeIf { LinkClient.SESSION_ID.matches(it) } ?: return null
         return app.tatakai.next.model.LinkHandoff(
@@ -129,6 +129,7 @@ internal object LinkWireMapping {
             episode = dto.episode,
             positionSec = dto.positionSecs.coerceAtLeast(0),
             title = dto.title?.takeIf { it.isNotBlank() },
+            receivedAtMs = nowMs,
         )
     }
 }

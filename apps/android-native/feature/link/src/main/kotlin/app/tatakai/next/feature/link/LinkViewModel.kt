@@ -376,6 +376,9 @@ internal object LinkLogic {
         remoteSessionId = h.sessionId,
     )
 
+    /** BUG-138: the hand-off card says how old the send is once it is a minute old ("desde 8:29 · hace 3 min"). */
+    fun handoffAgeShown(receivedAtMs: Long, nowMs: Long): Boolean = nowMs - receivedAtMs >= 60_000L
+
     /** `HistoryEntry.animeId` (`"21"` / `"mal:5"`) -> ref. */
     fun refOf(animeId: String): MediaRef? = when {
         animeId.startsWith("mal:") -> animeId.removePrefix("mal:").toIntOrNull()?.let { MediaRef(malId = it) }

@@ -105,6 +105,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.Instant
 
 /** What the screen shows besides the engine's own [PlaybackState]. */
@@ -242,6 +243,13 @@ sealed interface PlayerNotice {
  */
 internal fun shouldRenewRemote(alive: Boolean?, canRenew: Boolean, auto: Boolean): Boolean =
     canRenew && (alive == false || (alive == true && !auto))
+
+/**
+ * BUG-138: whether start() renews a Link session before loading it: only when the PC said it no longer has it (a hand-off
+ * card tapped after the 120 s idle timeout). Alive or unknown (PC unreachable, slow answer) loads it as before, so a network
+ * drop still goes through the retries and the "connection lost" screen.
+ */
+internal fun renewRemoteBeforeLoad(alive: Boolean?, canRenew: Boolean): Boolean = canRenew && alive == false
 
 /** BUG-038 / BUG-026: why a Link (PC) playback stopped, for an error screen in words (no Media3 codes, no "Extensions"). */
 enum class RemoteFailure {
@@ -493,6 +501,14 @@ class PlayerViewModel(
             if (remoteId != null) {
                 loadLinkProfiles(remoteId)
                 launch { loadRemotePoster() }
+                // BUG-138: a hand-off card tapped after the PC closed the idle session (120 s): renew it now instead of
+                // loading a session that answers 410 (Media3 retried it ~65 s before the recovery renewed it)
+                val alive = withTimeoutOrNull(START_ALIVE_CHECK_TIMEOUT_MS) { remote.sessionAlive(remoteId) }
+                if (renewRemoteBeforeLoad(alive, remote.canRenew(remoteId))) {
+                    runCatching { android.util.Log.i(LINK_LOG_TAG, "session=$remoteId already closed by the PC: renewing before load") }
+                    recoverRemote(auto = true)
+                    return@launch
+                }
                 val src = RemotePlayback.source(remote, remoteId, args.title)
                 if (src == null) {
                     _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
@@ -1178,7 +1194,8 @@ class PlayerViewModel(
         // replaces the session (a recovery here would open a third one with the old profile)
         if (auto && profileChange.changing.value) return
         remoteRecovery = viewModelScope.launch {
-            val positionMs = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs
+            // BUG-138: nothing played yet (a hand-off renewed before its first load): the point the PC sent
+            val positionMs = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs.takeIf { it > 0 } ?: args.startMs
             val alive = remote.sessionAlive(id)
             // BUG-009 / BUG-023 / BUG-058: Retry on a session the PC still has opens a NEW one at the same point (reloading
             // the stuck one failed again with `ParserException`); the automatic path still shows the error first.
@@ -1824,6 +1841,9 @@ class PlayerViewModel(
 
         /** BUG-131: a renewed Link session that shows no frame in this time is opened once more. */
         const val RENEWED_START_TIMEOUT_MS = 20_000L
+
+        /** BUG-138: how long start() waits for the PC to say whether the session still exists (then it just loads it). */
+        const val START_ALIVE_CHECK_TIMEOUT_MS = 2_000L
     }
 }
 

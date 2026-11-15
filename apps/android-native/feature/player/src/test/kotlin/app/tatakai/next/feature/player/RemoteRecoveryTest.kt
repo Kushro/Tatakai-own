@@ -26,4 +26,15 @@ class RemoteRecoveryTest {
         assertFalse(shouldRenewRemote(alive = null, canRenew = true, auto = false))
         assertFalse(shouldRenewRemote(alive = null, canRenew = true, auto = true))
     }
+
+    @Test
+    fun anExpiredHandOffIsRenewedBeforeItLoads() {
+        // BUG-138: the PC closed the hand-off session (120 s idle) before "Reproducir aquí": a new one at once, no 65 s of 410s
+        assertTrue(renewRemoteBeforeLoad(alive = false, canRenew = true))
+        // still alive, or the PC could not be asked (network cut): load it as before, the retries / "connection lost" handle it
+        assertFalse(renewRemoteBeforeLoad(alive = true, canRenew = true))
+        assertFalse(renewRemoteBeforeLoad(alive = null, canRenew = true))
+        // nothing to renew it from: loading it fails at once (404 / 410 are not retried) and says "send it again"
+        assertFalse(renewRemoteBeforeLoad(alive = false, canRenew = false))
+    }
 }

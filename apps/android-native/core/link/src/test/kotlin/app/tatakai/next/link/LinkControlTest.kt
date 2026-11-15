@@ -67,9 +67,10 @@ class LinkControlTest {
         }
         val events = assertIs<LinkResult.Ok<List<PhoneEventDto>>>(c.events(99)).value
         assertEquals(2, events.size)
-        val h = assertNotNull(LinkWireMapping.handoff(events[0]))
+        val h = assertNotNull(LinkWireMapping.handoff(events[0], nowMs = 1_000L))
         assertEquals(sid, h.sessionId)
         assertEquals(75, h.positionSec)
+        assertEquals(1_000L, h.receivedAtMs) // BUG-138: the card says how old the send is
         assertNull(LinkWireMapping.handoff(events[1]))
         assertNull(LinkWireMapping.handoff(PhoneEventDto(type = "handoff", sessionId = "../x")))
         assertEquals("/v1/events", fake.seen.last().path)
