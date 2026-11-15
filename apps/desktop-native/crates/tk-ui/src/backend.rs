@@ -22,7 +22,7 @@ pub use crate::model::ext::{
     ExtUpdateVm, ProviderItemVm, StremioAddonVm,
 };
 pub use crate::model::home::{
-    AiringSlotVm, AtlasPointVm, BecauseVm, LatestEpisodeVm, MatureContentVm, ProviderHealthVm, RecommendationVm,
+    AiringRangeVm, AiringSlotVm, AtlasPointVm, BecauseVm, LatestEpisodeVm, MatureContentVm, ProviderHealthVm, RecommendationVm,
     RecsFeedbackVm, TasteProfileVm, TopRangeVm, TorrentActivityVm,
 };
 pub use crate::model::manga::{
@@ -1145,6 +1145,22 @@ pub struct UpdateCheckVm {
 }
 
 /// Which OS features this build can offer (worker f; the Settings > System rows hide what is `false`).
+/// 0.3.1: the shared AniList gateway's counters (Settings > System).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AniListStatsVm {
+    /// HTTP requests sent since start.
+    pub total: u64,
+    pub last_minute: u32,
+    /// 429 answers since start.
+    pub rate_limited: u64,
+    /// Calls answered by an identical request in flight.
+    pub deduped: u64,
+    /// Seconds the next request would wait now.
+    pub wait_secs: u64,
+    /// Per-minute budget (learned from AniList's headers, or the conservative start value).
+    pub limit: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SystemCapsVm {
     pub platform: PlatformVm,
@@ -1709,6 +1725,10 @@ pub trait Backend: Send + Sync + 'static {
     async fn check_updates(&self) -> UiResult<UpdateCheckVm> {
         Err(UiError::not_wired("check_updates"))
     }
+    /// 0.3.1: AniList request counters; `None` when the backend has no AniList gateway (mock / demo).
+    fn anilist_stats(&self) -> Option<AniListStatsVm> {
+        None
+    }
     /// What the OS integration offers on this platform / build.
     fn system_caps(&self) -> SystemCapsVm {
         SystemCapsVm { platform: PlatformVm::current(), autostart: false, tray: false, magnet_handler: false }
@@ -1879,6 +1899,29 @@ pub trait Backend: Send + Sync + 'static {
     /// Airing schedule of the 7 days starting at `week_start_unix` (local midnight), `tracked` from `tracked_shows`.
     async fn airing_schedule(&self, _week_start_unix: i64) -> UiResult<Vec<AiringSlotVm>> {
         Err(UiError::not_wired("airing_schedule"))
+    }
+    /// 0.3.1: the calendar month: every slot of `[from_unix, to_unix]` (one AniList range instead of one per week).
+    /// `complete_until` < `to_unix` when the answer stopped early (the weeks after it are missing). The default asks
+    /// [`Backend::airing_schedule`] week after week (mock / demo backends).
+    async fn airing_range(&self, from_unix: i64, to_unix: i64) -> UiResult<AiringRangeVm> {
+        let mut slots = Vec::new();
+        let mut first_err = None;
+        let mut complete_until = to_unix;
+        let mut week = from_unix;
+        while week <= to_unix {
+            match self.airing_schedule(week).await {
+                Ok(list) => slots.extend(list),
+                Err(e) => {
+                    complete_until = complete_until.min(week);
+                    first_err.get_or_insert(e);
+                }
+            }
+            week += 7 * 86_400;
+        }
+        match first_err {
+            Some(e) if slots.is_empty() => Err(e),
+            _ => Ok(AiringRangeVm { slots, complete_until }),
+        }
     }
     /// "My shows" of the calendar (`tracked_shows` table; `details.track-show`, `home.calendar.my-shows`).
     async fn tracked_shows(&self) -> UiResult<Vec<MediaVm>> {

@@ -176,31 +176,14 @@ impl AniList {
         query: &str,
         variables: Value,
     ) -> Result<Value, ListError> {
-        let mut req = self
-            .client
-            .post(&self.endpoint)
-            .header("Accept", "application/json")
-            .json(&json!({ "query": query, "variables": variables }));
-        if let Some(t) = token {
-            req = req.bearer_auth(t);
-        }
-        let resp = req.send().await?;
-        let status = resp.status().as_u16();
-        if status == 429 {
-            return Err(ListError::RateLimited);
-        }
-        let body: Value = resp
-            .json()
-            .await
-            .map_err(|e| ListError::Parse(e.without_url().to_string()))?;
+        let r = self.send(query, variables, token).await.map_err(|e| match e {
+            super::gateway::GatewayError::RateLimited { .. } => ListError::RateLimited,
+            super::gateway::GatewayError::Network(m) => ListError::Network(m),
+            super::gateway::GatewayError::Parse(m) => ListError::Parse(m),
+        })?;
+        let (status, body) = (r.status, r.body);
         if status == 401 || is_auth_error(&body) {
             return Err(ListError::Unauthorized);
-        }
-        if body["errors"]
-            .as_array()
-            .is_some_and(|e| e.iter().any(|x| x["status"] == 429))
-        {
-            return Err(ListError::RateLimited);
         }
         if !(200..300).contains(&status) {
             return Err(ListError::Http(status));

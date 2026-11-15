@@ -97,8 +97,60 @@ pub fn SystemSection() -> Element {
                 },
             }
         }
+        AniListRequestsRow {}
         ResetZone {}
     }
+}
+
+/// 0.3.1: the AniList request counters (`Backend::anilist_stats`), refreshed every few seconds while shown.
+/// `data-anilist-requests` = total sent.
+#[component]
+fn AniListRequestsRow() -> Element {
+    let services = use_context::<Services>();
+    let mut stats = use_signal(|| services.backend.anilist_stats());
+    use_future({
+        let backend = services.backend.clone();
+        move || {
+            let backend = backend.clone();
+            async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    let next = backend.anilist_stats();
+                    if *stats.peek() != next {
+                        stats.set(next);
+                    }
+                }
+            }
+        }
+    });
+    let Some(s) = stats() else { return rsx! {} };
+    let line = anilist_stats_line(&s);
+    rsx! {
+        div { "data-anilist-requests": "{s.total}",
+            SettingRow { label: t("settings.system.anilist_requests"), hint: t("settings.system.anilist_requests_hint"),
+                div { class: "tk-muted",
+                    p { "{line}" }
+                    if s.wait_secs > 0 {
+                        p { role: "status", {tf("settings.system.anilist_requests_wait", &[("secs", &s.wait_secs.to_string())])} }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The counters line of [`AniListRequestsRow`].
+pub fn anilist_stats_line(s: &crate::backend::AniListStatsVm) -> String {
+    tf(
+        "settings.system.anilist_requests_line",
+        &[
+            ("total", &s.total.to_string()),
+            ("minute", &s.last_minute.to_string()),
+            ("limit", &s.limit.to_string()),
+            ("limited", &s.rate_limited.to_string()),
+            ("shared", &s.deduped.to_string()),
+        ],
+    )
 }
 
 /// "Start with the system" (real OS state) and "Start minimized in the tray".
@@ -362,7 +414,17 @@ fn ResetZone() -> Element {
 
 #[cfg(test)]
 mod tests {
-    use super::reset_word_matches;
+    use super::{anilist_stats_line, reset_word_matches};
+
+    #[test]
+    fn anilist_line_fills_every_count() {
+        let s = crate::backend::AniListStatsVm { total: 12, last_minute: 3, rate_limited: 1, deduped: 4, wait_secs: 0, limit: 30 };
+        let line = anilist_stats_line(&s);
+        for n in ["12", "3", "30", "1", "4"] {
+            assert!(line.contains(n), "{line}");
+        }
+        assert!(!line.contains('{'), "{line}");
+    }
 
     #[test]
     fn the_reset_needs_the_typed_word() {
