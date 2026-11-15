@@ -227,7 +227,9 @@ pub enum Route {
 impl Route {
     pub fn nav_dest(&self) -> Option<NavDest> {
         match self {
-            Self::HomePage {} | Self::DetailsPage { .. } | Self::CalendarPage {} | Self::RecommendationsPage {} => Some(NavDest::Home),
+            Self::HomePage {} | Self::DetailsPage { .. } => Some(NavDest::Home),
+            Self::CalendarPage {} => Some(NavDest::Calendar),
+            Self::RecommendationsPage {} => Some(NavDest::ForYou),
             Self::SearchPage {} | Self::ImageSearchPage {} | Self::BrowsePage { .. } | Self::StudioPage { .. } | Self::CharacterPage { .. } => {
                 Some(NavDest::Search)
             }
@@ -294,6 +296,8 @@ impl Route {
         match dest {
             NavDest::Home => Self::HomePage {},
             NavDest::Search => Self::SearchPage {},
+            NavDest::Calendar => Self::CalendarPage {},
+            NavDest::ForYou => Self::RecommendationsPage {},
             NavDest::Library => Self::LibraryPage {},
             NavDest::Downloads => Self::DownloadsPage {},
             NavDest::Manga => Self::MangaHomePage {},
@@ -394,7 +398,9 @@ pub fn App() -> Element {
     use_effect(move || {
         let s = settings.read();
         let attrs = s.theme_attrs(sys_dark());
-        platform::apply_theme(&attrs.palette, attrs.mode, attrs.contrast, s.reduce_motion);
+        let reduce = s.reduce_motion || s.look.motion == crate::model::Motion::Off;
+        platform::apply_theme(&attrs.palette, attrs.mode, attrs.contrast, reduce);
+        platform::apply_look(&s.look.html_attrs());
         i18n::set_lang(resolve(s.language, &sys_tag.read()));
     });
 

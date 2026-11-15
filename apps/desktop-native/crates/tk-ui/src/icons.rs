@@ -96,6 +96,23 @@ fn glyph(name: &str) -> Option<(&'static str, bool)> {
         "minus" => ("M5 12h14", false),
         "heart" => ("M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z", false),
         "heart-filled" => ("M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z", true),
+        // 2026-11 UI refresh (rail, relations graph, calendar views, Link sync)
+        "sparkle" => ("M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z", false),
+        "list" => ("M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01", false),
+        "graph" => ("M6 6a2 2 0 1 0 0 .01M18 6a2 2 0 1 0 0 .01M12 18a2 2 0 1 0 0 .01M8 6h8M7 8l4 8M17 8l-4 8", false),
+        "zoom-in" => ("M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5M11 8v6M8 11h6", false),
+        "zoom-out" => ("M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5M8 11h6", false),
+        "fit" => ("M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4M9 9h6v6H9z", false),
+        "view-week" => ("M4 5h16v14H4zM9 5v14M14 5v14", false),
+        "view-month" => ("M4 5h16v15H4zM4 10h16M4 15h16M9 5v15M14 5v15", false),
+        "view-agenda" => ("M4 5h16v5H4zM4 14h16v5H4z", false),
+        "view-day" => ("M4 4h16v16H4zM4 9h16M8 13h8M8 16h5", false),
+        "dot" => ("M12 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z", true),
+        "swap" => ("M7 7h13l-4-4M17 17H4l4 4", false),
+        "eye-off" => ("M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-3.2 3.7M6.6 6.6C4.2 8.2 3 12 3 12s4 6 9 6a8.6 8.6 0 0 0 4.4-1.2M9.9 9.9a3 3 0 0 0 4.2 4.2", false),
+        "crown" => ("M4 18h16M4 18L3 7l5 4 4-6 4 6 5-4-1 11", false),
+        "devices" => ("M3 6h13v9H3zM1 19h17M19 9h4v11h-4z", false),
+        "layers" => ("M12 3l9 5-9 5-9-5zM3 13l9 5 9-5", false),
         _ => return None,
     })
 }
@@ -146,6 +163,12 @@ mod tests {
         assert!(glyph("magnet").is_some());
         assert!(glyph("hub").is_some());
         assert!(glyph("bell-plus").is_some() && glyph("bell-active").is_some());
+        for n in [
+            "sparkle", "list", "graph", "zoom-in", "zoom-out", "fit", "view-week", "view-month", "view-agenda", "view-day",
+            "dot", "swap", "eye-off", "crown", "devices", "layers",
+        ] {
+            assert!(glyph(n).is_some(), "{n}");
+        }
         for n in ["minus", "heart", "heart-filled", "bookmark-filled"] {
             assert!(glyph(n).is_some(), "{n}");
         }

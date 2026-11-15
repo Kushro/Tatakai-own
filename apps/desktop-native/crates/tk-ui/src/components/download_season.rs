@@ -331,7 +331,7 @@ mod tests {
     use super::*;
 
     fn ep(n: u32, date: Option<&str>) -> EpisodeVm {
-        EpisodeVm { number: n, title: None, image: None, air_date: date.map(str::to_owned), is_filler: false, watched: 0.0 }
+        EpisodeVm { number: n, title: None, image: None, air_date: date.map(str::to_owned), is_filler: false, watched: 0.0, ..EpisodeVm::default() }
     }
 
     #[test]

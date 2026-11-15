@@ -12,13 +12,16 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 /// Namespace files, in the order they are merged. Keep both lists in sync (same names, same order).
-pub const NAMESPACES: [&str; 16] = [
+pub const NAMESPACES: [&str; 21] = [
     "common", "search", "details", "player", "settings_player", "subs", "system", "library", "torrent",
     // wave B (docs/redesign/16 section 2.1): one namespace per owner: b, h, j, k, l, m, n
     "home", "downloads", "extensions", "server", "manga", "novel", "social",
+    // 2026-11 UI refresh: appearance / presets / rail, Home hero, Details episodes + relations, calendar views,
+    // Link history sync per device.
+    "look", "hero", "episodes", "schedule", "sync",
 ];
 
-const EN_FILES: [&str; 16] = [
+const EN_FILES: [&str; 21] = [
     include_str!("../i18n/en/common.json"),
     include_str!("../i18n/en/search.json"),
     include_str!("../i18n/en/details.json"),
@@ -35,8 +38,13 @@ const EN_FILES: [&str; 16] = [
     include_str!("../i18n/en/manga.json"),
     include_str!("../i18n/en/novel.json"),
     include_str!("../i18n/en/social.json"),
+    include_str!("../i18n/en/look.json"),
+    include_str!("../i18n/en/hero.json"),
+    include_str!("../i18n/en/episodes.json"),
+    include_str!("../i18n/en/schedule.json"),
+    include_str!("../i18n/en/sync.json"),
 ];
-const ES_FILES: [&str; 16] = [
+const ES_FILES: [&str; 21] = [
     include_str!("../i18n/es/common.json"),
     include_str!("../i18n/es/search.json"),
     include_str!("../i18n/es/details.json"),
@@ -53,10 +61,15 @@ const ES_FILES: [&str; 16] = [
     include_str!("../i18n/es/manga.json"),
     include_str!("../i18n/es/novel.json"),
     include_str!("../i18n/es/social.json"),
+    include_str!("../i18n/es/look.json"),
+    include_str!("../i18n/es/hero.json"),
+    include_str!("../i18n/es/episodes.json"),
+    include_str!("../i18n/es/schedule.json"),
+    include_str!("../i18n/es/sync.json"),
 ];
 
 /// The namespace files of a language (`NAMESPACES` order).
-pub fn files(lang: Lang) -> &'static [&'static str; 16] {
+pub fn files(lang: Lang) -> &'static [&'static str; 21] {
     match lang {
         Lang::En => &EN_FILES,
         Lang::Es => &ES_FILES,

@@ -178,8 +178,7 @@ pub fn with_next_airing(mut eps: Vec<EpisodeVm>, next: Option<AiringVm>) -> Vec<
                 title: None,
                 image: None,
                 air_date: Some(unix_to_date(n.at_unix)),
-                is_filler: false,
-                watched: 0.0,
+                ..EpisodeVm::default()
             });
         }
     }
@@ -1635,7 +1634,7 @@ mod tests {
     use super::*;
 
     fn ep(n: u32, watched: f64, filler: bool) -> EpisodeVm {
-        EpisodeVm { number: n, title: None, image: None, air_date: None, is_filler: filler, watched }
+        EpisodeVm { number: n, title: None, image: None, air_date: None, is_filler: filler, watched, ..EpisodeVm::default() }
     }
 
     fn dev(id: &str, online: bool) -> DeviceVm {

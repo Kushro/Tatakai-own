@@ -162,6 +162,11 @@ pub fn map_anilist_page(doc: &Value) -> Result<FeedPage, ProviderError> {
     })
 }
 
+/// A number that may come as JSON number or numeric text (ani.zip sends `"rating": "8.03"`).
+fn num(v: &Value) -> Option<f64> {
+    v.as_f64().or_else(|| v.as_str().and_then(|t| t.trim().parse::<f64>().ok())).filter(|n| n.is_finite())
+}
+
 /// ani.zip regular episodes (numeric keys only), ascending. Backticks in titles are apostrophes.
 pub fn map_anizip_episodes(raw: &Value) -> Vec<Episode> {
     let clean = |v: &Value| v.as_str().map(|t| t.replace('`', "'").trim().to_owned()).filter(|t| !t.is_empty());
@@ -179,6 +184,9 @@ pub fn map_anizip_episodes(raw: &Value) -> Vec<Episode> {
                         image: s(&e["image"]),
                         air_date: s(&e["airDateUtc"]).or_else(|| s(&e["airDate"])).or_else(|| s(&e["airdate"])),
                         is_filler: false,
+                        summary: clean(&e["overview"]).or_else(|| clean(&e["summary"])),
+                        runtime_min: num(&e["runtime"]).or_else(|| num(&e["length"])).map(|m| m.round() as u32).filter(|m| *m > 0),
+                        rating: num(&e["rating"]).map(|r| r as f32).filter(|r| *r > 0.0 && *r <= 10.0),
                     })
                 })
                 .collect()
@@ -323,6 +331,9 @@ pub fn map_kitsu_episodes(doc: &Value) -> Vec<Episode> {
                         image: s(&th["original"]).or_else(|| s(&th["large"])).or_else(|| s(&th["medium"])),
                         air_date: s(&a["airdate"]),
                         is_filler: false,
+                        summary: s(&a["synopsis"]).or_else(|| s(&a["description"])),
+                        runtime_min: num_u32(&a["length"]).filter(|m| *m > 0),
+                        rating: None,
                     })
                 })
                 .collect()

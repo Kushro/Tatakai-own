@@ -498,7 +498,7 @@ fn HistoryRow(item: HistoryItemVm, now: i64) -> Element {
         tf("details.episode", &[("n", &ep)]),
         tf("lib.watched_on", &[("when", &rel_time(now, item.watched_unix))])
     );
-    let row = EpisodeVm { number: episode, title: None, image: None, air_date: None, is_filler: false, watched: 0.0 };
+    let row = EpisodeVm { number: episode, title: None, image: None, air_date: None, is_filler: false, watched: 0.0, ..EpisodeVm::default() };
     rsx! {
         EpisodeRow {
             episode: row,

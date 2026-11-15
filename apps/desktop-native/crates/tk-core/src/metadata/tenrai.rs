@@ -184,6 +184,8 @@ pub fn map_jikan_episodes(doc: &Value) -> Vec<Episode> {
                         image: None,
                         air_date: opt_str(&e["aired"]).map(|d| d.chars().take(10).collect()),
                         is_filler: e["filler"].as_bool().unwrap_or(false),
+                        // Jikan's 1..5 score is a different scale; not shown.
+                        ..Episode::default()
                     })
                 })
                 .collect()

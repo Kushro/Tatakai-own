@@ -818,6 +818,9 @@ impl Backend for LiveBackend {
                 air_date: e.air_date,
                 is_filler: e.is_filler,
                 watched: tk_core::lists::progress::watched_fraction(e.number, watched.get(&e.number).copied().unwrap_or(0.0), list_progress),
+                summary: e.summary,
+                runtime_min: e.runtime_min,
+                rating: e.rating,
             })
             .collect())
     }
@@ -1748,7 +1751,7 @@ mod season_cap_tests {
     use super::cap_to_season;
 
     fn ep(number: u32, air: Option<&str>) -> tk_core::Episode {
-        tk_core::Episode { number, title: None, image: None, air_date: air.map(str::to_owned), is_filler: false }
+        tk_core::Episode { number, title: None, image: None, air_date: air.map(str::to_owned), is_filler: false, ..Default::default() }
     }
 
     #[test]

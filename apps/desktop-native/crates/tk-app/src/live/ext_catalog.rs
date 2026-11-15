@@ -387,6 +387,7 @@ fn episodes_vm(b: &LiveBackend, id: &str, info: &ProviderInfo) -> Vec<EpisodeVm>
             air_date: None,
             is_filler: false,
             watched: watched.get(&e.number).copied().unwrap_or(0.0),
+            ..EpisodeVm::default()
         })
         .collect()
 }
