@@ -2,6 +2,36 @@
 
 Cambios de Tatakai Next (rama `main`). Tatakai Classic tiene su propio changelog en la rama `legacy`.
 
+## [0.2.0] - 2026-11-15
+
+Versión de estabilidad: 14 rondas de pruebas de escritorio, Tatakai Link y Android (búsqueda, reproducción con y sin Anime4K/FSR y generación de cuadros, todos los reproductores, torrents y extensiones) y más de 140 problemas corregidos.
+
+**Tatakai Link**
+- El paquete de escritorio (AppImage, PKGBUILD, instalador y zip de Windows) trae el helper `temple-lsfg`: Link ofrece los perfiles LSFG y Anime4K sin configurar nada a mano. Los shaders se instalan en una carpeta con permisos de escritura.
+- Las sesiones ya no se traban: duración real en torrents y MP4, saltos cortos sin reiniciar la PC, reconexión en el mismo punto si la sesión vence o se corta la red.
+- Enviar al teléfono manda la fuente que elegiste (web o torrent) y puede transmitir un torrent desde el motor de la PC; un torrent ya bajado arranca en menos de un segundo. Un envío viejo se reabre al instante.
+- Cambiar el perfil de mejora desde el reproductor del teléfono siempre termina con un aviso y sigue en el mismo punto, también en torrents. Los perfiles que el teléfono no puede decodificar (1440p/2160p) aparecen deshabilitados con el motivo; Anime4K baja de nivel si el teléfono no da abasto y se apaga con poca batería.
+- La lista de dispositivos y su estado se actualizan solos; volver a vincular el mismo teléfono reemplaza su entrada.
+
+**Fuentes y extensiones**
+- Selección de fuente Manual pregunta siempre, con tu elección arriba; si tu elección no apareció, se dice. La lista se ordena igual en la PC y el teléfono, sin duplicados, y muestra idiomas, tamaño y grupo.
+- Listas vacías o parciales ya no esconden fuentes durante minutos; la hoja de fuentes y el reproductor abren al instante con la lista conocida y la refrescan detrás.
+- El teléfono hereda las extensiones de la PC por el servidor de extensiones, con "Actualizar desde la PC" e instalación del `.kai` de la PC.
+- Si AniList limita o no responde, el respaldo (Kitsu y otros) conserva los títulos y la portada de AniList y se guarda poco tiempo, así las extensiones siguen encontrando las fuentes; la búsqueda por texto también tiene respaldo.
+- Llamadas de extensiones superpuestas o abandonadas ya no se bloquean ni se interrumpen entre sí (manga, novelas y Descubrir).
+
+**Reproductor**
+- Ningún preset que libmpv rechace vuelve a cerrar la app; los streams HLS con muchas pistas se abren con el master filtrado.
+- Fuentes sin decodificador por hardware se marcan y caen a libmpv; el reproductor externo dice cuándo no hay app para reproducir.
+- El torrent deja de bajar al cerrar el reproductor; "Borrar después de ver" vuelve a funcionar; se guarda la posición final.
+
+**Android**
+- Controles del reproductor, Detalles, Inicio, selector de fuentes, extensiones y ajustes rediseñados para pantallas de teléfono en vertical; lectores de manga y novelas en vertical y horizontal (lectura de derecha a izquierda, barras compactas).
+- Manga y novelas de Toko por sus rutas propias; géneros, roles del staff y rankings de AniList en español.
+
+**Escritorio**
+- Barra inferior en ventanas bajas, dos paneles solo en pantallas anchas; tamaños con el separador decimal del idioma; textos más claros en errores, permisos de extensiones y estados de carga.
+
 ## [0.1.2] - 2026-11-10
 
 - Escritorio: con un idioma de coma decimal (español, alemán, francés…) las extensiones leían `0.4` como `0`, `parseFloat("1.5")` como 1 y los decimales de JSON como 0 (el motor JS usaba el formato numérico del sistema). Toko descartaba todos los torrents de nyaa por eso. Ahora cada extensión usa el formato numérico internacional.
