@@ -21,8 +21,21 @@ import app.tatakai.next.model.SourceStatsStore
 import app.tatakai.next.model.UpdateRepository
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.Module
+import org.koin.core.scope.Scope
 import org.koin.dsl.module
 import java.io.File
+
+/**
+ * BUG-145: the file-backed [AppLog] sink. It is created when Koin starts (`createdAtStart`), not the first time something asks for
+ * [LogRepository] (only Settings › Acerca de did), so the lines logged before that (the metadata fallback at launch) reach logcat and
+ * the file. Building it does no I/O: [AppLogStore] only opens its writer thread; the file is touched on that thread.
+ */
+internal fun logModule(dir: Scope.() -> File): Module = module {
+    single<LogRepository>(createdAtStart = true) { AppLogStore(dir()).also { AppLog.sink = it } }
+}
+
+// declared before dataModule: top-level vals initialize in order and dataModule includes this one
+val appLogModule: Module = logModule { File(androidContext().filesDir, "logs") }
 
 /**
  * Wires the repositories. Needs networkModule, metadataModule, databaseModule and linkModule loaded too (the history syncs with the
@@ -30,6 +43,7 @@ import java.io.File
  * PROP_ANILIST_CLIENT_ID / PROP_MAL_CLIENT_ID (OAuth client ids) are the only configuration.
  */
 val dataModule: Module = module {
+    includes(appLogModule)
     single<DataStore<Preferences>> {
         PreferenceDataStoreFactory.create(produceFile = { androidContext().preferencesDataStoreFile("settings") })
     }
@@ -97,7 +111,6 @@ val dataModule: Module = module {
             writeBack = { listSettings.settings.value.listsWriteBack },
         )
     }
-    single<LogRepository> { AppLogStore(File(androidContext().filesDir, "logs")).also { AppLog.sink = it } }
     single<UpdateRepository> {
         val context = androidContext()
         val settings = get<SettingsRepository>()
