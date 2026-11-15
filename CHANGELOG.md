@@ -2,6 +2,22 @@
 
 Cambios de Tatakai Next (rama `main`). Tatakai Classic tiene su propio changelog en la rama `legacy`.
 
+## [0.3.1] - 2026-11-15
+
+Uso de AniList más cuidadoso y rápido: menos pedidos, sin chocar con el límite y sin caer a Kitsu por un rato (lo que mostraba títulos raros).
+
+**AniList (escritorio y Android)**
+- Un solo cliente de AniList para toda la app: respeta los límites que informa AniList (`X-RateLimit-*`), espera lo que pide `Retry-After` y reintenta solo si la espera es corta; si es larga, usa otra fuente solo ese tiempo.
+- Lo que pides tú (abrir un título, buscar, reproducir) pasa antes que lo de fondo (filas de Inicio, recomendaciones, calendario).
+- Pedidos iguales al mismo tiempo comparten una sola llamada.
+- Las filas de Inicio, "Porque viste…", el orden de visionado y el mes del calendario se piden juntos en menos pedidos.
+- Inicio se muestra al instante con lo guardado y se refresca por detrás; la ficha de un título se pide una sola vez para Detalle, Episodios y Reproducir.
+- Las tarjetas de las filas piden menos datos.
+- Escritorio: Ajustes › Sistema muestra los pedidos a AniList por minuto, los límites recibidos y la espera actual.
+
+**Tatakai Link**
+- Link ya no se anuncia en la red al arrancar cuando el anuncio está desactivado.
+
 ## [0.3.0] - 2026-11-15
 
 Rediseño de la interfaz inspirado en lo que más gustaba de Hayase, con variantes configurables, y sincronización del historial de Link por dispositivo.
