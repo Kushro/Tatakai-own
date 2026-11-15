@@ -66,4 +66,26 @@ class RelationsGraphTest {
         assertEquals(null, ratingLabel(null))
         assertEquals(null, ratingLabel(0.0))
     }
+
+    @Test
+    fun inlineGraphTakesTapsOnlyAndFullscreenPansAndZooms() {
+        assertEquals(GraphGestures.TAPS_ONLY, graphGesturesFor(fullscreen = false))
+        assertEquals(GraphGestures.PAN_AND_ZOOM, graphGesturesFor(fullscreen = true))
+    }
+
+    @Test
+    fun viewportFitsClampsAndCentres() {
+        // 1000 x 300 content in a 400 x 340 view: fit = 0.4 (width bound), clamped at the minimum.
+        assertEquals(0.4f, GraphViewport.fitScale(1000f, 300f, 400f, 340f))
+        assertEquals(0.3f, GraphViewport.fitScale(2000f, 300f, 400f, 340f, min = 0.3f))
+        // Never zooms in past 100 % to fit a small graph.
+        assertEquals(1f, GraphViewport.fitScale(200f, 200f, 400f, 340f))
+        // Smaller than the view: centred on both axes whatever was asked.
+        assertEquals(100f to 70f, GraphViewport.clamp(-500f, 30f, 1f, 200f, 200f, 400f, 340f))
+        // Wider: kept inside [view - content, 0].
+        assertEquals(-600f to 20f, GraphViewport.clamp(-900f, 0f, 1f, 1000f, 300f, 400f, 340f))
+        assertEquals(0f to 20f, GraphViewport.clamp(50f, 0f, 1f, 1000f, 300f, 400f, 340f))
+        // Centring on x = 500 of a 1000 px wide graph in a 400 px view: offset -300.
+        assertEquals(-300f to 20f, GraphViewport.centredOn(500f, 1f, 1000f, 300f, 400f, 340f))
+    }
 }

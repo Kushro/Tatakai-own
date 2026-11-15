@@ -198,4 +198,6 @@
     <string name="details_graph_zoom_out">Alejar</string>
     <string name="details_graph_fit">Ajustar a la vista</string>
     <string name="details_graph_this">Este título</string>
+    <string name="details_graph_expand">Abrir el grafo en pantalla completa</string>
+    <string name="details_graph_close">Cerrar el grafo</string>
 </resources>

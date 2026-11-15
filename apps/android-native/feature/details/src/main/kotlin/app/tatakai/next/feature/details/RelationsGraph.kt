@@ -2,6 +2,20 @@
 package app.tatakai.next.feature.details
 
 import androidx.compose.animation.core.animate
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -132,9 +146,48 @@ private val NODE_H = 212.dp
 private val GAP_X = 36.dp
 private val GAP_Y = 40.dp
 private val VIEW_H = 340.dp
-private const val MIN_SCALE = 0.4f
-private const val MAX_SCALE = 2.5f
+private val PAD = 16.dp
 
+/**
+ * Gesture policy of the graph (2026-11 UI refresh fix): the inline graph inside the Details scroll takes NO drag / pinch gestures, so
+ * a one-finger swipe always scrolls the page; it shows the fitted graph, node taps open titles, and the expand button or a tap on
+ * the empty canvas opens the fullscreen graph, where one-finger pan and pinch zoom work.
+ */
+enum class GraphGestures { TAPS_ONLY, PAN_AND_ZOOM }
+
+fun graphGesturesFor(fullscreen: Boolean): GraphGestures = if (fullscreen) GraphGestures.PAN_AND_ZOOM else GraphGestures.TAPS_ONLY
+
+/** Pure viewport math (px), unit-tested. */
+object GraphViewport {
+    const val MIN_SCALE = 0.4f
+    const val MAX_SCALE = 2.5f
+
+    /** Smaller axis does not overflow: centred; bigger axis: kept inside [view - content, 0]. */
+    fun clamp(x: Float, y: Float, scale: Float, contentW: Float, contentH: Float, viewW: Float, viewH: Float): Pair<Float, Float> {
+        val cw = contentW * scale
+        val ch = contentH * scale
+        return (if (cw <= viewW) (viewW - cw) / 2f else x.coerceIn(viewW - cw, 0f)) to
+            (if (ch <= viewH) (viewH - ch) / 2f else y.coerceIn(viewH - ch, 0f))
+    }
+
+    /** Scale that shows the whole graph (never above 100 %, never below [min]). */
+    fun fitScale(contentW: Float, contentH: Float, viewW: Float, viewH: Float, min: Float = MIN_SCALE): Float =
+        minOf(viewW / contentW, viewH / contentH, 1f).coerceIn(min, MAX_SCALE)
+
+    /** Offset that centres the x [focusX] (content px at scale 1) horizontally, clamped. */
+    fun centredOn(focusX: Float, scale: Float, contentW: Float, contentH: Float, viewW: Float, viewH: Float): Pair<Float, Float> =
+        clamp(viewW / 2f - focusX * scale, 0f, scale, contentW, contentH, viewW, viewH)
+}
+
+private fun contentWidth(layout: RelationsGraphLayout): Dp = NODE_W * layout.cols + GAP_X * (layout.cols - 1) + PAD * 2
+private fun contentHeight(layout: RelationsGraphLayout): Dp = NODE_H * layout.rows + GAP_Y * (layout.rows - 1) + PAD * 2
+private fun currentCentreX(layout: RelationsGraphLayout): Dp =
+    layout.nodes.firstOrNull { it.current }?.let { PAD + (NODE_W + GAP_X) * it.col + NODE_W / 2 } ?: 0.dp
+
+/**
+ * Inline graph of the Related tab: fitted (the open title centred when even the fitted graph is wider than the card), taps only.
+ * Expand button / empty-canvas tap -> [RelationsGraphFullscreen].
+ */
 @Composable
 internal fun RelationsGraphView(
     layout: RelationsGraphLayout,
@@ -143,120 +196,184 @@ internal fun RelationsGraphView(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
-    val contentW = NODE_W * layout.cols + GAP_X * (layout.cols - 1) + 32.dp
-    val contentH = NODE_H * layout.rows + GAP_Y * (layout.rows - 1) + 32.dp
-    val spatial = spatialMotion()
-    val scope = rememberCoroutineScope()
-    BoxWithConstraints(
-        modifier
-            .fillMaxWidth()
-            .height(VIEW_H)
-            .padding(horizontal = 16.dp),
-    ) {
-        val viewW = maxWidth
-        var scale by remember { mutableFloatStateOf(1f) }
-        var offset by remember { mutableStateOf(Offset.Zero) }
-        fun clampOffset(o: Offset, s: Float): Offset = with(density) {
-            val cw = contentW.toPx() * s
-            val ch = contentH.toPx() * s
-            val vw = viewW.toPx()
+    var fullscreen by rememberSaveable { mutableStateOf(false) }
+    BoxWithConstraints(modifier.fillMaxWidth().height(VIEW_H).padding(horizontal = 16.dp)) {
+        val (scale, offset) = with(density) {
+            val cw = contentWidth(layout).toPx()
+            val ch = contentHeight(layout).toPx()
+            val vw = maxWidth.toPx()
             val vh = VIEW_H.toPx()
-            Offset(
-                if (cw <= vw) (vw - cw) / 2f else o.x.coerceIn(vw - cw, 0f),
-                if (ch <= vh) (vh - ch) / 2f else o.y.coerceIn(vh - ch, 0f),
-            )
+            val s = GraphViewport.fitScale(cw, ch, vw, vh, min = INLINE_MIN_SCALE)
+            val (x, y) = GraphViewport.centredOn(currentCentreX(layout).toPx(), s, cw, ch, vw, vh)
+            s to Offset(x, y)
         }
-        // Start at 100 % with the open title centred.
-        fun centred(): Offset = with(density) {
-            val cur = layout.nodes.firstOrNull { it.current } ?: return@with Offset.Zero
-            val x = (16.dp + (NODE_W + GAP_X) * cur.col + NODE_W / 2).toPx()
-            clampOffset(Offset(viewW.toPx() / 2f - x, 0f), 1f)
-        }
-        fun fitScale(): Float = with(density) {
-            minOf(viewW.toPx() / contentW.toPx(), VIEW_H.toPx() / contentH.toPx(), 1f).coerceIn(MIN_SCALE, MAX_SCALE)
-        }
-        LaunchedEffect(layout, viewW) {
-            scale = 1f
-            offset = centred()
-        }
-        fun animateTo(targetScale: Float, focus: Offset = with(density) { Offset(viewW.toPx() / 2f, VIEW_H.toPx() / 2f) }) {
-            val from = scale
-            val startOffset = offset
-            val to = targetScale.coerceIn(MIN_SCALE, MAX_SCALE)
-            if (!spatial) {
-                offset = clampOffset((startOffset - focus) * (to / from) + focus, to)
-                scale = to
-                return
-            }
-            scope.launch {
-                animate(from, to) { v, _ ->
-                    offset = clampOffset((startOffset - focus) * (v / from) + focus, v)
-                    scale = v
-                }
-            }
-        }
-        val transform = rememberTransformableState { zoom, pan, _ ->
-            val next = (scale * zoom).coerceIn(MIN_SCALE, MAX_SCALE)
-            offset = clampOffset((offset + pan), next)
-            scale = next
-        }
+        val expand = stringResource(R.string.details_graph_expand)
         Surface(
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             shape = MaterialTheme.shapes.large,
             modifier = Modifier.fillMaxWidth().height(VIEW_H),
         ) {
-            Box(Modifier.clipToBounds().transformable(transform)) {
-                Box(
-                    Modifier
-                        .requiredSize(contentW, contentH)
-                        .align(Alignment.TopStart)
-                        .graphicsLayer {
-                            transformOrigin = TransformOrigin(0f, 0f)
-                            translationX = offset.x
-                            translationY = offset.y
-                            scaleX = scale
-                            scaleY = scale
-                        },
-                ) {
-                    GraphEdges(layout)
-                    layout.nodes.forEach { node ->
-                        GraphNodeCard(
-                            node,
-                            language,
-                            onOpen,
-                            Modifier.offset(x = 16.dp + (NODE_W + GAP_X) * node.col, y = 16.dp + (NODE_H + GAP_Y) * node.row),
-                        )
-                    }
-                }
+            // No drag / transform detector here (graphGesturesFor(false) = TAPS_ONLY): one-finger swipes scroll the page. A tap the
+            // nodes did not consume (empty canvas) opens the fullscreen graph.
+            Box(
+                Modifier
+                    .clipToBounds()
+                    .pointerInput(Unit) { detectTapGestures { fullscreen = true } }
+                    .semantics { onClick(label = expand) { fullscreen = true; true } },
+            ) {
+                GraphContent(layout, language, onOpen, scale, offset)
             }
         }
-        Column(Modifier.align(Alignment.BottomEnd).padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            FilledTonalIconButton(onClick = { animateTo(scale * 1.3f) }, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.details_graph_zoom_in))
-            }
-            FilledTonalIconButton(onClick = { animateTo(scale / 1.3f) }, modifier = Modifier.size(40.dp)) {
-                Icon(Icons.Filled.Remove, contentDescription = stringResource(R.string.details_graph_zoom_out))
-            }
-            FilledTonalIconButton(
-                onClick = {
-                    val s = fitScale()
-                    scale = s
-                    offset = clampOffset(Offset.Zero, s)
-                },
-                modifier = Modifier.size(40.dp),
-            ) {
-                Icon(Icons.Filled.FitScreen, contentDescription = stringResource(R.string.details_graph_fit))
+        FilledTonalIconButton(
+            onClick = { fullscreen = true },
+            modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp).size(40.dp),
+        ) {
+            Icon(Icons.Filled.Fullscreen, contentDescription = expand)
+        }
+    }
+    if (fullscreen) {
+        RelationsGraphFullscreen(
+            layout,
+            language,
+            onOpen = { media ->
+                fullscreen = false
+                onOpen(media)
+            },
+            onDismiss = { fullscreen = false },
+        )
+    }
+}
+
+/** Fullscreen graph (dialog): one-finger pan + pinch zoom, zoom / fit buttons, close button; Back closes it. */
+@Composable
+private fun RelationsGraphFullscreen(
+    layout: RelationsGraphLayout,
+    language: TitleLanguage,
+    onOpen: (Media) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = true, dismissOnClickOutside = false),
+    ) {
+        Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().systemBarsPadding()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.details_graph_close))
+                    }
+                    Text(stringResource(R.string.details_related), style = MaterialTheme.typography.titleLarge)
+                }
+                BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                    PannableGraph(layout, language, onOpen, maxWidth, maxHeight)
+                }
             }
         }
     }
 }
 
 @Composable
+private fun PannableGraph(layout: RelationsGraphLayout, language: TitleLanguage, onOpen: (Media) -> Unit, viewWDp: Dp, viewHDp: Dp) {
+    val density = LocalDensity.current
+    val spatial = spatialMotion()
+    val scope = rememberCoroutineScope()
+    val cw: Float
+    val ch: Float
+    val vw: Float
+    val vh: Float
+    with(density) {
+        cw = contentWidth(layout).toPx()
+        ch = contentHeight(layout).toPx()
+        vw = viewWDp.toPx()
+        vh = viewHDp.toPx()
+    }
+    fun clamp(o: Offset, s: Float): Offset = GraphViewport.clamp(o.x, o.y, s, cw, ch, vw, vh).let { Offset(it.first, it.second) }
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    LaunchedEffect(layout, vw, vh) {
+        scale = 1f
+        offset = with(density) { GraphViewport.centredOn(currentCentreX(layout).toPx(), 1f, cw, ch, vw, vh) }.let { Offset(it.first, it.second) }
+    }
+    fun animateTo(target: Float) {
+        val focus = Offset(vw / 2f, vh / 2f)
+        val from = scale
+        val start = offset
+        val to = target.coerceIn(GraphViewport.MIN_SCALE, GraphViewport.MAX_SCALE)
+        if (!spatial) {
+            offset = clamp((start - focus) * (to / from) + focus, to)
+            scale = to
+            return
+        }
+        scope.launch {
+            animate(from, to) { v, _ ->
+                offset = clamp((start - focus) * (v / from) + focus, v)
+                scale = v
+            }
+        }
+    }
+    // graphGesturesFor(true) = PAN_AND_ZOOM: one-finger pan and pinch zoom.
+    val transform = rememberTransformableState { zoom, pan, _ ->
+        val next = (scale * zoom).coerceIn(GraphViewport.MIN_SCALE, GraphViewport.MAX_SCALE)
+        offset = clamp(offset + pan, next)
+        scale = next
+    }
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().clipToBounds().transformable(transform)) {
+            GraphContent(layout, language, onOpen, scale, offset)
+        }
+        Column(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalIconButton(onClick = { animateTo(scale * 1.3f) }) {
+                Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.details_graph_zoom_in))
+            }
+            FilledTonalIconButton(onClick = { animateTo(scale / 1.3f) }) {
+                Icon(Icons.Filled.Remove, contentDescription = stringResource(R.string.details_graph_zoom_out))
+            }
+            FilledTonalIconButton(onClick = {
+                val s = GraphViewport.fitScale(cw, ch, vw, vh)
+                scale = s
+                offset = clamp(Offset.Zero, s)
+            }) {
+                Icon(Icons.Filled.FitScreen, contentDescription = stringResource(R.string.details_graph_fit))
+            }
+        }
+    }
+}
+
+/** The nodes and edges at [scale] / [offset] (one graphicsLayer: moving never relayouts; layer transforms also apply to taps). */
+@Composable
+private fun GraphContent(layout: RelationsGraphLayout, language: TitleLanguage, onOpen: (Media) -> Unit, scale: Float, offset: Offset) {
+    Box(
+        Modifier
+            .wrapContentSize(Alignment.TopStart, unbounded = true)
+            .requiredSize(contentWidth(layout), contentHeight(layout))
+            .graphicsLayer {
+                transformOrigin = TransformOrigin(0f, 0f)
+                translationX = offset.x
+                translationY = offset.y
+                scaleX = scale
+                scaleY = scale
+            },
+    ) {
+        GraphEdges(layout)
+        layout.nodes.forEach { node ->
+            GraphNodeCard(
+                node,
+                language,
+                onOpen,
+                Modifier.offset(x = PAD + (NODE_W + GAP_X) * node.col, y = PAD + (NODE_H + GAP_Y) * node.row),
+            )
+        }
+    }
+}
+
+private const val INLINE_MIN_SCALE = 0.3f
+
+@Composable
 private fun GraphEdges(layout: RelationsGraphLayout) {
     val main = MaterialTheme.colorScheme.primary
     val other = MaterialTheme.colorScheme.outline
     val byKey = remember(layout) { layout.nodes.associateBy { it.key } }
-    Canvas(Modifier.requiredSize(NODE_W * layout.cols + GAP_X * (layout.cols - 1) + 32.dp, NODE_H * layout.rows + GAP_Y * (layout.rows - 1) + 32.dp)) {
+    Canvas(Modifier.requiredSize(contentWidth(layout), contentHeight(layout))) {
         fun anchor(n: GraphNode, side: Int): Offset {
             // side: 0 = right middle of the cover, 1 = left middle, 2 = bottom centre, 3 = top centre.
             val x = (16.dp + (NODE_W + GAP_X) * n.col).toPx()
@@ -320,6 +437,3 @@ private fun GraphNodeCard(node: GraphNode, language: TitleLanguage, onOpen: (Med
         }
     }
 }
-
-/** Width the graph would take at 100 % (used by tests / callers that want to know whether it overflows). */
-internal fun graphContentWidth(layout: RelationsGraphLayout): Dp = NODE_W * layout.cols + GAP_X * (layout.cols - 1) + 32.dp

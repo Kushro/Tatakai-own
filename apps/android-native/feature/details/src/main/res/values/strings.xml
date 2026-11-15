@@ -198,4 +198,6 @@
     <string name="details_graph_zoom_out">Zoom out</string>
     <string name="details_graph_fit">Fit to the view</string>
     <string name="details_graph_this">This title</string>
+    <string name="details_graph_expand">Open the graph full screen</string>
+    <string name="details_graph_close">Close the graph</string>
 </resources>
