@@ -123,7 +123,7 @@
     <string name="details_episode_search_empty">Nothing matches \"%1$s\".</string>
     <string name="details_unaired">Not aired yet</string>
     <string name="details_episode_unaired_cd">Episode %1$d, not aired yet</string>
-    <string name="details_view_list">With thumbnails</string>
+    <string name="details_view_list">List</string>
     <string name="details_view_compact">Compact</string>
     <string name="details_facts">Technical sheet</string>
     <string name="details_fact_format">Format</string>
@@ -190,4 +190,6 @@
     <string name="details_rel_compilation">Compilation</string>
     <string name="details_rel_contains">Contains</string>
     <string name="details_rel_other">Other</string>
+    <!-- 2026-11 UI refresh -->
+    <string name="details_view_cards">Cards</string>
 </resources>

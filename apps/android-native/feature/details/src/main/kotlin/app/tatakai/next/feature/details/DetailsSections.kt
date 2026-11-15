@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.NoAdultContent
@@ -150,6 +151,8 @@ internal fun LazyListScope.detailsItems(
     range: Int,
     onRange: (Int) -> Unit,
     includePanel: Boolean,
+    /** 2026-11 UI refresh: episode cards per row (1 on phones, 2 on wide windows). */
+    cardColumns: Int = 1,
 ) {
     item(key = "header", contentType = "header") { Header(media, state, actions) }
     if (includePanel) {
@@ -160,7 +163,7 @@ internal fun LazyListScope.detailsItems(
     item(key = "tabs", contentType = "tabs") { DetailsTabs(tab, onTab) }
     when (tab) {
         DetailsTab.EPISODES -> {
-            episodeItems(media, state, actions, range, onRange)
+            episodeItems(media, state, actions, range, onRange, cardColumns)
             item(key = "wave-b-episodes", contentType = "slot") { WaveBSlots(media) }
         }
         DetailsTab.INFO -> item(key = "info", contentType = "info") { InfoTab(media, state, actions) }
@@ -571,6 +574,7 @@ private fun EpisodeToolbar(state: DetailsUiState, actions: DetailsActions) {
         )
         Segmented(
             options = listOf(
+                SegmentedOption(EpisodeView.CARDS, stringResource(R.string.details_view_cards), icon = Icons.Outlined.ViewAgenda),
                 SegmentedOption(EpisodeView.LIST, stringResource(R.string.details_view_list), icon = Icons.AutoMirrored.Outlined.ViewList),
                 SegmentedOption(EpisodeView.COMPACT, stringResource(R.string.details_view_compact), icon = Icons.Outlined.GridView),
             ),
@@ -583,7 +587,15 @@ private fun EpisodeToolbar(state: DetailsUiState, actions: DetailsActions) {
     }
 }
 
-private fun LazyListScope.episodeItems(media: Media, state: DetailsUiState, actions: DetailsActions, range: Int, onRange: (Int) -> Unit) {
+private fun LazyListScope.episodeItems(
+    media: Media,
+    state: DetailsUiState,
+    actions: DetailsActions,
+    range: Int,
+    onRange: (Int) -> Unit,
+    cardColumns: Int = 1,
+) {
+    val fallbackArt = media.banner ?: media.cover
     when (val eps = state.episodes) {
         LoadState.Loading -> item(key = "episodes-loading", contentType = "loading") { DelayedLoading() }
         is LoadState.Err -> item(key = "episodes-error", contentType = "error") {
@@ -644,14 +656,15 @@ private fun LazyListScope.episodeItems(media: Media, state: DetailsUiState, acti
             val page = if (searching) filtered else filtered.drop(selected * RANGE_SIZE).take(RANGE_SIZE)
             val current = state.continueEpisode
             if (state.episodeView == EpisodeView.COMPACT) {
-                page.chunked(COMPACT_COLUMNS).forEachIndexed { rowIndex, rowItems ->
-                    item(key = "epc-$selected-$rowIndex", contentType = "episode-compact") {
+                val columns = cardColumns + 1
+                page.chunked(columns).forEachIndexed { rowIndex, rowItems ->
+                    item(key = "epc-$selected-${rowItems.first().episode.number}", contentType = "episode-compact") {
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 3.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             rowItems.forEach { item ->
-                                CompactEpisodeCell(
+                                CompactEpisodeLine(
                                     item = item,
                                     watched = state.isWatched(item.episode.number),
                                     current = item.episode.number == current && state.hasProgress,
@@ -659,7 +672,34 @@ private fun LazyListScope.episodeItems(media: Media, state: DetailsUiState, acti
                                     modifier = Modifier.weight(1f),
                                 )
                             }
-                            repeat(COMPACT_COLUMNS - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                            repeat(columns - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+            } else if (state.episodeView == EpisodeView.CARDS) {
+                page.chunked(cardColumns.coerceAtLeast(1)).forEach { rowItems ->
+                    item(key = "epcard-${rowItems.first().episode.number}", contentType = "episode-card") {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            rowItems.forEach { item ->
+                                val number = item.episode.number
+                                EpisodeCard(
+                                    episode = item.episode,
+                                    unaired = item.unaired,
+                                    progress = state.progress[number],
+                                    watched = state.isWatched(number),
+                                    current = number == current && state.hasProgress,
+                                    downloaded = number in state.downloaded,
+                                    fallbackArt = fallbackArt,
+                                    onClick = { actions.onEpisodeClick(number) },
+                                    onDownload = { actions.onDownloadEpisode(number) },
+                                    onToggleWatched = actions.onToggleWatched?.let { toggle -> { toggle(number) } },
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            repeat(cardColumns - rowItems.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 }
@@ -676,48 +716,11 @@ private fun LazyListScope.episodeItems(media: Media, state: DetailsUiState, acti
                         onClick = { actions.onEpisodeClick(number) },
                         onDownload = { actions.onDownloadEpisode(number) },
                         onToggleWatched = actions.onToggleWatched?.let { toggle -> { toggle(number) } },
+                        fallbackArt = fallbackArt,
                     )
                 }
             }
         }
-    }
-}
-
-/** Compact mode: a numbered cell; watched = tonal, current = outlined in primary, unaired = dimmed and not clickable. */
-@Composable
-private fun CompactEpisodeCell(
-    item: EpisodeItem,
-    watched: Boolean,
-    current: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val container = when {
-        watched -> MaterialTheme.colorScheme.secondaryContainer
-        item.episode.isFiller -> MaterialTheme.colorScheme.tertiaryContainer
-        else -> MaterialTheme.colorScheme.surfaceContainerHigh
-    }
-    val description = stringResource(
-        if (item.unaired) R.string.details_episode_unaired_cd else UiR.string.ui_episode_number,
-        item.episode.number,
-    )
-    Box(
-        modifier
-            .aspectRatio(1.4f)
-            .clip(MaterialTheme.shapes.small)
-            .background(container)
-            .then(if (current) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.small) else Modifier)
-            .then(if (item.unaired) Modifier.alpha(UNAIRED_ALPHA) else Modifier.clickable(onClick = onClick))
-            .padding(4.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            item.episode.number.toString(),
-            style = MaterialTheme.typography.labelLarge,
-            textAlign = TextAlign.Center,
-            color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.semantics { contentDescription = description },
-        )
     }
 }
 
@@ -736,6 +739,8 @@ private fun DetailsEpisodeRow(
     watched: Boolean = progress?.completed == true,
     /** "Marcar como visto / no visto"; null hides the button. */
     onToggleWatched: (() -> Unit)? = null,
+    /** 2026-11 UI refresh: series art behind the number when the episode has no thumbnail. */
+    fallbackArt: String? = null,
 ) {
     var menu by remember { mutableStateOf(false) }
     val rowModifier = if (current) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier
@@ -749,7 +754,7 @@ private fun DetailsEpisodeRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(128.dp)) {
-            MediaCover(url = episode.image, aspectRatio = 16f / 9f, modifier = Modifier.fillMaxWidth())
+            EpisodeThumb(episode, fallbackArt, Modifier.fillMaxWidth())
             val fraction = progress?.takeIf { !it.completed && !watched }?.progressFraction()
             if (fraction != null) {
                 LinearProgressIndicator(
@@ -783,13 +788,21 @@ private fun DetailsEpisodeRow(
                     if (downloaded) Pill(stringResource(UiR.string.download_state_completed), tone = PillTone.NEUTRAL)
                 }
             }
-            episode.airDate?.let {
+            // 2026-11 UI refresh: relative date ("hace 1 semana", "en 6 días"), length and rating; the exact date for TalkBack.
+            // BUG-015 still holds: a future date reads "en N días", never "Aired <future date>".
+            episodeMeta(episode, withRating = true)?.let { meta ->
+                val exact = episode.airDate?.let {
+                    stringResource(if (unaired) R.string.details_airs_on else R.string.details_aired, formatAirDate(it))
+                }
                 Text(
-                    // BUG-015: an episode that has not aired yet "airs on <date>", never "Aired <future date>".
-                    stringResource(if (unaired) R.string.details_airs_on else R.string.details_aired, formatAirDate(it)),
+                    meta,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = if (exact != null) Modifier.semantics { contentDescription = "$exact · $meta" } else Modifier,
                 )
+            }
+            episode.summary?.takeIf { it.isNotBlank() }?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
         if (!unaired && onToggleWatched != null) {
@@ -1256,7 +1269,6 @@ private fun formatScore(score: Int): String = String.format(Locale.ROOT, "%.1f",
 
 private const val SYNOPSIS_LINES = 4
 private const val SYNOPSIS_TOGGLE_CHARS = 120
-private const val COMPACT_COLUMNS = 6
 private const val TAGS_COLLAPSED = 12
 
 /** `1999-10-20T14:15:00Z` / `1999-10-20` -> the localized medium date ("20 oct 1999"); anything else is shown as it came. */

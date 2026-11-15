@@ -420,7 +420,7 @@ private fun DetailsBody(media: Media, state: DetailsUiState, actions: DetailsAct
         if (wide) {
             Row(Modifier.fillMaxSize()) {
                 LazyColumn(Modifier.weight(1f).fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = bottomPadding)) {
-                    detailsItems(media, state, actions, selectedTab, { tab = it.ordinal }, range, { range = it }, includePanel = false)
+                    detailsItems(media, state, actions, selectedTab, { tab = it.ordinal }, range, { range = it }, includePanel = false, cardColumns = 2)
                 }
                 Column(
                     Modifier
