@@ -127,6 +127,16 @@ pub struct FlowState {
     started: bool,
 }
 
+/// BUG-134: the list to start a source confirmed in Details from: the last known one (`Backend::known_sources`) with
+/// `source_id` marked as the pick, if it lists that source; `None` = ask `Backend::sources` first. Pure.
+pub fn confirmed_start(known: Option<Vec<SourceVm>>, source_id: &str) -> Option<Vec<SourceVm>> {
+    let mut list = known.filter(|l| l.iter().any(|s| s.id == source_id))?;
+    for s in &mut list {
+        s.picked = s.id == source_id;
+    }
+    Some(list)
+}
+
 impl FlowState {
     /// The rows for the player's `SourcePicker`: the source being played is the checked one; before anything plays
     /// (Manual asks first) the user's remembered pick stays checked, so the picker puts it on top (BUG-052, §11.1).
@@ -251,6 +261,38 @@ impl FlowState {
         self.confirmed = true;
         self.enter(i);
         true
+    }
+
+    /// BUG-134: the full list arrived while the confirmed pick plays from the last known one: take it as the
+    /// picker's list and the failover order, keeping the source being resolved / played (by id, added on top if the
+    /// new list lacks it), the pick and the failures of this round. A pick that already failed in Auto with nothing
+    /// left in the old list goes on with the first untried playable source of the new one: returns `true` then (the
+    /// caller resolves it). Legacy lists and empty answers change nothing.
+    pub fn refresh_sources(&mut self, mut fresh: Vec<SourceVm>) -> bool {
+        if self.legacy || fresh.is_empty() {
+            return false;
+        }
+        let current = self.current_source().cloned();
+        let pick = self.sources.iter().find(|s| s.picked).map(|s| s.id.clone());
+        if let Some(c) = &current
+            && !fresh.iter().any(|s| s.id == c.id)
+        {
+            fresh.insert(0, c.clone());
+        }
+        for s in &mut fresh {
+            s.picked = pick.as_deref() == Some(s.id.as_str());
+        }
+        self.current = current.and_then(|c| fresh.iter().position(|s| s.id == c.id));
+        self.sources = fresh;
+        if self.phase == Phase::Error
+            && self.mode == SourceModeVm::Auto
+            && !self.failed.is_empty()
+            && let Some(n) = self.next_playable()
+        {
+            self.enter(n);
+            return true;
+        }
+        false
     }
 
     /// The stream of `attempt` was handed to mpv.
@@ -747,6 +789,71 @@ mod tests {
 
     fn err() -> UiError {
         UiError::new(ErrorKind::Extension, "HTTP 403")
+    }
+
+    #[test]
+    fn a_confirmed_pick_starts_from_the_last_known_list() {
+        // BUG-134: the pick plays from the list Details showed, marked as the pick; a list without it asks again.
+        let torrent = list()[1].id.clone();
+        let mut known = list();
+        known[0].picked = true;
+        let start = confirmed_start(Some(known), &torrent).expect("listed");
+        assert_eq!(start.iter().filter(|s| s.picked).map(|s| s.id.as_str()).collect::<Vec<_>>(), vec![torrent.as_str()]);
+        assert!(confirmed_start(Some(list()), "toko|torrent|Missing").is_none());
+        assert!(confirmed_start(None, &torrent).is_none());
+        // Manual mode plays it at once (confirmed) and nothing else is resolved first.
+        let f = FlowState::with_confirmed(start, SourceModeVm::Manual, &any(), true);
+        assert_eq!(f.to_resolve(), Some(1));
+        assert_eq!(f.attempt, 1);
+    }
+
+    #[test]
+    fn a_refreshed_list_keeps_what_plays() {
+        // BUG-134: the full list comes in while the pick plays from the old one: same source, same attempt (nothing
+        // is resolved again), the pick stays marked, the picker shows the new rows.
+        let torrent = list()[1].id.clone();
+        let start = confirmed_start(Some(list()), &torrent).unwrap();
+        let mut f = FlowState::with_confirmed(start, SourceModeVm::Auto, &any(), true);
+        f.resolved(f.attempt);
+        let attempt = f.attempt;
+        let mut fresh = list();
+        fresh.rotate_left(2);
+        fresh.push(src("hianime", "Delta", SourceKindVm::Web, "1080p"));
+        assert!(!f.refresh_sources(fresh));
+        assert_eq!(f.attempt, attempt);
+        assert_eq!(f.phase, Phase::Buffering);
+        assert_eq!(f.current_source().map(|s| s.id.as_str()), Some(torrent.as_str()));
+        assert_eq!(f.sources.len(), 6);
+        assert_eq!(f.sources.iter().filter(|s| s.picked).count(), 1);
+        assert!(f.picker_sources().iter().any(|s| s.id == "hianime|web|Delta"));
+        // A fresh list without the source that plays keeps it on top.
+        assert!(!f.refresh_sources(vec![src("hianime", "Delta", SourceKindVm::Web, "1080p")]));
+        assert_eq!(f.current, Some(0));
+        assert_eq!(f.sources.len(), 2);
+        // An empty answer changes nothing.
+        assert!(!f.refresh_sources(Vec::new()));
+        assert_eq!(f.sources.len(), 2);
+    }
+
+    #[test]
+    fn a_refreshed_list_lets_auto_go_on_after_the_old_one_ran_out() {
+        // BUG-134: the pick (and the old list) failed before the refresh: Auto continues with an untried source of
+        // the new list; Manual keeps waiting for the user.
+        let only = vec![src("nyaa", "SubsPlease", SourceKindVm::Torrent, "1080p")];
+        let sid = only[0].id.clone();
+        let mut f = FlowState::with_confirmed(confirmed_start(Some(only.clone()), &sid).unwrap(), SourceModeVm::Auto, &any(), true);
+        f.fail(f.attempt, err());
+        assert_eq!(f.phase, Phase::Error);
+        assert!(f.refresh_sources(list()));
+        let next = f.to_resolve().expect("resolving");
+        assert_ne!(f.sources[next].id, sid);
+        assert!(f.failed.iter().any(|x| x.id == sid));
+
+        let mut m = FlowState::with_confirmed(confirmed_start(Some(only), &sid).unwrap(), SourceModeVm::Manual, &any(), true);
+        m.fail(m.attempt, err());
+        assert!(!m.refresh_sources(list()));
+        assert_eq!(m.phase, Phase::Error);
+        assert_eq!(m.untried_left(), 3);
     }
 
     #[test]

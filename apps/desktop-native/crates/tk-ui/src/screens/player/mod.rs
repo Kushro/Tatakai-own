@@ -63,7 +63,7 @@ use crate::platform::{self, now_ms};
 use crate::player_state::{
     FLASH_MS, FlowState, Markers, Phase, SUB_DELAY_STEP_SECS, SleepChoice, SleepTimer, auto_skip_target, countdown_left,
     cycle_track, format_speed, is_info_hash, keeps_controls_up, mpv_key_name, mpv_mouse_button, range_spans,
-    ready_span, source_name, speed_step, volume_step,
+    confirmed_start, ready_span, source_name, speed_step, volume_step,
 };
 use crate::shortcuts::Shortcut;
 
@@ -312,6 +312,8 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
         hls_original: hls_original.clone(),
     };
 
+    // Bumped by every boot, so a list refresh of an earlier boot (BUG-134) does not land in a later one.
+    let mut boot_gen = use_signal(|| 0_u64);
     // Rank the sources, start mpv, resolve the first one and pump mpv's events.
     let mut boot = use_future({
         let (ctx, host) = (ctx.clone(), host.clone());
@@ -320,6 +322,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
             async move {
                 let (backend, id) = (ctx.backend.clone(), ctx.id.clone());
                 let mut flow = ctx.flow;
+                *boot_gen.write() += 1;
                 dispatch(&mut pstate, PlayerAction::Loading);
                 dispatch(&mut pstate, PlayerAction::Activity(now_ms()));
 
@@ -415,6 +418,13 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 let confirmed_pick = CONFIRMED_PICK.write().take().filter(|(m, e, _)| *m == id && *e == episode).map(|(_, _, s)| s);
                 let batch = take_batch_next(&backend, &id, episode);
                 let confirmed = batch.is_some();
+                // BUG-134: a source confirmed in Details starts from the list Details showed (the last one known)
+                // instead of waiting for every extension again; the full list comes in behind (`revalidate`).
+                let known = match (&batch, &confirmed_pick) {
+                    (None, Some(sid)) => confirmed_start(backend.known_sources(&id, episode), sid),
+                    _ => None,
+                };
+                let revalidate = known.is_some();
                 let listed = match batch {
                     // Next episode of a batch: the same torrent, no source resolution (docs/redesign/10 section 5.5).
                     Some(next) => {
@@ -424,7 +434,10 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                         // Picked, so Manual mode plays it at once too.
                         Ok(vec![SourceVm { picked: true, ..next.source }])
                     }
-                    None => backend.sources(&id, episode).await,
+                    None => match known {
+                        Some(list) => Ok(list),
+                        None => backend.sources(&id, episode).await,
+                    },
                 };
                 let state = match listed {
                     // A remembered pick that no longer meets the preferences is ignored and forgotten (audit bug).
@@ -457,6 +470,9 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 flow.set(state);
                 if waiting {
                     picker_open.set(true);
+                }
+                if revalidate {
+                    spawn(ctx.clone().revalidate_sources(boot_gen, *boot_gen.peek()));
                 }
 
                 if ext_mpv.peek().is_some() {

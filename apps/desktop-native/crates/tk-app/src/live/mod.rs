@@ -85,6 +85,10 @@ pub struct LiveBackend {
     /// go stale like a stream URL), so playing or sending a torrent picked in Details does not ask every extension
     /// again. Cleared with `candidates`.
     torrent_memo: Mutex<TorrentMemo>,
+    /// BUG-134: the last ranked list `sources()` answered per `(media id, episode)`, whatever its age: the player
+    /// starts a source confirmed in Details from it at once and refreshes the list behind (`Backend::known_sources`).
+    /// Cleared with `candidates`.
+    last_sources: Mutex<LastSources>,
     /// When the extensions' outbound route (proxy / FlareSolverr) last changed (BUG-102): an empty listing right
     /// after is asked again once before "No sources found".
     net_changed: Mutex<Option<Instant>>,
@@ -117,6 +121,42 @@ const NET_CHANGE_RETRY_PAUSE: Duration = Duration::from_secs(2);
 
 /// How many `(media id, episode)` lists `TorrentMemo` keeps (the oldest is dropped first).
 const TORRENT_MEMO_KEYS: usize = 64;
+/// BUG-134: how long past its TTL an expired list still serves `playback_source` a web candidate picked from it (a
+/// direct stream URL usually lives far longer than `SOURCES_TTL`; a dead one fails over like any broken source).
+const STALE_WEB_GRACE: Duration = Duration::from_secs(15 * 60);
+
+/// BUG-134: the last ranked `SourceVm` list of each `(media id, episode)`, never expired, bounded to
+/// `TORRENT_MEMO_KEYS` lists (the least recently written goes first).
+#[derive(Default)]
+pub(crate) struct LastSources {
+    lists: HashMap<(String, u32), Vec<SourceVm>>,
+    order: std::collections::VecDeque<(String, u32)>,
+}
+
+impl LastSources {
+    pub(crate) fn remember(&mut self, key: (String, u32), list: &[SourceVm]) {
+        if list.is_empty() {
+            return;
+        }
+        self.lists.insert(key.clone(), list.to_vec());
+        self.order.retain(|k| *k != key);
+        self.order.push_back(key);
+        while self.order.len() > TORRENT_MEMO_KEYS {
+            if let Some(old) = self.order.pop_front() {
+                self.lists.remove(&old);
+            }
+        }
+    }
+
+    pub(crate) fn get(&self, id: &str, episode: u32) -> Option<Vec<SourceVm>> {
+        self.lists.get(&(id.to_owned(), episode)).cloned()
+    }
+
+    fn clear(&mut self) {
+        self.lists.clear();
+        self.order.clear();
+    }
+}
 
 /// BUG-134: torrent candidates by `(media id, episode)`, upserted by source key from every listing (a partial listing
 /// that missed a torrent does not forget it) and never expired; bounded to `TORRENT_MEMO_KEYS` lists.
@@ -177,6 +217,11 @@ fn candidates_ttl(len: usize, partial: bool) -> Option<Duration> {
     }
 }
 
+/// Whether a list that expires (or expired) at `until` may still serve a picked web candidate at `now`. Pure.
+fn within_stale_grace(until: Instant, now: Instant) -> bool {
+    now < until + STALE_WEB_GRACE
+}
+
 /// Whether the outbound route of the extensions differs between two saved settings. Pure.
 fn route_changed(old: &Settings, new: &Settings) -> bool {
     let (a, b) = (old.server.clone().sanitized(), new.server.clone().sanitized());
@@ -226,6 +271,7 @@ impl LiveBackend {
             link,
             candidates: Mutex::new(HashMap::new()),
             torrent_memo: Mutex::new(TorrentMemo::default()),
+            last_sources: Mutex::new(LastSources::default()),
             net_changed: Mutex::new(None),
             torrent: torrent::TorrentService::new(paths.clone()),
             secrets: tk_core::Secrets::open(&paths.root),
@@ -336,6 +382,21 @@ impl LiveBackend {
         if let Ok(mut m) = self.torrent_memo.lock() {
             m.clear();
         }
+        if let Ok(mut l) = self.last_sources.lock() {
+            l.clear();
+        }
+    }
+
+    /// BUG-134: the web candidate `source` of a cached list of `(id, episode)` that expired less than
+    /// `STALE_WEB_GRACE` ago (a fresh one is found by `episode_candidates` itself). No network.
+    fn recent_web_candidate(&self, id: &str, episode: u32, source: &str) -> Option<SourceCandidate> {
+        let now = Instant::now();
+        let c = self.candidates.lock().ok()?;
+        let (until, list) = c.get(&(id.to_owned(), episode))?;
+        if !within_stale_grace(*until, now) {
+            return None;
+        }
+        list.iter().find(|c| c.kind == SourceKind::Web && source_key(c) == source).cloned()
     }
 
     /// BUG-134: a torrent candidate some listing of `id` returned, even if that list expired (see `TorrentMemo`).
@@ -374,7 +435,8 @@ impl LiveBackend {
                     && let Ok(mut c) = self.candidates.lock()
                 {
                     let now = Instant::now();
-                    c.retain(|_, (until, _)| now < *until);
+                    // Expired lists stay a while for `recent_web_candidate` (BUG-134); lookups here skip them.
+                    c.retain(|_, (until, _)| within_stale_grace(*until, now));
                     c.insert(key, (now + ttl, v.clone()));
                 }
                 v
@@ -388,6 +450,42 @@ impl LiveBackend {
 }
 
 impl LiveBackend {
+    /// `Backend::sources` of a catalog title: every extension's candidates, ranked with the current prefs.
+    async fn ranked_sources(&self, id: &str, episode: u32) -> UiResult<Vec<SourceVm>> {
+        let (_, media) = self.media(id).await?;
+        let settings = settings_store::load(&self.settings_file);
+        let prefs = sources::core_prefs(&settings.sources);
+        let enabled: HashMap<String, bool> =
+            self.ext.installed().into_iter().map(|e| (e.id, e.enabled && e.compat != Compat::Unsupported)).collect();
+        let picked = self.store.picked_source(id, episode).ok().flatten();
+        let rank = |mut candidates: Vec<SourceCandidate>| {
+            // Wave B (k, `sources.embed-sniffer.timeout-setting`): with the sniffer off, embed pages are not offered.
+            if !settings.server.sniffer_enabled {
+                candidates.retain(|c| !c.web.as_ref().is_some_and(|w| w.embed));
+            }
+            sources::ranked_vms(candidates, &prefs, |ext_id| enabled.get(ext_id).copied().unwrap_or(ext_catalog::is_remote_ext_id(ext_id)), picked.as_deref())
+        };
+        let mut ranked = rank(self.episode_candidates(id, episode, &media, false).await);
+        let has_sources_ext = self.ext.host().has_source_extensions();
+        let changed_at = self.net_changed.lock().ok().and_then(|g| *g);
+        if ranked.is_empty() && has_sources_ext && retry_after_route_change(changed_at, Instant::now()) {
+            // BUG-102: the first listing after the proxy changed can come back empty (extension work still running
+            // on the old route); ask once more before saying "No sources found".
+            tracing::info!("empty source listing right after an outbound-route change; asking the extensions again");
+            if let Ok(mut g) = self.net_changed.lock() {
+                *g = None;
+            }
+            tokio::time::sleep(NET_CHANGE_RETRY_PAUSE).await;
+            ranked = rank(self.episode_candidates(id, episode, &media, true).await);
+        }
+        if ranked.is_empty() && has_sources_ext {
+            return Err(self.why_no_sources(&settings).await);
+        }
+        // Wave A, worker i: `SourceVm::debrid` from the connected debrid services (best effort). Wave B
+        // (`sources.debrid.episode-context`, k): the episode context travels with the call instead of being guessed.
+        Ok(debrid::mark_cached(self, id, episode, ranked).await)
+    }
+
     /// BUG-082: installed source extensions listed nothing. With an outbound proxy that does not answer, that is the
     /// reason (every extension fetch goes through it); otherwise they found nothing. Never "nothing installed".
     async fn why_no_sources(&self, settings: &Settings) -> UiError {
@@ -684,41 +782,21 @@ impl Backend for LiveBackend {
     // --- wave 1 (docs/redesign/08) ---
 
     async fn sources(&self, id: &str, episode: u32) -> UiResult<Vec<SourceVm>> {
-        if ext_catalog::is_provider_id(id) {
-            return ext_catalog::sources(self, id, episode).await;
-        }
-        let (_, media) = self.media(id).await?;
-        let settings = settings_store::load(&self.settings_file);
-        let prefs = sources::core_prefs(&settings.sources);
-        let enabled: HashMap<String, bool> =
-            self.ext.installed().into_iter().map(|e| (e.id, e.enabled && e.compat != Compat::Unsupported)).collect();
-        let picked = self.store.picked_source(id, episode).ok().flatten();
-        let rank = |mut candidates: Vec<SourceCandidate>| {
-            // Wave B (k, `sources.embed-sniffer.timeout-setting`): with the sniffer off, embed pages are not offered.
-            if !settings.server.sniffer_enabled {
-                candidates.retain(|c| !c.web.as_ref().is_some_and(|w| w.embed));
-            }
-            sources::ranked_vms(candidates, &prefs, |ext_id| enabled.get(ext_id).copied().unwrap_or(ext_catalog::is_remote_ext_id(ext_id)), picked.as_deref())
+        let listed = if ext_catalog::is_provider_id(id) {
+            ext_catalog::sources(self, id, episode).await
+        } else {
+            self.ranked_sources(id, episode).await
         };
-        let mut ranked = rank(self.episode_candidates(id, episode, &media, false).await);
-        let has_sources_ext = self.ext.host().has_source_extensions();
-        let changed_at = self.net_changed.lock().ok().and_then(|g| *g);
-        if ranked.is_empty() && has_sources_ext && retry_after_route_change(changed_at, Instant::now()) {
-            // BUG-102: the first listing after the proxy changed can come back empty (extension work still running
-            // on the old route); ask once more before saying "No sources found".
-            tracing::info!("empty source listing right after an outbound-route change; asking the extensions again");
-            if let Ok(mut g) = self.net_changed.lock() {
-                *g = None;
-            }
-            tokio::time::sleep(NET_CHANGE_RETRY_PAUSE).await;
-            ranked = rank(self.episode_candidates(id, episode, &media, true).await);
+        if let Ok(list) = &listed
+            && let Ok(mut l) = self.last_sources.lock()
+        {
+            l.remember((id.to_owned(), episode), list);
         }
-        if ranked.is_empty() && has_sources_ext {
-            return Err(self.why_no_sources(&settings).await);
-        }
-        // Wave A, worker i: `SourceVm::debrid` from the connected debrid services (best effort). Wave B
-        // (`sources.debrid.episode-context`, k): the episode context travels with the call instead of being guessed.
-        Ok(debrid::mark_cached(self, id, episode, ranked).await)
+        listed
+    }
+
+    fn known_sources(&self, id: &str, episode: u32) -> Option<Vec<SourceVm>> {
+        self.last_sources.lock().ok().and_then(|l| l.get(id, episode))
     }
 
     async fn mpv_hls_master(&self, url: &str, headers: &[(String, String)]) -> Option<String> {
@@ -742,10 +820,15 @@ impl Backend for LiveBackend {
         }
         let (r, media) = self.media(id).await?;
         let find = |list: Vec<SourceCandidate>| list.into_iter().find(|c| source_key(c) == source_id);
-        // A cached list may be stale (URL expired, extension re-enabled): resolve again once before giving up.
-        let candidate = match find(self.episode_candidates(id, episode, &media, false).await) {
+        // BUG-134: a web source picked from a list that just expired plays from that list instead of waiting for
+        // every extension again (the player refreshes its list behind). A cached list may be stale (URL expired,
+        // extension re-enabled): resolve again once before giving up.
+        let candidate = match self.recent_web_candidate(id, episode, source_id) {
             Some(c) => Some(c),
-            None => find(self.episode_candidates(id, episode, &media, true).await),
+            None => match find(self.episode_candidates(id, episode, &media, false).await) {
+                Some(c) => Some(c),
+                None => find(self.episode_candidates(id, episode, &media, true).await),
+            },
         };
         let candidate = candidate.ok_or_else(|| UiError::new(ErrorKind::NoSource, source_id))?;
         // Wave B (k, `sources.embed-sniffer`): an embed page is resolved to its media URL in the hidden web view first.
@@ -1566,6 +1649,59 @@ mod route_change_tests {
         assert!(memo.find("anilist:9", Some(100), &source_key(&toons)).is_some());
         memo.clear();
         assert_eq!(memo.find("anilist:9", None, &source_key(&toons)), None);
+    }
+
+    #[test]
+    fn the_last_ranked_list_outlives_its_ttl() {
+        // BUG-134: the player starts a pick from the last list `sources()` answered, however old; bounded.
+        let row = |label: &str| SourceVm {
+            id: format!("toko|web|{label}"),
+            ext_id: "toko".into(),
+            ext_name: "Toko".into(),
+            kind: tk_ui::backend::SourceKindVm::Web,
+            label: label.into(),
+            quality: "1080p".into(),
+            container: None,
+            subs: Vec::new(),
+            dubs: Vec::new(),
+            reliability: INITIAL_RELIABILITY,
+            note: None,
+            latency_ms: None,
+            size_bytes: None,
+            seeders: None,
+            leechers: None,
+            info_hash: None,
+            ext_enabled: true,
+            score: 0.0,
+            recommended: false,
+            picked: false,
+            tags: Default::default(),
+            debrid: None,
+            embed: false,
+        };
+        let mut last = LastSources::default();
+        last.remember(("anilist:1".into(), 3), &[row("Alpha"), row("Beta")]);
+        last.remember(("anilist:1".into(), 3), &[]);
+        assert_eq!(last.get("anilist:1", 3).map(|l| l.len()), Some(2));
+        last.remember(("anilist:1".into(), 3), &[row("Gamma")]);
+        assert_eq!(last.get("anilist:1", 3).unwrap()[0].label, "Gamma");
+        assert!(last.get("anilist:1", 4).is_none());
+        for ep in 100..100 + TORRENT_MEMO_KEYS as u32 {
+            last.remember(("anilist:9".into(), ep), &[row("Alpha")]);
+        }
+        assert!(last.get("anilist:1", 3).is_none());
+        last.clear();
+        assert!(last.get("anilist:9", 100).is_none());
+    }
+
+    #[test]
+    fn an_expired_list_serves_a_picked_web_source_only_for_a_while() {
+        // BUG-134: a web row picked from a list that just expired plays without a new listing; much later, it does not.
+        let until = Instant::now();
+        assert!(within_stale_grace(until, until));
+        assert!(within_stale_grace(until, until + STALE_WEB_GRACE - Duration::from_secs(1)));
+        assert!(!within_stale_grace(until, until + STALE_WEB_GRACE));
+        assert!(SOURCES_TTL + STALE_WEB_GRACE <= Duration::from_secs(30 * 60));
     }
 
     #[test]

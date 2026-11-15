@@ -1346,6 +1346,11 @@ pub trait Backend: Send + Sync + 'static {
     async fn sources(&self, _id: &str, _episode: u32) -> UiResult<Vec<SourceVm>> {
         Err(UiError::not_wired("sources"))
     }
+    /// BUG-134: the last list `sources` answered for that episode, however old, without any network (`None`: never
+    /// listed). The player starts a source confirmed in Details from it and refreshes the list behind.
+    fn known_sources(&self, _id: &str, _episode: u32) -> Option<Vec<SourceVm>> {
+        None
+    }
     /// Resolve one source (`SourceVm::id`) into a playable stream (`streams` has exactly one entry).
     /// A torrent source fails with `ErrorKind::TorrentM2`.
     async fn playback_source(&self, _id: &str, _episode: u32, _source_id: &str) -> UiResult<PlaybackVm> {

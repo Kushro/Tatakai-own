@@ -30,6 +30,9 @@ use crate::player_state::{FlowState, MAX_LEGACY_STREAMS, Phase, is_info_hash};
 
 use super::torrent::{BATCH_NEXT, BatchNext, NO_FILE_NOTICE_EXTRA_MS, TorrentSession, TorrentSlot};
 
+/// BUG-134: longest wait for the confirmed pick to leave "Resolving" before its list is refreshed.
+const REVALIDATE_WAIT_MS: u64 = 8_000;
+
 thread_local! {
     /// Set by an episode switch for the screen being left: `Some(fullscreen)` keeps the window as it is.
     pub(super) static EPISODE_SWITCH: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
@@ -592,6 +595,31 @@ impl Flow {
             } else {
                 self.flash(t("player.error.trying_next"));
             }
+        }
+    }
+
+    /// BUG-134: the confirmed pick started from the last known list; ask for the full one behind it (once the pick
+    /// left "Resolving", or after `REVALIDATE_WAIT`, so the listing does not compete with its start) and swap it in
+    /// without touching what plays. A failure keeps the old list. `boot_gen` / `boot`: a later boot drops this one.
+    pub(super) async fn revalidate_sources(self, boot_gen: Signal<u64>, boot: u64) {
+        let started = now_ms();
+        while self.flow.peek().phase == Phase::Resolving && now_ms().saturating_sub(started) < REVALIDATE_WAIT_MS {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+        let listed = self.backend.sources(&self.id, self.episode).await;
+        if *boot_gen.peek() != boot {
+            return;
+        }
+        match listed {
+            Ok(list) => {
+                tracing::info!(sources = list.len(), "source list refreshed behind the confirmed pick");
+                let mut flow = self.flow;
+                if flow.write().refresh_sources(list) {
+                    self.flash(t("player.error.trying_next"));
+                    spawn(self.clone().drive(None));
+                }
+            }
+            Err(e) => tracing::warn!(kind = ?e.kind, detail = %e.detail, "refreshing the source list failed; keeping the last one"),
         }
     }
 
