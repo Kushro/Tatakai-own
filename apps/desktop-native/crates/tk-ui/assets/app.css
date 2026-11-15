@@ -672,4 +672,11 @@ button.tk-chip:active:not(:disabled) { transform: scale(0.96); }
 .tk-preset__cards { display: flex; gap: 3px; }
 .tk-preset__cards i { flex: 1; aspect-ratio: 13 / 18; max-height: 22px; border-radius: 3px; background: var(--md-sys-color-surface-container-highest); }
 .tk-preset__thumb[data-preset="dense"] .tk-preset__cards i { max-height: 16px; }
+/* 0.3.2 card sizes: Cinema = large horizontal cards (three wide tiles: poster stub + text), Dense = small posters */
+.tk-preset__thumb[data-preset="cinema"] .tk-preset__cards i:nth-child(n+4) { display: none; }
+.tk-preset__thumb[data-preset="cinema"] .tk-preset__cards i {
+  aspect-ratio: auto; height: 18px; max-height: none;
+  background: linear-gradient(90deg, var(--md-sys-color-surface-container-highest) 0 34%, transparent 34% 40%, color-mix(in srgb, var(--md-sys-color-surface-container-highest) 55%, transparent) 40%);
+}
+.tk-preset__thumb[data-preset="dense"] .tk-preset__cards i { max-width: 10px; }
 .tk-look__autoplay { display: flex; align-items: center; flex-wrap: wrap; gap: var(--tk-space-12); }

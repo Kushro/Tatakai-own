@@ -82,4 +82,19 @@ data class Episode(
     val rating: Double? = null,
 )
 
+/**
+ * 0.3.2: ani.zip `images` (TVDB artwork, `coverType` Fanart / Banner / Poster / Clearlogo). [fanart] is the 1920x1080 background the
+ * Home spotlight and the Details header prefer over AniList's 1900x400 `bannerImage`; [clearlogo] is the transparent title logo shown
+ * instead of the text title (the title stays the accessible name).
+ */
+@Serializable
+data class MediaArtwork(
+    val fanart: String? = null,
+    val banner: String? = null,
+    val poster: String? = null,
+    val clearlogo: String? = null,
+) {
+    val isEmpty: Boolean get() = fanart == null && banner == null && poster == null && clearlogo == null
+}
+
 data class FeedPage(val items: List<Media>, val page: Int, val hasNext: Boolean)

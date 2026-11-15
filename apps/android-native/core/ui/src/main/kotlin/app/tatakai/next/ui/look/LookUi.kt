@@ -46,9 +46,9 @@ fun <T> lookFadeSpec(durationMs: Int = 180): FiniteAnimationSpec<T> = if (lookMo
 @Composable
 fun rowSpacing(): Dp = if (LocalLook.current.density == Density.COMPACT) 8.dp else 12.dp
 
-/** Poster card width in rows. */
+/** Poster card width in rows (0.3.2: Tamaño de tarjetas small / medium; the wide sizes use [CardSizing.wideCardDp]). */
 @Composable
-fun cardWidth(): Dp = if (LocalLook.current.density == Density.COMPACT) 104.dp else 120.dp
+fun cardWidth(): Dp = LocalLook.current.let { CardSizing.posterDp(it.cardSize, it.density == Density.COMPACT).dp }
 
 /**
  * Press feedback: scales the node to 0.96 with a spring while [interactionSource] is pressed (expressive motion only; graphicsLayer

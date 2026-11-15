@@ -1085,7 +1085,8 @@ fn DetailsHeader(
     };
     // UX review #2: a blurred banner behind the header (the classic's look), only with images allowed.
     let backdrop = (images && !embedded)
-        .then(|| vm.banner.clone().or_else(|| vm.media.cover.clone()))
+        // 0.3.2: the ani.zip fanart (full size) first, then AniList's banner strip, then the poster.
+        .then(|| vm.fanart.clone().or_else(|| vm.banner.clone()).or_else(|| vm.media.cover.clone()))
         .flatten()
         .filter(|u| u.starts_with("https://") || u.starts_with("http://"))
         .map(|u| u.replace(['\'', '"', '(', ')', '\\'], ""));

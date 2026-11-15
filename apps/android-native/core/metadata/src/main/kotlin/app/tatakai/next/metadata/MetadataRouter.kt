@@ -7,6 +7,7 @@ import app.tatakai.next.model.FeedKind
 import app.tatakai.next.model.FeedPage
 import app.tatakai.next.model.ImageMatch
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.MediaArtwork
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.ProviderStatus
@@ -126,8 +127,58 @@ class MetadataRouter(
         return Routed(value, first.provider, first.fallbackFrom)
     }
 
-    suspend fun episodes(ref: MediaRef): Routed<List<Episode>> =
-        route(Capability.EPISODES, MediaKind.ANIME, { it.isEmpty() }) { it.episodes(ref) }
+    /**
+     * 0.3.2: the first enabled provider with a non-empty list is the base (as before); when it lacks titles, thumbnails or synopses
+     * of aired episodes (Kitsu's number-only rows for new shows), the other enabled EPISODES providers fill it by number with
+     * [EpisodeMerge] — ani.zip first, then the rest in priority order — and add aired numbers the base lacks. Fillers' failures never
+     * fail the call. None of them is AniList (it has no EPISODES capability), so this costs no AniList budget.
+     */
+    suspend fun episodes(ref: MediaRef): Routed<List<Episode>> {
+        val first = route(Capability.EPISODES, MediaKind.ANIME, { it.isEmpty() }) { it.episodes(ref) }
+        var value = first.value
+        if (value.isEmpty() || !EpisodeMerge.hasGaps(value, clock())) return first
+        val fillers = candidates(Capability.EPISODES, MediaKind.ANIME, includeCoolingDown = false)
+            .filter { it.id != first.provider }
+            .sortedBy { if (it.id == ANIZIP_ID) 0 else 1 }
+        for (p in fillers.take(MAX_FILLERS)) {
+            try {
+                val extra = p.episodes(ref)
+                recordOk(p.id)
+                if (extra.isNotEmpty()) value = EpisodeMerge.merge(value, extra, clock())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                recordError(p.id, e)
+            }
+            if (!EpisodeMerge.hasGaps(value, clock())) break
+        }
+        return if (value === first.value) first else Routed(value, first.provider, first.fallbackFrom)
+    }
+
+    /**
+     * 0.3.2: artwork from the first enabled, not cooling down [ArtworkProvider] (ani.zip) that has some; null when none is enabled
+     * or none knows the title. Errors propagate (the repository serves its stale copy or nothing).
+     */
+    suspend fun artwork(ref: MediaRef): MediaArtwork? {
+        val list = priority().mapNotNull { id -> providers.firstOrNull { it.id == id } }
+            .distinctBy { it.id }
+            .filter { it is ArtworkProvider && !isCoolingDown(it.id) }
+        var error: Exception? = null
+        for (p in list) {
+            try {
+                val art = (p as ArtworkProvider).artwork(ref)
+                recordOk(p.id)
+                if (art != null && !art.isEmpty) return art
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                recordError(p.id, e)
+                error = e
+            }
+        }
+        error?.let { throw it }
+        return null
+    }
 
     // --- parity wave A (docs/redesign/15 §3.1, worker o) ---
 
@@ -200,6 +251,7 @@ class MetadataRouter(
         const val MIN_COOLDOWN_MS = 1_000L
         const val MAX_COOLDOWN_MS = 15L * 60_000
         private const val MAX_FILLERS = 3
+        private const val ANIZIP_ID = "anizip"
         private const val TAG = "metadata"
 
         private fun errorLabel(e: Exception): String = when (e) {

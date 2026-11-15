@@ -52,6 +52,7 @@ import app.tatakai.next.model.RecommendationItem
 import app.tatakai.next.model.SocialRepository
 import app.tatakai.next.ui.R as UiR
 import app.tatakai.next.ui.media.MediaCover
+import app.tatakai.next.ui.media.episodeAgoLine
 import app.tatakai.next.ui.media.mediaKey
 import app.tatakai.next.ui.state.userMessage
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -309,12 +310,14 @@ private fun LazyListScope.mediaItems(prefix: String, list: List<Media>, gate: Ma
 
 private fun LazyListScope.airingItems(prefix: String, list: List<AiringEpisode>, gate: MatureGate, actions: HomeActions) {
     items(list, key = { "$prefix:" + mediaKey(it.media) + ":" + it.episode }) { ep ->
+        val nowSec = remember { System.currentTimeMillis() / 1000 }
         GatedMediaCard(
             media = ep.media,
             gate = gate,
             onClick = { actions.onMediaClick(ep.media) },
             width = CARD_WIDTH,
             subtitle = stringResource(R.string.home_continue_episode, ep.episode),
+            episodeLine = episodeAgoLine(ep.episode, (nowSec - ep.airingAtEpochSec).takeIf { ep.airingAtEpochSec > 0 }),
         )
     }
 }

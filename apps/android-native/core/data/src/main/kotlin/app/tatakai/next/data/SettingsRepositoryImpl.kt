@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
@@ -167,7 +168,7 @@ internal object SettingsCodec {
             mangaTitleLanguage = enumOr(p[MANGA_TITLE_LANGUAGE], d.mangaTitleLanguage),
             socialNotifications = p[SOCIAL_NOTIFICATIONS] ?: d.socialNotifications,
             matureContent = enumOr(p[MATURE_CONTENT], d.matureContent),
-            look = decode(p[LOOK], LookPrefs.serializer())?.sanitized() ?: d.look,
+            look = decodeLook(p[LOOK]) ?: d.look,
         )
     }
 
@@ -222,6 +223,17 @@ internal object SettingsCodec {
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =
         name?.let { n -> enumValues<E>().firstOrNull { it.name == n } } ?: default
+
+    /**
+     * 0.3.2: `cardSize` is new; a stored look without it takes its preset's size (a Cine user keeps reading as Cine
+     * instead of "Personalizado").
+     */
+    private fun decodeLook(raw: String?): LookPrefs? {
+        val look = decode(raw, LookPrefs.serializer()) ?: return null
+        val hasSize = raw != null && runCatching { json.parseToJsonElement(raw).jsonObject.containsKey("cardSize") }.getOrDefault(true)
+        val fixed = if (hasSize) look else look.copy(cardSize = LookPrefs.of(look.preset).cardSize)
+        return fixed.sanitized()
+    }
 
     private fun <T> decode(raw: String?, serializer: KSerializer<T>): T? =
         raw?.let { runCatching { json.decodeFromString(serializer, it) }.getOrNull() }

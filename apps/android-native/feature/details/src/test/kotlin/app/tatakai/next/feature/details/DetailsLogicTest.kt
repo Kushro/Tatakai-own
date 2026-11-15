@@ -5,6 +5,7 @@ import app.tatakai.next.model.CharacterEdge
 import app.tatakai.next.model.CharacterRef
 import app.tatakai.next.model.Episode
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.MediaArtwork
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.MediaRelation
@@ -26,6 +27,14 @@ class DetailsLogicTest {
         cover = null, banner = null, color = null, synopsis = null, genres = emptyList(), episodes = 28, status = null, season = null,
         year = null, score = null, sourceProvider = "anilist",
     )
+
+    @Test
+    fun `header backdrop prefers the ani zip fanart`() {
+        val m = media.copy(banner = "b.jpg", cover = "c.jpg")
+        assertEquals(HeaderBackdrop("f.jpg", lowRes = false), headerBackdrop(m, MediaArtwork(fanart = "f.jpg")))
+        assertEquals(HeaderBackdrop("b.jpg", lowRes = true), headerBackdrop(m, MediaArtwork(clearlogo = "l.png")))
+        assertEquals(HeaderBackdrop("c.jpg", lowRes = true), headerBackdrop(m.copy(banner = ""), null))
+    }
 
     @Test
     fun `unaired placeholders reach the next airing episode and stop at the total`() {

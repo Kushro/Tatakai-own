@@ -59,6 +59,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -67,6 +68,7 @@ import app.tatakai.next.model.HistoryEntry
 import app.tatakai.next.model.ListStatus
 import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.MediaArtwork
 import app.tatakai.next.model.Motion
 import app.tatakai.next.ui.labels.genreLabel
 import app.tatakai.next.ui.look.lookMotion
@@ -92,6 +94,20 @@ import app.tatakai.next.ui.R as UiR
 /** Spotlight order: titles with a banner first (their order kept), the ones with only a poster at the end of the rotation. */
 internal fun spotlightOrder(items: List<Media>): List<Media> = items.sortedBy { it.banner.isNullOrBlank() }
 
+/**
+ * 0.3.2: what the spotlight page draws. [backdrop] = ani.zip Fanart (1920x1080) > AniList banner > cover; [lowRes] when it is not the
+ * fanart (AniList's 1900x400 banner or a portrait cover would be stretched into the tall hero): the page then crops it into a
+ * shorter band with a stronger scrim. [logo] = ani.zip Clearlogo, shown instead of the text title (text fallback on error).
+ */
+internal data class SpotlightArt(val backdrop: String?, val lowRes: Boolean, val fromBanner: Boolean, val logo: String?)
+
+internal fun spotlightArt(media: Media, art: MediaArtwork?): SpotlightArt {
+    val logo = art?.clearlogo?.takeIf { it.isNotBlank() }
+    art?.fanart?.takeIf { it.isNotBlank() }?.let { return SpotlightArt(it, lowRes = false, fromBanner = false, logo = logo) }
+    media.banner?.takeIf { it.isNotBlank() }?.let { return SpotlightArt(it, lowRes = true, fromBanner = true, logo = logo) }
+    return SpotlightArt(media.cover?.takeIf { it.isNotBlank() }, lowRes = true, fromBanner = false, logo = logo)
+}
+
 /** The history entry to continue [media] with, if the user already started it. */
 internal fun continueEntryFor(media: Media, entries: List<HistoryEntry>): HistoryEntry? = entries.firstOrNull { e ->
     (media.ref.anilistId != null && e.anilistId == media.ref.anilistId) || (media.ref.malId != null && e.malId == media.ref.malId)
@@ -100,6 +116,7 @@ internal fun continueEntryFor(media: Media, entries: List<HistoryEntry>): Histor
 @Composable
 internal fun Spotlight(
     items: List<Media>,
+    art: Map<String, MediaArtwork> = emptyMap(),
     continueWatching: List<HistoryEntry>,
     autoplayMs: Long?,
     onOpen: (Media) -> Unit,
@@ -159,6 +176,7 @@ internal fun Spotlight(
                 val media = ordered[page]
                 SpotlightPage(
                     media = media,
+                    art = spotlightArt(media, art[mediaKey(media)]),
                     continueEntry = continueEntryFor(media, continueWatching),
                     wide = wide,
                     onOpen = { onOpen(media) },
@@ -183,6 +201,7 @@ internal fun Spotlight(
 @Composable
 private fun SpotlightPage(
     media: Media,
+    art: SpotlightArt,
     continueEntry: HistoryEntry?,
     wide: Boolean,
     onOpen: () -> Unit,
@@ -192,23 +211,45 @@ private fun SpotlightPage(
     val surface = MaterialTheme.colorScheme.surface
     val title = media.displayTitle(LocalTitleLanguage.current)
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
+        // 0.3.2: the fanart fills the slot; a low-res banner / cover is cropped into a shorter band (bottom-anchored for the banner,
+        // whose subject usually sits low) under a stronger scrim instead of being stretched to the full hero height.
         AsyncImage(
-            model = media.banner?.takeIf { it.isNotBlank() } ?: media.cover,
+            model = art.backdrop,
             contentDescription = null,
             contentScale = ContentScale.Crop,
-            alignment = Alignment.TopCenter,
-            modifier = Modifier.fillMaxWidth().fillMaxHeight(if (wide) 1f else 0.62f),
+            alignment = when {
+                !art.lowRes -> Alignment.TopCenter
+                art.fromBanner -> Alignment.BottomCenter
+                else -> Alignment.Center
+            },
+            modifier = Modifier.fillMaxWidth().fillMaxHeight(
+                when {
+                    !art.lowRes -> if (wide) 1f else 0.62f
+                    wide -> 0.8f
+                    else -> 0.42f
+                },
+            ),
         )
         // Plain gradients (no blur): legible text on any banner, cheap to draw.
         Box(
             Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    0f to surface.copy(alpha = 0.55f),
-                    0.18f to Color.Transparent,
-                    0.42f to surface.copy(alpha = 0.35f),
-                    0.66f to surface.copy(alpha = 0.92f),
-                    1f to surface,
-                ),
+                if (art.lowRes) {
+                    Brush.verticalGradient(
+                        0f to surface.copy(alpha = 0.6f),
+                        0.16f to surface.copy(alpha = 0.2f),
+                        if (wide) 0.5f to surface.copy(alpha = 0.6f) else 0.3f to surface.copy(alpha = 0.55f),
+                        if (wide) 0.75f to surface.copy(alpha = 0.95f) else 0.44f to surface.copy(alpha = 0.97f),
+                        1f to surface,
+                    )
+                } else {
+                    Brush.verticalGradient(
+                        0f to surface.copy(alpha = 0.55f),
+                        0.18f to Color.Transparent,
+                        0.42f to surface.copy(alpha = 0.35f),
+                        0.66f to surface.copy(alpha = 0.92f),
+                        1f to surface,
+                    )
+                },
             ),
         )
         if (wide) {
@@ -223,14 +264,7 @@ private fun SpotlightPage(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             FactChips(media)
-            Text(
-                title,
-                style = if (wide) MaterialTheme.typography.displaySmall else MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.semantics { contentDescription = title },
-            )
+            SpotlightTitle(title, art.logo, wide)
             if (media.genres.isNotEmpty()) {
                 Text(
                     media.genres.take(4).map { genreLabel(it) }.joinToString(" · "),
@@ -268,6 +302,40 @@ private fun SpotlightPage(
                 }
             }
         }
+    }
+}
+
+/**
+ * 0.3.2: the ani.zip clear logo (transparent title art) instead of the text title, left-aligned and fitted into a fixed band; the
+ * text title is its accessible name and comes back when there is no logo or it fails to load.
+ */
+@Composable
+private fun SpotlightTitle(title: String, logo: String?, wide: Boolean) {
+    var failed by remember(logo) { mutableStateOf(false) }
+    if (logo != null && !failed) {
+        AsyncImage(
+            model = logo,
+            contentDescription = title,
+            contentScale = ContentScale.Fit,
+            alignment = Alignment.CenterStart,
+            onError = { failed = true },
+            modifier = Modifier
+                .fillMaxWidth(if (wide) 0.9f else 0.78f)
+                .height(if (wide) 112.dp else 84.dp)
+                .semantics { heading() },
+        )
+    } else {
+        Text(
+            title,
+            style = if (wide) MaterialTheme.typography.displaySmall else MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.semantics {
+                contentDescription = title
+                heading()
+            },
+        )
     }
 }
 

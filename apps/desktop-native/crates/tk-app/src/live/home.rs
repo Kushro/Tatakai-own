@@ -240,7 +240,7 @@ fn tracked_vm(r: &TrackedShowRow) -> MediaVm {
         cover: r.poster.clone(),
         color: None,
         subtitle: String::new(),
-        score: None,
+        score: None, episodes: None, genres: Vec::new(), synopsis: None,
     }
 }
 
@@ -518,7 +518,13 @@ pub async fn home(b: &LiveBackend) -> UiResult<HomeVm> {
     let continue_watching = b.continue_vms(20);
     let HomeFetch { feeds: [trending, airing, seasonal, popular, top], upcoming, favourite } = fetched;
     // 2026-11 UI refresh: the spotlight takes the first trending titles with their banner, synopsis and facts.
-    let hero = trending.as_ref().map(|items| hero_vms(items)).unwrap_or_default();
+    let mut hero = trending.as_ref().map(|items| hero_vms(items)).unwrap_or_default();
+    // 0.3.2: artwork already in the store shows at once; the rest comes through `hero_art` after Home rendered.
+    for h in &mut hero {
+        if let Some(art) = h.media.id.parse::<u32>().ok().and_then(|id| stored_art(&b.store, id)) {
+            apply_art(h, &art);
+        }
+    }
     let mut sections = vec![
         section("feed.trending", trending),
         section("feed.airing", airing),
@@ -558,8 +564,86 @@ fn hero_vms(items: &[Media]) -> Vec<HeroVm> {
             year: m.year,
             episodes: m.episodes,
             format: m.format.clone(),
+            fanart: None,
+            logo: None,
         })
         .collect()
+}
+
+/// ani.zip artwork (fanart, clear logo) is stored a week per title, "none" included.
+const ART_TTL_SECS: i64 = 7 * 86_400;
+/// Spotlight artwork lookups in flight at once.
+const ART_PARALLEL: usize = 3;
+/// A slow ani.zip never holds Details or a slide for long.
+const ART_TIMEOUT: Duration = Duration::from_secs(6);
+
+fn art_key(anilist_id: u32) -> String {
+    format!("anizip.art.v1.{anilist_id}")
+}
+
+fn anizip() -> &'static AniZip {
+    static P: OnceLock<AniZip> = OnceLock::new();
+    P.get_or_init(|| AniZip::new(client().clone()))
+}
+
+fn stored_art(store: &tk_core::LocalStore, anilist_id: u32) -> Option<tk_core::SeriesArt> {
+    store.cache_get::<tk_core::SeriesArt>(&art_key(anilist_id)).ok().flatten()
+}
+
+/// Fanart and logo of a slide; the AniList banner stays as the fallback.
+fn apply_art(h: &mut HeroVm, art: &tk_core::SeriesArt) {
+    h.fanart = art.fanart.clone();
+    h.logo = art.clearlogo.clone();
+}
+
+/// ani.zip artwork of an AniList title: the store copy, else one ani.zip call (shared with the episode merge through
+/// the ani.zip raw cache), stored for [`ART_TTL_SECS`]. `None` on a failure (not stored: asked again next time).
+pub(super) async fn series_art(store: &tk_core::LocalStore, anilist_id: u32) -> Option<tk_core::SeriesArt> {
+    if let Some(a) = stored_art(store, anilist_id) {
+        return Some(a);
+    }
+    match tokio::time::timeout(ART_TIMEOUT, anizip().art(&MediaRef::anilist(anilist_id))).await {
+        Ok(Ok(found)) => {
+            let art = found.unwrap_or_default();
+            if let Err(e) = store.cache_put(&art_key(anilist_id), &art, ART_TTL_SECS) {
+                tracing::debug!(%e, "caching ani.zip artwork failed");
+            }
+            Some(art)
+        }
+        Ok(Err(e)) => {
+            tracing::debug!(error = %e, anilist_id, "ani.zip artwork lookup failed");
+            None
+        }
+        Err(_) => None,
+    }
+}
+
+/// `Backend::hero_art`: artwork of the spotlight titles, at most [`ART_PARALLEL`] ani.zip calls at once. Titles
+/// without fanart or logo (or not AniList ids) are left out.
+pub async fn hero_art(b: &LiveBackend, ids: Vec<String>) -> Vec<tk_ui::backend::HeroArtVm> {
+    let gate = Arc::new(tokio::sync::Semaphore::new(ART_PARALLEL));
+    let mut set = tokio::task::JoinSet::new();
+    let mut seen = HashSet::new();
+    for id in ids.into_iter().take(HERO_SLIDES * 2) {
+        let Ok(anilist_id) = id.parse::<u32>() else { continue };
+        if !seen.insert(anilist_id) {
+            continue;
+        }
+        let (store, gate) = (b.store.clone(), gate.clone());
+        set.spawn(async move {
+            let _permit = gate.acquire_owned().await.ok()?;
+            let art = series_art(&store, anilist_id).await?;
+            (art.fanart.is_some() || art.clearlogo.is_some())
+                .then(|| tk_ui::backend::HeroArtVm { id, fanart: art.fanart, logo: art.clearlogo })
+        });
+    }
+    let mut out = Vec::new();
+    while let Some(r) = set.join_next().await {
+        if let Ok(Some(a)) = r {
+            out.push(a);
+        }
+    }
+    out
 }
 
 pub async fn latest_episodes(b: &LiveBackend, page: u32) -> UiResult<Vec<LatestEpisodeVm>> {
@@ -1164,7 +1248,7 @@ async fn taste(b: &LiveBackend) -> UiResult<Arc<Taste>> {
                 cover: row.poster.clone(),
                 color: None,
                 subtitle: String::new(),
-                score: None,
+                score: None, episodes: None, genres: Vec::new(), synopsis: None,
             };
             bump(
                 id,
@@ -1184,7 +1268,7 @@ async fn taste(b: &LiveBackend) -> UiResult<Arc<Taste>> {
                 cover: None,
                 color: None,
                 subtitle: String::new(),
-                score: None,
+                score: None, episodes: None, genres: Vec::new(), synopsis: None,
             };
             bump(id, 1.0, vm, &mut weights);
         }

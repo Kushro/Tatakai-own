@@ -8,8 +8,10 @@
 
 use dioxus::prelude::*;
 
-use crate::app::{Route, Ui};
-use crate::backend::{HeroVm, MediaVm};
+use std::collections::HashMap;
+
+use crate::app::{Route, Services, Ui};
+use crate::backend::{HeroArtVm, HeroVm, MediaVm};
 use crate::components::button::{Button, IconButton, IconButtonVariant};
 use crate::components::list_button::ListButton;
 use crate::components::media::{
@@ -39,6 +41,56 @@ pub fn hero_slides(hero: &[HeroVm], fallback: &[MediaVm], max: usize) -> Vec<Her
             ..HeroVm::default()
         })
         .collect()
+}
+
+/// Backdrop of a slide (0.3.2), as `data-art`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeroArt {
+    /// ani.zip / TVDB fanart (1920x1080 class): shown as is.
+    Fanart,
+    /// AniList `bannerImage` (1900x400 class): a short strip, so the low-res guard applies (bottom-anchored crop,
+    /// a little blur and a stronger scrim instead of a blown-up sharp image).
+    Banner,
+    /// The poster, blurred behind the text.
+    Cover,
+}
+
+impl HeroArt {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Fanart => "fanart",
+            Self::Banner => "banner",
+            Self::Cover => "cover",
+        }
+    }
+}
+
+/// Backdrop of a slide: the fanart, else the AniList banner, else the cover; `None` = the monogram art only.
+pub fn hero_backdrop(h: &HeroVm) -> Option<(HeroArt, String)> {
+    let some = |v: &Option<String>| v.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned);
+    some(&h.fanart)
+        .map(|u| (HeroArt::Fanart, u))
+        .or_else(|| some(&h.banner).map(|u| (HeroArt::Banner, u)))
+        .or_else(|| some(&h.media.cover).map(|u| (HeroArt::Cover, u)))
+}
+
+/// Slides that still have no ani.zip artwork (asked through `Backend::hero_art` after Home rendered).
+pub fn art_wanted(slides: &[HeroVm]) -> Vec<String> {
+    slides.iter().filter(|h| h.fanart.is_none() && h.logo.is_none()).map(|h| h.media.id.clone()).collect()
+}
+
+/// `h` with the artwork that arrived for it (fields already set stay).
+pub fn with_art(h: &HeroVm, art: Option<&HeroArtVm>) -> HeroVm {
+    let mut out = h.clone();
+    if let Some(a) = art {
+        if out.fanart.is_none() {
+            out.fanart = a.fanart.clone();
+        }
+        if out.logo.is_none() {
+            out.logo = a.logo.clone();
+        }
+    }
+    out
 }
 
 /// "Fall 2026"; the season or the year alone when only one is known.
@@ -125,6 +177,19 @@ pub fn Spotlight(
     let mut active = use_signal(|| 0_usize);
     let motion = use_hero_motion();
     let ui = try_use_context::<Ui>();
+    // 0.3.2: ani.zip artwork of the slides that lack it, once per mount; the slides swap when it arrives.
+    let mut art = use_signal(HashMap::<String, HeroArtVm>::new);
+    let services = try_use_context::<Services>();
+    let wanted = art_wanted(&slides);
+    use_hook(move || {
+        if let (Some(services), false) = (services, wanted.is_empty()) {
+            spawn(async move {
+                if let Ok(found) = services.backend.hero_art(wanted).await {
+                    art.set(found.into_iter().map(|a| (a.id.clone(), a)).collect());
+                }
+            });
+        }
+    });
     let n = slides.len();
     if n == 0 {
         return rsx! {};
@@ -155,7 +220,7 @@ pub fn Spotlight(
             for (k , h) in slides.iter().enumerate() {
                 SpotSlide {
                     key: "{h.media.id}",
-                    slide: h.clone(),
+                    slide: with_art(h, art.read().get(&h.media.id)),
                     active: k == cur,
                     eager: k == cur || k == next,
                     resume: resume.iter().find(|(id, _)| *id == h.media.id).map(|(_, ep)| *ep),
@@ -183,8 +248,13 @@ fn SpotSlide(slide: HeroVm, active: bool, eager: bool, resume: Option<u32>) -> E
     let m = slide.media.clone();
     let style = cover_color_var(m.color.as_deref());
     let mono = monogram(&m.title);
-    let banner = slide.banner.is_some();
-    let src = slide.banner.clone().or_else(|| m.cover.clone());
+    let backdrop = hero_backdrop(&slide);
+    let art_kind = backdrop.as_ref().map_or(HeroArt::Cover, |(k, _)| *k);
+    let src = backdrop.map(|(_, u)| u);
+    // The clear logo replaces the text title until it fails to load (then the text comes back).
+    let mut logo_failed = use_signal(|| false);
+    let logo = slide.logo.clone().filter(|l| !l.trim().is_empty() && !logo_failed());
+    let has_logo = logo.is_some();
     let chips = hero_chips(&slide);
     let status = slide.status.clone().or_else(|| m.status.clone());
     let action = hero_action(status.as_deref(), resume);
@@ -204,7 +274,8 @@ fn SpotSlide(slide: HeroVm, active: bool, eager: bool, resume: Option<u32>) -> E
         article {
             class: "tk-spot__slide",
             "data-active": "{active}",
-            "data-art": if banner { "banner" } else { "cover" },
+            "data-art": art_kind.id(),
+            "data-logo": "{has_logo}",
             "aria-hidden": "{!active}",
             style: "{style}",
             div { class: "tk-spot__art", onclick: move |_| open(id_art.clone()),
@@ -230,7 +301,19 @@ fn SpotSlide(slide: HeroVm, active: bool, eager: bool, resume: Option<u32>) -> E
                             onclick: move |_| open(id_title.clone()),
                             // QA 0.3: the clamp lives on a span (WebKit ignores -webkit-box on <button>, the title
                             // wrapped one word per line at min-content width).
-                            span { class: "tk-spot__title-text", "{m.title}" }
+                            if let Some(logo) = logo {
+                                img {
+                                    class: "tk-spot__logo",
+                                    src: "{logo}",
+                                    alt: "{m.title}",
+                                    loading: if eager { "eager" } else { "lazy" },
+                                    decoding: "async",
+                                    draggable: "false",
+                                    onerror: move |_| logo_failed.set(true),
+                                }
+                            } else {
+                                span { class: "tk-spot__title-text", "{m.title}" }
+                            }
                         }
                     }
                     if !chips.is_empty() {
@@ -356,6 +439,34 @@ mod tests {
         assert_eq!(kinds, ["format", "status", "season"]);
         let empty = HeroVm { media: MediaVm::default(), episodes: Some(0), ..HeroVm::default() };
         assert!(hero_chips(&empty).is_empty());
+    }
+
+    #[test]
+    fn backdrop_prefers_fanart_then_banner_then_cover() {
+        let cover = MediaVm { cover: Some("c.jpg".into()), ..media("a") };
+        let h = HeroVm { media: cover.clone(), banner: Some("b.jpg".into()), fanart: Some("f.jpg".into()), ..HeroVm::default() };
+        assert_eq!(hero_backdrop(&h), Some((HeroArt::Fanart, "f.jpg".into())));
+        let h = HeroVm { fanart: Some(" ".into()), ..h };
+        assert_eq!(hero_backdrop(&h), Some((HeroArt::Banner, "b.jpg".into())));
+        let h = HeroVm { banner: None, ..h };
+        assert_eq!(hero_backdrop(&h), Some((HeroArt::Cover, "c.jpg".into())));
+        assert_eq!(hero_backdrop(&HeroVm::default()), None);
+        assert_eq!(HeroArt::Banner.id(), "banner");
+    }
+
+    #[test]
+    fn late_art_fills_only_what_is_missing() {
+        let slides = vec![
+            HeroVm { media: media("a"), ..HeroVm::default() },
+            HeroVm { media: media("b"), fanart: Some("stored.jpg".into()), ..HeroVm::default() },
+        ];
+        assert_eq!(art_wanted(&slides), ["a"]);
+        let art = HeroArtVm { id: "a".into(), fanart: Some("f.jpg".into()), logo: Some("l.png".into()) };
+        let a = with_art(&slides[0], Some(&art));
+        assert_eq!((a.fanart.as_deref(), a.logo.as_deref()), (Some("f.jpg"), Some("l.png")));
+        let b = with_art(&slides[1], Some(&HeroArtVm { fanart: Some("new.jpg".into()), ..art }));
+        assert_eq!(b.fanart.as_deref(), Some("stored.jpg"));
+        assert_eq!(with_art(&slides[0], None), slides[0]);
     }
 
     #[test]

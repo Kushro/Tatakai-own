@@ -4,6 +4,7 @@ import app.tatakai.next.model.Episode
 import app.tatakai.next.model.FeedPage
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
+import app.tatakai.next.model.MediaArtwork
 import app.tatakai.next.model.MediaRef
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -131,6 +132,23 @@ object Mappers {
             )
         }
         return out.sortedBy { it.number }
+    }
+
+    /** 0.3.2: ani.zip `images` (`coverType` Fanart / Banner / Poster / Clearlogo, first of each kept); null when it has none. */
+    fun aniZipArtwork(raw: JsonObject): MediaArtwork? {
+        val byType = linkedMapOf<String, String>()
+        for (el in raw.child("images").arr().orEmpty()) {
+            val o = el.obj() ?: continue
+            val type = o.str("coverType")?.trim()?.lowercase() ?: continue
+            val url = o.str("url")?.trim()?.takeIf { it.startsWith("http") } ?: continue
+            byType.putIfAbsent(type, url)
+        }
+        return MediaArtwork(
+            fanart = byType["fanart"],
+            banner = byType["banner"],
+            poster = byType["poster"],
+            clearlogo = byType["clearlogo"],
+        ).takeIf { !it.isEmpty }
     }
 
     fun aniZipIds(raw: JsonObject): MediaRef {

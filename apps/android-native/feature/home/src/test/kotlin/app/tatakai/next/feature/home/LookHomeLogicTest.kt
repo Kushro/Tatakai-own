@@ -5,6 +5,7 @@ import app.tatakai.next.model.AiringEpisode
 import app.tatakai.next.model.CalendarView
 import app.tatakai.next.model.HistoryEntry
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.MediaArtwork
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
 import java.time.Instant
@@ -29,6 +30,18 @@ class LookHomeLogicTest {
     fun spotlightPutsTitlesWithoutBannerLast() {
         val list = listOf(media(1), media(2, "b2"), media(3, ""), media(4, "b4"))
         assertEquals(listOf(2, 4, 1, 3), spotlightOrder(list).map { it.ref.anilistId })
+    }
+
+    @Test
+    fun spotlightPrefersFanartThenBannerThenCover() {
+        val m = media(1, "banner.jpg").copy(cover = "cover.jpg")
+        val full = MediaArtwork(fanart = "fanart.jpg", banner = "tvdb-banner.jpg", clearlogo = "logo.png")
+        assertEquals(SpotlightArt("fanart.jpg", lowRes = false, fromBanner = false, logo = "logo.png"), spotlightArt(m, full))
+        // no fanart: AniList's 1900x400 banner, flagged low-res (cropped band + stronger scrim), the logo still shown
+        assertEquals(SpotlightArt("banner.jpg", lowRes = true, fromBanner = true, logo = "logo.png"), spotlightArt(m, full.copy(fanart = null)))
+        assertEquals(SpotlightArt("banner.jpg", lowRes = true, fromBanner = true, logo = null), spotlightArt(m, null))
+        assertEquals(SpotlightArt("cover.jpg", lowRes = true, fromBanner = false, logo = null), spotlightArt(m.copy(banner = " "), MediaArtwork(fanart = "")))
+        assertEquals(null, spotlightArt(m.copy(banner = null, cover = null), null).backdrop)
     }
 
     @Test

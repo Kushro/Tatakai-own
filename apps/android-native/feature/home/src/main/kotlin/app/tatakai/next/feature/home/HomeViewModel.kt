@@ -13,6 +13,7 @@ import app.tatakai.next.model.HistoryRepository
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MatureContentMode
+import app.tatakai.next.model.MediaArtwork
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.MediaSearchQuery
@@ -23,6 +24,9 @@ import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.torrent.TorrentRepository
 import kotlinx.coroutines.Job
 import app.tatakai.next.ui.media.distinctByKey
+import app.tatakai.next.ui.media.mediaKey
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import app.tatakai.next.ui.state.runCatchingApp
 import app.tatakai.next.ui.state.toAppError
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,6 +53,8 @@ data class HomeUiState(
     val extensionRows: LoadState<List<ExtensionHomeRow>>? = null,
     /** parity wave B (worker r): the rows of 16 §3.1 (latest episodes, top 10, upcoming, favourites, for you, ...). */
     val discover: HomeDiscoverState = HomeDiscoverState(),
+    /** 0.3.2: ani.zip artwork of the hero titles by [mediaKey] (fanart / clear logo), filled in the background as it arrives. */
+    val heroArt: Map<String, MediaArtwork> = emptyMap(),
 ) {
     /** Hero carousel = first 5 trending items. */
     val hero: LoadState<List<Media>>
@@ -107,6 +113,8 @@ class HomeViewModel(
     private val feeds = MutableStateFlow(HOME_FEEDS.map { FeedRow(it, LoadState.Loading) })
     private val extensionRows = MutableStateFlow<LoadState<List<ExtensionHomeRow>>?>(null)
     private val discover = MutableStateFlow(HomeDiscoverState())
+    private val heroArt = MutableStateFlow<Map<String, MediaArtwork>>(emptyMap())
+    private var heroArtJob: Job? = null
     private var becauseJob: Job? = null
     private var genreJob: Job? = null
 
@@ -114,13 +122,13 @@ class HomeViewModel(
         ?: flowOf(AppSettings.DEFAULT_PROVIDER_PRIORITY)
 
     val state: StateFlow<HomeUiState> = combine(
-        feeds,
+        combine(feeds, heroArt) { f, a -> f to a },
         history.continueWatching(CONTINUE_LIMIT).catch { emit(emptyList()) },
         providers.catch { emit(AppSettings.DEFAULT_PROVIDER_PRIORITY) },
         extensionRows,
         discover,
-    ) { rows, continueWatching, providerIds, extRows, extra ->
-        HomeUiState(feeds = rows, continueWatching = continueWatching, providers = providerIds, extensionRows = extRows, discover = extra)
+    ) { (rows, art), continueWatching, providerIds, extRows, extra ->
+        HomeUiState(feeds = rows, continueWatching = continueWatching, providers = providerIds, extensionRows = extRows, discover = extra, heroArt = art)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
 
     private val adult: Boolean get() = settings?.settings?.value?.showAdult ?: false
@@ -336,6 +344,26 @@ class HomeViewModel(
 
     private fun setRow(kind: FeedKind, state: LoadState<List<Media>>) {
         feeds.update { rows -> rows.map { if (it.kind == kind) it.copy(state = state) else it } }
+        if (kind == HERO_FEED && state is LoadState.Ok) loadHeroArt(state.value.take(HERO_SIZE))
+    }
+
+    /**
+     * 0.3.2: ani.zip artwork of the hero titles, [HERO_ART_PARALLEL] lookups at a time, each one shown as soon as it arrives (the
+     * spotlight starts with the AniList banner and swaps to the fanart). Never blocks or fails Home; ani.zip, not AniList.
+     */
+    private fun loadHeroArt(items: List<Media>) {
+        heroArtJob?.cancel()
+        val todo = items.filter { mediaKey(it) !in heroArt.value }
+        if (todo.isEmpty()) return
+        heroArtJob = viewModelScope.launch {
+            val gate = Semaphore(HERO_ART_PARALLEL)
+            todo.forEach { media ->
+                launch {
+                    val art = gate.withPermit { runCatchingApp { metadata.artwork(media.ref) }.getOrNull() } ?: return@launch
+                    heroArt.update { it + (mediaKey(media) to art) }
+                }
+            }
+        }
     }
 
     private companion object {
@@ -343,5 +371,6 @@ class HomeViewModel(
         const val TOP_SIZE = 10
         const val FOR_YOU_PREVIEW = 10
         const val MAX_PROVIDER_SOURCES = 6
+        const val HERO_ART_PARALLEL = 3
     }
 }

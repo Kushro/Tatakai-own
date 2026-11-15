@@ -238,7 +238,7 @@ fn card_vm(c: &MangaCard, lang: &str) -> MediaVm {
         cover: c.media.cover.clone(),
         color: c.media.color.clone(),
         subtitle: subtitle(c.adult, c.media.year, c.chapters, c.volumes),
-        score: c.media.score,
+        score: c.media.score, episodes: None, genres: Vec::new(), synopsis: None,
     }
 }
 
@@ -257,7 +257,7 @@ fn md_vm(m: &MdManga, lang: &str) -> MediaVm {
         cover: m.media.cover.clone(),
         color: None,
         subtitle: subtitle(m.adult, m.media.year, m.last_chapter.map(|n| n as u32), None),
-        score: None,
+        score: None, episodes: None, genres: Vec::new(), synopsis: None,
     }
 }
 
@@ -397,7 +397,7 @@ fn media_of_row(id: &str, title: Option<&str>, poster: Option<&str>) -> MediaVm 
         cover: poster.map(str::to_owned).or_else(|| info.and_then(|i| i.poster)),
         color: None,
         subtitle: String::new(),
-        score: None,
+        score: None, episodes: None, genres: Vec::new(), synopsis: None,
     }
 }
 
@@ -1498,7 +1498,7 @@ fn entry_vm(r: &ReadListRow) -> ListEntryVm {
                 .chapters
                 .map(|c| format!("{} / {c}", r.progress))
                 .unwrap_or_else(|| r.progress.to_string()),
-            score: None,
+            score: None, episodes: None, genres: Vec::new(), synopsis: None,
         },
         service: ListServiceVm::AniList,
         status: ListStatusVm::from_id(&r.status).unwrap_or(ListStatusVm::Planning),

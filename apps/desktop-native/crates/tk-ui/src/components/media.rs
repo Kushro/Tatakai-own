@@ -12,7 +12,8 @@ use crate::app::Ui;
 use crate::backend::{ContinueVm, EpisodeVm, MediaVm};
 use crate::components::button::{Button, ButtonVariant};
 use crate::components::chips::{Pill, Tone};
-use crate::i18n::{t, tf};
+use crate::i18n::{t, tf, tn};
+use crate::screens::search::genre_label;
 use crate::icons::Icon;
 
 /// Hero autoplay period when no settings are in context (prototype: 9 s).
@@ -184,6 +185,8 @@ pub fn MediaCard(
     #[props(default)] wide: bool,
     /// Hide the score even when `media.score` is set.
     #[props(default)] hide_score: bool,
+    /// 0.3.2: "Episode 5 · 2 h ago" of the episode rows, drawn prominently by the large / xl cards.
+    #[props(default)] episode_line: String,
     #[props(default)] onclick: EventHandler<MouseEvent>,
 ) -> Element {
     let custom_sub = !sub.is_empty();
@@ -195,6 +198,11 @@ pub fn MediaCard(
     let format = media.format.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(format_label);
     let year = media.year.filter(|y| *y > 0);
     let has_meta = format.is_some() || year.is_some();
+    // Large / xl cards (`:root[data-card-size]`): facts line, score, genres and the synopsis when the row has it.
+    let facts = card_facts(&status_text, format.as_deref(), year, media.episodes);
+    let score_text = score.filter(|s| *s > 0).map(format_score);
+    let genres: Vec<String> = media.genres.iter().take(CARD_GENRES).map(|g| genre_label(g)).collect();
+    let synopsis = media.synopsis.as_deref().map(plain_synopsis).filter(|s| !s.is_empty());
     // The status is part of the accessible name (the dot itself is decorative inside the button).
     let label = if status_text.is_empty() {
         media.title.clone()
@@ -209,6 +217,7 @@ pub fn MediaCard(
             "data-wide": "{wide}",
             "data-meta": "{has_meta}",
             "data-sub": if custom_sub { "custom" } else { "default" },
+            "data-epline": "{!episode_line.is_empty()}",
             "aria-label": "{label}",
             onclick: move |e| onclick.call(e),
             div { class: "tk-card__poster",
@@ -224,6 +233,9 @@ pub fn MediaCard(
                     span { "{media.title}" }
                 }
             }
+            // `display: contents` for the poster sizes (the parts stay flex items of the card); the right column of
+            // the large / xl horizontal cards.
+            div { class: "tk-card__body",
             div { class: "tk-card__title",
                 if let Some(k) = kind {
                     span {
@@ -255,7 +267,87 @@ pub fn MediaCard(
                     }
                 }
             }
+            div { class: "tk-card__more",
+                if !episode_line.is_empty() {
+                    div { class: "tk-card__epline", "{episode_line}" }
+                }
+                if !facts.is_empty() || score_text.is_some() {
+                    div { class: "tk-card__facts",
+                        if let Some(k) = kind {
+                            span { class: "tk-card__dot", "data-status": k.id(), "aria-hidden": "true" }
+                        }
+                        span { class: "tk-card__factstext", "{facts}" }
+                        if let Some(sc) = score_text {
+                            span { class: "tk-card__score",
+                                Icon { name: "star".to_string(), size: 14 }
+                                "{sc}"
+                            }
+                        }
+                    }
+                }
+                if !genres.is_empty() {
+                    ul { class: "tk-card__genres", "aria-hidden": "true",
+                        for g in genres {
+                            li { key: "{g}", "{g}" }
+                        }
+                    }
+                }
+                if let Some(syn) = synopsis {
+                    p { class: "tk-card__syn", "{syn}" }
+                }
+            }
+            }
         }
+    }
+}
+
+/// Genre chips of a large / xl card.
+const CARD_GENRES: usize = 3;
+
+/// "Releasing · TV · 2026 · 12 ep" of the large / xl cards; empty parts are skipped.
+pub fn card_facts(status: &str, format: Option<&str>, year: Option<i32>, episodes: Option<u32>) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    if !status.trim().is_empty() {
+        parts.push(status.trim().to_owned());
+    }
+    if let Some(f) = format.map(str::trim).filter(|f| !f.is_empty()) {
+        parts.push(f.to_owned());
+    }
+    if let Some(y) = year.filter(|y| *y > 0) {
+        parts.push(y.to_string());
+    }
+    if let Some(n) = episodes.filter(|n| *n > 0) {
+        parts.push(tn("hero.chip.episodes", n as usize));
+    }
+    parts.join(" · ")
+}
+
+/// Provider synopses can carry `<br>` / `<i>` tags: the card shows plain text.
+pub fn plain_synopsis(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut in_tag = false;
+    for c in raw.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' if in_tag => {
+                in_tag = false;
+                out.push(' ');
+            }
+            _ if !in_tag => out.push(c),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// "2 h ago" / "3 d ago" of an aired episode, for the episode rows' cards.
+pub fn aired_ago(aired_unix: i64, now_unix: i64) -> String {
+    let secs = (now_unix - aired_unix).max(0);
+    match secs {
+        s if s < 60 => t("hero.ago.now"),
+        s if s < 3600 => tf("hero.ago.min", &[("n", &(s / 60).to_string())]),
+        s if s < 86_400 => tf("hero.ago.h", &[("n", &(s / 3600).to_string())]),
+        s => tf("hero.ago.d", &[("n", &(s / 86_400).to_string())]),
     }
 }
 
@@ -699,6 +791,18 @@ fn HeroSlide(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn large_card_facts_and_text() {
+        assert_eq!(card_facts("Releasing", Some("TV"), Some(2026), Some(12)), format!("Releasing · TV · 2026 · {}", tn("hero.chip.episodes", 12)));
+        assert_eq!(card_facts("", None, Some(0), Some(0)), "");
+        assert_eq!(card_facts(" ", Some(" "), Some(2024), None), "2024");
+        assert_eq!(plain_synopsis("A <i>quiet</i> mage.<br><br>\n Next  line"), "A quiet mage. Next line");
+        assert_eq!(aired_ago(1000, 1030), t("hero.ago.now"));
+        assert_eq!(aired_ago(0, 125 * 60), tf("hero.ago.h", &[("n", "2")]));
+        assert_eq!(aired_ago(0, 3 * 86_400 + 5), tf("hero.ago.d", &[("n", "3")]));
+        assert_eq!(aired_ago(100, 50), t("hero.ago.now"));
+    }
+
     use super::*;
 
     #[test]

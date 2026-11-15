@@ -1,0 +1,103 @@
+{
+ "data": [
+  {
+   "id": "901",
+   "type": "episodes",
+   "attributes": {
+    "number": 1,
+    "canonicalTitle": "Episode 1",
+    "airdate": "2026-07-08",
+    "synopsis": null,
+    "thumbnail": null,
+    "length": null
+   }
+  },
+  {
+   "id": "902",
+   "type": "episodes",
+   "attributes": {
+    "number": 2,
+    "canonicalTitle": null,
+    "airdate": "2026-07-15",
+    "synopsis": null,
+    "thumbnail": null,
+    "length": null
+   }
+  },
+  {
+   "id": "903",
+   "type": "episodes",
+   "attributes": {
+    "number": 3,
+    "canonicalTitle": "Episode 3",
+    "airdate": "2026-07-22",
+    "synopsis": null,
+    "thumbnail": null,
+    "length": null
+   }
+  },
+  {
+   "id": "904",
+   "type": "episodes",
+   "attributes": {
+    "number": 4,
+    "canonicalTitle": null,
+    "airdate": "2026-07-01",
+    "synopsis": null,
+    "thumbnail": null,
+    "length": null
+   }
+  },
+  {
+   "id": "905",
+   "type": "episodes",
+   "attributes": {
+    "number": 5,
+    "canonicalTitle": "Episode 5",
+    "airdate": "2026-08-08",
+    "synopsis": null,
+    "thumbnail": null,
+    "length": null
+   }
+  },
+  {
+   "id": "906",
+   "type": "episodes",
+   "attributes": {
+    "number": 6,
+    "canonicalTitle": null,
+    "airdate": "2026-08-15",
+    "synopsis": null,
+    "thumbnail": null,
+    "length": null
+   }
+  },
+  {
+   "id": "907",
+   "type": "episodes",
+   "attributes": {
+    "number": 7,
+    "canonicalTitle": "Episode 7",
+    "airdate": "2026-08-22",
+    "synopsis": null,
+    "thumbnail": null,
+    "length": null
+   }
+  },
+  {
+   "id": "908",
+   "type": "episodes",
+   "attributes": {
+    "number": 8,
+    "canonicalTitle": null,
+    "airdate": "2026-08-01",
+    "synopsis": null,
+    "thumbnail": null,
+    "length": null
+   }
+  }
+ ],
+ "meta": {
+  "count": 8
+ }
+}

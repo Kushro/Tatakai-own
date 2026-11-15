@@ -38,7 +38,7 @@ pub use flow::{PlayerFlowPrefs, ShortcutMapVm};
 pub use home::HomePrefs;
 pub use lists::{ListPrefsVm, ListServiceVm};
 pub use look::{
-    CalendarView, CardStyle, Density, EpisodeView, HomeLayout, LookPrefs, LookPreset, Motion, RailStyle, RelationsView,
+    CalendarView, CardSize, CardStyle, Density, EpisodeView, HomeLayout, LookPrefs, LookPreset, Motion, RailStyle, RelationsView,
 };
 pub use manga::{MangaPrefs, MangaReaderPrefs, ReadKindVm, ReaderBackgroundVm, ReaderDirectionVm, ReaderFitVm, ReaderModeVm};
 pub use novel::{NovelPrefs, NovelThemeVm, TtsPrefs, TtsProviderVm};

@@ -706,7 +706,7 @@ mod tests {
                 cover: None,
                 color: None,
                 subtitle: String::new(),
-                score: None,
+                score: None, episodes: None, genres: Vec::new(), synopsis: None,
             },
             relation: relation.into(),
             kind: "anime".into(),

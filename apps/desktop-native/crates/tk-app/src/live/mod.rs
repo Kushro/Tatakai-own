@@ -570,7 +570,7 @@ impl LiveBackend {
             .map(|e| {
                 self.remember_title(&e.anime_id, &e.title, e.poster.as_deref());
                 ContinueVm {
-                    media: MediaVm { format: None, status: None, year: None, id: e.anime_id, title: e.title, cover: e.poster, color: None, subtitle: String::new(), score: None },
+                    media: MediaVm { format: None, status: None, year: None, id: e.anime_id, title: e.title, cover: e.poster, color: None, subtitle: String::new(), score: None, episodes: None, genres: Vec::new(), synopsis: None },
                     episode: e.episode,
                     progress_secs: e.progress_sec,
                     duration_secs: e.duration_sec,
@@ -780,12 +780,15 @@ fn to_vm(m: &Media) -> MediaVm {
         status: m.status.clone(),
         format: m.format.clone(),
         year: m.year,
+        episodes: m.episodes,
+        genres: m.genres.clone(),
+        synopsis: m.synopsis.clone(),
     }
 }
 
 /// Poster card of a history row (the store keeps title + poster; the id is the UI id).
 fn history_media(e: &HistoryEntry) -> MediaVm {
-    MediaVm { format: None, status: None, year: None, id: e.anime_id.clone(), title: e.title.clone(), cover: e.poster.clone(), color: None, subtitle: String::new(), score: None }
+    MediaVm { format: None, status: None, year: None, id: e.anime_id.clone(), title: e.title.clone(), cover: e.poster.clone(), color: None, subtitle: String::new(), score: None, episodes: None, genres: Vec::new(), synopsis: None }
 }
 
 fn provider_err(e: ProviderError) -> UiError {
@@ -818,14 +821,27 @@ impl Backend for LiveBackend {
         let (r, media) = self.media(id).await?;
         // History position, or the list progress when it is further (AniList-first).
         let (resume_episode, resume_secs) = tk_core::lists::progress::resume(&self.progress(&r), self.list_row(&r).as_ref());
+        // 0.3.2: the ani.zip fanart (cached a week, bounded wait) runs next to the MAL synopsis fallback.
+        let (synopsis, art) = tokio::join!(
+            async {
+                match media.synopsis.clone() {
+                    Some(s) => Some(s),
+                    // Wave B (b, `metadata.providers.mal`): MAL's synopsis fills the gap when the router has none.
+                    None => home::external_synopsis(self, media.media_ref.mal_id).await,
+                }
+            },
+            async {
+                match media.media_ref.anilist_id {
+                    Some(a) => home::series_art(&self.store, a).await,
+                    None => None,
+                }
+            }
+        );
         Ok(DetailsVm {
             media: to_vm(&media),
             banner: media.banner.clone(),
-            // Wave B (b, `metadata.providers.mal`): MAL's synopsis fills the gap when the router has none.
-            synopsis: match media.synopsis.clone() {
-                Some(s) => Some(s),
-                None => home::external_synopsis(self, media.media_ref.mal_id).await,
-            },
+            fanart: art.and_then(|a| a.fanart),
+            synopsis,
             genres: media.genres.clone(),
             status: media.status.clone(),
             episodes_total: media.episodes,
@@ -1230,6 +1246,9 @@ impl Backend for LiveBackend {
     // c: live/details.rs
     async fn details_extra(&self, id: &str) -> UiResult<DetailsExtraVm> {
         details::details_extra(self, id).await
+    }
+    async fn hero_art(&self, ids: Vec<String>) -> UiResult<Vec<tk_ui::backend::HeroArtVm>> {
+        Ok(home::hero_art(self, ids).await)
     }
     async fn watch_order(&self, id: &str) -> UiResult<Vec<WatchOrderEntryVm>> {
         details::watch_order(self, id).await
