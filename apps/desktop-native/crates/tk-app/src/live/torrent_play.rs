@@ -168,20 +168,13 @@ async fn resolve(b: &LiveBackend, source: &str, id: &str, episode: Option<u32>, 
     Ok(Resolved { source: add, label, provider: None, quality: None })
 }
 
-/// The candidate behind a torrent `SourceVm::id`: the episode's list (cached, then fresh once) or, without an
-/// episode (whole-torrent downloads), any cached list of that title before resolving episode 1.
+/// The candidate behind a torrent `SourceVm::id`: the one the last listing of the episode returned (BUG-134: kept
+/// even when that list expired, so a torrent picked in Details plays or is sent at once instead of asking every
+/// extension again), else the episode's list (cached, then fresh once). Without an episode (whole-torrent
+/// downloads), any listing of that title before resolving episode 1.
 pub(super) async fn find_candidate(b: &LiveBackend, source: &str, id: &str, episode: Option<u32>, media: &Media) -> UiResult<SourceCandidate> {
-    if episode.is_none() {
-        let cached = b.candidates.lock().ok().and_then(|c| {
-            c.iter()
-                .filter(|((mid, _), _)| mid.as_str() == id)
-                .flat_map(|(_, (_, v))| v.iter())
-                .find(|c| source_key(c) == source)
-                .cloned()
-        });
-        if let Some(c) = cached {
-            return Ok(c);
-        }
+    if let Some(c) = b.remembered_torrent(id, episode, source) {
+        return Ok(c);
     }
     let ep = episode.unwrap_or(1);
     let find = |list: Vec<SourceCandidate>| list.into_iter().find(|c| source_key(c) == source);

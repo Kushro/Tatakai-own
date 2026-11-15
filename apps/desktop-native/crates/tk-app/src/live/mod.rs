@@ -81,6 +81,10 @@ pub struct LiveBackend {
     /// `(media id, episode) -> (expires at, candidates)`: `sources()` and `playback_source()` share one resolution
     /// (stream URLs expire, hence the TTL). Cleared when the set of enabled extensions changes.
     candidates: Mutex<HashMap<(String, u32), (Instant, Vec<SourceCandidate>)>>,
+    /// BUG-134: the torrent candidates every listing returned, kept after the list itself expires (a magnet does not
+    /// go stale like a stream URL), so playing or sending a torrent picked in Details does not ask every extension
+    /// again. Cleared with `candidates`.
+    torrent_memo: Mutex<TorrentMemo>,
     /// When the extensions' outbound route (proxy / FlareSolverr) last changed (BUG-102): an empty listing right
     /// after is asked again once before "No sources found".
     net_changed: Mutex<Option<Instant>>,
@@ -110,6 +114,59 @@ const PARTIAL_SOURCES_TTL: Duration = Duration::from_secs(15);
 /// BUG-102: how long after an outbound-route change an empty source listing is retried once, and the pause before.
 const NET_CHANGE_WINDOW: Duration = Duration::from_secs(90);
 const NET_CHANGE_RETRY_PAUSE: Duration = Duration::from_secs(2);
+
+/// How many `(media id, episode)` lists `TorrentMemo` keeps (the oldest is dropped first).
+const TORRENT_MEMO_KEYS: usize = 64;
+
+/// BUG-134: torrent candidates by `(media id, episode)`, upserted by source key from every listing (a partial listing
+/// that missed a torrent does not forget it) and never expired; bounded to `TORRENT_MEMO_KEYS` lists.
+#[derive(Default)]
+pub(crate) struct TorrentMemo {
+    lists: HashMap<(String, u32), Vec<SourceCandidate>>,
+    /// Keys from the least to the most recently written.
+    order: std::collections::VecDeque<(String, u32)>,
+}
+
+impl TorrentMemo {
+    /// Keep the torrent candidates (with their torrent info) of a listing of `key`.
+    pub(crate) fn remember(&mut self, key: (String, u32), list: &[SourceCandidate]) {
+        let torrents: Vec<&SourceCandidate> =
+            list.iter().filter(|c| c.kind == SourceKind::Torrent && c.torrent.is_some()).collect();
+        if torrents.is_empty() {
+            return;
+        }
+        let slot = self.lists.entry(key.clone()).or_default();
+        for c in torrents {
+            let k = source_key(c);
+            match slot.iter_mut().find(|o| source_key(o) == k) {
+                Some(o) => *o = c.clone(),
+                None => slot.push(c.clone()),
+            }
+        }
+        self.order.retain(|k| *k != key);
+        self.order.push_back(key);
+        while self.order.len() > TORRENT_MEMO_KEYS {
+            if let Some(old) = self.order.pop_front() {
+                self.lists.remove(&old);
+            }
+        }
+    }
+
+    /// The torrent candidate `source` of `id`: of that episode, or of any episode without one.
+    pub(crate) fn find(&self, id: &str, episode: Option<u32>, source: &str) -> Option<SourceCandidate> {
+        self.lists
+            .iter()
+            .filter(|((mid, ep), _)| mid.as_str() == id && episode.is_none_or(|e| e == *ep))
+            .flat_map(|(_, v)| v.iter())
+            .find(|c| source_key(c) == source)
+            .cloned()
+    }
+
+    fn clear(&mut self) {
+        self.lists.clear();
+        self.order.clear();
+    }
+}
 
 /// How long a resolved source list of `len` candidates is reused (`None`: not kept). Pure.
 fn candidates_ttl(len: usize, partial: bool) -> Option<Duration> {
@@ -168,6 +225,7 @@ impl LiveBackend {
             ext,
             link,
             candidates: Mutex::new(HashMap::new()),
+            torrent_memo: Mutex::new(TorrentMemo::default()),
             net_changed: Mutex::new(None),
             torrent: torrent::TorrentService::new(paths.clone()),
             secrets: tk_core::Secrets::open(&paths.root),
@@ -275,6 +333,14 @@ impl LiveBackend {
         if let Ok(mut c) = self.candidates.lock() {
             c.clear();
         }
+        if let Ok(mut m) = self.torrent_memo.lock() {
+            m.clear();
+        }
+    }
+
+    /// BUG-134: a torrent candidate some listing of `id` returned, even if that list expired (see `TorrentMemo`).
+    fn remembered_torrent(&self, id: &str, episode: Option<u32>, source: &str) -> Option<SourceCandidate> {
+        self.torrent_memo.lock().ok().and_then(|m| m.find(id, episode, source))
     }
 
     /// Candidates of an episode: from the cache unless stale or `fresh`, else resolved through the extensions.
@@ -299,6 +365,9 @@ impl LiveBackend {
                 let mut v = listing.candidates;
                 v.extend(ext_catalog::extra_candidates(self, media, episode).await);
                 let v = sources::dedupe_by_key(v);
+                if let Ok(mut m) = self.torrent_memo.lock() {
+                    m.remember(key.clone(), &v);
+                }
                 // An empty listing (sites unreachable, proxy down: BUG-082) is not kept, so "Retry" asks again; a
                 // partial one only briefly.
                 if let Some(ttl) = candidates_ttl(v.len(), listing.partial)
@@ -1444,6 +1513,60 @@ mod season_cap_tests {
 #[cfg(test)]
 mod route_change_tests {
     use super::*;
+
+    fn cand(kind: SourceKind, label: &str, hash: &str) -> SourceCandidate {
+        SourceCandidate {
+            ext_id: "toko".into(),
+            ext_name: "Toko".into(),
+            kind,
+            label: label.into(),
+            quality: Default::default(),
+            container: None,
+            subs: Vec::new(),
+            dubs: Vec::new(),
+            reliability: INITIAL_RELIABILITY,
+            note: None,
+            web: None,
+            torrent: (kind == SourceKind::Torrent).then(|| tk_core::sources::TorrentInfo {
+                info_hash: hash.repeat(20),
+                size_bytes: None,
+                seeders: None,
+                leechers: 0,
+                magnet: None,
+            }),
+            tags: Default::default(),
+        }
+    }
+
+    #[test]
+    fn torrent_candidates_outlive_their_list() {
+        // BUG-134: a torrent picked in Details is found by its key without asking the extensions again, even after
+        // a later (partial) listing that missed it; web rows are not kept (their URLs expire).
+        let mut memo = TorrentMemo::default();
+        let toons = cand(SourceKind::Torrent, "ToonsHub", "2b");
+        let web = cand(SourceKind::Web, "Alpha", "");
+        memo.remember(("anilist:1".into(), 3), &[toons.clone(), web.clone()]);
+        memo.remember(("anilist:1".into(), 3), &[cand(SourceKind::Torrent, "Erai", "cd")]);
+        assert_eq!(memo.find("anilist:1", Some(3), &source_key(&toons)), Some(toons.clone()));
+        assert!(memo.find("anilist:1", Some(3), "toko|torrent|Erai").is_some());
+        assert_eq!(memo.find("anilist:1", Some(3), &source_key(&web)), None);
+        assert_eq!(memo.find("anilist:1", Some(4), &source_key(&toons)), None);
+        assert_eq!(memo.find("anilist:2", Some(3), &source_key(&toons)), None);
+        // Whole-torrent downloads (no episode) look in any episode of the title.
+        assert_eq!(memo.find("anilist:1", None, &source_key(&toons)), Some(toons.clone()));
+        // A newer listing replaces the row (same key, new hash).
+        let renewed = cand(SourceKind::Torrent, "ToonsHub", "ef");
+        memo.remember(("anilist:1".into(), 3), &[renewed.clone()]);
+        assert_eq!(memo.find("anilist:1", Some(3), &source_key(&toons)), Some(renewed));
+        // Bounded: the oldest list goes first.
+        for ep in 100..100 + TORRENT_MEMO_KEYS as u32 {
+            memo.remember(("anilist:9".into(), ep), &[toons.clone()]);
+        }
+        assert_eq!(memo.find("anilist:1", Some(3), &source_key(&toons)), None);
+        assert!(memo.find("anilist:9", Some(100), &source_key(&toons)).is_some());
+        memo.clear();
+        assert_eq!(memo.find("anilist:9", None, &source_key(&toons)), None);
+    }
 
     #[test]
     fn empty_lists_are_not_kept_and_partial_ones_only_briefly() {
