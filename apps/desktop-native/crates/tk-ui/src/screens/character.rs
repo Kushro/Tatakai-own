@@ -350,7 +350,7 @@ mod tests {
 
     fn appearance(actors: Vec<PersonVm>) -> CharacterAppearanceVm {
         CharacterAppearanceVm {
-            media: MediaVm { format: None, status: None, year: None, id: "21".into(), title: "One Piece".into(), cover: None, color: None, subtitle: String::new(), score: None },
+            media: MediaVm { format: None, status: None, year: None, id: "21".into(), title: "One Piece".into(), cover: None, color: None, subtitle: String::new(), score: None, episodes: None, genres: Vec::new(), synopsis: None },
             role: "MAIN".into(),
             voice_actors: actors,
         }

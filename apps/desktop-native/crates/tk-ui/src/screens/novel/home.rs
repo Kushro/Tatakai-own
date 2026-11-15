@@ -530,7 +530,7 @@ mod tests {
                 cover: None,
                 color: None,
                 subtitle: String::new(),
-                score: None,
+                score: None, episodes: None, genres: Vec::new(), synopsis: None,
             },
             kind: ReadKindVm::Novel,
             progress: ReadProgressVm {

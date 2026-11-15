@@ -749,7 +749,7 @@ mod tests {
                 cover: None,
                 color: None,
                 subtitle: String::new(),
-                score: None,
+                score: None, episodes: None, genres: Vec::new(), synopsis: None,
             },
             service: ListServiceVm::AniList,
             status: ListStatusVm::Watching,
@@ -783,7 +783,7 @@ mod tests {
 
     #[test]
     fn favourites_sort() {
-        let m = |t: &str| MediaVm { format: None, status: None, year: None, id: t.into(), title: t.into(), cover: None, color: None, subtitle: String::new(), score: None };
+        let m = |t: &str| MediaVm { format: None, status: None, year: None, id: t.into(), title: t.into(), cover: None, color: None, subtitle: String::new(), score: None, episodes: None, genres: Vec::new(), synopsis: None };
         let v = sort_media(vec![m("b"), m("A"), m("c")], LibSort::Title, "");
         assert_eq!(v.iter().map(|m| m.title.as_str()).collect::<Vec<_>>(), ["A", "b", "c"]);
         assert_eq!(sort_media(vec![m("b"), m("A")], LibSort::Updated, "a").len(), 1);

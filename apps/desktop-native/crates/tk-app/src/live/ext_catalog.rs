@@ -354,7 +354,7 @@ fn details_vm(b: &LiveBackend, r: &ProviderRef, info: &ProviderInfo) -> DetailsV
             cover: info.image.clone(),
             color: None,
             subtitle: ext_name(b, &r.ext_id),
-            score: None,
+            score: None, episodes: None, genres: Vec::new(), synopsis: None,
         },
         banner: info.banner.clone().or_else(|| info.image.clone()),
         synopsis: info.description.clone(),
@@ -362,7 +362,7 @@ fn details_vm(b: &LiveBackend, r: &ProviderRef, info: &ProviderInfo) -> DetailsV
         status: meta_value(&info.meta, &["status", "estado"]),
         episodes_total: u32::try_from(info.entries.len()).ok().filter(|n| *n > 0),
         resume_episode,
-        resume_secs,
+        resume_secs, fanart: None,
     }
 }
 
@@ -974,7 +974,7 @@ fn bookmark_vm(b: &LiveBackend, row: &ProviderBookmarkRow) -> MediaVm {
         cover: row.poster.clone(),
         color: None,
         subtitle: if row.completed { format!("✓ {name}") } else { name },
-        score: None,
+        score: None, episodes: None, genres: Vec::new(), synopsis: None,
     }
 }
 

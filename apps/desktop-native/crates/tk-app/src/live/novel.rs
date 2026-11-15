@@ -241,7 +241,7 @@ async fn continue_reading(b: &LiveBackend, al: &AniListNovels) -> Vec<ContinueRe
                     cover: r.poster.clone(),
                     color: None,
                     subtitle: String::new(),
-                    score: None,
+                    score: None, episodes: None, genres: Vec::new(), synopsis: None,
                 },
             };
             Some(ContinueReadVm {
