@@ -1638,7 +1638,7 @@ mod tests {
     }
 
     fn dev(id: &str, online: bool) -> DeviceVm {
-        DeviceVm { id: id.into(), name: id.into(), platform: "android".into(), last_seen_unix: None, online }
+        DeviceVm { id: id.into(), name: id.into(), platform: "android".into(), last_seen_unix: None, online, ..Default::default() }
     }
 
     #[test]

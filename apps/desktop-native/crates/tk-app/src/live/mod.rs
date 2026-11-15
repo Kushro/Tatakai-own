@@ -1068,6 +1068,16 @@ impl Backend for LiveBackend {
     async fn link_capabilities(&self) -> UiResult<LinkCapsVm> {
         self.link.capabilities().await
     }
+    // 2026-11 history per device (`live/link.rs`)
+    async fn link_set_history_mode(&self, device_id: &str, mode: tk_ui::backend::HistoryModeVm) -> UiResult<()> {
+        self.link.set_history_mode(device_id, mode).await
+    }
+    async fn link_use_as_source(&self, device_id: &str) -> UiResult<()> {
+        self.link.use_as_source(device_id).await
+    }
+    async fn link_delete_contributed(&self, device_id: &str) -> UiResult<u64> {
+        self.link.delete_contributed(device_id).await
+    }
 
     // --- wave 2 (docs/redesign/09): bodies live in `crate::anime_build` (B). ---
 

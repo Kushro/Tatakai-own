@@ -82,6 +82,34 @@ pub fn merge(store: &Arc<LocalStore>, mut rows: Vec<HistoryEntry>) -> usize {
     wins
 }
 
+/// 2026-11 history per device: rows pushed by the Link device `device_id` remember it as their origin
+/// (`LocalStore::merge_remote_from`); with `authoritative` ("Use this device as the source", window open) they win
+/// regardless of timestamps. Same BUG-096 poster rule as [`merge`]. Returns the rows stored.
+pub fn merge_from(store: &Arc<LocalStore>, device_id: &str, mut rows: Vec<HistoryEntry>, authoritative: bool) -> usize {
+    touch(store);
+    for r in &mut rows {
+        if r.poster.as_deref().is_none_or(str::is_empty) {
+            let known = store.progress_for(&r.anime_id).unwrap_or_default();
+            r.poster = known_poster(&known, &r.episode_id);
+        }
+    }
+    match store.merge_remote_from(&rows, device_id, authoritative) {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::warn!(error = %e, "history merge from Link failed");
+            0
+        }
+    }
+}
+
+/// Rows per origin device ("contributed N episodes" on the Link screen). Errors read as none.
+pub fn origin_counts(store: &LocalStore) -> std::collections::HashMap<String, u64> {
+    store.history_origin_counts().unwrap_or_else(|e| {
+        tracing::debug!(error = %e, "history origin counts failed");
+        Default::default()
+    })
+}
+
 /// BUG-096: the poster to keep for a row of `episode_id` that came without one: that episode's, else the newest of the
 /// series (rows of one anime). Pure.
 pub fn known_poster(rows: &[HistoryEntry], episode_id: &str) -> Option<String> {
@@ -161,6 +189,25 @@ mod tests {
         fresh.poster = Some("https://img.example/new.jpg".into());
         merge(&store, vec![fresh]);
         assert_eq!(since(&store, 250, 10)[0].poster.as_deref(), Some("https://img.example/new.jpg"));
+    }
+
+    #[test]
+    fn pushes_from_a_device_remember_it_and_the_source_wins_inside_its_window() {
+        let store = Arc::new(LocalStore::open_in_memory().unwrap());
+        let mut seen = row(4, 1400, 100);
+        seen.poster = Some("https://img.example/og.jpg".into());
+        store.record_history(&seen).unwrap();
+        // the QA phone pushes a newer row of ep 4 and a new ep 5
+        assert_eq!(merge_from(&store, "moto", vec![row(4, 10, 300), row(5, 20, 300)], false), 2);
+        assert_eq!(origin_counts(&store).get("moto"), Some(&2));
+        assert_eq!(since(&store, 0, 10)[0].poster.as_deref(), Some("https://img.example/og.jpg"), "BUG-096 still applies");
+        // the tablet is the source: its older rows win while the window is open
+        assert_eq!(merge_from(&store, "tab", vec![row(4, 1400, 200)], false), 0);
+        assert_eq!(merge_from(&store, "tab", vec![row(4, 1400, 200)], true), 1);
+        let counts = origin_counts(&store);
+        assert_eq!((counts.get("tab"), counts.get("moto")), (Some(&1), Some(&1)));
+        assert_eq!(store.delete_history_by_origin("moto").unwrap(), 1);
+        assert_eq!(since(&store, 0, 10).iter().map(|e| (e.episode, e.progress_sec)).collect::<Vec<_>>(), [(4, 1400)]);
     }
 
     #[test]
