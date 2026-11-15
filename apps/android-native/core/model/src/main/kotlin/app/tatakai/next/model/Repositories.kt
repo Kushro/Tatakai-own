@@ -21,6 +21,12 @@ interface MetadataRepository {
     suspend fun media(kind: MediaKind, ref: MediaRef): Media?
     suspend fun episodes(ref: MediaRef): List<Episode>
 
+    /**
+     * 0.3.2: ani.zip (TVDB) artwork of [ref]: 1920x1080 fanart, wide banner, poster and the transparent title logo. Cached ~7 days;
+     * null when unknown / not available (callers keep the AniList banner and the text title). Never asks AniList.
+     */
+    suspend fun artwork(ref: MediaRef): MediaArtwork? = null
+
     // --- android wave (worker a) ---
     /** Size of the metadata response cache (Settings › Metadatos › caché). */
     suspend fun cacheStats(): MetadataCacheStats = MetadataCacheStats(entries = 0, bytes = 0)
