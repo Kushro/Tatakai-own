@@ -36,6 +36,11 @@
     <string name="linked_profile_anime4k">Anime4K to %1$dp</string>
     <string name="linked_profile_fg">Frame generation ×%1$d</string>
     <string name="linked_profile_fg_auto">Frame generation, auto (%1$d fps)</string>
+    <!-- BUG-132: profiles the phone's video decoder cannot play (disabled rows of the profile lists) -->
+    <string name="linked_profile_too_large">Your phone does not play %1$dp</string>
+    <string name="linked_profile_too_fast">Your phone does not play %1$dp at %2$d fps</string>
+    <string name="linked_profile_rejected">Your phone could not play this profile</string>
+    <string name="linked_profile_fallback">Your phone does not play %1$s: your preferred profile is now %2$s.</string>
     <string name="linked_profiles_none">This PC has no profile it can sustain in real time.</string>
     <string name="linked_sustain_ok">Sustained in real time</string>
     <string name="linked_sustain_no">May stutter</string>

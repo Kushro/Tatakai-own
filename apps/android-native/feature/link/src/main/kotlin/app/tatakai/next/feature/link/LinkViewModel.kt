@@ -21,6 +21,11 @@ import app.tatakai.next.model.LinkedDevice
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.PlayerArgs
+import app.tatakai.next.model.LinkProfileFallback
+import app.tatakai.next.model.ProfileSupport
+import app.tatakai.next.model.VideoDecodeLimits
+import app.tatakai.next.model.playableLinkProfile
+import app.tatakai.next.model.unsupportedLinkProfiles
 import app.tatakai.next.ui.state.runCatchingApp
 import app.tatakai.next.ui.state.toAppError
 import kotlinx.coroutines.channels.Channel
@@ -42,6 +47,10 @@ data class LinkUiState(
     val capabilities: LoadState<LinkCapabilities>? = null,
     /** Profile id chosen by the user; null = the PC's default profile. */
     val selectedProfile: String? = null,
+    /** BUG-132: the PC's profiles this phone's video decoder cannot play (shown disabled, with the reason). */
+    val unsupportedProfiles: Map<String, ProfileSupport> = emptyMap(),
+    /** BUG-132: the saved preferred profile ([LinkProfileFallback.from]) is not playable here and was replaced by [LinkProfileFallback.to]. */
+    val profileFallback: LinkProfileFallback? = null,
     val pairing: Boolean = false,
     val pairError: AppError? = null,
     val startingSession: Boolean = false,
@@ -89,6 +98,8 @@ class LinkViewModel(
     private val history: HistoryRepository? = null,
     /** parity wave B: pairing with a PC found over mDNS (fingerprint + one-time code). */
     private val discovery: LinkDiscoveryAccess? = null,
+    /** BUG-132: what the phone's H.264 decoder plays (null = unknown: every profile is offered). */
+    private val decodeLimits: () -> VideoDecodeLimits? = { null },
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -214,20 +225,37 @@ class LinkViewModel(
     private suspend fun loadCapabilities() {
         _state.update { it.copy(capabilities = LoadState.Loading) }
         val result = runCatchingApp { link.capabilities().getOrThrow() }
+        val limits = result.getOrNull()?.let { runCatching { decodeLimits() }.getOrNull() }
+        var replaced: LinkProfileFallback? = null
         _state.update { s ->
             val caps = result.fold(
                 onSuccess = { LoadState.Ok(it) },
                 onFailure = { LoadState.Err(it.toAppError()) },
             )
+            val profiles = (caps as? LoadState.Ok)?.value?.profiles.orEmpty()
+            val unsupported = unsupportedLinkProfiles(profiles, limits)
             val wanted = s.selectedProfile ?: s.device?.preferredProfile
-            val keep = wanted?.takeIf { id -> (caps as? LoadState.Ok)?.value?.profiles?.any { it.id == id } == true }
-            s.copy(capabilities = caps, selectedProfile = keep)
+            var keep = wanted?.takeIf { id -> profiles.any { it.id == id } }
+            // BUG-132: a saved preferred profile this phone cannot play is replaced by the closest playable one, once (it is saved)
+            if (keep != null && keep in unsupported) {
+                val to = playableLinkProfile(keep, profiles, limits, defaultProfile = (caps as? LoadState.Ok)?.value?.defaultProfile)
+                if (to != null && to != keep) replaced = LinkProfileFallback(keep, to)
+                keep = to
+            }
+            s.copy(
+                capabilities = caps,
+                selectedProfile = keep,
+                unsupportedProfiles = unsupported,
+                profileFallback = replaced ?: s.profileFallback,
+            )
         }
+        replaced?.let { r -> runCatchingApp { link.setPreferredProfile(r.to) } }
     }
 
     /** Enhance profile segmented: kept in the UI state and persisted as the PC's preferred profile for this phone. */
     fun selectProfile(id: String?) {
-        _state.update { it.copy(selectedProfile = id) }
+        if (id != null && id in _state.value.unsupportedProfiles) return // BUG-132: the row is disabled; never save it
+        _state.update { it.copy(selectedProfile = id, profileFallback = null) }
         viewModelScope.launch { runCatchingApp { link.setPreferredProfile(id) } }
     }
 

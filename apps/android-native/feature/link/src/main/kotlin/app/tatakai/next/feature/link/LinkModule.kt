@@ -12,6 +12,8 @@ val linkFeatureModule = module {
             // parity wave B (16 §3.11, worker r): "Continuar en la PC" + mDNS pairing
             history = getOrNull(),
             discovery = getOrNull(),
+            // BUG-132: profiles the phone's AVC decoder cannot play are shown disabled
+            decodeLimits = { app.tatakai.next.link.AvcDecodeLimits.device() },
         )
     }
     // docs/redesign/13 §3.10: PC extension server connect screen

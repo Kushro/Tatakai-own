@@ -36,6 +36,10 @@
     <string name="linked_profile_anime4k">Anime4K a %1$dp</string>
     <string name="linked_profile_fg">Generación de cuadros ×%1$d</string>
     <string name="linked_profile_fg_auto">Generación de cuadros automática (%1$d fps)</string>
+    <string name="linked_profile_too_large">Tu teléfono no reproduce %1$dp</string>
+    <string name="linked_profile_too_fast">Tu teléfono no reproduce %1$dp a %2$d fps</string>
+    <string name="linked_profile_rejected">Tu teléfono no pudo reproducir este perfil</string>
+    <string name="linked_profile_fallback">Tu teléfono no reproduce %1$s: tu perfil preferido pasó a %2$s.</string>
     <string name="linked_profiles_none">Esta PC no tiene un perfil que pueda sostener en tiempo real.</string>
     <string name="linked_sustain_ok">Sostenido en tiempo real</string>
     <string name="linked_sustain_no">Puede entrecortarse</string>

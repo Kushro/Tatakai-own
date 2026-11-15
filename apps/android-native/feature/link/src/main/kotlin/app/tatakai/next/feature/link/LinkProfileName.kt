@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -17,6 +18,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import app.tatakai.next.model.LinkProfile
+import app.tatakai.next.model.ProfileSupport
 
 /**
  * What a Link profile does, read from its stable id (`contracts/link`: `p-none`, `p-anime4k-<h>`, `p-anime4k-1080-fg2x`,
@@ -64,25 +66,49 @@ fun profileLabel(profile: LinkProfile): String {
 }
 
 
-/** Radio list of the PC's profiles: one row each with its full name, so a dozen options stay readable. */
+/** BUG-132: why this phone cannot play a profile, for its disabled row ("Tu teléfono no reproduce 1440p"). */
 @Composable
-fun ProfileList(profiles: List<LinkProfile>, selected: String, onSelect: (String) -> Unit) {
+fun profileSupportText(support: ProfileSupport): String? = when (support) {
+    ProfileSupport.Supported -> null
+    is ProfileSupport.TooLarge -> stringResource(R.string.linked_profile_too_large, support.height)
+    is ProfileSupport.TooFast -> stringResource(R.string.linked_profile_too_fast, support.height, support.fps)
+    ProfileSupport.Rejected -> stringResource(R.string.linked_profile_rejected)
+}
+
+/**
+ * Radio list of the PC's profiles: one row each with its full name, so a dozen options stay readable. BUG-132: the profiles in
+ * [unavailable] (this phone's decoder cannot play them) are shown disabled, with the reason under the name.
+ */
+@Composable
+fun ProfileList(
+    profiles: List<LinkProfile>,
+    selected: String,
+    unavailable: Map<String, ProfileSupport> = emptyMap(),
+    onSelect: (String) -> Unit,
+) {
     Column(Modifier.fillMaxWidth().selectableGroup()) {
         profiles.forEach { profile ->
             val on = profile.id == selected
+            val reason = unavailable[profile.id]?.let { profileSupportText(it) }
+            val enabled = reason == null
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 48.dp)
-                    .selectable(selected = on, role = Role.RadioButton, onClick = { onSelect(profile.id) }),
+                    .selectable(selected = on, enabled = enabled, role = Role.RadioButton, onClick = { onSelect(profile.id) }),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                RadioButton(selected = on, onClick = null)
-                Text(
-                    profileLabel(profile),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(start = 12.dp),
-                )
+                RadioButton(selected = on, onClick = null, enabled = enabled)
+                Column(Modifier.padding(start = 12.dp)) {
+                    Text(
+                        profileLabel(profile),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = LocalContentColor.current.let { if (enabled) it else it.copy(alpha = 0.38f) },
+                    )
+                    if (reason != null) {
+                        Text(reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
         }
     }

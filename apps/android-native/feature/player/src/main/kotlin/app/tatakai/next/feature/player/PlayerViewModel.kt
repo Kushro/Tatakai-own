@@ -11,6 +11,9 @@ import app.tatakai.next.link.LinkApiError
 import app.tatakai.next.link.LinkError
 import app.tatakai.next.link.RemotePlaybackAccess
 import app.tatakai.next.model.LinkProfile
+import app.tatakai.next.model.ProfileSupport
+import app.tatakai.next.model.VideoDecodeLimits
+import app.tatakai.next.model.unsupportedLinkProfiles
 import app.tatakai.next.link.linkErrorOrNull
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
@@ -223,6 +226,12 @@ sealed interface PlayerNotice {
 
     /** BUG-131: the renewed Link session did not start in time and was opened again once. */
     data object LinkProfileRetried : PlayerNotice
+
+    /** BUG-132: this phone's decoder could not play the profile; the session went back to [to] (null = its name is unknown). */
+    data class LinkPhoneCannotPlay(val to: app.tatakai.next.model.LinkProfile?) : PlayerNotice
+
+    /** BUG-132: the saved preferred profile [from] is not playable on this phone; [to] is used (and saved) instead. */
+    data class LinkPreferredReplaced(val from: app.tatakai.next.model.LinkProfile, val to: app.tatakai.next.model.LinkProfile) : PlayerNotice
 }
 
 /**
@@ -243,6 +252,9 @@ enum class RemoteFailure {
 
     /** The PC answered with an error for a session it still has. */
     PC_ERROR,
+
+    /** BUG-132: this phone's video decoder does not take the profile's stream (not the PC's fault); Retry uses another profile. */
+    PHONE_DECODER,
 }
 
 data class PlayerUiState(
@@ -286,6 +298,8 @@ data class PlayerUiState(
     val linkProfile: String? = null,
     /** BUG-022: a profile change is restarting the session. */
     val linkProfileChanging: Boolean = false,
+    /** BUG-132: the profiles of [linkProfiles] this phone cannot play (disabled in the sheet, with the reason). */
+    val linkUnsupported: Map<String, ProfileSupport> = emptyMap(),
     // --- parity wave A (worker p) ---
     val hasPrevEpisode: Boolean = false,
     val sleep: SleepUi? = null,
@@ -330,6 +344,8 @@ class PlayerViewModel(
     private val debrid: DebridRepository? = null,
     // --- parity wave B (worker t): embed pages resolved in a hidden WebView (sources.embed-sniffer) ---
     private val embedSniffer: EmbedSniffer? = null,
+    /** BUG-132: what the phone's H.264 decoder plays (the Link profiles it cannot are disabled); null = unknown. */
+    private val linkDecodeLimits: () -> VideoDecodeLimits? = { app.tatakai.next.link.AvcDecodeLimits.device() },
 ) : ViewModel() {
     private val initialSettings: AppSettings = settingsRepository?.settings?.value ?: AppSettings()
     /** Can change once, from Media3 to libmpv, when Media3 cannot decode the video (BUG-020, [switchToMpv]). */
@@ -388,6 +404,14 @@ class PlayerViewModel(
         ready = { id -> remote.sessionReady(id) },
         log = { line -> runCatching { android.util.Log.i(LINK_LOG_TAG, line) } },
     )
+
+    /** BUG-132: Link profiles this phone's decoder already failed with in this player (never asked again, Retry included). */
+    private val rejectedProfiles = mutableSetOf<String>()
+
+    /** BUG-132: the profile used before the last profile change (where a decoder rejection goes back to). */
+    private var profileBeforeChange: String? = null
+    private var linkDefaultProfile: String? = null
+    private var linkLimits: VideoDecodeLimits? = null
 
     /** BUG-131: waits for a renewed Link session to show its first frame ([watchRenewedStart]). */
     private var renewWatch: Job? = null
@@ -912,6 +936,7 @@ class PlayerViewModel(
             if (handledErrorLoad != st.loadId) {
                 handledErrorLoad = st.loadId
                 if (recoverMpvStall(err)) return
+                if (rejectLinkProfile(err)) return
                 if (recoverDecode(err)) return
                 if (f != null && playbackInFlow()) {
                     if (playback != null) endTorrent(completed = false)
@@ -1158,7 +1183,7 @@ class PlayerViewModel(
             when {
                 renew -> {
                     _state.update { it.copy(phase = PlayerPhase.BUFFERING, error = null, remoteFailure = null) }
-                    remote.renew(id, positionMs / 1000.0, _state.value.linkProfile).fold(
+                    remote.renew(id, positionMs / 1000.0, retryLinkProfile()).fold(
                         onSuccess = { renewed ->
                             remoteId = renewed.sessionId
                             val src = RemotePlayback.source(remote, renewed.sessionId, args.title)
@@ -1191,8 +1216,64 @@ class PlayerViewModel(
         viewModelScope.launch {
             val caps = link.capabilities().getOrNull() ?: return@launch
             val current = remote.profileOf(sessionId) ?: caps.defaultProfile
-            _state.update { it.copy(linkProfiles = caps.profiles, linkProfile = current) }
+            linkDefaultProfile = caps.defaultProfile
+            linkLimits = runCatching { linkDecodeLimits() }.getOrNull()
+            _state.update {
+                it.copy(
+                    linkProfiles = caps.profiles,
+                    linkProfile = it.linkProfile ?: current,
+                    linkUnsupported = unsupportedLinkProfiles(caps.profiles, linkLimits, rejectedProfiles),
+                )
+            }
+            // BUG-132: the session started with the closest playable profile instead of the saved preferred one: say it once
+            link.takeProfileFallback()?.let { f ->
+                val from = caps.profiles.firstOrNull { it.id == f.from }
+                val to = caps.profiles.firstOrNull { it.id == f.to }
+                if (from != null && to != null) _notices.trySend(PlayerNotice.LinkPreferredReplaced(from, to))
+            }
         }
+    }
+
+    /**
+     * BUG-132: a Link session whose stream this phone's decoder does not take (the moto g51 and 2560x1440): the profile is
+     * remembered as rejected (disabled in the sheet, never asked again, Retry included) and the session goes back to the profile
+     * used before the change, or to the closest playable one, with a notice that names the phone. Without one, the error screen
+     * says the phone cannot play it. Returns true when the error was handled here.
+     */
+    private fun rejectLinkProfile(err: PlaybackError): Boolean {
+        val id = remoteId ?: return false
+        val bad = _state.value.linkProfile ?: remote.profileOf(id)
+        val src = currentSource
+        val retrySpent = src != null && decodeRetryKey == "url:${src.url}" && decodeRetries >= app.tatakai.next.player.MAX_SILENT_RETRIES
+        if (!linkDecoderRejected(err.code, bad != null && bad in _state.value.linkUnsupported, retrySpent)) return false
+        runCatching { android.util.Log.i(LINK_LOG_TAG, "phone decoder rejected session=$id profile=${bad ?: "-"} code=${err.code} (${err.name})") }
+        if (bad != null) rejectedProfiles += bad
+        val profiles = _state.value.linkProfiles
+        _state.update { it.copy(linkUnsupported = unsupportedLinkProfiles(profiles, linkLimits, rejectedProfiles)) }
+        val back = linkProfileAfterRejection(bad, profileBeforeChange, profiles, linkLimits, rejectedProfiles, linkDefaultProfile)
+        if (back == null || bad == null) {
+            remoteError(RemoteFailure.PHONE_DECODER, null)
+            return true
+        }
+        val positionMs = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs
+        _state.update { it.copy(phase = PlayerPhase.BUFFERING, error = null, remoteFailure = null) }
+        profileChange.request(
+            sessionId = id,
+            currentProfile = bad,
+            profileId = back,
+            positionMs = positionMs,
+            onStarted = { _state.update { it.copy(linkProfileChanging = true) } },
+            onResult = { result ->
+                _state.update { it.copy(linkProfileChanging = profileChange.changing.value) }
+                if (result is LinkProfileResult.Changed && playProfileChange(result)) {
+                    profileBeforeChange = null
+                    _notices.trySend(PlayerNotice.LinkPhoneCannotPlay(profiles.firstOrNull { it.id == back }))
+                } else {
+                    remoteError(RemoteFailure.PHONE_DECODER, null)
+                }
+            },
+        )
+        return true
     }
 
     /**
@@ -1200,6 +1281,8 @@ class PlayerViewModel(
      * PC replaces the old one). The choice is not saved as the preferred profile (that stays on the Linked screen).
      */
     fun changeLinkProfile(profileId: String) {
+        if (profileId in _state.value.linkUnsupported) return // BUG-132: a disabled row (this phone cannot play it)
+        val before = _state.value.linkProfile
         val positionMs = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs
         profileChange.request(
             sessionId = remoteId,
@@ -1210,15 +1293,11 @@ class PlayerViewModel(
             onResult = { result ->
                 _state.update { it.copy(linkProfileChanging = profileChange.changing.value) }
                 if (result is LinkProfileResult.Changed) {
-                    remoteId = result.sessionId
-                    _state.update { it.copy(linkProfile = result.profileId, phase = PlayerPhase.BUFFERING, error = null, remoteFailure = null) }
-                    val src = RemotePlayback.source(remote, result.sessionId, args.title)
-                    if (src == null) {
-                        _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
+                    profileBeforeChange = before
+                    if (!playProfileChange(result)) {
                         _notices.trySend(PlayerNotice.LinkProfile(LinkProfileResult.Failed(LinkProfileFailure.PC_ERROR)))
                         return@request
                     }
-                    loadRenewed(src, result.positionMs)
                 } else if (result is LinkProfileResult.Failed && session?.state?.value?.error != null) {
                     // the old session failed while the change ran (its recovery waited for it): recover it now
                     recoverRemote(auto = true)
@@ -1226,6 +1305,27 @@ class PlayerViewModel(
                 _notices.trySend(PlayerNotice.LinkProfile(result))
             },
         )
+    }
+
+    /** BUG-131 / BUG-132: plays the new session of a profile change; false when its playlist cannot be opened (REMOTE_UNAVAILABLE). */
+    private fun playProfileChange(result: LinkProfileResult.Changed): Boolean {
+        remoteId = result.sessionId
+        _state.update { it.copy(linkProfile = result.profileId, phase = PlayerPhase.BUFFERING, error = null, remoteFailure = null) }
+        val src = RemotePlayback.source(remote, result.sessionId, args.title)
+        if (src == null) {
+            _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
+            return false
+        }
+        loadRenewed(src, result.positionMs)
+        return true
+    }
+
+    /** BUG-132: the profile a Retry / recovery asks the PC for: never one this phone's decoder already rejected. */
+    private fun retryLinkProfile(): String? {
+        val current = _state.value.linkProfile
+        val wanted = linkRetryProfile(current, _state.value.linkProfiles, linkLimits, rejectedProfiles, linkDefaultProfile)
+        if (wanted != current) _state.update { it.copy(linkProfile = wanted) }
+        return wanted
     }
 
     /**
@@ -1251,7 +1351,7 @@ class PlayerViewModel(
                 remoteError(RemoteFailure.PC_ERROR, null)
                 return@launch
             }
-            val renewed = remote.renew(id, positionMs / 1000.0, _state.value.linkProfile).getOrNull()
+            val renewed = remote.renew(id, positionMs / 1000.0, retryLinkProfile()).getOrNull()
             val src = renewed?.let { RemotePlayback.source(remote, it.sessionId, args.title) }
             if (renewed == null || src == null) {
                 remoteError(RemoteFailure.PC_ERROR, null)

@@ -102,6 +102,8 @@ import app.tatakai.next.model.LinkCapabilities
 import app.tatakai.next.model.LinkHandoff
 import app.tatakai.next.model.RemoteAction
 import app.tatakai.next.model.LinkProfile
+import app.tatakai.next.model.LinkProfileFallback
+import app.tatakai.next.model.ProfileSupport
 import app.tatakai.next.model.LinkState
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.PlayerArgs
@@ -482,13 +484,19 @@ private fun CapabilitiesPanel(state: LinkUiState, onRetry: () -> Unit, onSelectP
                 onRetry = onRetry,
                 compact = true,
             )
-            is LoadState.Ok -> CapabilitiesBody(caps.value, state.selectedProfile, onSelectProfile)
+            is LoadState.Ok -> CapabilitiesBody(caps.value, state.selectedProfile, state.unsupportedProfiles, state.profileFallback, onSelectProfile)
         }
     }
 }
 
 @Composable
-private fun CapabilitiesBody(caps: LinkCapabilities, selected: String?, onSelect: (String?) -> Unit) {
+private fun CapabilitiesBody(
+    caps: LinkCapabilities,
+    selected: String?,
+    unsupported: Map<String, ProfileSupport>,
+    fallback: LinkProfileFallback?,
+    onSelect: (String?) -> Unit,
+) {
     Cap(stringResource(R.string.linked_caps_server), "${caps.serverName} · ${caps.serverVersion}")
     Cap(
         stringResource(R.string.linked_caps_frame_gen),
@@ -501,11 +509,18 @@ private fun CapabilitiesBody(caps: LinkCapabilities, selected: String?, onSelect
         return
     }
     Text(stringResource(R.string.linked_profile), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
-    val current = selected?.takeIf { id -> usable.any { it.id == id } }
-        ?: caps.defaultProfile.takeIf { id -> usable.any { it.id == id } }
-        ?: usable.first().id
+    // BUG-132: the profiles this phone cannot decode stay in the list, disabled with the reason; never the selected one
+    val playable = usable.filter { it.id !in unsupported }
+    val current = selected?.takeIf { id -> playable.any { it.id == id } }
+        ?: caps.defaultProfile.takeIf { id -> playable.any { it.id == id } }
+        ?: (playable.firstOrNull() ?: usable.first()).id
     // A vertical list: with LSFG and Anime4K + LSFG a PC offers ~15 profiles, too many for a segmented row.
-    ProfileList(profiles = usable, selected = current, onSelect = { onSelect(it) })
+    ProfileList(profiles = usable, selected = current, unavailable = unsupported, onSelect = { onSelect(it) })
+    if (fallback != null) {
+        val from = caps.profiles.firstOrNull { it.id == fallback.from }
+        val to = caps.profiles.firstOrNull { it.id == fallback.to }
+        if (from != null && to != null) Hint(stringResource(R.string.linked_profile_fallback, profileLabel(from), profileLabel(to)))
+    }
     usable.firstOrNull { it.id == current }?.let { profile ->
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Pill(sustainText(profile), tone = if (profile.measuredSustain == "true") PillTone.OK else PillTone.NEUTRAL)

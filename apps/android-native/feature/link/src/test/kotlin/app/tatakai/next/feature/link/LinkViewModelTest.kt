@@ -211,4 +211,34 @@ class LinkViewModelTest {
         assertNull(vm.state.value.selectedProfile)
         assertNull(vm.state.value.device)
     }
+
+    /** BUG-132: the moto g51's AVC decoder (up to 1920x1088). */
+    private val g51 = object : app.tatakai.next.model.VideoDecodeLimits {
+        override fun sizeSupported(width: Int, height: Int) = width <= 1920 && height <= 1088
+        override fun sizeAndRateSupported(width: Int, height: Int, fps: Double) = sizeSupported(width, height)
+    }
+
+    private val bigCaps = caps.copy(
+        profiles = caps.profiles + LinkProfile("p-anime4k-1440", "Anime4K 1440p", true, false, 2560, 1440, "unknown"),
+    )
+
+    @Test
+    fun `profiles the phone cannot decode are marked and a saved one is replaced once`() = runTest {
+        val repo = FakeLink({ Result.success(pc) }, { Result.success(bigCaps) })
+        repo.device.value = LinkedDevice("dev1", "Desktop", "192.168.1.9", 47321, "7A3F 91C2", 1L, 2L, "p-anime4k-1440", "Pixel")
+        repo.state.value = LinkState.Paired(pc, reachable = true)
+
+        val vm = LinkViewModel(repo, "Pixel", decodeLimits = { g51 })
+
+        assertEquals(mapOf("p-anime4k-1440" to app.tatakai.next.model.ProfileSupport.TooLarge(1440)), vm.state.value.unsupportedProfiles)
+        assertEquals("p-anime4k-1080", vm.state.value.selectedProfile)
+        assertEquals("p-anime4k-1080", repo.preferred)
+        assertEquals(app.tatakai.next.model.LinkProfileFallback("p-anime4k-1440", "p-anime4k-1080"), vm.state.value.profileFallback)
+        // the disabled row cannot be saved
+        vm.selectProfile("p-anime4k-1440")
+        assertEquals("p-anime4k-1080", repo.preferred)
+        // choosing another profile clears the notice
+        vm.selectProfile("p-none")
+        assertNull(vm.state.value.profileFallback)
+    }
 }

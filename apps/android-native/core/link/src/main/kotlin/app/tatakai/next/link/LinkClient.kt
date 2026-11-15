@@ -26,6 +26,10 @@ data class ProfileDto(
     val output: OutputDto,
     /** `true`, `false` or the string `unknown`. */
     @SerialName("measured_sustain") val measuredSustain: JsonElement = JsonPrimitive("unknown"),
+    /** Additive (LSFG): output fps = source fps x this multiplier. */
+    @SerialName("fg_multiplier") val fgMultiplier: Int? = null,
+    /** Additive (LSFG auto): the multiplier is chosen per source to approach this rate. */
+    @SerialName("fg_target_fps") val fgTargetFps: Int? = null,
 )
 
 @Serializable

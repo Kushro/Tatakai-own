@@ -22,6 +22,7 @@ val linkModule: Module = module {
             pcDiscovery = NsdPcDiscovery(androidContext()),
             foreground = app?.let { AppForeground(it).visible },
             handoffNotifier = AndroidLinkHandoffNotifier(androidContext()),
+            decodeLimits = { AvcDecodeLimits.device() },
         )
     }
     single<LinkRepository> { get<LinkRepositoryImpl>() }

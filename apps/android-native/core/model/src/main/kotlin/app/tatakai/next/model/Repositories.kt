@@ -313,6 +313,12 @@ interface LinkRepository {
     /** Enhance profile segmented of the Linked screen; null = the PC's default. Used by [startSession] when its profileId is null. */
     suspend fun setPreferredProfile(profileId: String?) {}
 
+    /**
+     * BUG-132: a session start (or a PC hand-off) found the saved preferred profile unplayable on this phone and used (and saved)
+     * the closest playable one. Returns it once, then null; the player shows it as a notice.
+     */
+    fun takeProfileFallback(): LinkProfileFallback? = null
+
     // --- parity wave B (16 §3.11, worker r; checklist link.remote-control / link.handoff / link.discovery). Defaults = "not available",
     // the Linked screen keeps its buttons disabled while `GET /v1/player` answers 404. Canonical wire in §3.11 (= desktop tk-link/src/control.rs). ---
 

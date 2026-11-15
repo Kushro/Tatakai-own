@@ -55,6 +55,11 @@
     <string name="player_link_lost_title">Lost the connection to your PC</string>
     <string name="player_link_lost">Playback continues by itself when the network is back. You can also tap Retry.</string>
     <string name="player_link_ended">The PC closed this session after a while without connection. Send the episode again from the PC.</string>
+    <!-- BUG-132: the phone's video decoder cannot play the Link profile (not the PC's fault) -->
+    <string name="player_link_phone_decoder">Your phone cannot play this profile. Tap Retry to open it with one it can play.</string>
+    <string name="player_link_phone_cannot_play">Your phone cannot play that profile: back to %1$s.</string>
+    <string name="player_link_phone_cannot_play_generic">Your phone cannot play that profile: back to the previous one.</string>
+    <string name="player_link_preferred_replaced">Your phone does not play %1$s: your preferred profile is now %2$s.</string>
     <string name="player_link_pc_error">Your PC could not continue this session. Tap Retry to open it again.</string>
     <string name="player_link_renewed">The session with your PC had expired: a new one opened at the same point.</string>
     <!-- BUG-095: while a Link session buffers (the PC may be restarting its engine after a seek) -->

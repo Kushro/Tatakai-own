@@ -14,6 +14,10 @@ data class LinkProfile(
     val outputHeight: Int,
     /** "true" | "false" | "unknown" */
     val measuredSustain: String,
+    /** BUG-132: fixed frame-generation multiplier (`fg_multiplier`; output fps = source fps x n); null = none or unknown. */
+    val fgMultiplier: Int? = null,
+    /** BUG-132: LSFG automatic profiles aim at this output frame rate (`fg_target_fps`). */
+    val fgTargetFps: Int? = null,
 )
 
 data class LinkCapabilities(

@@ -3,6 +3,7 @@
 
 package app.tatakai.next.feature.player
 
+import app.tatakai.next.feature.link.profileLabel
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -123,7 +124,8 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
         delay(
             when (notice) {
                 PlayerNotice.AssSimplified, is PlayerNotice.StoredSourceIgnored, PlayerNotice.PretranslateUnavailable, PlayerNotice.SwitchedToMpv,
-                PlayerNotice.SwitchedToMedia3, PlayerNotice.LinkSessionRenewed, PlayerNotice.LinkProfileRetried -> 5_000
+                PlayerNotice.SwitchedToMedia3, PlayerNotice.LinkSessionRenewed, PlayerNotice.LinkProfileRetried,
+                is PlayerNotice.LinkPhoneCannotPlay, is PlayerNotice.LinkPreferredReplaced -> 5_000
                 is PlayerNotice.LinkProfile -> if (notice.result is LinkProfileResult.Failed) 5_000 else FLASH_MS
                 is PlayerNotice.ScreenshotSaved -> 4_000
                 else -> FLASH_MS
@@ -161,8 +163,12 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
         PlayerNotice.LinkSessionRenewed -> stringResource(R.string.player_link_renewed)
         is PlayerNotice.LinkProfile -> stringResource(linkProfileText(notice.result))
         PlayerNotice.LinkProfileRetried -> stringResource(R.string.player_link_profile_retried)
+        is PlayerNotice.LinkPhoneCannotPlay -> notice.to?.let { stringResource(R.string.player_link_phone_cannot_play, profileLabel(it)) }
+            ?: stringResource(R.string.player_link_phone_cannot_play_generic)
+        is PlayerNotice.LinkPreferredReplaced ->
+            stringResource(R.string.player_link_preferred_replaced, profileLabel(notice.from), profileLabel(notice.to))
     }
-    val failed = notice is PlayerNotice.LinkProfile && notice.result is LinkProfileResult.Failed
+    val failed = (notice is PlayerNotice.LinkProfile && notice.result is LinkProfileResult.Failed) || notice is PlayerNotice.LinkPhoneCannotPlay
     val scheme = MaterialTheme.colorScheme
     Surface(modifier.widthIn(max = 560.dp).padding(horizontal = 16.dp), shape = RoundedCornerShape(50), color = scheme.inverseSurface, contentColor = scheme.inverseOnSurface) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
@@ -283,6 +289,8 @@ internal fun PlaybackErrorView(
             remote == RemoteFailure.CONNECTION_LOST -> stringResource(R.string.player_link_lost)
             remote == RemoteFailure.SESSION_ENDED -> stringResource(R.string.player_link_ended)
             remote == RemoteFailure.PC_ERROR -> stringResource(R.string.player_link_pc_error)
+            // BUG-132: the phone's decoder refused the stream: not the PC's fault
+            remote == RemoteFailure.PHONE_DECODER -> stringResource(R.string.player_link_phone_decoder)
             !state.remoteless -> stringResource(R.string.player_link_pc_error)
             noFile != null -> stringResource(R.string.player_torrent_no_file_cause)
             state.failed.isEmpty() && state.error != null -> state.error.userMessage()

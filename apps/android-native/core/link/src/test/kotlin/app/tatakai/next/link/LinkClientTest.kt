@@ -30,14 +30,19 @@ class LinkClientTest {
                 """{"contract":"v1","server_version":"0.1","instance_id":"$sid","server_name":"PC","gpu":{"vendor":"amd","name":"x","vulkan":true},
             "encoders":["h264_amf"],"default_profile":"p-none","client_fg":"allowed","limits":{"max_ram_bytes":536870912,"segment_wait_secs":20},
             "profiles":[{"id":"p-none","label":"None","upscale":"none","output":{"width":1920,"height":1080},"measured_sustain":"unknown"},
-            {"id":"p-anime4k-1080-fg2x","label":"A4K","upscale":"anime4k","fg":"frc_amf","output":{"width":1920,"height":1080},"measured_sustain":true}]}""",
+            {"id":"p-anime4k-1080-fg2x","label":"A4K","upscale":"anime4k","fg":"frc_amf","output":{"width":1920,"height":1080},"measured_sustain":true},
+            {"id":"p-lsfg-1080-x3","label":"LSFG","upscale":"none","fg":"lsfg","output":{"width":1920,"height":1080},"measured_sustain":"unknown","fg_multiplier":3},
+            {"id":"p-lsfg-1080-auto120","label":"LSFG","upscale":"none","fg":"lsfg","output":{"width":1920,"height":1080},"measured_sustain":"unknown","fg_target_fps":120}]}""",
                 true,
             )
         }
         val caps = assertIs<LinkResult.Ok<CapabilitiesDto>>(c.capabilities()).value
         assertEquals("PC", caps.serverName)
-        assertEquals(2, caps.profiles.size)
+        assertEquals(4, caps.profiles.size)
         assertEquals("frc_amf", caps.profiles[1].fg)
+        // BUG-132: the LSFG rates, for the phone's decoder check
+        assertEquals(3, caps.profiles[2].fgMultiplier)
+        assertEquals(120, caps.profiles[3].fgTargetFps)
         assertEquals("v1", fake.seen.single().contractHeader)
         assertEquals("/v1/capabilities", fake.seen.single().path)
     }

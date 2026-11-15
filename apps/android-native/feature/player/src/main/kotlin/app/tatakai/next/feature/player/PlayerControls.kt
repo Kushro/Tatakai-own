@@ -449,7 +449,7 @@ internal fun PlayerContent(
                         modifier = Modifier.padding(horizontal = 24.dp),
                     )
                     Box(Modifier.padding(horizontal = 12.dp).verticalScroll(rememberScrollState())) {
-                        ProfileList(state.linkProfiles, selected = state.linkProfile.orEmpty()) { id -> sheet = null; vm.changeLinkProfile(id) }
+                        ProfileList(state.linkProfiles, selected = state.linkProfile.orEmpty(), unavailable = state.linkUnsupported) { id -> sheet = null; vm.changeLinkProfile(id) }
                     }
                 }
                 Sheet.Speed -> SPEEDS.forEach { sp ->

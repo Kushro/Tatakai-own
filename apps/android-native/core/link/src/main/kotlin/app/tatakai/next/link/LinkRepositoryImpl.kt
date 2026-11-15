@@ -6,6 +6,9 @@ import app.tatakai.next.model.AppException
 import app.tatakai.next.model.DiscoveredPc
 import app.tatakai.next.model.LinkCapabilities
 import app.tatakai.next.model.LinkProfile
+import app.tatakai.next.model.LinkProfileFallback
+import app.tatakai.next.model.VideoDecodeLimits
+import app.tatakai.next.model.playableLinkProfile
 import app.tatakai.next.model.LinkRepository
 import app.tatakai.next.model.LinkSource
 import app.tatakai.next.model.LinkedDevice
@@ -112,6 +115,8 @@ class LinkRepositoryImpl(
     /** App in the foreground: the `GET /v1/events` long-poll only runs while true; null = never polls (tests drive [pollEventsOnce]). */
     foreground: Flow<Boolean>? = null,
     private val handoffNotifier: LinkHandoffNotifier? = null,
+    /** BUG-132: what the phone's H.264 decoder plays ([AvcDecodeLimits] on device); null = unknown (profiles are not checked). */
+    private val decodeLimits: () -> VideoDecodeLimits? = { null },
 ) : LinkRepository, RemotePlaybackAccess, LinkDiscoveryAccess {
     private val _state = MutableStateFlow<LinkState>(
         vault.pairing()?.let { LinkState.Paired(it.toPc(), reachable = true) } ?: LinkState.Unpaired,
@@ -222,7 +227,10 @@ class LinkRepositoryImpl(
      * profile unavailable) the hand-off stays as the PC sent it.
      */
     private suspend fun withPreferredProfile(h: LinkHandoff): LinkHandoff {
-        val preferred = _linkedDevice.value?.preferredProfile?.takeIf { it.isNotBlank() && it != DEFAULT_PROFILE } ?: return h
+        val saved = _linkedDevice.value?.preferredProfile?.takeIf { it.isNotBlank() && it != DEFAULT_PROFILE } ?: return h
+        // BUG-132: a preferred profile this phone cannot decode becomes the closest playable one
+        val preferred = connectionOrNull()?.client?.let { c -> withContext(io) { playableProfile(c, saved, fromPreferred = true) } } ?: saved
+        if (preferred == DEFAULT_PROFILE) return h
         val renewed = renew(h.sessionId, h.positionSec.toDouble(), preferred).getOrNull() ?: return h
         return h.copy(sessionId = renewed.sessionId)
     }
@@ -262,8 +270,31 @@ class LinkRepositoryImpl(
         }
     }
 
-    override suspend fun capabilities(): Result<LinkCapabilities> = call { c ->
-        c.capabilities().map { dto ->
+    override suspend fun capabilities(): Result<LinkCapabilities> = call { c -> c.capabilities().map(::toCapabilities) }
+
+    @Volatile private var profileFallback: LinkProfileFallback? = null
+
+    override fun takeProfileFallback(): LinkProfileFallback? = profileFallback.also { profileFallback = null }
+
+    /**
+     * BUG-132: [wanted] (null = the PC's default), or the closest profile this phone's decoder plays when it cannot play [wanted]
+     * (the moto g51 refuses 2560x1440). When [fromPreferred], a replaced saved preferred profile is saved as the new one and
+     * remembered for the player's notice ([takeProfileFallback]), so it is said once. Without decoder limits or capabilities,
+     * [wanted] as is.
+     */
+    private suspend fun playableProfile(c: LinkClient, wanted: String?, fromPreferred: Boolean): String? {
+        val limits = runCatching { decodeLimits() }.getOrNull() ?: return wanted
+        val caps = c.capabilities().getOrNull()?.let(::toCapabilities) ?: return wanted
+        val to = playableLinkProfile(wanted, caps.profiles, limits, defaultProfile = caps.defaultProfile) ?: return wanted
+        if (to == (wanted ?: caps.defaultProfile)) return wanted
+        if (fromPreferred && wanted != null) {
+            profileFallback = LinkProfileFallback(wanted, to)
+            setPreferredProfile(to)
+        }
+        return to
+    }
+
+    private fun toCapabilities(dto: CapabilitiesDto): LinkCapabilities =
             LinkCapabilities(
                 serverName = dto.serverName,
                 serverVersion = dto.serverVersion,
@@ -277,13 +308,13 @@ class LinkRepositoryImpl(
                         outputWidth = it.output.width,
                         outputHeight = it.output.height,
                         measuredSustain = (it.measuredSustain as? JsonPrimitive)?.let { p -> p.booleanOrNull?.toString() ?: p.contentOrNull } ?: "unknown",
+                        fgMultiplier = it.fgMultiplier,
+                        fgTargetFps = it.fgTargetFps,
                     )
                 },
                 defaultProfile = dto.defaultProfile,
                 clientFrameGenerationAllowed = dto.clientFg == "allowed",
             )
-        }
-    }
 
     override suspend fun startSession(source: LinkSource, profileId: String?): Result<RemoteSession> = call { c ->
         val wire = when (source) {
@@ -292,7 +323,9 @@ class LinkRepositoryImpl(
             is LinkSource.Torrent -> SessionSource.Torrent(source.uri, source.mediaId, source.episode)
         }
         // android wave: the profile chosen on the Linked screen applies when the caller has no explicit one
-        create(c, wire, profileId ?: _linkedDevice.value?.preferredProfile, startSecs = null)
+        // BUG-132: never ask the PC for a profile this phone cannot decode
+        val profile = playableProfile(c, profileId ?: _linkedDevice.value?.preferredProfile, fromPreferred = profileId == null)
+        create(c, wire, profile, startSecs = null)
     }
 
     private suspend fun create(c: LinkClient, wire: SessionSource, profile: String?, startSecs: Double?): LinkResult<RemoteSession> =

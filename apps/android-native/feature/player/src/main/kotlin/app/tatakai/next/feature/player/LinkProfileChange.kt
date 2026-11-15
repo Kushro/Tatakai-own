@@ -4,7 +4,13 @@ package app.tatakai.next.feature.player
 import app.tatakai.next.link.LinkApiError
 import app.tatakai.next.link.LinkError
 import app.tatakai.next.link.linkErrorOrNull
+import app.tatakai.next.model.LinkProfile
+import app.tatakai.next.model.NO_ENHANCEMENT_PROFILE
+import app.tatakai.next.model.ProfileSupport
 import app.tatakai.next.model.RemoteSession
+import app.tatakai.next.model.VideoDecodeLimits
+import app.tatakai.next.model.linkProfileSupport
+import app.tatakai.next.model.playableLinkProfile
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
@@ -154,4 +160,56 @@ internal class LinkProfileChange(
             else -> LinkProfileFailure.PC_ERROR
         }
     }
+}
+
+// ---- BUG-132: the phone's decoder rejects the Link stream ------------------------------------------------------------------------
+
+/**
+ * Media3 errors that mean this phone's decoder does not take the Link stream at all: `ERROR_CODE_DECODER_INIT_FAILED` (4001, the
+ * moto g51's `c2.qti.avc.decoder` with 2560x1440), `ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES` (4003) and
+ * `ERROR_CODE_DECODING_FORMAT_UNSUPPORTED` (4005). Other decoder errors (4002 decoding failed, 4006 resources reclaimed) are not
+ * about the profile.
+ */
+internal fun isDecoderRejection(code: Int): Boolean = code == 4001 || code == 4003 || code == 4005
+
+/**
+ * Whether a decoder error of a Link session counts as "this phone cannot play this profile" ([isDecoderRejection]): at once when
+ * the decoder's limits already said so ([knownUnplayable]), otherwise after the one silent retry of a transient error
+ * ([silentRetrySpent]; a profile that played before can fail once after a seek).
+ */
+internal fun linkDecoderRejected(code: Int, knownUnplayable: Boolean, silentRetrySpent: Boolean): Boolean =
+    isDecoderRejection(code) && (knownUnplayable || silentRetrySpent)
+
+/**
+ * The profile a Link session goes back to after this phone's decoder rejected [current] (BUG-132): the profile used before the
+ * change ([previous]) when it is still playable, otherwise the closest playable one ([playableLinkProfile]: same kind at a lower
+ * size / rate, else no enhancement). [rejected] already holds [current]. null = nothing playable is known (error screen).
+ */
+internal fun linkProfileAfterRejection(
+    current: String?,
+    previous: String?,
+    profiles: List<LinkProfile>,
+    limits: VideoDecodeLimits?,
+    rejected: Set<String>,
+    defaultProfile: String?,
+): String? {
+    val before = profiles.firstOrNull { it.id == previous && it.id != current }
+    if (before != null && linkProfileSupport(before, limits, rejected) == ProfileSupport.Supported) return before.id
+    if (profiles.isEmpty()) return NO_ENHANCEMENT_PROFILE.takeIf { it != current && it !in rejected }
+    return playableLinkProfile(current, profiles, limits, rejected, defaultProfile)?.takeIf { it != current }
+}
+
+/**
+ * The profile the Retry of a Link session asks for: [current] unless the decoder already rejected it (Retry must never repeat a
+ * profile that failed), then the closest playable one.
+ */
+internal fun linkRetryProfile(
+    current: String?,
+    profiles: List<LinkProfile>,
+    limits: VideoDecodeLimits?,
+    rejected: Set<String>,
+    defaultProfile: String?,
+): String? {
+    if (current == null || current !in rejected) return current
+    return linkProfileAfterRejection(current, null, profiles, limits, rejected, defaultProfile) ?: NO_ENHANCEMENT_PROFILE
 }
