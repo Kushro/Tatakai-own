@@ -86,6 +86,27 @@ struct AppLinkHost {
     backend: BackendSlot,
 }
 
+/// BUG-131: one Link reader of a torrent, given back on drop unless [`ReaderHold::keep`] hands it to the session.
+struct ReaderHold(Option<String>);
+
+impl ReaderHold {
+    fn new(id: &str) -> Self {
+        super::torrent_settings::link_reader_added(id);
+        Self(Some(id.to_owned()))
+    }
+    fn keep(mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for ReaderHold {
+    fn drop(&mut self) {
+        if let Some(id) = self.0.take() {
+            super::torrent_settings::link_reader_ended(&id);
+        }
+    }
+}
+
 /// Late-bound backend of the Link host ([`bind_backend`]).
 type BackendSlot = Arc<std::sync::OnceLock<std::sync::Weak<LiveBackend>>>;
 
@@ -160,10 +181,35 @@ impl LinkHost for AppLinkHost {
             })?;
             let url = played.playback.streams.first().map(|s| s.url.clone()).ok_or(tk_link::api::ErrorCode::SourceUnavailable)?;
             tracing::info!(torrent = %played.torrent_id, file = played.file_index, "Link session reads a torrent");
+            super::torrent_settings::link_reader_added(&played.torrent_id);
             Ok(tk_link::OpenedTorrent { url, torrent_id: played.torrent_id })
         })
     }
+    fn reuse_torrent(&self, torrent_id: &str) -> tk_link::HostFuture<'_, bool> {
+        let backend = self.backend.get().and_then(std::sync::Weak::upgrade);
+        let id = torrent_id.to_owned();
+        Box::pin(async move {
+            let Some(engine) = backend.and_then(|b| b.torrent.running()) else { return false };
+            let Some(entry) = engine.list().into_iter().find(|e| e.id.eq_ignore_ascii_case(&id)) else { return false };
+            // counted before the resume, so an after-watch policy that is waiting out its grace period skips the pause;
+            // given back if the resume fails or the renew gives up meanwhile (the future is dropped). The resume is a
+            // no-op for a torrent that transfers (the usual case: the replaced session still reads it).
+            let reader = ReaderHold::new(&entry.id);
+            if let Err(e) = engine.resume(&entry.id).await {
+                tracing::info!(torrent = %id, error = %e, "the torrent of a renewed Link session could not be resumed");
+                return false;
+            }
+            reader.keep();
+            true
+        })
+    }
     fn torrent_session_ended(&self, torrent_id: &str) {
+        // BUG-131: a renew closes the replaced session after the new one holds the torrent: only the last reader's end
+        // runs the after-watch policy (it pauses or removes the torrent)
+        if !super::torrent_settings::link_reader_ended(torrent_id) {
+            tracing::info!(torrent = %torrent_id, "a Link session of the torrent ended; another one still reads it");
+            return;
+        }
         let Some(b) = self.backend.get().and_then(std::sync::Weak::upgrade) else { return };
         let id = torrent_id.to_owned();
         tokio::spawn(async move {

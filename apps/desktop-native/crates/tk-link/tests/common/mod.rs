@@ -198,11 +198,24 @@ pub struct TestHost {
     /// BUG-009: what `open_torrent` answers, and the torrents whose session ended.
     pub torrent: Mutex<Option<tk_link::OpenedTorrent>>,
     pub torrents_ended: Mutex<Vec<String>>,
+    /// BUG-131 fake torrent backend: whether `reuse_torrent` finds the torrent, whether `open_torrent` hangs (a paused
+    /// torrent that never answers), and every call in order (`open:<id>`, `reuse:<id>`, `ended:<id>`).
+    pub torrent_reusable: Mutex<bool>,
+    pub torrent_open_hangs: Mutex<bool>,
+    pub torrent_calls: Mutex<Vec<String>>,
 }
 
 impl TestHost {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { files: Mutex::default(), extension_perms: Mutex::default(), torrent: Mutex::default(), torrents_ended: Mutex::default() })
+        Arc::new(Self {
+            files: Mutex::default(),
+            extension_perms: Mutex::default(),
+            torrent: Mutex::default(),
+            torrents_ended: Mutex::default(),
+            torrent_reusable: Mutex::new(true),
+            torrent_open_hangs: Mutex::default(),
+            torrent_calls: Mutex::default(),
+        })
     }
 }
 
@@ -230,11 +243,28 @@ impl LinkHost for TestHost {
 
     fn open_torrent(&self, _req: tk_link::TorrentRequest) -> tk_link::HostFuture<'_, Result<tk_link::OpenedTorrent, tk_link::api::ErrorCode>> {
         let answer = self.torrent.lock().unwrap().clone();
-        Box::pin(async move { answer.ok_or(tk_link::api::ErrorCode::SourceUnavailable) })
+        let hangs = *self.torrent_open_hangs.lock().unwrap();
+        Box::pin(async move {
+            if hangs {
+                std::future::pending::<()>().await;
+            }
+            let opened = answer.ok_or(tk_link::api::ErrorCode::SourceUnavailable)?;
+            self.torrent_calls.lock().unwrap().push(format!("open:{}", opened.torrent_id));
+            Ok(opened)
+        })
+    }
+
+    fn reuse_torrent(&self, torrent_id: &str) -> tk_link::HostFuture<'_, bool> {
+        let found = *self.torrent_reusable.lock().unwrap();
+        if found {
+            self.torrent_calls.lock().unwrap().push(format!("reuse:{torrent_id}"));
+        }
+        Box::pin(async move { found })
     }
 
     fn torrent_session_ended(&self, torrent_id: &str) {
         self.torrents_ended.lock().unwrap().push(torrent_id.to_owned());
+        self.torrent_calls.lock().unwrap().push(format!("ended:{torrent_id}"));
     }
 }
 

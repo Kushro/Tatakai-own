@@ -14,12 +14,13 @@
 //! | true | off | pause (nothing uploads while nothing plays) |
 //! | true | on | keep downloading / seeding |
 //!
-//! The action is skipped when, at the end of the grace period, a stream of the torrent is open again or its label
-//! moved to another episode (the player went on in the batch); `persist` is read again then.
+//! The action is skipped when, at the end of the grace period, a stream of the torrent is open again, a Link session
+//! reads it (BUG-131, [`link_reader_added`]) or its label moved to another episode (the player went on in the batch);
+//! `persist` is read again then.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use tk_core::release::{CandidateFile, pick_episode_file};
@@ -36,6 +37,40 @@ use crate::paths::AppPaths;
 const END_GRACE: Duration = Duration::from_secs(20);
 /// Lowest non-zero listen port accepted (no privileged ports), like the Link port.
 const MIN_LISTEN_PORT: u16 = 1024;
+
+/// BUG-131: how many Link sessions read each torrent (engine id, lower case). A Link session's FFmpeg reads the
+/// loopback stream with pauses (back-pressure), so `stats().streaming` alone does not see it; a profile change opens
+/// the new session before it closes the old one, so the torrent always has a reader while it is renewed.
+fn link_readers() -> &'static Mutex<HashMap<String, usize>> {
+    static READERS: OnceLock<Mutex<HashMap<String, usize>>> = OnceLock::new();
+    READERS.get_or_init(Mutex::default)
+}
+
+/// A Link session started reading `id` (`open_torrent` / `reuse_torrent`).
+pub fn link_reader_added(id: &str) {
+    *link_readers().lock().unwrap_or_else(PoisonError::into_inner).entry(id.to_ascii_lowercase()).or_insert(0) += 1;
+}
+
+/// A Link session reading `id` ended; `true` when it was the last one (the after-watch policy may run).
+pub fn link_reader_ended(id: &str) -> bool {
+    let mut g = link_readers().lock().unwrap_or_else(PoisonError::into_inner);
+    let key = id.to_ascii_lowercase();
+    match g.get_mut(&key) {
+        Some(n) if *n > 1 => {
+            *n -= 1;
+            false
+        }
+        _ => {
+            g.remove(&key);
+            true
+        }
+    }
+}
+
+/// Whether a Link session reads `id` now.
+pub fn link_reads(id: &str) -> bool {
+    link_readers().lock().unwrap_or_else(PoisonError::into_inner).get(&id.to_ascii_lowercase()).is_some_and(|n| *n > 0)
+}
 
 /// What happens to a torrent once nothing plays it any more.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -259,8 +294,10 @@ async fn apply_end(engine: &Arc<TorrentEngine>, paths: &AppPaths, id: &str, epis
     let Some(entry) = engine.list().into_iter().find(|e| e.id == id) else { return };
     let streaming = engine.stats(id).map(|s| s.streaming).unwrap_or(false);
     let moved_on = entry.label.as_ref().and_then(|l| l.episode) != episode;
-    if streaming || moved_on {
-        tracing::debug!(torrent = %id, streaming, moved_on, "torrent in use again; after-watch policy skipped");
+    // BUG-131: a Link session opened on it during the grace period (Reintentar, a reopen) is a reader too
+    let link = link_reads(id);
+    if streaming || moved_on || link {
+        tracing::info!(torrent = %id, streaming, moved_on, link, "torrent in use again; after-watch policy skipped");
         return;
     }
     let s = load(paths);
@@ -277,6 +314,22 @@ async fn apply_end(engine: &Arc<TorrentEngine>, paths: &AppPaths, id: &str, epis
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-131: a renewed Link session holds the torrent before the old one lets it go, so only the last reader's end
+    /// lets the after-watch policy pause it (that pause froze the renewed session and every later open).
+    #[test]
+    fn only_the_last_link_reader_ends_the_torrent_playback() {
+        let id = "AB12CD34ef56ab12cd34ef56ab12cd34ef56ab99";
+        assert!(!link_reads(id));
+        link_reader_added(id); // the session the PC sent
+        link_reader_added(&id.to_ascii_lowercase()); // its profile change, opened first
+        assert!(!link_reader_ended(id), "closing the replaced session must not end the torrent's playback");
+        assert!(link_reads(id), "the renewed session still reads it: apply_end skips the pause");
+        assert!(link_reader_ended(id), "the last session closed: the policy runs");
+        assert!(!link_reads(id));
+        // an unbalanced end (never counted) still lets the policy run, as before
+        assert!(link_reader_ended(id));
+    }
     use tk_ui::backend::{AfterWatchVm, TORRENT_MAX_LIMIT_KIB, TORRENT_MAX_PEERS};
 
     #[test]

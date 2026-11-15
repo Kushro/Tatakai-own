@@ -34,6 +34,10 @@ pub const IDLE_TIMEOUT_SECS: u64 = 120;
 const TOMBSTONES: usize = 64;
 /// Adding a magnet waits for its metadata (DHT / trackers): give up after this long (BUG-009).
 pub const TORRENT_OPEN_TIMEOUT: Duration = Duration::from_secs(75);
+/// BUG-131: how long the PC may take to prepare a session that is not a fresh `torrent` source (a profile change, a
+/// reopen, a link) before it answers `source_unavailable`: below the phones' 20 s read timeout (`LinkCrypto`), so a
+/// renew always ends with `Link session created` or `Link session refused` instead of a request the phone abandoned.
+pub const PREPARE_TIMEOUT: Duration = Duration::from_secs(15);
 /// Sources of the last sessions kept for [`SourceRequest::Session`].
 pub const ORIGINS_KEPT: usize = 128;
 /// Segments kept behind the playhead for seek-back.
@@ -53,6 +57,8 @@ pub struct SessionTuning {
     pub max_lead_segments: u32,
     /// A request further than this many segments past the frontier restarts the engine there.
     pub seek_ahead_segments: u32,
+    /// BUG-131: time limit of a session's preparation unless it is a fresh `torrent` source ([`PREPARE_TIMEOUT`]).
+    pub prepare_timeout: Duration,
 }
 
 impl Default for SessionTuning {
@@ -65,6 +71,7 @@ impl Default for SessionTuning {
             max_ram_bytes: MAX_RAM_BYTES as usize,
             max_lead_segments: 15,
             seek_ahead_segments: 4,
+            prepare_timeout: PREPARE_TIMEOUT,
         }
     }
 }
@@ -263,6 +270,48 @@ pub fn sustain_verdict(throttled: bool, segments: u32, elapsed: Duration, paused
     Some(produced >= 0.95 * elapsed.as_secs_f64())
 }
 
+/// `(session id, device id, source, opened torrent stream)` of an earlier session ([`SourceRequest::Session`]).
+type Origin = (String, String, SourceRequest, Option<crate::OpenedTorrent>);
+
+/// A source opened for a session that does not own it yet. Dropping it (an error, [`PREPARE_TIMEOUT`]) gives back its
+/// fetch token and its torrent (`torrent_session_ended`), so no failure path leaves the torrent counted as read.
+struct OpenedSource {
+    input_url: String,
+    duration: Option<f64>,
+    token: Option<String>,
+    torrent: Option<crate::OpenedTorrent>,
+    fetcher: Arc<Fetcher>,
+    host: Arc<dyn crate::LinkHost>,
+}
+
+impl OpenedSource {
+    /// The session takes over: its fetch token and torrent are released by [`Manager::close`].
+    fn keep(mut self) -> (String, Option<crate::OpenedTorrent>) {
+        (self.token.take().unwrap_or_default(), self.torrent.take())
+    }
+}
+
+impl Drop for OpenedSource {
+    fn drop(&mut self) {
+        if let Some(t) = self.token.take() {
+            self.fetcher.unregister(&t);
+        }
+        if let Some(t) = self.torrent.take() {
+            self.host.torrent_session_ended(&t.torrent_id);
+        }
+    }
+}
+
+/// What [`Manager::prepare`] found before a session is built.
+struct Prepared {
+    profile: &'static ProfileSpec,
+    encoder: Encoder,
+    source: SourceRequest,
+    opened: OpenedSource,
+    duration: Option<f64>,
+    lsfg_rate: Option<FrameRate>,
+}
+
 pub struct Manager {
     pub(crate) tuning: SessionTuning,
     pub(crate) engine: Arc<dyn Engine>,
@@ -282,7 +331,9 @@ pub struct Manager {
     bench: Mutex<Option<Arc<Mutex<crate::media::capabilities::BenchStore>>>>,
     measured: Mutex<std::collections::HashSet<String>>,
     /// `(session id, device id, source)` of the last [`ORIGINS_KEPT`] sessions ([`SourceRequest::Session`]).
-    origins: Mutex<VecDeque<(String, String, SourceRequest)>>,
+    /// BUG-131: torrent sources also keep the stream they opened, so a renew reuses the torrent instead of resolving it
+    /// again.
+    origins: Mutex<VecDeque<Origin>>,
     next_run: AtomicU32,
 }
 
@@ -392,55 +443,36 @@ impl Manager {
         if !req.start_secs.is_finite() || req.start_secs < 0.0 || req.audio_track > 32 {
             return Err(ErrorCode::RequestInvalid.into());
         }
-        // profile
-        let wanted = req.profile.as_deref().unwrap_or(profiles::DEFAULT_PROFILE);
-        let profile = profiles::find(wanted).filter(|p| self.env.profile_available(p)).ok_or(ApiError(ErrorCode::ProfileUnavailable))?;
-        let encoder = self.env.encoder_for(profile).ok_or(ApiError(ErrorCode::ProfileUnavailable))?;
-
-        // source -> loopback input (a `session` source reuses the source of an earlier session of this device)
-        let source = match &req.source {
-            SourceRequest::Session { session_id } => self.origin_of(device_id, session_id).ok_or(ApiError(ErrorCode::SessionNotFound))?,
-            other => other.clone(),
-        };
-        let (input_url, fetch_token, duration, torrent_id) = self.open_source(&source).await?;
-
-        // one probe for what the source does not say: the frame rate (LSFG) and, BUG-009 / BUG-023, the duration of
-        // sources that do not announce it (a torrent file, an MP4 by URL). With a duration the phone gets a VOD playlist
-        // (real length, seek anywhere); without one it gets a growing EVENT playlist, which Media3 declares stuck when
-        // back-pressure holds it still.
-        let needs_rate = profile.fg.lsfg().is_some();
-        let info = if needs_rate || duration.is_none() { self.engine.source_info(&input_url).await } else { SourceInfo::default() };
-        // BUG-024: a link ffprobe cannot read (e.g. a full URL that answers 404) is refused here, so the phone says "the
-        // PC could not open this link" instead of playing a session that fails a minute later
-        if info.unreadable && matches!(source, SourceRequest::Url { .. } | SourceRequest::Torrent { .. }) {
-            tracing::warn!("Link session refused: the source cannot be read");
-            self.fetcher.unregister(&fetch_token);
-            if let Some(t) = &torrent_id {
-                self.host.torrent_session_ended(t);
+        // BUG-131: a fresh torrent may wait for its metadata (the phone waits longer for those, `TORRENT_CREATE_SECS`);
+        // everything else answers within [`PREPARE_TIMEOUT`]. Dropping the preparation releases what it opened.
+        let Prepared { profile, encoder, source, opened, duration, lsfg_rate } = if matches!(req.source, SourceRequest::Torrent { .. }) {
+            self.prepare(device_id, &req).await?
+        } else {
+            match tokio::time::timeout(self.tuning.prepare_timeout, self.prepare(device_id, &req)).await {
+                Ok(r) => r?,
+                Err(_) => {
+                    tracing::warn!(secs = self.tuning.prepare_timeout.as_secs_f32(), "Link session source not ready in time");
+                    return Err(ErrorCode::SourceUnavailable.into());
+                }
             }
-            return Err(ErrorCode::SourceUnavailable.into());
-        }
-        let duration = duration.or(info.duration_secs);
-        if duration.is_none() {
-            tracing::info!("source duration unknown; the session uses a growing (EVENT) playlist");
-        }
-        let lsfg_rate = needs_rate.then(|| {
-            info.rate.unwrap_or_else(|| {
-                tracing::info!("source frame rate unknown; LSFG assumes 24000/1001");
-                FALLBACK_RATE
-            })
-        });
-
-        // one active session per device
-        self.close_device_session(device_id);
+        };
 
         let id = uuid::Uuid::new_v4().to_string();
         let workdir = self.work_root.join(&id);
         std::fs::create_dir_all(&workdir).map_err(|_| ApiError(ErrorCode::Internal))?;
         let shader = args::prepare_shader(profile, self.shaders_dir.as_deref(), &workdir).map_err(|e| {
             tracing::warn!(error = %e, "Anime4K shader unavailable");
+            let _ = std::fs::remove_dir_all(&workdir);
             ApiError(ErrorCode::ProfileUnavailable)
         })?;
+        let input_url = opened.input_url.clone();
+        let (fetch_token, torrent) = opened.keep();
+        let torrent_id = torrent.as_ref().map(|t| t.torrent_id.clone());
+
+        // one active session per device. BUG-131: only now, with the new source already open (a renewed torrent
+        // session holds its torrent twice for a moment, so closing the old one never ends the torrent's playback).
+        self.close_device_session(device_id);
+
         let start_segment = (req.start_secs / f64::from(SEGMENT_SECS)).floor() as u32;
         let total = duration.map(|d| (d / f64::from(SEGMENT_SECS)).ceil() as u32);
         let start_segment = total.map_or(start_segment, |t| start_segment.min(t.saturating_sub(1)));
@@ -486,7 +518,7 @@ impl Manager {
         lock(&self.sessions).insert(id.clone(), session.clone());
         {
             let mut o = lock(&self.origins);
-            o.push_back((id.clone(), device_id.to_owned(), source));
+            o.push_back((id.clone(), device_id.to_owned(), source, torrent));
             while o.len() > ORIGINS_KEPT {
                 o.pop_front();
             }
@@ -512,34 +544,95 @@ impl Manager {
     }
 
     /// The source of session `id` if `device` owns it (open or among the last [`ORIGINS_KEPT`]).
-    fn origin_of(&self, device: &str, id: &str) -> Option<SourceRequest> {
-        lock(&self.origins).iter().rev().find(|(sid, dev, _)| sid == id && dev == device).map(|(_, _, src)| src.clone())
+    fn origin_of(&self, device: &str, id: &str) -> Option<(SourceRequest, Option<crate::OpenedTorrent>)> {
+        lock(&self.origins).iter().rev().find(|(sid, dev, _, _)| sid == id && dev == device).map(|(_, _, src, t)| (src.clone(), t.clone()))
     }
 
-    async fn open_source(&self, src: &SourceRequest) -> ApiResult<(String, String, Option<f64>, Option<String>)> {
+    /// Everything a session needs that can fail or take time: the profile, the source (opened) and the probe.
+    async fn prepare(&self, device_id: &str, req: &CreateRequest) -> ApiResult<Prepared> {
+        // profile
+        let wanted = req.profile.as_deref().unwrap_or(profiles::DEFAULT_PROFILE);
+        let profile = profiles::find(wanted).filter(|p| self.env.profile_available(p)).ok_or(ApiError(ErrorCode::ProfileUnavailable))?;
+        let encoder = self.env.encoder_for(profile).ok_or(ApiError(ErrorCode::ProfileUnavailable))?;
+
+        // source -> loopback input (a `session` source reuses the source of an earlier session of this device, and
+        // BUG-131 the torrent stream it opened while the host still has that torrent)
+        let (source, reuse) = match &req.source {
+            SourceRequest::Session { session_id } => self.origin_of(device_id, session_id).ok_or(ApiError(ErrorCode::SessionNotFound))?,
+            other => (other.clone(), None),
+        };
+        let opened = self.open_source(&source, reuse).await?;
+
+        // one probe for what the source does not say: the frame rate (LSFG) and, BUG-009 / BUG-023, the duration of
+        // sources that do not announce it (a torrent file, an MP4 by URL). With a duration the phone gets a VOD playlist
+        // (real length, seek anywhere); without one it gets a growing EVENT playlist, which Media3 declares stuck when
+        // back-pressure holds it still.
+        let needs_rate = profile.fg.lsfg().is_some();
+        let info = if needs_rate || opened.duration.is_none() { self.engine.source_info(&opened.input_url).await } else { SourceInfo::default() };
+        // BUG-024: a link ffprobe cannot read (e.g. a full URL that answers 404) is refused here, so the phone says "the
+        // PC could not open this link" instead of playing a session that fails a minute later
+        if info.unreadable && matches!(source, SourceRequest::Url { .. } | SourceRequest::Torrent { .. }) {
+            tracing::warn!("Link session refused: the source cannot be read");
+            return Err(ErrorCode::SourceUnavailable.into());
+        }
+        let duration = opened.duration.or(info.duration_secs);
+        if duration.is_none() {
+            tracing::info!("source duration unknown; the session uses a growing (EVENT) playlist");
+        }
+        let lsfg_rate = needs_rate.then(|| {
+            info.rate.unwrap_or_else(|| {
+                tracing::info!("source frame rate unknown; LSFG assumes 24000/1001");
+                FALLBACK_RATE
+            })
+        });
+        Ok(Prepared { profile, encoder, source, opened, duration, lsfg_rate })
+    }
+
+    fn opened(&self, input_url: String, token: String, duration: Option<f64>, torrent: Option<crate::OpenedTorrent>) -> OpenedSource {
+        OpenedSource { input_url, duration, token: Some(token), torrent, fetcher: self.fetcher.clone(), host: self.host.clone() }
+    }
+
+    /// The loopback input of a torrent stream the host opened (or held again): `opened` is released on any error.
+    async fn torrent_input(&self, opened: crate::OpenedTorrent) -> ApiResult<OpenedSource> {
+        // from here on, dropping `held` gives the torrent back
+        let mut held = OpenedSource { input_url: String::new(), duration: None, token: None, torrent: Some(opened), fetcher: self.fetcher.clone(), host: self.host.clone() };
+        let url = held.torrent.as_ref().map(|t| t.url.clone()).unwrap_or_default();
+        let target = Url::parse(&url).map_err(|_| ApiError(ErrorCode::Internal))?;
+        let trusted = crate::torrent_stream_origin(&target).ok_or(ApiError(ErrorCode::Internal))?;
+        let token = self.fetcher.register(SourceSpec { url: target.clone(), headers: Vec::new(), extension_permissions: None, trusted: vec![trusted] });
+        held.token = Some(token.clone());
+        if let Err(e) = self.fetcher.validate(&token, &target).await {
+            return Err(match e {
+                FetchError::Denied => ErrorCode::UrlSourceDenied.into(),
+                FetchError::Unavailable => ErrorCode::SourceUnavailable.into(),
+            });
+        }
+        held.input_url = self.fetcher.entry_url(&token, &target, false);
+        Ok(held)
+    }
+
+    async fn open_source(&self, src: &SourceRequest, reuse: Option<crate::OpenedTorrent>) -> ApiResult<OpenedSource> {
         match src {
             SourceRequest::Session { .. } => Err(ErrorCode::RequestInvalid.into()),
             SourceRequest::Torrent { uri, media_id, episode } => {
                 if uri.is_empty() || uri.len() > 4096 || uri.chars().any(char::is_control) || media_id.is_empty() || media_id.len() > 128 || *episode == 0 {
                     return Err(ErrorCode::RequestInvalid.into());
                 }
+                // BUG-131: a renew of a torrent session holds the torrent the earlier session opened (still in the
+                // engine: no new lookup, no extension, no metadata wait); only when the host lost it is it opened again
+                if let Some(prev) = reuse {
+                    if self.host.reuse_torrent(&prev.torrent_id).await {
+                        tracing::info!(torrent = %prev.torrent_id, "Link session reuses the torrent of the renewed session");
+                        return self.torrent_input(prev).await;
+                    }
+                    tracing::info!(torrent = %prev.torrent_id, "the torrent of the renewed session is gone; opening it again");
+                }
                 let req = crate::TorrentRequest { uri: uri.clone(), media_id: media_id.clone(), episode: *episode };
                 let opened = tokio::time::timeout(TORRENT_OPEN_TIMEOUT, self.host.open_torrent(req))
                     .await
                     .map_err(|_| ApiError(ErrorCode::SourceUnavailable))?
                     .map_err(ApiError)?;
-                let target = Url::parse(&opened.url).map_err(|_| ApiError(ErrorCode::Internal))?;
-                let trusted = crate::torrent_stream_origin(&target).ok_or(ApiError(ErrorCode::Internal))?;
-                let token = self.fetcher.register(SourceSpec { url: target.clone(), headers: Vec::new(), extension_permissions: None, trusted: vec![trusted] });
-                if let Err(e) = self.fetcher.validate(&token, &target).await {
-                    self.fetcher.unregister(&token);
-                    self.host.torrent_session_ended(&opened.torrent_id);
-                    return Err(match e {
-                        FetchError::Denied => ErrorCode::UrlSourceDenied.into(),
-                        FetchError::Unavailable => ErrorCode::SourceUnavailable.into(),
-                    });
-                }
-                Ok((self.fetcher.entry_url(&token, &target, false), token, None, Some(opened.torrent_id)))
+                self.torrent_input(opened).await
             }
             SourceRequest::Library { item_id } => {
                 if item_id.len() != 32 || !item_id.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -551,7 +644,7 @@ impl Manager {
                 }
                 let duration = self.host.library().iter().find(|i| &i.id == item_id).map(|i| i.duration_secs).filter(|d| *d > 0.0);
                 let token = self.fetcher.register_file(path);
-                Ok((self.fetcher.file_url(&token), token, duration, None))
+                Ok(self.opened(self.fetcher.file_url(&token), token, duration, None))
             }
             SourceRequest::Url { url, headers, extension_id, container } => {
                 if url.len() > 4096 {
@@ -576,7 +669,7 @@ impl Manager {
                 }
                 .await;
                 match result {
-                    Ok(duration) => Ok((self.fetcher.entry_url(&token, &target, hls), token, duration, None)),
+                    Ok(duration) => Ok(self.opened(self.fetcher.entry_url(&token, &target, hls), token, duration, None)),
                     Err(e) => {
                         self.fetcher.unregister(&token);
                         Err(match e {

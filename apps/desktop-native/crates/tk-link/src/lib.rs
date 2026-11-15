@@ -128,7 +128,18 @@ pub trait LinkHost: Send + Sync + 'static {
     fn open_torrent(&self, _req: TorrentRequest) -> HostFuture<'_, Result<OpenedTorrent, api::ErrorCode>> {
         Box::pin(async { Err(api::ErrorCode::SourceUnavailable) })
     }
-    /// BUG-009: the Link session reading `torrent_id` ended (after-watch policy of the engine). Default: nothing.
+    /// BUG-131: a renewed session (profile change, reopen) reads the torrent `torrent_id` an earlier session opened.
+    /// `true` = the engine still has it and it transfers (resumed if it was paused); the host counts it as one more
+    /// reader, exactly like an [`open_torrent`](Self::open_torrent), and a matching
+    /// [`torrent_session_ended`](Self::torrent_session_ended) follows. `false` = gone: the session opens it again.
+    /// Default: `false`.
+    fn reuse_torrent(&self, _torrent_id: &str) -> HostFuture<'_, bool> {
+        Box::pin(async { false })
+    }
+    /// BUG-009: a Link session reading `torrent_id` ended (one call per successful
+    /// [`open_torrent`](Self::open_torrent) / [`reuse_torrent`](Self::reuse_torrent)). BUG-131: a renew opens the new
+    /// session before it closes the old one, so a host that counts readers only runs its after-watch policy when the
+    /// last one ends. Default: nothing.
     fn torrent_session_ended(&self, _torrent_id: &str) {}
 }
 

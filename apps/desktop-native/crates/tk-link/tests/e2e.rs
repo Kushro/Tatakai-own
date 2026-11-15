@@ -548,6 +548,80 @@ async fn a_torrent_source_streams_from_the_engine_loopback_server() {
     assert!(tk_link::torrent_stream_origin(&url::Url::parse("http://10.0.0.2:80/t/x").unwrap()).is_none());
 }
 
+/// BUG-131: a profile change of a torrent session (the phone renews it with a `session` source) reuses the torrent the
+/// session opened: no new lookup, the new session holds it BEFORE the replaced one lets it go (so the PC never pauses
+/// it under the new session), every renew answers, and a torrent the host lost is opened again. A host that never
+/// answers is refused within the session's own time limit, below the phone's 20 s, and nothing stays held.
+#[tokio::test]
+async fn renewing_a_torrent_session_reuses_its_torrent_and_always_answers() {
+    let strict = tk_core::net::SafeHttp::new(tk_core::net::Policy::link_source(false));
+    let tuning = SessionTuning { prepare_timeout: Duration::from_millis(800), ..quick_tuning() };
+    let mut h = harness(FakeEngine::new(3, 100, Duration::from_millis(1)), tuning, strict).await;
+    let a = h.pair("moto g51").await;
+    let (port, _seen) = stub(|_| (200, vec![("content-type".into(), "video/x-matroska".into())], vec![0u8; 64])).await;
+    *h.host.torrent.lock().unwrap() =
+        Some(tk_link::OpenedTorrent { url: format!("http://127.0.0.1:{port}/tok123/2b5d/0/ep4.mkv"), torrent_id: "2b5d".into() });
+    let r = a
+        .client
+        .post(h.url("/v1/sessions"))
+        .json(&json!({ "source": { "kind": "torrent", "uri": "magnet:?xt=urn:btih:2b5d", "media_id": "212888", "episode": 4 }, "profile": "p-none" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    let mut sid = json(r).await["session_id"].as_str().unwrap().to_owned();
+    let renew = |id: String, profile: &'static str| {
+        let c = a.client.clone();
+        let url = h.url("/v1/sessions");
+        async move {
+            let started = std::time::Instant::now();
+            let r = c.post(url).json(&json!({ "source": { "kind": "session", "session_id": id }, "profile": profile, "start_secs": 4.0 })).send().await.unwrap();
+            (r.status().as_u16(), started.elapsed(), json(r).await)
+        }
+    };
+
+    // five profile changes in a row: each one is created, reuses the torrent, and only then ends the replaced session
+    for (i, profile) in ["p-none", "p-none", "p-none", "p-none", "p-none"].into_iter().enumerate() {
+        let (status, took, body) = renew(sid.clone(), profile).await;
+        assert_eq!(status, 201, "renew {i}: {body}");
+        assert!(took < Duration::from_secs(3), "renew {i} took {took:?}");
+        let new = body["session_id"].as_str().unwrap().to_owned();
+        assert_ne!(new, sid);
+        sid = new;
+        let calls = h.host.torrent_calls.lock().unwrap().clone();
+        assert_eq!(calls.last().map(String::as_str), Some("ended:2b5d"), "renew {i}: the replaced session ends last: {calls:?}");
+        assert_eq!(calls[calls.len() - 2], "reuse:2b5d", "renew {i}: the new session holds the torrent first: {calls:?}");
+    }
+    let calls = h.host.torrent_calls.lock().unwrap().clone();
+    assert_eq!(calls.iter().filter(|c| c.starts_with("open:")).count(), 1, "the torrent is looked up once: {calls:?}");
+    // the new session reads the same loopback stream
+    let pl = a.client.get(h.url(&format!("/v1/sessions/{sid}/master.m3u8"))).send().await.unwrap();
+    assert_ne!(pl.status().as_u16(), 404);
+
+    // the engine lost the torrent: the renew opens it again (and still answers)
+    *h.host.torrent_reusable.lock().unwrap() = false;
+    let (status, _, body) = renew(sid.clone(), "p-none").await;
+    assert_eq!(status, 201, "{body}");
+    sid = body["session_id"].as_str().unwrap().to_owned();
+    assert_eq!(h.host.torrent_calls.lock().unwrap().iter().filter(|c| c.starts_with("open:")).count(), 2);
+
+    // ...and a host that never answers is refused within the time limit; the session stays usable and nothing leaks
+    *h.host.torrent_open_hangs.lock().unwrap() = true;
+    let ended_before = h.host.torrents_ended.lock().unwrap().len();
+    let (status, took, body) = renew(sid.clone(), "p-none").await;
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(body["error"]["code"], "source_unavailable", "{body}");
+    assert!(took < Duration::from_secs(3), "the refusal took {took:?}");
+    assert_eq!(h.host.torrents_ended.lock().unwrap().len(), ended_before, "a refused renew does not touch the running session");
+    assert_eq!(a.client.get(h.url(&format!("/v1/sessions/{sid}"))).send().await.unwrap().status(), 200, "the session keeps playing");
+
+    // every hold is given back once the last session closes
+    assert_eq!(a.client.delete(h.url(&format!("/v1/sessions/{sid}"))).send().await.unwrap().status(), 204);
+    let calls = h.host.torrent_calls.lock().unwrap().clone();
+    let held = calls.iter().filter(|c| c.starts_with("open:") || c.starts_with("reuse:")).count();
+    assert_eq!(held, calls.iter().filter(|c| c.starts_with("ended:")).count(), "{calls:?}");
+}
+
 /// BUG-058: back-pressure must not hold a segment the phone is waiting for. With the playhead stuck (the player is
 /// buffering and keeps reporting the same position) the engine stops at playhead + 15; a request for the next one used
 /// to wait until it timed out, again and again (buffering forever after switching to "Sin mejora").
