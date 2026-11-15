@@ -777,6 +777,19 @@ fn previous_visit(b: &LiveBackend, now: i64) -> Option<i64> {
     new_prev
 }
 
+/// Airings per day AniList usually lists (fall 2026: 6..30 a day, ~17 on average), rounded up.
+const AIRINGS_PER_DAY: i64 = 20;
+
+/// `Some(pages)` when reading every airing of `[since, now]` (50 per page) costs fewer requests than one request per
+/// 50 watched ids; `None` = ask by ids. Pure.
+fn followed_global_pages(ids: usize, since: i64, now: i64) -> Option<u32> {
+    let days = ((now - since).max(0) + 86_399) / 86_400;
+    let global = ((days * AIRINGS_PER_DAY + 49) / 50).max(1) as usize;
+    let by_ids = ids.div_ceil(50);
+    // One page of margin: the estimate can fall short in a busy week.
+    (global + 1 < by_ids).then_some((global + 1) as u32)
+}
+
 pub async fn followed_updates(b: &LiveBackend) -> UiResult<Vec<LatestEpisodeVm>> {
     let now = now_unix();
     let since = followed_since(previous_visit(b, now), now);
@@ -785,11 +798,26 @@ pub async fn followed_updates(b: &LiveBackend) -> UiResult<Vec<LatestEpisodeVm>>
         return Ok(Vec::new());
     }
     let mut rows = Vec::new();
-    for chunk in ids.chunks(50) {
-        let p = tk_core::metadata::anilist::gateway::background(anilist().airing_schedules(since, now, Some(chunk), true, 1))
-            .await
-            .map_err(provider_err)?;
-        rows.extend(p.rows);
+    if let Some(pages) = followed_global_pages(ids.len(), since, now) {
+        // 0.3.1 QA: a big Watching list (hundreds of mostly finished titles) cost one request per 50 ids; every airing
+        // of the window, filtered here, takes fewer pages.
+        let wanted: HashSet<u32> = ids.iter().copied().collect();
+        for page in 1..=pages {
+            let p = tk_core::metadata::anilist::gateway::background(anilist().airing_schedules(since, now, None, true, page))
+                .await
+                .map_err(provider_err)?;
+            rows.extend(p.rows.into_iter().filter(|r| r.media.media_ref.anilist_id.is_some_and(|id| wanted.contains(&id))));
+            if !p.has_next {
+                break;
+            }
+        }
+    } else {
+        for chunk in ids.chunks(50) {
+            let p = tk_core::metadata::anilist::gateway::background(anilist().airing_schedules(since, now, Some(chunk), true, 1))
+                .await
+                .map_err(provider_err)?;
+            rows.extend(p.rows);
+        }
     }
     rows.sort_by(|a, b| b.at_unix.cmp(&a.at_unix));
     // Titles of the user's own list: 18+ is not filtered here (they chose them).
@@ -1604,6 +1632,17 @@ pub async fn provider_health(b: &LiveBackend) -> UiResult<Vec<ProviderHealthVm>>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn followed_reads_the_whole_window_only_when_it_is_cheaper() {
+        let now = 1_794_700_000;
+        // 350 watched ids = 7 requests; a 7-day window ~ 3 pages (+1 margin) = 4.
+        assert_eq!(super::followed_global_pages(350, now - 7 * 86_400, now), Some(4));
+        // A short list: by ids (1 request).
+        assert_eq!(super::followed_global_pages(30, now - 7 * 86_400, now), None);
+        // 30 days ~ 12 pages + 1 > 7 requests by ids.
+        assert_eq!(super::followed_global_pages(350, now - 30 * 86_400, now), None);
+    }
+
     use super::*;
 
     fn media(id: u32, title: &str) -> Media {

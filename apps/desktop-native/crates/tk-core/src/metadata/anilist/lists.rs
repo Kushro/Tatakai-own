@@ -52,6 +52,22 @@ pub struct EntryInput {
 const ENTRY_FIELDS: &str = "id status progress score(format: POINT_100) repeat notes updatedAt \
 startedAt { year month day } completedAt { year month day } media { ...mediaCard }";
 
+/// How long [`AniList::viewer`] reuses an answer for the same token.
+const VIEWER_MEMO: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+static VIEWER_CACHE: std::sync::Mutex<Option<(String, std::time::Instant, Viewer)>> = std::sync::Mutex::new(None);
+
+fn viewer_memo_get(token: &str) -> Option<Viewer> {
+    let g = VIEWER_CACHE.lock().ok()?;
+    g.as_ref().filter(|(t, at, _)| t == token && at.elapsed() < VIEWER_MEMO).map(|(_, _, v)| v.clone())
+}
+
+fn viewer_memo_put(token: &str, v: &Viewer) {
+    if let Ok(mut g) = VIEWER_CACHE.lock() {
+        *g = Some((token.to_owned(), std::time::Instant::now(), v.clone()));
+    }
+}
+
 const VIEWER_QUERY: &str = "query { Viewer { id name avatar { large medium } siteUrl } }";
 
 const FAVOURITE_MEDIA_QUERY: &str = "query ($id: Int) { Media(id: $id, type: ANIME) { id isFavourite } }";
@@ -196,6 +212,17 @@ impl AniList {
     }
 
     pub async fn viewer(&self, token: &str) -> Result<Viewer, ListError> {
+        // 0.3.1 QA: lists, social and manga each asked for the viewer (start-up, every Details page); it changes only
+        // with the account, so one answer per token is kept in memory for a while.
+        if let Some(v) = viewer_memo_get(token) {
+            return Ok(v);
+        }
+        let v = self.viewer_uncached(token).await?;
+        viewer_memo_put(token, &v);
+        Ok(v)
+    }
+
+    async fn viewer_uncached(&self, token: &str) -> Result<Viewer, ListError> {
         let body = self.post_auth(Some(token), VIEWER_QUERY, json!({})).await?;
         let v = &body["data"]["Viewer"];
         let id = v["id"]

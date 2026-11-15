@@ -426,6 +426,15 @@ pub fn operation_name(query: &str) -> &str {
     op
 }
 
+/// The request variables for the debug log, cut to 160 characters (0.3.1 QA: tells which screen asked).
+fn vars_summary(v: &Value) -> String {
+    let s = v.to_string();
+    match s.char_indices().nth(160) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s,
+    }
+}
+
 /// Fields of AniList's `Page` the app asks for, most specific first (`media` last: other fields contain media
 /// sub-selections).
 const PAGE_FIELDS: [&str; 9] =
@@ -627,6 +636,7 @@ impl Gateway {
                 remaining = ?headers.remaining,
                 limit = ?headers.limit,
                 ms = started.elapsed().as_millis() as u64,
+                vars = %vars_summary(variables),
                 "anilist request"
             );
             let limited = status == 429 || body.as_ref().is_ok_and(body_rate_limited);
