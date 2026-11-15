@@ -5,6 +5,8 @@ package app.tatakai.next.feature.player.sources
 
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import org.koin.compose.getKoin
 import app.tatakai.next.model.SourcePrefs
 import app.tatakai.next.model.SettingsRepository
@@ -99,6 +101,8 @@ private val FiltersSaver = listSaver<SourceFilters, String>(save = { it.encode()
  * resolution, codec, 10-bit, Dual audio, Multi-sub, Batch, SeaDex best, min reliability, "Compatible with this device"), list in RANKED
  * order (filtering never reorders), filter state local (`rememberSaveable`). Loading / empty / error states inside.
  * [onDownload] non-null adds the secondary "Descargar" action to torrent rows (Details passes it; the player passes null).
+ * [rememberedPick] (BUG-140): the user's remembered pick for this episode ([RankedSource.key]); when the list does not have it the sheet
+ * says so ([missingPickLabel]) instead of showing the recommended row in silence.
  */
 @Composable
 fun SourcePickerSheet(
@@ -112,17 +116,18 @@ fun SourcePickerSheet(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     onDownload: ((RankedSource) -> Unit)? = null,
+    rememberedPick: String? = null,
 ) {
     val wide = LocalConfiguration.current.screenWidthDp >= SIDE_SHEET_MIN_WIDTH_DP
     if (wide) {
         // AdaptiveSheet scrolls its content itself (a nested vertical scroll would crash).
         AdaptiveSheet(onDismissRequest = onDismiss, modifier = modifier) {
-            PickerContent(sources, loading, error, mode, onPick, onRetry, onOpenSettings, onDownload)
+            PickerContent(sources, loading, error, mode, onPick, onRetry, onOpenSettings, onDownload, rememberedPick)
         }
     } else {
         ModalBottomSheet(onDismissRequest = onDismiss, modifier = modifier) {
             Column(Modifier.verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp)) {
-                PickerContent(sources, loading, error, mode, onPick, onRetry, onOpenSettings, onDownload)
+                PickerContent(sources, loading, error, mode, onPick, onRetry, onOpenSettings, onDownload, rememberedPick)
             }
         }
     }
@@ -138,6 +143,7 @@ private fun PickerContent(
     onRetry: () -> Unit,
     onOpenSettings: () -> Unit,
     onDownload: ((RankedSource) -> Unit)?,
+    rememberedPick: String?,
 ) {
     var filters by rememberSaveable(stateSaver = FiltersSaver) { mutableStateOf(SourceFilters()) }
     val caps = remember { DeviceCodecs.capabilities() }
@@ -200,6 +206,18 @@ private fun PickerContent(
                     }
                 }
                 if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                // BUG-140: the remembered pick did not come up this time: say it, never check another row in its place.
+                val missing = remember(sources, rememberedPick) { missingPickLabel(sources, rememberedPick) }
+                if (missing != null) {
+                    Text(
+                        stringResource(R.string.src_pick_missing, missing),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                }
                 if (shown.isEmpty()) {
                     EmptyState(
                         icon = Icons.Rounded.FilterListOff,

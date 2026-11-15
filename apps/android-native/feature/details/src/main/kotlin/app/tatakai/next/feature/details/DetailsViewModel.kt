@@ -62,6 +62,8 @@ data class SourcePanel(
     val sources: LoadState<List<RankedSource>> = LoadState.Loading,
     /** BUG-011 / BUG-019: [sources] is a partial list and more extensions / servers are still answering. */
     val loadingMore: Boolean = false,
+    /** BUG-140: the remembered pick for [episode] ([RankedSource.key], or the one chosen here); the picker says when it is missing. */
+    val rememberedPick: String? = null,
 )
 
 /** The source picker is open for [episode]; [playOnPick] = opened from the split button ▾ (picking starts playback). */
@@ -361,10 +363,18 @@ class DetailsViewModel(
                 if (s.panel?.episode != episode) return@update s
                 val list = (sources as? LoadState.Ok)?.value
                 s.copy(
-                    panel = SourcePanel(episode = episode, sources = sources, loadingMore = more),
+                    panel = s.panel.copy(sources = sources, loadingMore = more),
                     // The user's choice in the picker survives the updates; otherwise the remembered pick.
                     selectedKey = s.selectedKey?.takeIf { k -> list?.any { it.key == k } == true } ?: list?.firstOrNull { it.picked }?.key,
                 )
+            }
+            val mediaId = HistoryEntry.animeIdOf(ref.anilistId, ref.malId)
+            val remembered = mediaId?.let { id -> stats?.let { store -> runCatchingApp { store.pickedSource(id, episode) }.getOrNull() } }
+            if (remembered != null) {
+                _state.update { s ->
+                    val p = s.panel?.takeIf { it.episode == episode && it.rememberedPick == null } ?: return@update s
+                    s.copy(panel = p.copy(rememberedPick = remembered))
+                }
             }
             val result = runCatchingApp {
                 extensions.candidatesFlow(media, episode).collect { partial ->
@@ -396,7 +406,10 @@ class DetailsViewModel(
 
     fun onPick(source: RankedSource) {
         val request = _state.value.picker ?: return
-        _state.update { it.copy(picker = null, selectedKey = source.key) }
+        _state.update { s ->
+            val panel = s.panel?.let { p -> if (p.episode == request.episode) p.copy(rememberedPick = source.key) else p }
+            s.copy(picker = null, selectedKey = source.key, panel = panel)
+        }
         chosenInPanel = request.episode to source.key
         val mediaId = HistoryEntry.animeIdOf(ref.anilistId, ref.malId)
         val store = stats

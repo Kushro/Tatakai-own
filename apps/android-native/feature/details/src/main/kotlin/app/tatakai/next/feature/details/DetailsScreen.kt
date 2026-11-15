@@ -255,6 +255,7 @@ fun DetailsScreen(
                     onOpenSettings(SettingsSection.PLAYER)
                 },
                 onDownload = { source -> actions.onDownloadSource(source, request.episode) },
+                rememberedPick = panel?.rememberedPick,
             )
         }
         if (sendDialog) {

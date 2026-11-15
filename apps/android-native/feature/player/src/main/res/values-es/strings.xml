@@ -126,6 +126,7 @@
     <string name="src_picker_empty_body">Instala o activa una extensión que tenga este título.</string>
     <string name="src_picker_error_title">No se pudieron cargar las fuentes</string>
     <string name="src_picker_picked">Tu elección</string>
+    <string name="src_pick_missing">Tu elección (%1$s) no apareció esta vez.</string>
     <string name="src_picker_server">Servidor</string>
     <string name="src_picker_group">Grupo</string>
     <string name="src_picker_quality">Calidad</string>

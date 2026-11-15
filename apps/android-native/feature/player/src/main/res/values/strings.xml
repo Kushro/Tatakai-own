@@ -126,6 +126,7 @@
     <string name="src_picker_empty_body">Install or enable an extension that has this title.</string>
     <string name="src_picker_error_title">The sources could not be loaded</string>
     <string name="src_picker_picked">Your pick</string>
+    <string name="src_pick_missing">Your pick (%1$s) didn\'t come up this time.</string>
     <string name="src_picker_server">Server</string>
     <string name="src_picker_group">Group</string>
     <string name="src_picker_quality">Quality</string>

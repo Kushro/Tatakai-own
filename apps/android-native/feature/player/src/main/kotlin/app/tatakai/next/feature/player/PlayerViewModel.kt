@@ -277,6 +277,8 @@ data class PlayerUiState(
     val candidatesLoading: Boolean = false,
     val candidatesError: AppError? = null,
     val mode: SourceMode = SourceMode.AUTO,
+    /** BUG-140: the remembered pick for this episode ([RankedSource.key]); the picker says when its list does not have it. */
+    val rememberedPick: String? = null,
     val current: RankedSource? = null,
     /** `(n, total)` of "Source n of total". */
     val position: Pair<Int, Int>? = null,
@@ -601,6 +603,7 @@ class PlayerViewModel(
             return
         }
         val stored = mediaId?.let { id -> runCatching { stats?.pickedSource(id, args.episode) }.getOrNull() }
+        _state.update { it.copy(rememberedPick = stored) }
         var noticeSent = false
         fun prepare(ranked: List<RankedSource>): List<RankedSource> {
             // Bug sources.remembered-vs-prefs: this session's pick always wins; the remembered one only while it fits the preferences.
@@ -608,6 +611,7 @@ class PlayerViewModel(
             if (pick.storedDiscarded && !noticeSent && ranked.any { it.key == stored }) {
                 noticeSent = true
                 mediaId?.let { id -> detached.launch { runCatching { stats?.clearPickedSource(id, args.episode) } } }
+                _state.update { it.copy(rememberedPick = null) }
                 pick.mismatch?.let { _notices.trySend(PlayerNotice.StoredSourceIgnored(it)) }
             }
             return pick.sources
@@ -1155,7 +1159,7 @@ class PlayerViewModel(
         val f = flow ?: return
         mediaId?.let { id -> detached.launch { runCatching { stats?.setPickedSource(id, args.episode, key) } } }
         meteredAccepted = false
-        _state.update { it.copy(metered = null, noFileTorrentId = null, error = null) }
+        _state.update { it.copy(metered = null, noFileTorrentId = null, error = null, rememberedPick = key) }
         if (f.pick(key)) advance()
     }
 

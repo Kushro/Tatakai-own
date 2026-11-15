@@ -243,6 +243,7 @@ private fun PlayerBody(
             onDismiss = { pickerOpen = false },
             onRetry = vm::reloadSources,
             onOpenSettings = { pickerOpen = false; onOpenSettings(SettingsSection.PLAYER) },
+            rememberedPick = state.rememberedPick,
         )
     }
 }
