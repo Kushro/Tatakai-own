@@ -78,6 +78,23 @@ impl EmbedTarget {
         }
         None
     }
+
+    /// The monitor the app window is on: `(model, index)` from GDK. On X11 GDK's model is the RandR output name
+    /// (`DP-1`) and the index follows the RandR monitor order, which is what mpv's `--screen-name` / `--screen` use.
+    /// `None` when the platform does not report it.
+    pub fn monitor(&self) -> Option<(Option<String>, Option<u32>)> {
+        #[cfg(target_os = "linux")]
+        if let Inner::Gtk(b) = &self.inner {
+            use gtk::prelude::*;
+            let window = b.toplevel()?.window()?;
+            let display = window.display();
+            let monitor = display.monitor_at_window(&window)?;
+            let index = (0..display.n_monitors()).find(|&i| display.monitor(i).as_ref() == Some(&monitor)).and_then(|i| u32::try_from(i).ok());
+            let model = monitor.model().map(|m| m.to_string()).filter(|m| !m.is_empty());
+            return Some((model, index));
+        }
+        None
+    }
 }
 
 impl fmt::Debug for EmbedTarget {

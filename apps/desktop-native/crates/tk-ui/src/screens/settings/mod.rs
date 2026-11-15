@@ -57,6 +57,9 @@ use self::social::SocialSection;
 use self::subtitles::SubtitlesSection;
 use self::system::SystemSection;
 
+/// A section to open the next time Settings mounts (e.g. the external player's "Settings › Player" link); taken once.
+pub static OPEN_SECTION: GlobalSignal<Option<&'static str>> = Signal::global(|| None);
+
 /// `(section id, icon)`: anchors `set-<id>`, titles `settings.<id>`. Order = index order; `SettingsPanel { index }`
 /// below must match. Wave B (docs/redesign/16 section 2) adds home (b), downloads (h), reader (l), novel (m),
 /// server (k) and social (n); the title keys live in each owner's namespace.
@@ -145,7 +148,10 @@ pub fn SettingsPage() -> Element {
     });
 
     // UX review #3: one section at a time (the single 9000 px page was hard to scan) + a search over every row.
-    let mut active = use_signal(|| 0_usize);
+    let mut active = use_signal(|| {
+        let wanted = OPEN_SECTION.write().take();
+        wanted.and_then(|w| SECTIONS.iter().position(|(id, _)| *id == w)).unwrap_or(0)
+    });
     let mut query = use_signal(String::new);
     use_context_provider(|| SettingsQuery(query));
     let searching = !query().trim().is_empty();

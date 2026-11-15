@@ -819,6 +819,11 @@ impl Flow {
                 ExternalEvent::Closed => {
                     self.external.forget();
                     ext_closed.set(true);
+                    // The (fullscreen) mpv window is gone: bring the app back to the front (X11; Wayland compositors
+                    // give focus back to it by themselves).
+                    if let Some(w) = try_consume_context::<dioxus::desktop::DesktopContext>() {
+                        w.set_focus();
+                    }
                     if !*ext_ended.peek() {
                         report(&self.backend, &self.id, self.episode, &pstate.peek());
                     }

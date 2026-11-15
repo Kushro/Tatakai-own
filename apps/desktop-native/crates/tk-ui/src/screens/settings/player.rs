@@ -388,9 +388,9 @@ fn PlayerEngineRows(on_action: EventHandler<SettingsAction>) -> Element {
         });
     };
 
-    let (mode, enhanced_ui) = {
+    let (mode, enhanced_ui, frame_gen_on) = {
         let s = ui.settings.read();
-        (s.player_mode, s.enhanced_ui)
+        (s.player_mode, s.enhanced_ui, cfg!(target_os = "linux") && s.video.frame_gen != FrameGenVm::Off)
     };
     let build_vm: Option<Result<AnimeBuildVm, UiError>> = build.read().clone();
     let unavailable = matches!(&build_vm, Some(Ok(b)) if !b.available);
@@ -476,6 +476,10 @@ fn PlayerEngineRows(on_action: EventHandler<SettingsAction>) -> Element {
                         }
                     }
                 }
+            }
+            // Frame generation plays in the external mpv whatever the engine (lsfg-vk hooks Vulkan only).
+            if frame_gen_on {
+                p { class: "tk-engine-status__note tk-engine-fg-note", role: "note", {t("settings.player.engine_fg_note")} }
             }
         }
         if mode == PlayerModeVm::EmbeddedEnhanced {

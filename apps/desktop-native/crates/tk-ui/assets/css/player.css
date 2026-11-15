@@ -102,6 +102,9 @@ button.tk-pc__src:hover { background: color-mix(in srgb, var(--tk-video-on) 12%,
 .tk-xmpv__paused { color: var(--md-sys-color-tertiary); font-size: var(--md-sys-typescale-label-large-size); }
 .tk-xmpv__hint { margin: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
 .tk-xmpv__actions { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); margin-top: var(--tk-space-8); }
+/* Frame generation pulled an integrated-engine user here: the reason reads as body text, its actions sit apart. */
+.tk-xmpv__why { color: var(--md-sys-color-on-surface); font-size: var(--md-sys-typescale-body-medium-size); }
+.tk-xmpv__fg { margin-top: 0; }
 @media (max-width: 600px) {
   .tk-xmpv { flex-direction: column; align-items: center; text-align: center; }
   .tk-xmpv__art { width: 120px; }
