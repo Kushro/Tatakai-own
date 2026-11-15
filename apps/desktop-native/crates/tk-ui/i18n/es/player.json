@@ -182,5 +182,14 @@
   "settings.video.frame_gen.x3": "3×",
   "settings.video.frame_gen.x4": "4×",
   "settings.video.lsfg_dll": "Lossless.dll",
-  "settings.video.lsfg_dll_hint": "Ruta al Lossless.dll de Lossless Scaling (lsfg-vk lo necesita). Vacío = la configuración de lsfg-vk."
+  "settings.video.lsfg_dll_hint": "Ruta al Lossless.dll de Lossless Scaling (lsfg-vk lo necesita). Vacío = la configuración de lsfg-vk.",
+  "player.profiles": "Perfiles",
+  "player.profiles_auto": "Automático",
+  "player.profiles_auto_hint": "mpv-anime-build elige el perfil por su cuenta (detección de anime)",
+  "player.profiles_video": "Imagen",
+  "player.profiles_audio": "Audio",
+  "player.profiles_shaders": "Shaders…",
+  "player.profiles_shaders_hint": "Los modos Anime4K y Fidelity del build",
+  "player.profile_applied": "Perfil: {name}",
+  "player.profile_failed": "No se pudo aplicar ese perfil."
 }

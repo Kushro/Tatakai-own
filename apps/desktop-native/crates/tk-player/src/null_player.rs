@@ -96,6 +96,30 @@ impl Player {
         Ok(())
     }
 
+    pub fn forward_mouse_leave(&self) -> Result<(), PlayerError> {
+        Ok(())
+    }
+
+    pub fn release_keys(&self) -> Result<(), PlayerError> {
+        Ok(())
+    }
+
+    pub fn build_profiles(&self) -> Vec<crate::BuildProfile> {
+        Vec::new()
+    }
+
+    pub fn apply_build_profile(&self, _name: &str) -> Result<(), PlayerError> {
+        Ok(())
+    }
+
+    pub fn auto_build_profile(&self) -> Result<(), PlayerError> {
+        Ok(())
+    }
+
+    pub fn active_build_profile(&self) -> Option<String> {
+        None
+    }
+
     pub fn flash_uosc_controls(&self) -> Result<(), PlayerError> {
         Ok(())
     }

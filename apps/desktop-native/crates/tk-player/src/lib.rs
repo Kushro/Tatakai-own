@@ -38,7 +38,7 @@ mod null_player;
 pub use null_player::Player;
 
 pub use embed::EmbedTarget;
-pub use engine::{EngineConfig, EngineMode};
+pub use engine::{BuildProfile, EngineConfig, EngineMode, active_build_profile, broadcast_anime_context, build_profiles_from_list};
 pub use enhanced_conf::shader_presets_apply;
 pub use external::{ExternalEvent, ExternalPlayer, FrameGen, enhancement_args, find_mpv, frame_gen_multiplier_for, mpv_version};
 pub use host::PlayerHost;

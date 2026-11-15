@@ -29,6 +29,8 @@
 mod episodes;
 mod flow;
 pub mod presence;
+/// Embedded enhanced + uosc: pointer / keys over the video -> mpv.
+mod relay;
 /// Wave B (worker k): remote commands from a paired phone -> player shortcuts.
 pub mod remote;
 pub mod subs;
@@ -43,7 +45,7 @@ use std::time::Duration;
 use dioxus::desktop::tao::dpi::PhysicalSize;
 use dioxus::desktop::{DesktopContext, LogicalSize, use_window};
 use dioxus::prelude::*;
-use tk_player::{Anime4kQuality, EngineMode, KeyAction, Player, PlayerEvent, Rect, ShaderPreset, TrackInfo, TrackKind};
+use tk_player::{Anime4kQuality, BuildProfile, EngineMode, Player, PlayerEvent, Rect, ShaderPreset, TrackInfo, TrackKind};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::{Route, Services, Ui};
@@ -62,14 +64,14 @@ use crate::model::{
 use crate::platform::{self, now_ms};
 use crate::player_state::{
     FLASH_MS, FlowState, Markers, Phase, SUB_DELAY_STEP_SECS, SleepChoice, SleepTimer, auto_skip_target, countdown_left,
-    cycle_track, format_speed, is_info_hash, keeps_controls_up, mpv_key_name, mpv_mouse_button, range_spans,
+    cycle_track, format_speed, is_info_hash, keeps_controls_up, range_spans,
     confirmed_start, ready_span, source_name, speed_step, volume_step,
 };
 use crate::shortcuts::Shortcut;
 
 use self::episodes::EpisodeSheet;
 use self::flow::{
-    ExternalSlot, Flow, button_index, choose_preset, disarm_preset_guard, dispatch, legacy_sources, no_player_text,
+    ExternalSlot, Flow, choose_preset, disarm_preset_guard, dispatch, legacy_sources, no_player_text,
     EPISODE_SWITCH, preset_guard_tick, remember_pick, report, report_source, take_crashed_preset,
 };
 use self::torrent::{SEEK_MARKS_EVERY, TorrentSession, TorrentSlot, end_torrent, take_batch_next, torrent_line};
@@ -120,9 +122,6 @@ fn set_pip(win: &DesktopContext, on: bool, state: &PipWindow) {
     }
 }
 
-
-/// Pointer movement re-flashes uosc's controls at most this often (its flash lasts 2 s).
-const UOSC_FLASH_EVERY_MS: u64 = 1000;
 
 /// `?` toggles the shortcut panel. Not a `Shortcut` (the panel is not rebindable): a listener of its own, replaced
 /// on every mount so only the current screen's channel receives it.
@@ -281,8 +280,10 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let mut enhanced = use_signal(|| false);
     // Enhanced with uosc: mpv draws the UI, the hole relays input.
     let mut uosc = use_signal(|| false);
-    // Last time uosc was asked to show its controls (pointer movement over the hole).
-    let mut uosc_flashed = use_signal(|| 0_u64);
+    // Enhanced with our controls: mpv-anime-build's profiles ("Profiles" menu, also on right click).
+    let mut build_profiles = use_signal(Vec::<BuildProfile>::new);
+    let mut active_profile = use_signal(|| None::<String>);
+    let mut profiles_open = use_signal(|| false);
     let mut dpr = use_signal(|| 1.0_f64);
 
     let ctx = Flow {
@@ -508,9 +509,11 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     }
                 });
                 if *uosc.peek() {
-                    // Keys reach the hole (and from there mpv) without a click first.
-                    let _ = document::eval("document.getElementById('tk-video-hole')?.focus()");
+                    // uosc draws the UI: pointer and keys over the hole go to mpv (relay.rs focuses the hole).
+                    spawn(relay::run(p.clone()));
                 }
+                // The build's profiles are static config: read them once per boot (empty outside the enhanced engine).
+                build_profiles.set(if *enhanced.peek() && !*uosc.peek() { p.build_profiles() } else { Vec::new() });
 
                 let _ = p.set_volume(f64::from(settings.volume));
                 dispatch(&mut pstate, PlayerAction::SetVolume(settings.volume));
@@ -1072,7 +1075,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let sleep_now = sleep();
     let sleep_left = sleep_now.left_secs(now);
     let capture_title = title.clone();
-    let visible = st.controls_visible(now) || keeps_controls_up(fs.phase, st.video_ready) || next_since().is_some() || bars_hover();
+    let visible = st.controls_visible(now) || keeps_controls_up(fs.phase, st.video_ready) || next_since().is_some() || bars_hover() || profiles_open();
     let current = fs.current_source().cloned();
     let source_label = match (&current, fs.position()) {
         (Some(s), Some((n, total))) if !fs.legacy || total > 1 => {
@@ -1532,6 +1535,39 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 presets: true,
                 build_modes: enhanced(),
                 build_default: enhanced() && !build_picked(),
+                profiles: build_profiles(),
+                active_profile: active_profile(),
+                profiles_open: profiles_open(),
+                on_profiles_open: move |open: bool| {
+                    // Refresh the mark on every open: the build re-chooses on its own (new file, anime detection).
+                    if open && let Some(p) = player.peek().clone() {
+                        active_profile.set(p.active_build_profile());
+                    }
+                    profiles_open.set(open);
+                },
+                on_profile: {
+                    let ctx = ctx.clone();
+                    move |name: Option<String>| {
+                        let Some(p) = player.peek().clone() else { return };
+                        let r = match &name {
+                            Some(n) => p.apply_build_profile(n),
+                            None => p.auto_build_profile(),
+                        };
+                        match r {
+                            Ok(()) => {
+                                active_profile.set(p.active_build_profile());
+                                let label = name
+                                    .and_then(|n| build_profiles.peek().iter().find(|b| b.name == n).map(|b| b.desc.clone()))
+                                    .unwrap_or_else(|| t("player.profiles_auto"));
+                                ctx.flash(tf("player.profile_applied", &[("name", &label)]));
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "mpv-anime-build profile");
+                                notice.set(Some(t("player.profile_failed")));
+                            }
+                        }
+                    }
+                },
                 phase: fs.phase,
                 resolving_label,
                 source_label,
@@ -1795,94 +1831,25 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     dispatch(&mut pstate, PlayerAction::Activity(now_ms()));
                 }
             },
+            // Enhanced engine with our controls: right click anywhere on the player opens the build's profiles
+            // (like the build's own right-click menu). With uosc the relay sends the click to mpv instead.
+            oncontextmenu: move |e: MouseEvent| {
+                if !relay && !build_profiles.peek().is_empty() {
+                    e.prevent_default();
+                    if let Some(p) = player.peek().clone() {
+                        active_profile.set(p.active_build_profile());
+                    }
+                    dispatch(&mut pstate, PlayerAction::Activity(now_ms()));
+                    profiles_open.set(true);
+                }
+            },
             div {
                 id: "tk-video-hole",
                 class: "tk-hole",
                 "data-open": "{hole_open}",
                 "data-relay": "{relay}",
                 tabindex: hole_tab,
-                // Embedded enhanced + uosc: pointer and keys go to mpv (coordinates are relative to the hole,
-                // which is exactly the video surface).
-                onmousemove: move |e: MouseEvent| {
-                    if relay && let Some(p) = player.peek().clone() {
-                        let pt = e.element_coordinates();
-                        let _ = p.forward_mouse(pt.x, pt.y, *dpr.peek());
-                        let now = now_ms();
-                        if now.saturating_sub(*uosc_flashed.peek()) > UOSC_FLASH_EVERY_MS {
-                            uosc_flashed.set(now);
-                            let _ = p.flash_uosc_controls();
-                        }
-                    }
-                },
-                onmousedown: move |e: MouseEvent| {
-                    if relay && let Some(p) = player.peek().clone()
-                        && let Some(name) = e.trigger_button().and_then(|b| mpv_mouse_button(button_index(b)))
-                    {
-                        let pt = e.element_coordinates();
-                        let _ = p.forward_mouse(pt.x, pt.y, *dpr.peek());
-                        let _ = p.forward_key(name, KeyAction::Down);
-                    }
-                },
-                onmouseup: move |e: MouseEvent| {
-                    if relay && let Some(p) = player.peek().clone()
-                        && let Some(name) = e.trigger_button().and_then(|b| mpv_mouse_button(button_index(b)))
-                    {
-                        let _ = p.forward_key(name, KeyAction::Up);
-                    }
-                },
-                ondoubleclick: move |_| {
-                    if relay && let Some(p) = player.peek().clone() {
-                        let _ = p.forward_key("MBTN_LEFT_DBL", KeyAction::Press);
-                    }
-                },
-                oncontextmenu: move |e: MouseEvent| {
-                    if relay {
-                        e.prevent_default();
-                    }
-                },
-                onwheel: move |e: WheelEvent| {
-                    if relay && let Some(p) = player.peek().clone() {
-                        let d = e.delta().strip_units();
-                        let name = if d.y < 0.0 {
-                            "WHEEL_UP"
-                        } else if d.y > 0.0 {
-                            "WHEEL_DOWN"
-                        } else if d.x < 0.0 {
-                            "WHEEL_LEFT"
-                        } else if d.x > 0.0 {
-                            "WHEEL_RIGHT"
-                        } else {
-                            return;
-                        };
-                        let _ = p.forward_key(name, KeyAction::Press);
-                    }
-                },
-                onkeydown: move |e: KeyboardEvent| {
-                    if relay && let Some(p) = player.peek().clone() {
-                        let key = e.key().to_string();
-                        let m = e.modifiers();
-                        // Escape and F stay ours (window full screen); the global bridge already handles them.
-                        if key == "Escape" || (key.eq_ignore_ascii_case("f") && !m.ctrl() && !m.alt() && !m.meta()) {
-                            return;
-                        }
-                        if let Some(name) = mpv_key_name(&key, m.ctrl(), m.alt(), m.shift(), m.meta()) {
-                            e.prevent_default();
-                            let _ = p.forward_key(&name, KeyAction::Down);
-                        }
-                    }
-                },
-                onkeyup: move |e: KeyboardEvent| {
-                    if relay && let Some(p) = player.peek().clone() {
-                        let key = e.key().to_string();
-                        let m = e.modifiers();
-                        if key == "Escape" || (key.eq_ignore_ascii_case("f") && !m.ctrl() && !m.alt() && !m.meta()) {
-                            return;
-                        }
-                        if let Some(name) = mpv_key_name(&key, m.ctrl(), m.alt(), m.shift(), m.meta()) {
-                            let _ = p.forward_key(&name, KeyAction::Up);
-                        }
-                    }
-                },
+                // Embedded enhanced + uosc: relay.rs listens on this element (pointer / keys -> mpv).
             }
             {body}
             if let Some(left) = next_left {
