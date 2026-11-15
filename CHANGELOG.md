@@ -2,6 +2,21 @@
 
 Cambios de Tatakai Next (rama `main`). Tatakai Classic tiene su propio changelog en la rama `legacy`.
 
+## [0.3.3] - 2026-11-15
+
+Generación de cuadros y mpv-anime-build, más claros y completos (escritorio).
+
+**Generación de cuadros**
+- Al reproducir en mpv externo por la generación de cuadros, la app lo dice ("por la generación de cuadros (×N)") y explica por qué: lsfg-vk solo funciona con Vulkan y el reproductor integrado dibuja con OpenGL.
+- Botón "Ver sin generación de cuadros": reproduce ese episodio en el motor integrado elegido desde el mismo punto, sin cambiar los ajustes.
+- Con el motor Integrado mejorado, el mpv de la generación de cuadros carga mpv-anime-build: sus perfiles (FidelityFX, Anime4K…), scripts y uosc con su menú de clic derecho. Antes arrancaba sin configuración.
+- Ese mpv abre a pantalla completa en el monitor de la app (en X11; en Wayland lo ubica el compositor).
+- Ajustes › Reproductor avisa junto al motor cuando la generación de cuadros está activa.
+
+**Integrado mejorado**
+- Con uosc: el puntero, los clics (incluido el derecho), la rueda y el arrastre llegan bien a uosc, con coordenadas correctas en pantallas HiDPI.
+- Con los controles de Tatakai: nuevo menú "Perfiles" (también con clic derecho sobre el video) con los perfiles de mpv-anime-build.
+
 ## [0.3.2] - 2026-11-15
 
 Tarjetas más legibles y arte de mejor calidad.

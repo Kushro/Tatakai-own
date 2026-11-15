@@ -61,6 +61,10 @@ pub struct Player {
     /// mpv-anime-build's Fidelity state for the current resolution, from its `anime-state-broadcast`
     /// (0 = not heard yet, 1 = off, 2 = on; BUG-032).
     build_fidelity: Arc<AtomicU8>,
+    /// mpv-anime-build's anime context from the same broadcast (0 = not heard, 1 = live action, 2 = anime-shaders).
+    build_anime: Arc<AtomicU8>,
+    /// Profile picked in our "Profiles" menu for the current file (the build re-chooses on every file).
+    build_picked: Arc<Mutex<Option<String>>>,
     /// `demuxer-lavf-o` carries the local-HLS `protocol_whitelist` (BUG-080, [`Player::widen_protocols`]).
     lavf_widened: AtomicBool,
     stop: Arc<AtomicBool>,
@@ -118,11 +122,14 @@ impl Player {
         let stop = Arc::new(AtomicBool::new(false));
         let pending_subs = Arc::new(Mutex::new(Vec::new()));
         let build_fidelity = Arc::new(AtomicU8::new(0));
+        let build_anime = Arc::new(AtomicU8::new(0));
+        let build_picked = Arc::new(Mutex::new(None));
         let handle = {
-            let (mpv, tx, stop, subs, fid) = (mpv.clone(), tx.clone(), stop.clone(), pending_subs.clone(), build_fidelity.clone());
+            let (mpv, tx, stop, subs) = (mpv.clone(), tx.clone(), stop.clone(), pending_subs.clone());
+            let build = BuildState { fidelity: build_fidelity.clone(), anime: build_anime.clone(), picked: build_picked.clone() };
             std::thread::Builder::new()
                 .name("mpv-events".into())
-                .spawn(move || run_events(mpv, ev, tx, stop, subs, fid))
+                .spawn(move || run_events(mpv, ev, tx, stop, subs, build))
                 .map_err(mpv_err)?
         };
         Ok(Self {
@@ -138,6 +145,8 @@ impl Player {
             pending_subs,
             presets_apply: crate::enhanced_conf::shader_presets_apply(&cfg.mode),
             build_fidelity,
+            build_anime,
+            build_picked,
             lavf_widened: AtomicBool::new(false),
             stop,
             thread: Mutex::new(Some(handle)),
@@ -367,6 +376,59 @@ impl Player {
         self.mpv.command(cmd, &[&mpv_quote(name)]).map_err(mpv_err)
     }
 
+    /// Enhanced + uosc: the pointer left the video (uosc hides its hover state, like mpv's own window would).
+    pub fn forward_mouse_leave(&self) -> Result<(), PlayerError> {
+        self.mpv.command("keypress", &["MOUSE_LEAVE"]).map_err(mpv_err)
+    }
+
+    /// Release every key and mouse button mpv thinks is held (`keyup` without a name): the web view lost focus or
+    /// the pointer capture, so the matching key-up may never come.
+    pub fn release_keys(&self) -> Result<(), PlayerError> {
+        self.mpv.command("keyup", &[]).map_err(mpv_err)
+    }
+
+    /// Enhanced engine: mpv-anime-build's user-facing profiles (`profile-list`, [`crate::build_profiles_from_list`]).
+    /// Empty in the plain engine or when mpv gives no list.
+    pub fn build_profiles(&self) -> Vec<crate::BuildProfile> {
+        if self.presets_apply {
+            return Vec::new();
+        }
+        let json = self.mpv.get_property::<String>("profile-list").unwrap_or_default();
+        crate::build_profiles_from_list(&json, cfg!(windows))
+    }
+
+    /// Enhanced engine: apply one of the build's profiles (`apply-profile`). It holds until the build re-chooses
+    /// (next file, or its own anime-mode switches).
+    pub fn apply_build_profile(&self, name: &str) -> Result<(), PlayerError> {
+        if self.presets_apply {
+            return Err(PlayerError::Mpv("no mpv-anime-build profiles in this engine".into()));
+        }
+        self.mpv.command("apply-profile", &[&mpv_quote(name)]).map_err(mpv_err)?;
+        if let Ok(mut p) = self.build_picked.lock() {
+            *p = Some(name.to_owned());
+        }
+        Ok(())
+    }
+
+    /// Enhanced engine: let the build choose the profile again (its "Auto" anime detection, `anime-mode-auto`).
+    pub fn auto_build_profile(&self) -> Result<(), PlayerError> {
+        if let Ok(mut p) = self.build_picked.lock() {
+            *p = None;
+        }
+        self.mpv.command("script-binding", &["anime-mode-auto"]).map_err(mpv_err)
+    }
+
+    /// The profile to mark as active in the "Profiles" menu ([`crate::active_build_profile`]).
+    pub fn active_build_profile(&self) -> Option<String> {
+        let picked = self.build_picked.lock().ok().and_then(|p| p.clone());
+        let anime = match self.build_anime.load(Ordering::SeqCst) {
+            1 => Some(false),
+            2 => Some(true),
+            _ => None,
+        };
+        crate::active_build_profile(picked.as_deref(), anime)
+    }
+
     pub fn events(&self) -> broadcast::Receiver<PlayerEvent> {
         self.tx.subscribe()
     }
@@ -507,13 +569,20 @@ impl Drop for Player {
     }
 }
 
+/// What the event thread tracks of mpv-anime-build for the player (fields of [`Player`] with the same names).
+struct BuildState {
+    fidelity: Arc<AtomicU8>,
+    anime: Arc<AtomicU8>,
+    picked: Arc<Mutex<Option<String>>>,
+}
+
 fn run_events(
     mpv: Arc<Mpv>,
     mut ev: EventContext,
     tx: broadcast::Sender<PlayerEvent>,
     stop: Arc<AtomicBool>,
     subs: Arc<Mutex<Vec<SubtitleSource>>>,
-    build_fidelity: Arc<AtomicU8>,
+    build: BuildState,
 ) {
     // Nobody listening is normal (no subscriber yet); ignore send errors.
     let send = |e: PlayerEvent| {
@@ -531,6 +600,10 @@ fn run_events(
                 _ => {}
             },
             Ok(Event::FileLoaded) => {
+                // The build chooses its profile again for every file: a pick from our menu no longer holds.
+                if let Ok(mut p) = build.picked.lock() {
+                    *p = None;
+                }
                 let pending = subs.lock().map(|mut s| std::mem::take(&mut *s)).unwrap_or_default();
                 for s in pending {
                     let title = if s.label.is_empty() { s.lang.clone() } else { s.label.clone() };
@@ -543,10 +616,13 @@ fn run_events(
             Ok(Event::Shutdown) => break,
             // mpv-anime-build broadcasts its state to every client (uosc and us): track Fidelity (BUG-032).
             Ok(Event::ClientMessage(args)) => {
-                if let ["anime-state-broadcast", json, ..] = args.as_slice()
-                    && let Some(on) = crate::enhanced::broadcast_fidelity(json)
-                {
-                    build_fidelity.store(if on { 2 } else { 1 }, Ordering::SeqCst);
+                if let ["anime-state-broadcast", json, ..] = args.as_slice() {
+                    if let Some(on) = crate::enhanced::broadcast_fidelity(json) {
+                        build.fidelity.store(if on { 2 } else { 1 }, Ordering::SeqCst);
+                    }
+                    if let Some(anime) = crate::broadcast_anime_context(json) {
+                        build.anime.store(if anime { 2 } else { 1 }, Ordering::SeqCst);
+                    }
                 }
             }
             Ok(_) => {}

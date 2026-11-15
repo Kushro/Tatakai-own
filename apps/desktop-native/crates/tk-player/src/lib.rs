@@ -38,9 +38,12 @@ mod null_player;
 pub use null_player::Player;
 
 pub use embed::EmbedTarget;
-pub use engine::{EngineConfig, EngineMode};
+pub use engine::{BuildProfile, EngineConfig, EngineMode, active_build_profile, broadcast_anime_context, build_profiles_from_list};
 pub use enhanced_conf::shader_presets_apply;
-pub use external::{ExternalEvent, ExternalPlayer, FrameGen, enhancement_args, find_mpv, frame_gen_multiplier_for, mpv_version};
+pub use external::{
+    AnimeBuild, ExternalEvent, ExternalPlayer, FgWindow, FrameGen, MonitorRef, enhancement_args, find_mpv, frame_gen_multiplier_for,
+    mpv_uses_wayland, mpv_version,
+};
 pub use host::PlayerHost;
 pub use preset::{Anime4kQuality, ShaderPreset, all_preset_files, glsl_shaders_value, list_separator, shader_paths};
 pub use subs::{SubStyle, sub_options};

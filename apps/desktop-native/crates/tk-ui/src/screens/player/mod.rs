@@ -29,6 +29,8 @@
 mod episodes;
 mod flow;
 pub mod presence;
+/// Embedded enhanced + uosc: pointer / keys over the video -> mpv.
+mod relay;
 /// Wave B (worker k): remote commands from a paired phone -> player shortcuts.
 pub mod remote;
 pub mod subs;
@@ -43,7 +45,7 @@ use std::time::Duration;
 use dioxus::desktop::tao::dpi::PhysicalSize;
 use dioxus::desktop::{DesktopContext, LogicalSize, use_window};
 use dioxus::prelude::*;
-use tk_player::{Anime4kQuality, EngineMode, KeyAction, Player, PlayerEvent, Rect, ShaderPreset, TrackInfo, TrackKind};
+use tk_player::{Anime4kQuality, BuildProfile, EngineMode, Player, PlayerEvent, Rect, ShaderPreset, TrackInfo, TrackKind};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::app::{Route, Services, Ui};
@@ -62,14 +64,14 @@ use crate::model::{
 use crate::platform::{self, now_ms};
 use crate::player_state::{
     FLASH_MS, FlowState, Markers, Phase, SUB_DELAY_STEP_SECS, SleepChoice, SleepTimer, auto_skip_target, countdown_left,
-    cycle_track, format_speed, is_info_hash, keeps_controls_up, mpv_key_name, mpv_mouse_button, range_spans,
+    cycle_track, format_speed, is_info_hash, keeps_controls_up, range_spans,
     confirmed_start, ready_span, source_name, speed_step, volume_step,
 };
 use crate::shortcuts::Shortcut;
 
 use self::episodes::EpisodeSheet;
 use self::flow::{
-    ExternalSlot, Flow, button_index, choose_preset, disarm_preset_guard, dispatch, legacy_sources, no_player_text,
+    ExternalSlot, Flow, choose_preset, disarm_preset_guard, dispatch, legacy_sources, no_player_text,
     EPISODE_SWITCH, preset_guard_tick, remember_pick, report, report_source, take_crashed_preset,
 };
 use self::torrent::{SEEK_MARKS_EVERY, TorrentSession, TorrentSlot, end_torrent, take_batch_next, torrent_line};
@@ -120,9 +122,6 @@ fn set_pip(win: &DesktopContext, on: bool, state: &PipWindow) {
     }
 }
 
-
-/// Pointer movement re-flashes uosc's controls at most this often (its flash lasts 2 s).
-const UOSC_FLASH_EVERY_MS: u64 = 1000;
 
 /// `?` toggles the shortcut panel. Not a `Shortcut` (the panel is not rebindable): a listener of its own, replaced
 /// on every mount so only the current screen's channel receives it.
@@ -202,6 +201,16 @@ fn pick_preset(
     );
 }
 
+/// The list "Watch without frame generation" restarts from: the playing source as the confirmed pick, so the same
+/// source plays again without a new listing; `None` (list again as at boot) for legacy lists or nothing playing.
+fn restart_sources(f: &FlowState) -> Option<Vec<SourceVm>> {
+    if f.legacy {
+        return None;
+    }
+    let cur = f.current_source()?.id.clone();
+    Some(f.sources.iter().map(|s| SourceVm { picked: s.id == cur, ..s.clone() }).collect())
+}
+
 fn screen_key(id: &str, episode: u32) -> String {
     format!("{id}-{episode}")
 }
@@ -270,6 +279,12 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     // Engine (docs/redesign/09 section 4.4), decided at boot from Settings > Player.
     let mut ext_mpv = use_signal(|| None::<PathBuf>);
     let mut frame_gen = use_signal(|| None::<tk_player::FrameGen>);
+    // "Watch without frame generation" on the external screen: this screen (this episode) plays in the chosen
+    // integrated engine; the settings stay as they are, the next episode uses frame generation again.
+    let mut fg_skipped = use_signal(|| false);
+    // That restart: the position to resume at and the source list (the playing source as the pick).
+    let mut restart_at = use_signal(|| None::<f64>);
+    let mut restart_list = use_signal(|| None::<Vec<SourceVm>>);
     let external = use_hook(|| Rc::new(ExternalSlot::default()));
     let hls_original = use_hook(|| Rc::new(RefCell::new(None::<flow::HlsOriginal>)));
     let ext_ended = use_signal(|| false);
@@ -281,8 +296,10 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let mut enhanced = use_signal(|| false);
     // Enhanced with uosc: mpv draws the UI, the hole relays input.
     let mut uosc = use_signal(|| false);
-    // Last time uosc was asked to show its controls (pointer movement over the hole).
-    let mut uosc_flashed = use_signal(|| 0_u64);
+    // Enhanced with our controls: mpv-anime-build's profiles ("Profiles" menu, also on right click).
+    let mut build_profiles = use_signal(Vec::<BuildProfile>::new);
+    let mut active_profile = use_signal(|| None::<String>);
+    let mut profiles_open = use_signal(|| false);
     let mut dpr = use_signal(|| 1.0_f64);
 
     let ctx = Flow {
@@ -334,15 +351,16 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 enhanced.set(false);
                 uosc.set(false);
                 // docs/redesign/18: frame generation runs in the external mpv (Vulkan + lsfg-vk), whatever the
-                // chosen engine; only on Linux, where lsfg-vk exists.
+                // chosen engine; only on Linux, where lsfg-vk exists. "Watch without frame generation" skips it once.
                 let fg_mult = settings.video.frame_gen.multiplier();
-                let use_fg = cfg!(target_os = "linux") && fg_mult > 1;
+                let use_fg = cfg!(target_os = "linux") && fg_mult > 1 && !*fg_skipped.peek();
                 if use_fg {
                     // The dedicated lsfg-vk config is a throwaway file: the runtime dir (or temp) is enough.
                     let lsfg_dir = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("tatakai-next");
                     // BUG-036: more generated frames than the monitor can show are dropped (x4 on 60 Hz lost ~9 frames a
                     // second): cap the multiplier to the refresh rate of the app's monitor and say so.
-                    let refresh = platform::embed_target().refresh_hz();
+                    let target = platform::embed_target();
+                    let refresh = target.refresh_hz();
                     let fitted = tk_player::frame_gen_multiplier_for(fg_mult, refresh);
                     if fitted < fg_mult {
                         let hz = refresh.map(|h| format!("{:.0}", h)).unwrap_or_default();
@@ -353,10 +371,34 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                         )));
                     }
                     let mut fg = tk_player::FrameGen::new(fitted, settings.video.lsfg_dll.clone().map(PathBuf::from), lsfg_dir);
-                    // Frame generation pulled an integrated-player user into mpv: carry their preset, deband and image
-                    // there. A user who chose the external mpv keeps their own mpv config untouched.
-                    if settings.player_mode != PlayerModeVm::External {
-                        let v = &settings.video;
+                    let v = &settings.video;
+                    let image = v.adjusted().then_some((v.brightness, v.contrast, v.saturation, v.gamma));
+                    // "Integrado mejorado": this mpv runs mpv-anime-build (profiles, scripts, input.conf, uosc per the
+                    // controls choice) instead of the app's preset. If the build cannot be prepared, the plain
+                    // integrated behaviour below applies.
+                    let mut build = None;
+                    if settings.player_mode == PlayerModeVm::EmbeddedEnhanced {
+                        preparing.set(true);
+                        let prepared = backend.prepare_anime_build().await;
+                        preparing.set(false);
+                        match prepared {
+                            Ok(config_dir) => {
+                                let with_uosc = settings.enhanced_ui == EnhancedUiVm::Uosc;
+                                build = tokio::task::spawn_blocking(move || tk_player::AnimeBuild::new(config_dir, with_uosc)).await.ok();
+                            }
+                            Err(e) => {
+                                tracing::warn!(kind = ?e.kind, detail = %e.detail, "mpv-anime-build unavailable; frame generation runs with the app's preset");
+                                notice.set(Some(t("player.enhanced.fallback_fg")));
+                            }
+                        }
+                    }
+                    if let Some(build) = build {
+                        tracing::info!(uosc = build.uosc, scripts = build.scripts.len(), "frame generation mpv with mpv-anime-build");
+                        fg = fg.with_anime_build(build, tk_player::enhancement_args("", v.deband, image));
+                    } else if settings.player_mode != PlayerModeVm::External {
+                        // Frame generation pulled an integrated-player user into mpv: carry their preset, deband and
+                        // image there (`--no-config`, BUG-035 / BUG-037). A user who chose the external mpv keeps their
+                        // own mpv config untouched.
                         let quality = if v.anime4k_hq { Anime4kQuality::High } else { Anime4kQuality::Fast };
                         let preset = settings.preset();
                         let dir = host.shaders_dir().to_path_buf();
@@ -369,8 +411,13 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                             tracing::warn!(?preset, "shader files missing: frame generation runs without the preset");
                             String::new()
                         };
-                        let image = v.adjusted().then_some((v.brightness, v.contrast, v.saturation, v.gamma));
                         fg = fg.with_enhancements(tk_player::enhancement_args(&shaders, v.deband, image));
+                    }
+                    if settings.player_mode != PlayerModeVm::External {
+                        // Less of a pop-up: fullscreen on the app's monitor (X11; on Wayland the compositor places it).
+                        // The external-mpv user's own config decides their window.
+                        let (name, index) = target.monitor().unwrap_or((None, None));
+                        fg = fg.with_window(tk_player::FgWindow::new(true, tk_player::mpv_uses_wayland(), name.as_deref(), index));
                     }
                     frame_gen.set(Some(fg));
                 }
@@ -425,7 +472,12 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     _ => None,
                 };
                 let revalidate = known.is_some();
-                let listed = match batch {
+                // "Watch without frame generation": the same source again, at once (no new listing).
+                let restarted = restart_list.write().take();
+                let confirmed = confirmed || restarted.is_some();
+                let listed = match restarted {
+                    Some(list) => Ok(list),
+                    None => match batch {
                     // Next episode of a batch: the same torrent, no source resolution (docs/redesign/10 section 5.5).
                     Some(next) => {
                         let mut reuse = ctx.reuse;
@@ -437,6 +489,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     None => match known {
                         Some(list) => Ok(list),
                         None => backend.sources(&id, episode).await,
+                    },
                     },
                 };
                 let state = match listed {
@@ -475,9 +528,10 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     spawn(ctx.clone().revalidate_sources(boot_gen, *boot_gen.peek()));
                 }
 
+                let resume = restart_at.write().take();
                 if ext_mpv.peek().is_some() {
                     // External mode: `drive` spawns mpv per resolved source and pumps its events.
-                    spawn(ctx.clone().drive(None));
+                    spawn(ctx.clone().drive(resume));
                     return;
                 }
 
@@ -508,9 +562,11 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     }
                 });
                 if *uosc.peek() {
-                    // Keys reach the hole (and from there mpv) without a click first.
-                    let _ = document::eval("document.getElementById('tk-video-hole')?.focus()");
+                    // uosc draws the UI: pointer and keys over the hole go to mpv (relay.rs focuses the hole).
+                    spawn(relay::run(p.clone()));
                 }
+                // The build's profiles are static config: read them once per boot (empty outside the enhanced engine).
+                build_profiles.set(if *enhanced.peek() && !*uosc.peek() { p.build_profiles() } else { Vec::new() });
 
                 let _ = p.set_volume(f64::from(settings.volume));
                 dispatch(&mut pstate, PlayerAction::SetVolume(settings.volume));
@@ -553,7 +609,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     });
                 }
                 // Manual mode without a pick: `to_resolve` is None, so this returns without network.
-                spawn(ctx.clone().drive(None));
+                spawn(ctx.clone().drive(resume));
 
                 let mut last_report = now_ms();
                 let mut last_pos = -1.0_f64;
@@ -1072,7 +1128,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let sleep_now = sleep();
     let sleep_left = sleep_now.left_secs(now);
     let capture_title = title.clone();
-    let visible = st.controls_visible(now) || keeps_controls_up(fs.phase, st.video_ready) || next_since().is_some() || bars_hover();
+    let visible = st.controls_visible(now) || keeps_controls_up(fs.phase, st.video_ready) || next_since().is_some() || bars_hover() || profiles_open();
     let current = fs.current_source().cloned();
     let source_label = match (&current, fs.position()) {
         (Some(s), Some((n, total))) if !fs.legacy || total > 1 => {
@@ -1181,6 +1237,23 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
             report(&backend, &id, episode, &pstate.peek());
             external.set(None);
             navigator.go_back();
+        }
+    };
+
+    // Frame generation pulled an integrated-engine user into the external mpv: say why, offer this episode without it.
+    // (`app_config`: the chosen engine is an integrated one; a user who chose the external mpv keeps the plain text.)
+    let fg_forced = frame_gen().filter(|f| f.app_config).map(|f| f.multiplier);
+    let watch_without_fg = {
+        let (backend, id, external) = (backend.clone(), id.clone(), external.clone());
+        move || {
+            let st = pstate.peek().clone();
+            report(&backend, &id, episode, &st);
+            restart_list.set(restart_sources(&flow.peek()));
+            restart_at.set((st.position > 0.0).then_some(st.position));
+            fg_skipped.set(true);
+            // The pump sees the slot change and stops without leaving the screen.
+            external.set(None);
+            boot.restart();
         }
     };
 
@@ -1377,7 +1450,11 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     div { class: "tk-xmpv__body",
                         span { class: "tk-xmpv__eyebrow",
                             Icon { name: "external".to_string(), size: 16 }
-                            span { {t("player.external.title")} }
+                            if let Some(n) = fg_forced {
+                                span { {tf("player.external.fg_title", &[("n", &n.to_string())])} }
+                            } else {
+                                span { {t("player.external.title")} }
+                            }
                         }
                         h2 { class: "tk-xmpv__title", "{title}" }
                         p { class: "tk-xmpv__ep",
@@ -1415,7 +1492,38 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                                 }
                             }
                         }
+                        if fg_forced.is_some() {
+                            p { class: "tk-xmpv__hint tk-xmpv__why", {t("player.external.fg_why")} }
+                        }
                         p { class: "tk-xmpv__hint", {t("player.external.hint")} }
+                        if fg_forced.is_some() {
+                            div { class: "tk-xmpv__actions tk-xmpv__fg",
+                                Button {
+                                    label: t("player.external.without_fg"),
+                                    variant: ButtonVariant::Tonal,
+                                    icon: "play".to_string(),
+                                    onclick: {
+                                        let mut go = watch_without_fg.clone();
+                                        move |_| go()
+                                    },
+                                }
+                                Button {
+                                    label: t("player.external.fg_settings"),
+                                    variant: ButtonVariant::Text,
+                                    icon: "settings".to_string(),
+                                    onclick: {
+                                        let (backend, id, external) = (backend.clone(), id.clone(), external.clone());
+                                        move |_| {
+                                            report(&backend, &id, episode, &pstate.peek());
+                                            external.set(None);
+                                            *crate::screens::settings::OPEN_SECTION.write() = Some("player");
+                                            // Replace: Back from Settings returns to where the player was opened from.
+                                            navigator.replace(Route::SettingsPage {});
+                                        }
+                                    },
+                                }
+                            }
+                        }
                         div { class: "tk-xmpv__actions",
                             Button {
                                 label: t("player.external.stop"),
@@ -1532,6 +1640,39 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                 presets: true,
                 build_modes: enhanced(),
                 build_default: enhanced() && !build_picked(),
+                profiles: build_profiles(),
+                active_profile: active_profile(),
+                profiles_open: profiles_open(),
+                on_profiles_open: move |open: bool| {
+                    // Refresh the mark on every open: the build re-chooses on its own (new file, anime detection).
+                    if open && let Some(p) = player.peek().clone() {
+                        active_profile.set(p.active_build_profile());
+                    }
+                    profiles_open.set(open);
+                },
+                on_profile: {
+                    let ctx = ctx.clone();
+                    move |name: Option<String>| {
+                        let Some(p) = player.peek().clone() else { return };
+                        let r = match &name {
+                            Some(n) => p.apply_build_profile(n),
+                            None => p.auto_build_profile(),
+                        };
+                        match r {
+                            Ok(()) => {
+                                active_profile.set(p.active_build_profile());
+                                let label = name
+                                    .and_then(|n| build_profiles.peek().iter().find(|b| b.name == n).map(|b| b.desc.clone()))
+                                    .unwrap_or_else(|| t("player.profiles_auto"));
+                                ctx.flash(tf("player.profile_applied", &[("name", &label)]));
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "mpv-anime-build profile");
+                                notice.set(Some(t("player.profile_failed")));
+                            }
+                        }
+                    }
+                },
                 phase: fs.phase,
                 resolving_label,
                 source_label,
@@ -1795,94 +1936,25 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
                     dispatch(&mut pstate, PlayerAction::Activity(now_ms()));
                 }
             },
+            // Enhanced engine with our controls: right click anywhere on the player opens the build's profiles
+            // (like the build's own right-click menu). With uosc the relay sends the click to mpv instead.
+            oncontextmenu: move |e: MouseEvent| {
+                if !relay && !build_profiles.peek().is_empty() {
+                    e.prevent_default();
+                    if let Some(p) = player.peek().clone() {
+                        active_profile.set(p.active_build_profile());
+                    }
+                    dispatch(&mut pstate, PlayerAction::Activity(now_ms()));
+                    profiles_open.set(true);
+                }
+            },
             div {
                 id: "tk-video-hole",
                 class: "tk-hole",
                 "data-open": "{hole_open}",
                 "data-relay": "{relay}",
                 tabindex: hole_tab,
-                // Embedded enhanced + uosc: pointer and keys go to mpv (coordinates are relative to the hole,
-                // which is exactly the video surface).
-                onmousemove: move |e: MouseEvent| {
-                    if relay && let Some(p) = player.peek().clone() {
-                        let pt = e.element_coordinates();
-                        let _ = p.forward_mouse(pt.x, pt.y, *dpr.peek());
-                        let now = now_ms();
-                        if now.saturating_sub(*uosc_flashed.peek()) > UOSC_FLASH_EVERY_MS {
-                            uosc_flashed.set(now);
-                            let _ = p.flash_uosc_controls();
-                        }
-                    }
-                },
-                onmousedown: move |e: MouseEvent| {
-                    if relay && let Some(p) = player.peek().clone()
-                        && let Some(name) = e.trigger_button().and_then(|b| mpv_mouse_button(button_index(b)))
-                    {
-                        let pt = e.element_coordinates();
-                        let _ = p.forward_mouse(pt.x, pt.y, *dpr.peek());
-                        let _ = p.forward_key(name, KeyAction::Down);
-                    }
-                },
-                onmouseup: move |e: MouseEvent| {
-                    if relay && let Some(p) = player.peek().clone()
-                        && let Some(name) = e.trigger_button().and_then(|b| mpv_mouse_button(button_index(b)))
-                    {
-                        let _ = p.forward_key(name, KeyAction::Up);
-                    }
-                },
-                ondoubleclick: move |_| {
-                    if relay && let Some(p) = player.peek().clone() {
-                        let _ = p.forward_key("MBTN_LEFT_DBL", KeyAction::Press);
-                    }
-                },
-                oncontextmenu: move |e: MouseEvent| {
-                    if relay {
-                        e.prevent_default();
-                    }
-                },
-                onwheel: move |e: WheelEvent| {
-                    if relay && let Some(p) = player.peek().clone() {
-                        let d = e.delta().strip_units();
-                        let name = if d.y < 0.0 {
-                            "WHEEL_UP"
-                        } else if d.y > 0.0 {
-                            "WHEEL_DOWN"
-                        } else if d.x < 0.0 {
-                            "WHEEL_LEFT"
-                        } else if d.x > 0.0 {
-                            "WHEEL_RIGHT"
-                        } else {
-                            return;
-                        };
-                        let _ = p.forward_key(name, KeyAction::Press);
-                    }
-                },
-                onkeydown: move |e: KeyboardEvent| {
-                    if relay && let Some(p) = player.peek().clone() {
-                        let key = e.key().to_string();
-                        let m = e.modifiers();
-                        // Escape and F stay ours (window full screen); the global bridge already handles them.
-                        if key == "Escape" || (key.eq_ignore_ascii_case("f") && !m.ctrl() && !m.alt() && !m.meta()) {
-                            return;
-                        }
-                        if let Some(name) = mpv_key_name(&key, m.ctrl(), m.alt(), m.shift(), m.meta()) {
-                            e.prevent_default();
-                            let _ = p.forward_key(&name, KeyAction::Down);
-                        }
-                    }
-                },
-                onkeyup: move |e: KeyboardEvent| {
-                    if relay && let Some(p) = player.peek().clone() {
-                        let key = e.key().to_string();
-                        let m = e.modifiers();
-                        if key == "Escape" || (key.eq_ignore_ascii_case("f") && !m.ctrl() && !m.alt() && !m.meta()) {
-                            return;
-                        }
-                        if let Some(name) = mpv_key_name(&key, m.ctrl(), m.alt(), m.shift(), m.meta()) {
-                            let _ = p.forward_key(&name, KeyAction::Up);
-                        }
-                    }
-                },
+                // Embedded enhanced + uosc: relay.rs listens on this element (pointer / keys -> mpv).
             }
             {body}
             if let Some(left) = next_left {
@@ -2005,5 +2077,55 @@ mod remount_tests {
         dom.mark_dirty(ScopeId::APP);
         dom.render_immediate_to_vec();
         assert_eq!(MOUNTS.with(Cell::get), 2);
+    }
+}
+
+#[cfg(test)]
+mod frame_gen_restart_tests {
+    use super::restart_sources;
+    use crate::backend::{SourceKindVm, SourceVm};
+    use crate::model::{SourceModeVm, SourcePrefsVm};
+    use crate::player_state::FlowState;
+
+    fn src(id: &str) -> SourceVm {
+        SourceVm {
+            id: id.to_owned(),
+            ext_id: "e".into(),
+            ext_name: "e".into(),
+            kind: SourceKindVm::Web,
+            label: id.to_owned(),
+            quality: "1080p".into(),
+            container: None,
+            subs: Vec::new(),
+            dubs: Vec::new(),
+            reliability: 0.8,
+            note: None,
+            latency_ms: None,
+            size_bytes: None,
+            seeders: None,
+            leechers: None,
+            info_hash: None,
+            ext_enabled: true,
+            score: 0.0,
+            recommended: false,
+            picked: false,
+            tags: Default::default(),
+            debrid: None,
+            embed: false,
+        }
+    }
+
+    #[test]
+    fn watching_without_frame_gen_replays_the_same_source_as_the_pick() {
+        let mut f = FlowState::new(vec![src("a"), src("b"), src("c")], SourceModeVm::Auto, &SourcePrefsVm::default());
+        assert_eq!(f.current_source().map(|s| s.id.as_str()), Some("a"));
+        assert!(f.pick("b"));
+        let list = restart_sources(&f).unwrap();
+        assert_eq!(list.iter().filter(|s| s.picked).map(|s| s.id.as_str()).collect::<Vec<_>>(), ["b"]);
+        // In Manual mode the confirmed pick plays at once.
+        let again = FlowState::with_confirmed(list, SourceModeVm::Manual, &SourcePrefsVm::default(), true);
+        assert_eq!(again.to_resolve().map(|i| again.sources[i].id.as_str()), Some("b"));
+        // Legacy lists are read again as at boot.
+        assert!(restart_sources(&FlowState::legacy(vec![src("a")])).is_none());
     }
 }

@@ -9,7 +9,7 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use tk_player::{ShaderPreset, TrackInfo, TrackKind};
+use tk_player::{BuildProfile, ShaderPreset, TrackInfo, TrackKind};
 
 use crate::backend::SkipKindVm;
 use crate::components::button::{Button, ButtonSize, ButtonVariant, IconButton};
@@ -65,6 +65,15 @@ pub fn PlayerControls(
     #[props(default)] build_modes: bool,
     /// Enhanced engine before any pick: the build's own start-up profile is active (nothing checked).
     #[props(default)] build_default: bool,
+    /// Enhanced engine with our controls: mpv-anime-build's user-facing profiles ("Profiles" menu); empty hides it.
+    #[props(default)] profiles: Vec<BuildProfile>,
+    /// Profile marked as active (`Player::active_build_profile`).
+    #[props(default)] active_profile: Option<String>,
+    /// The "Profiles" menu is open (held by the screen: a right click on the video opens it too).
+    #[props(default)] profiles_open: bool,
+    #[props(default)] on_profiles_open: EventHandler<bool>,
+    /// A profile to apply; `None` = let the build choose again (its automatic detection).
+    #[props(default)] on_profile: EventHandler<Option<String>>,
     #[props(default)] phase: Phase,
     /// "Looking for a source · Toko" while resolving.
     #[props(default)] resolving_label: String,
@@ -571,6 +580,63 @@ pub fn PlayerControls(
                                     audio_open.set(false);
                                     on_audio.call(tr.id);
                                 },
+                            }
+                        }
+                    }
+                    if !profiles.is_empty() {
+                        Menu {
+                            open: profiles_open,
+                            label: t("player.profiles"),
+                            title: t("player.profiles"),
+                            placement: MenuPlacement::Above,
+                            align: MenuAlign::End,
+                            on_close: move |_| on_profiles_open.call(false),
+                            trigger: rsx! {
+                                IconButton {
+                                    icon: "layers".to_string(),
+                                    label: t("player.profiles"),
+                                    toggled: profiles_open,
+                                    onclick: move |_| on_profiles_open.call(!profiles_open),
+                                }
+                            },
+                            MenuItem {
+                                label: t("player.profiles_auto"),
+                                icon: "refresh".to_string(),
+                                desc: t("player.profiles_auto_hint"),
+                                on_select: move |_| {
+                                    on_profiles_open.call(false);
+                                    on_profile.call(None);
+                                },
+                            }
+                            for (audio , group) in [(false, t("player.profiles_video")), (true, t("player.profiles_audio"))] {
+                                if profiles.iter().any(|p| p.audio == audio) {
+                                    MenuSeparator { key: "sep-{audio}" }
+                                    MenuItem { label: group, disabled: true }
+                                    for p in profiles.iter().filter(|p| p.audio == audio).cloned() {
+                                        MenuItem {
+                                            key: "{p.name}",
+                                            label: p.desc.clone(),
+                                            desc: p.name.clone(),
+                                            checked: Some(active_profile.as_deref() == Some(p.name.as_str())),
+                                            on_select: move |_| {
+                                                on_profiles_open.call(false);
+                                                on_profile.call(Some(p.name.clone()));
+                                            },
+                                        }
+                                    }
+                                }
+                            }
+                            if presets {
+                                MenuSeparator {}
+                                MenuItem {
+                                    label: t("player.profiles_shaders"),
+                                    icon: "enhance".to_string(),
+                                    desc: t("player.profiles_shaders_hint"),
+                                    on_select: move |_| {
+                                        on_profiles_open.call(false);
+                                        preset_open.set(true);
+                                    },
+                                }
                             }
                         }
                     }

@@ -73,6 +73,7 @@
 .tk-engine-modes li[data-selected="true"] b { color: var(--md-sys-color-primary); }
 .tk-engine-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-12); min-width: 0; }
 .tk-engine-status__note { color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); max-width: 70ch; }
+.tk-engine-fg-note { margin: var(--tk-space-8) 0 0; }
 .tk-engine-status__path { font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); user-select: text; overflow-wrap: anywhere; min-width: 0; }
 .tk-settings__mpv { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--tk-space-12); margin-bottom: var(--tk-space-8); }
 .tk-settings__mpv .tk-field { width: min(100%, 440px); }

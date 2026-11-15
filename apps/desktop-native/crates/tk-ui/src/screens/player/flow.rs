@@ -13,7 +13,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 use dioxus::router::Navigator;
 use tk_player::{ExternalEvent, ExternalPlayer, MediaSource, Player, PlayerError, ShaderPreset, SubtitleSource};
@@ -93,18 +92,6 @@ impl ExternalSlot {
 
     fn is(&self, p: &Arc<ExternalPlayer>) -> bool {
         self.0.borrow().as_ref().is_some_and(|c| Arc::ptr_eq(c, p))
-    }
-}
-
-/// `MouseEvent.button` index of a Dioxus mouse button (for [`mpv_mouse_button`]).
-pub(super) fn button_index(b: MouseButton) -> u8 {
-    match b {
-        MouseButton::Primary => 0,
-        MouseButton::Auxiliary => 1,
-        MouseButton::Secondary => 2,
-        MouseButton::Fourth => 3,
-        MouseButton::Fifth => 4,
-        _ => u8::MAX,
     }
 }
 
@@ -819,6 +806,11 @@ impl Flow {
                 ExternalEvent::Closed => {
                     self.external.forget();
                     ext_closed.set(true);
+                    // The (fullscreen) mpv window is gone: bring the app back to the front (X11; Wayland compositors
+                    // give focus back to it by themselves).
+                    if let Some(w) = try_consume_context::<dioxus::desktop::DesktopContext>() {
+                        w.set_focus();
+                    }
                     if !*ext_ended.peek() {
                         report(&self.backend, &self.id, self.episode, &pstate.peek());
                     }
