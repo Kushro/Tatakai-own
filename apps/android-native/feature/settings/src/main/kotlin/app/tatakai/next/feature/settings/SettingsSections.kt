@@ -160,6 +160,8 @@ internal fun AppearanceSection(state: SettingsUiState, vm: SettingsViewModel) {
         vm::setReduceMotion,
         hint = stringResource(R.string.settings_reduce_motion_hint),
     )
+    // 2026-11 UI refresh: Diseño y estilo (presets + every option).
+    LookGroup(s.look, onChange = vm::setLook, onPreset = vm::applyLookPreset)
 }
 
 private val dynamicSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S

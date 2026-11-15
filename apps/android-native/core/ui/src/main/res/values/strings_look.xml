@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2026-11 UI refresh (shared by Home, Details, Calendar): relative days, status and format labels of the cards. -->
+<resources>
+    <string name="ui_day_today">today</string>
+    <string name="ui_day_tomorrow">tomorrow</string>
+    <string name="ui_day_yesterday">yesterday</string>
+    <plurals name="ui_days_in">
+        <item quantity="one">in %1$d day</item>
+        <item quantity="other">in %1$d days</item>
+    </plurals>
+    <plurals name="ui_days_ago">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
+    <plurals name="ui_weeks_in">
+        <item quantity="one">in %1$d week</item>
+        <item quantity="other">in %1$d weeks</item>
+    </plurals>
+    <plurals name="ui_weeks_ago">
+        <item quantity="one">%1$d week ago</item>
+        <item quantity="other">%1$d weeks ago</item>
+    </plurals>
+    <plurals name="ui_months_in">
+        <item quantity="one">in %1$d month</item>
+        <item quantity="other">in %1$d months</item>
+    </plurals>
+    <plurals name="ui_months_ago">
+        <item quantity="one">%1$d month ago</item>
+        <item quantity="other">%1$d months ago</item>
+    </plurals>
+    <plurals name="ui_years_in">
+        <item quantity="one">in %1$d year</item>
+        <item quantity="other">in %1$d years</item>
+    </plurals>
+    <plurals name="ui_years_ago">
+        <item quantity="one">%1$d year ago</item>
+        <item quantity="other">%1$d years ago</item>
+    </plurals>
+    <plurals name="ui_episodes_short">
+        <item quantity="one">%1$d ep</item>
+        <item quantity="other">%1$d ep</item>
+    </plurals>
+    <string name="ui_status_airing">Airing</string>
+    <string name="ui_status_finished">Finished</string>
+    <string name="ui_status_upcoming">Upcoming</string>
+    <string name="ui_status_cancelled">Cancelled</string>
+    <string name="ui_status_hiatus">On hiatus</string>
+    <string name="ui_format_tv">TV</string>
+    <string name="ui_format_tv_short">TV short</string>
+    <string name="ui_format_movie">Movie</string>
+    <string name="ui_format_special">Special</string>
+    <string name="ui_format_ova">OVA</string>
+    <string name="ui_format_ona">ONA</string>
+    <string name="ui_format_music">Music</string>
+    <string name="ui_format_manga">Manga</string>
+    <string name="ui_format_novel">Novel</string>
+    <string name="ui_format_one_shot">One shot</string>
+    <string name="ui_minutes_short">%1$d min</string>
+    <string name="ui_nav_calendar">Calendar</string>
+    <string name="ui_nav_for_you">For you</string>
+    <string name="ui_for_you_summary">Recommendations from what you watch</string>
+</resources>

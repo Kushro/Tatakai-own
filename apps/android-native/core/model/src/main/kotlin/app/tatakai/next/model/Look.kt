@@ -167,7 +167,7 @@ data class LookPrefs(
     val railStyle: RailStyle = RailStyle.LABELED,
     val density: Density = Density.COMFORTABLE,
     val motion: Motion = Motion.EXPRESSIVE,
-    /** Blur / glass effects. Android only uses it for a translucent hero scrim (no real-time blur: too heavy on low-end phones). */
+    /** Blur / glass effects (desktop). Not offered on Android (a real-time blur is too heavy for low-end phones); kept so the presets match. */
     val glass: Boolean = false,
     val episodeView: EpisodeView = EpisodeView.CARDS,
     val relationsView: RelationsView = RelationsView.GRAPH,

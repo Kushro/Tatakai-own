@@ -118,11 +118,14 @@ internal fun rememberNotificationPermission(): () -> Unit {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DiscoverTopBar(title: String, onBack: () -> Unit, actions: @Composable () -> Unit = {}) {
+private fun DiscoverTopBar(title: String, onBack: (() -> Unit)?, actions: @Composable () -> Unit = {}) {
     TopAppBar(
         title = { Text(title) },
         navigationIcon = {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back)) }
+            // 2026-11 UI refresh: null when the screen is a bar / rail destination.
+            if (onBack != null) {
+                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back)) }
+            }
         },
         actions = { actions() },
     )
@@ -134,7 +137,7 @@ private fun DiscoverTopBar(title: String, onBack: () -> Unit, actions: @Composab
  * filter. Reached from the Home row header "Calendario".
  */
 @Composable
-fun CalendarScreen(onBack: () -> Unit, onMediaClick: (Media) -> Unit, modifier: Modifier = Modifier) {
+fun CalendarScreen(onBack: (() -> Unit)?, onMediaClick: (Media) -> Unit, modifier: Modifier = Modifier) {
     val vm: CalendarViewModel = koinViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
     val askPermission = rememberNotificationPermission()
@@ -255,7 +258,7 @@ private fun CalendarRow(ep: AiringEpisode, time: String, tracked: Boolean, follo
  * clusters; tap a dot → [onMediaClick]).
  */
 @Composable
-fun ForYouScreen(onBack: () -> Unit, onMediaClick: (Media) -> Unit, modifier: Modifier = Modifier) {
+fun ForYouScreen(onBack: (() -> Unit)?, onMediaClick: (Media) -> Unit, modifier: Modifier = Modifier) {
     val vm: ForYouViewModel = koinViewModel()
     val state by vm.state.collectAsStateWithLifecycle()
     val snackbar = LocalAppSnackbar.current

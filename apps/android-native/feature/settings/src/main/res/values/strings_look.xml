@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2026-11 UI refresh: Settings › Appearance › Layout and style. -->
+<resources>
+    <string name="settings_look_title">Layout and style</string>
+    <string name="settings_look_hint">A preset sets every option at once. You can change each one afterwards.</string>
+    <string name="settings_look_custom">Custom: your options no longer match a preset</string>
+    <string name="settings_look_preset_on">Preset: %1$s</string>
+    <string name="settings_look_preset_tatakai">Tatakai</string>
+    <string name="settings_look_preset_tatakai_hint">Spotlight banner, detailed cards and lively animations.</string>
+    <string name="settings_look_preset_cinema">Cinema</string>
+    <string name="settings_look_preset_cinema_hint">Big banner, posters only and an icons-only rail.</string>
+    <string name="settings_look_preset_dense">Dense</string>
+    <string name="settings_look_preset_dense_hint">Rows first, compact cards and lists, subtle motion.</string>
+    <string name="settings_look_preset_calm">Calm</string>
+    <string name="settings_look_preset_calm_hint">Carousel without autoplay, classic cards, subtle motion.</string>
+    <string name="settings_look_home">Home</string>
+    <string name="settings_look_home_hint">What Home shows at the top.</string>
+    <string name="settings_look_home_spotlight">Spotlight</string>
+    <string name="settings_look_home_carousel">Carousel</string>
+    <string name="settings_look_home_rows">Rows only</string>
+    <string name="settings_look_cards">Cards</string>
+    <string name="settings_look_cards_classic">Classic</string>
+    <string name="settings_look_cards_detailed">Detailed</string>
+    <string name="settings_look_cards_minimal">Poster only</string>
+    <string name="settings_look_density">Density</string>
+    <string name="settings_look_density_comfortable">Comfortable</string>
+    <string name="settings_look_density_compact">Compact</string>
+    <string name="settings_look_motion">Animations</string>
+    <string name="settings_look_motion_hint">Subtle changes only color and opacity. Off is the same as Reduce motion.</string>
+    <string name="settings_look_motion_expressive">Expressive</string>
+    <string name="settings_look_motion_subtle">Subtle</string>
+    <string name="settings_look_motion_off">Off</string>
+    <string name="settings_look_episodes">Episodes</string>
+    <string name="settings_look_episodes_cards">Cards</string>
+    <string name="settings_look_episodes_list">List</string>
+    <string name="settings_look_episodes_compact">Compact</string>
+    <string name="settings_look_relations">Related titles</string>
+    <string name="settings_look_relations_graph">Graph</string>
+    <string name="settings_look_relations_list">List</string>
+    <string name="settings_look_calendar">Calendar</string>
+    <string name="settings_look_calendar_week">Week</string>
+    <string name="settings_look_calendar_agenda">Agenda</string>
+    <string name="settings_look_calendar_month">Month</string>
+    <string name="settings_look_calendar_day">Today</string>
+    <string name="settings_look_rail">Side menu</string>
+    <string name="settings_look_rail_hint">Tablets and wide windows only; phones keep the bottom bar.</string>
+    <string name="settings_look_rail_labeled">With names</string>
+    <string name="settings_look_rail_slim">Icons only</string>
+    <string name="settings_look_autoplay">Rotate the banner</string>
+    <string name="settings_look_autoplay_hint">Moves to the next title by itself; touching it pauses.</string>
+    <string name="settings_look_interval">Seconds per title</string>
+    <string name="settings_look_interval_value">%1$d seconds</string>
+    <string name="settings_look_greeting">Show the greeting</string>
+</resources>

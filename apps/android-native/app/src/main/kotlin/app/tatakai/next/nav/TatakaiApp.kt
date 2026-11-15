@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Computer
@@ -41,6 +43,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.CloudDownload
 import androidx.compose.material.icons.outlined.CloudOff
@@ -149,6 +153,9 @@ import app.tatakai.next.model.UpdateRepository
 import app.tatakai.next.model.torrent.TorrentRepository
 import app.tatakai.next.model.torrent.TorrentSection
 import app.tatakai.next.model.torrent.TorrentServiceStatus
+import app.tatakai.next.model.Motion
+import app.tatakai.next.model.RailStyle
+import app.tatakai.next.ui.look.LocalLook
 import app.tatakai.next.ui.media.LocalTitleLanguage
 import app.tatakai.next.ui.state.contrastLevel
 import app.tatakai.next.ui.state.rememberIsOnline
@@ -189,12 +196,14 @@ fun TatakaiApp(
         dynamicColor = settings.dynamicColor,
         darkTheme = dark,
     ) {
-        val reduceMotion = rememberReduceMotion(settings.reduceMotion)
+        // 2026-11 UI refresh: Diseño y estilo › Animaciones "Desactivadas" is the same as Reducir movimiento.
+        val reduceMotion = rememberReduceMotion(settings.reduceMotion || settings.look.motion == Motion.OFF)
         val snackbar = rememberAppSnackbarController()
         CompositionLocalProvider(
             LocalReduceMotion provides reduceMotion,
             LocalAppSnackbar provides snackbar,
             LocalTitleLanguage provides settings.titleLanguage,
+            LocalLook provides settings.look,
         ) {
             // parity wave A, 2026-11-09 amendment (plan 14 §0.1 #11, worker q): first-run wizard until `AppSettings.onboardingDone`;
             // the wizard's ViewModel persists the flag (and "Restablecer la app" clears it), so this just reacts to the settings.
@@ -325,6 +334,9 @@ private fun AppShell(
     val config = LocalConfiguration.current
     val wide = config.screenWidthDp >= WIDE_MIN_WIDTH_DP && config.screenHeightDp >= RAIL_MIN_HEIGHT_DP
     val destinations = topLevelRoutes(wide)
+    // 2026-11 UI refresh: Diseño y estilo › Menú lateral applies to the rail only (phones keep the labelled bottom bar). A window too
+    // short for every labelled item gets the icons-only rail too, so the last destinations never fall off the screen.
+    val slimRail = wide && (LocalLook.current.railStyle == RailStyle.SLIM || config.screenHeightDp < destinations.size * RAIL_ITEM_DP + 96)
     val selectedTop = backStack.asReversed()
         .firstNotNullOfOrNull { key -> (key as? Route)?.topLevel(wide)?.takeIf { it in destinations } }
     // parity wave B (16 §3.12): the manga / novel readers hide the nav like the player.
@@ -363,8 +375,11 @@ private fun AppShell(
                 NavigationSuiteItem(
                     selected = selected,
                     onClick = { backStack.navigateTop(route) },
-                    icon = { Icon(route.icon(selected), contentDescription = null) },
-                    label = { Text(stringResource(route.labelRes())) },
+                    icon = {
+                        val label = stringResource(route.labelRes())
+                        Icon(route.icon(selected), contentDescription = if (slimRail) label else null)
+                    },
+                    label = if (slimRail) null else ({ Text(stringResource(route.labelRes())) }),
                     navigationSuiteType = suiteType,
                     badge = if (badged) {
                         {
@@ -510,7 +525,7 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onSearchQuery = { query -> push(Route.SearchFor(query = query)) },
                     onOpenLibrary = { backStack.navigateTop(Route.Library) },
                     // parity wave B (16 §3.12)
-                    onOpenCalendar = { push(Route.Calendar) },
+                    onOpenCalendar = { backStack.navigateTop(Route.Calendar) },
                     onOpenForYou = { push(Route.ForYou) },
                     onOpenManga = { push(Route.Manga()) },
                     onOpenNovels = { push(Route.Novels()) },
@@ -525,10 +540,11 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
             }
             // parity wave B (16 §3.1, worker r): calendar and "Para ti" sub-screens of Home.
             entry<Route.Calendar>(metadata = ListDetailSceneStrategy.listPane()) {
-                CalendarScreen(onBack = ::back, onMediaClick = ::openMedia)
+                // 2026-11 UI refresh: a bar / rail destination now (no back arrow).
+                CalendarScreen(onBack = null, onMediaClick = ::openMedia)
             }
             entry<Route.ForYou>(metadata = ListDetailSceneStrategy.listPane()) {
-                ForYouScreen(onBack = ::back, onMediaClick = ::openMedia)
+                ForYouScreen(onBack = if (wide) null else ::back, onMediaClick = ::openMedia)
             }
             entry<Route.Search>(metadata = ListDetailSceneStrategy.listPane()) {
                 SearchScreen(
@@ -647,6 +663,7 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onOpenNovels = { push(Route.Novels()) },
                     onOpenProfile = { push(Route.Profile()) },
                     onOpenNotifications = { push(Route.Notifications) },
+                    onOpenForYou = { push(Route.ForYou) },
                 )
             }
             entry<Route.Settings> {
@@ -801,6 +818,9 @@ private fun NavBackStack<NavKey>.navigateTop(route: Route) {
 
 private const val WIDE_MIN_WIDTH_DP = 600
 
+/** Approximate height of a labelled rail item (icon + label + padding). */
+private const val RAIL_ITEM_DP = 64
+
 /** BUG-041 / BUG-045: below this height (a phone in landscape) the rail does not fit and two panes are too cramped. */
 private const val RAIL_MIN_HEIGHT_DP = 480
 
@@ -821,6 +841,9 @@ private fun Route.icon(selected: Boolean): ImageVector = when (this) {
     is Route.Novels -> if (selected) Icons.Filled.AutoStories else Icons.Outlined.AutoStories
     is Route.Downloads -> if (selected) Icons.Filled.CloudDownload else Icons.Outlined.CloudDownload
     is Route.Profile -> if (selected) Icons.Filled.AccountCircle else Icons.Outlined.AccountCircle
+    // 2026-11 UI refresh
+    Route.Calendar -> if (selected) Icons.Filled.CalendarMonth else Icons.Outlined.CalendarMonth
+    Route.ForYou -> if (selected) Icons.Filled.AutoAwesome else Icons.Outlined.AutoAwesome
     else -> if (selected) Icons.Filled.Person else Icons.Outlined.Person
 }
 
@@ -837,6 +860,8 @@ private fun Route.labelRes(): Int = when (this) {
     is Route.Novels -> UiR.string.nav_novels
     is Route.Downloads -> UiR.string.nav_downloads
     is Route.Profile -> UiR.string.nav_profile
+    Route.Calendar -> UiR.string.ui_nav_calendar
+    Route.ForYou -> UiR.string.ui_nav_for_you
     else -> R.string.nav_you
 }
 
