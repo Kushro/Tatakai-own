@@ -799,6 +799,10 @@ impl Backend for LiveBackend {
         self.last_sources.lock().ok().and_then(|l| l.get(id, episode))
     }
 
+    fn picked_source_key(&self, id: &str, episode: u32) -> Option<String> {
+        self.store.picked_source(id, episode).ok().flatten()
+    }
+
     async fn mpv_hls_master(&self, url: &str, headers: &[(String, String)]) -> Option<String> {
         if !hls::applies(url, headers) {
             return None;

@@ -50,7 +50,7 @@ use crate::app::{Route, Services, Ui};
 use crate::backend::{BackendRef, DetailsVm, PlaybackVm, PresenceVm, SourceKindVm, SourceVm, TorrentStateVm, TorrentStatsVm};
 use crate::components::player_controls::{NextEpisodeCard, ShortcutHelp, track_label};
 use crate::components::{
-    Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, PlayerControls, SourcePicker, SourcesError,
+    Button, ButtonVariant, EmptyState, ErrorState, IconButton, LoadingIndicator, PlayerControls, SourcePicker, SourcesError, missing_pick_label,
     WavyProgress,
 };
 use crate::i18n::{t, tf, tn};
@@ -1154,6 +1154,11 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     let next_left = next_since().map(|since| countdown_left(since, now, next_secs));
     // The picker checks the source being played, or the remembered pick before anything plays (BUG-052).
     let picker_sources: Vec<SourceVm> = fs.picker_sources();
+    // BUG-140: with no row checked, say that the remembered pick did not come back in this list (the store is only
+    // read while the sheet is open and nothing is picked or playing).
+    let missing_pick = (picker_open() && !fs.legacy && !picker_sources.iter().any(|s| s.picked))
+        .then(|| missing_pick_label(&picker_sources, backend.picked_source_key(&id, episode).as_deref()))
+        .flatten();
     let prefs = ui.settings.read().sources.clone();
 
     let go_back = {
@@ -1935,6 +1940,7 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
             }
             SourcePicker {
                 open: picker_open() && !fs.legacy,
+                missing_pick,
                 sources: picker_sources,
                 prefs,
                 on_pick: {

@@ -23,7 +23,7 @@ use crate::components::{
     FloatingToolbar, IconButton, IconButtonSize, IconButtonVariant, InfoChip, ListButton, LoadingIndicator, MediaCover, Menu, MenuItem, Pill,
     Reviews,
     Segmented, Sheet, SkeletonLines, SourcePicker, SourceSummary, SourcesError, SplitButton, TextField, ToolbarSeparator, Tone,
-    use_snackbar,
+    missing_pick_label, use_snackbar,
 };
 use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
@@ -387,18 +387,21 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
         }
     });
 
-    // The ▾ of the split button and "See all sources" open the same picker with a fresh list.
+    // The ▾ of the split button and "See all sources" open the same picker. BUG-139: it opens at once on the list
+    // Details already has (`known_sources`) and swaps in the fresh one when `sources` answers; with nothing known it
+    // waits with the `src.resolving` line.
     let open_picker = use_callback({
         let (backend, id) = (backend.clone(), id.clone());
         move |ep: u32| {
             picker_ep.set(ep);
-            picker_list.set(None);
+            picker_list.set(picker_seed(backend.known_sources(&id, ep)));
             picker_open.set(true);
             let (backend, id) = (backend.clone(), id.clone());
             spawn(async move {
                 let result = backend.sources(&id, ep).await;
                 if *picker_ep.peek() == ep {
-                    picker_list.set(Some(result));
+                    let next = picker_refresh(picker_list.peek().clone(), result);
+                    picker_list.set(next);
                 }
             });
         }
@@ -572,7 +575,10 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
         match picker_list() {
             None => rsx! {
                 Sheet { title: t("src.title"), wide: true, on_close: move |_| picker_open.set(false),
-                    div { class: "tk-details__sheetstate", LoadingIndicator {} }
+                    div { class: "tk-details__sheetstate", role: "status", "data-resolving": "true",
+                        LoadingIndicator {}
+                        p { class: "tk-muted", {t("src.resolving")} }
+                    }
                 }
             },
             Some(Err(e)) => rsx! {
@@ -583,6 +589,7 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
             Some(Ok(list)) => rsx! {
                 SourcePicker {
                     open: true,
+                    missing_pick: missing_pick_label(&list, backend.picked_source_key(&id, *picker_ep.peek()).as_deref()),
                     sources: list,
                     prefs: ui.settings.read().sources.clone(),
                     on_pick: move |sid: String| play_source.call((*picker_ep.peek(), sid)),
@@ -1513,11 +1520,90 @@ enum LinkQuery {
     Ask,
 }
 
+/// BUG-139: what the sources sheet shows the moment it opens: the last list Details got (`Backend::known_sources`),
+/// or `None` (the indicator and `src.resolving`) when this episode was never listed. Pure.
+fn picker_seed(known: Option<Vec<SourceVm>>) -> Option<Result<Vec<SourceVm>, UiError>> {
+    known.filter(|l| !l.is_empty()).map(Ok)
+}
+
+/// BUG-139: the sheet once `Backend::sources` answers: the fresh list replaces the shown one; a failed refresh keeps a
+/// list already on screen (it is the one Details shows) and only an empty sheet shows the error. Pure.
+fn picker_refresh(
+    shown: Option<Result<Vec<SourceVm>, UiError>>,
+    fresh: Result<Vec<SourceVm>, UiError>,
+) -> Option<Result<Vec<SourceVm>, UiError>> {
+    match (shown, fresh) {
+        (Some(Ok(list)), Err(e)) => {
+            tracing::warn!(kind = ?e.kind, detail = %e.detail, "refreshing the sources sheet failed; keeping the known list");
+            Some(Ok(list))
+        }
+        (_, fresh) => Some(fresh),
+    }
+}
+
 fn link_query(embedded: bool, polled: Option<LinkStatusVm>) -> LinkQuery {
     match (embedded, polled) {
         (true, _) => LinkQuery::Skip,
         (false, Some(st)) => LinkQuery::Known(st),
         (false, None) => LinkQuery::Ask,
+    }
+}
+
+#[cfg(test)]
+mod picker_tests {
+    use super::*;
+    use crate::backend::{ReleaseTagsVm, SourceKindVm};
+    use crate::model::ErrorKind;
+
+    fn row(label: &str) -> SourceVm {
+        SourceVm {
+            id: format!("ext|torrent|{label}"),
+            ext_id: "ext".to_owned(),
+            ext_name: "Ext".to_owned(),
+            kind: SourceKindVm::Torrent,
+            label: label.to_owned(),
+            quality: "1080p".to_owned(),
+            container: None,
+            subs: Vec::new(),
+            dubs: Vec::new(),
+            reliability: 0.8,
+            note: None,
+            latency_ms: None,
+            size_bytes: None,
+            seeders: None,
+            leechers: None,
+            info_hash: None,
+            ext_enabled: true,
+            score: 0.0,
+            recommended: false,
+            picked: false,
+            tags: ReleaseTagsVm::default(),
+            debrid: None,
+            embed: false,
+        }
+    }
+    fn labels(v: &Option<Result<Vec<SourceVm>, UiError>>) -> Option<Vec<String>> {
+        v.as_ref().and_then(|r| r.as_ref().ok()).map(|l| l.iter().map(|s| s.label.clone()).collect())
+    }
+
+    #[test]
+    fn the_sheet_opens_on_the_known_list_and_takes_the_fresh_one() {
+        // BUG-139: Details already showed 34 sources; the sheet waited ~30 s on an indicator for the same list.
+        let seeded = picker_seed(Some(vec![row("ToonsHub"), row("ASW")]));
+        assert_eq!(labels(&seeded), Some(vec!["ToonsHub".to_owned(), "ASW".to_owned()]));
+        let fresh = picker_refresh(seeded.clone(), Ok(vec![row("ASW"), row("Judas"), row("ToonsHub")]));
+        assert_eq!(labels(&fresh), Some(vec!["ASW".to_owned(), "Judas".to_owned(), "ToonsHub".to_owned()]));
+        // A failed refresh keeps what is on screen.
+        let kept = picker_refresh(seeded, Err(UiError::new(ErrorKind::Other, "timeout")));
+        assert_eq!(labels(&kept), Some(vec!["ToonsHub".to_owned(), "ASW".to_owned()]));
+    }
+
+    #[test]
+    fn with_nothing_known_the_sheet_waits_and_shows_errors() {
+        assert!(picker_seed(None).is_none());
+        assert!(picker_seed(Some(Vec::new())).is_none());
+        assert!(matches!(picker_refresh(None, Err(UiError::new(ErrorKind::Other, "x"))), Some(Err(_))));
+        assert_eq!(labels(&picker_refresh(None, Ok(vec![row("ASW")]))), Some(vec!["ASW".to_owned()]));
     }
 }
 

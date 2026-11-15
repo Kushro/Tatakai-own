@@ -336,5 +336,6 @@
   "provider.mangaupdates.sub": "Publisher, serialization and publication status",
   "settings.search": "Search settings",
   "settings.search_hint": "Subtitles, palette, port…",
-  "src.resolving": "Asking your extensions for this episode… this can take up to a minute."
+  "src.resolving": "Asking your extensions for this episode… this can take up to a minute.",
+  "src.pick_missing": "Your pick ({name}) didn't come up this time."
 }

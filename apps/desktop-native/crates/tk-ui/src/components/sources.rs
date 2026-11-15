@@ -496,6 +496,20 @@ pub fn SourcesError(
     }
 }
 
+/// BUG-140: the name of the user's remembered pick (`Backend::picked_source_key`, a `SourceVm::id`
+/// `"<ext_id>|<kind>|<label>"`) when this list does not have it, so the picker says so instead of checking the
+/// recommended row in silence. `None` when nothing is picked, a row is the pick, or the name would only be a raw id
+/// (a 40-hex info hash). Pure.
+pub fn missing_pick_label(sources: &[SourceVm], picked_key: Option<&str>) -> Option<String> {
+    let key = picked_key.filter(|k| !k.is_empty())?;
+    if sources.is_empty() || sources.iter().any(|s| s.picked || s.id == key) {
+        return None;
+    }
+    let label = key.splitn(3, '|').nth(2)?.trim();
+    let raw_id = label.len() >= 32 && label.chars().all(|c| c.is_ascii_hexdigit());
+    (!label.is_empty() && !raw_id).then(|| label.to_owned())
+}
+
 /// Picker order: best score first; in Manual mode the earlier pick goes on top, preselected (plan §11.1).
 pub fn picker_order(sources: &[SourceVm], manual: bool) -> Vec<SourceVm> {
     let mut ranked = sources.to_vec();
@@ -520,6 +534,9 @@ pub fn SourcePicker(
     on_pick: EventHandler<String>,
     on_close: EventHandler<()>,
     #[props(default)] on_download: Option<EventHandler<String>>,
+    /// BUG-140: the remembered pick's name when the list does not have it ([`missing_pick_label`]).
+    #[props(default)]
+    missing_pick: Option<String>,
 ) -> Element {
     let mut filters = use_signal(SourceFilters::default);
     let mut show_filters = use_signal(|| false);
@@ -569,6 +586,11 @@ pub fn SourcePicker(
                             on_close.call(());
                             navigator.push(Route::SettingsPage {});
                         },
+                    }
+                }
+                if let Some(name) = missing_pick.as_ref() {
+                    p { class: "tk-muted", role: "status", "data-pick-missing": "true",
+                        {tf("src.pick_missing", &[("name", name.as_str())])}
                     }
                 }
                 Segmented {
@@ -911,6 +933,24 @@ mod tests {
         assert_eq!(langs(&v(&["ENGLISH (CR ENGLISH)", "en", "SPANISH (CR SPANISH(LATIN AMERICA))"]), "es"), "ES-419 · EN");
         let many = v(&["en", "es", "pt-BR", "fr", "de", "it", "ru", "ar"]);
         assert_eq!(langs(&many, "ar"), "AR · EN · ES · PT-BR · FR +3");
+    }
+
+    #[test]
+    fn a_remembered_pick_missing_from_the_list_is_named() {
+        let mut toons = vm("ToonsHub", SourceKindVm::Torrent, "1080p", 0.8, ReleaseTagsVm::default());
+        toons.recommended = true;
+        let list = vec![toons.clone()];
+        assert_eq!(missing_pick_label(&list, Some("io.github.toko|torrent|ASW")), Some("ASW".to_owned()));
+        assert!(tf("src.pick_missing", &[("name", "ASW")]).contains("(ASW)"));
+        // In the list (or another row already picked): nothing to say.
+        assert_eq!(missing_pick_label(&list, Some(&toons.id)), None);
+        let mut picked = toons.clone();
+        picked.picked = true;
+        assert_eq!(missing_pick_label(&[picked], Some("io.github.toko|torrent|ASW")), None);
+        // Nothing picked, an empty list (still listing / no sources) or a raw info hash as the name.
+        assert_eq!(missing_pick_label(&list, None), None);
+        assert_eq!(missing_pick_label(&[], Some("io.github.toko|torrent|ASW")), None);
+        assert_eq!(missing_pick_label(&list, Some(&format!("manual|torrent|{}", "ab".repeat(20)))), None);
     }
 
     #[test]

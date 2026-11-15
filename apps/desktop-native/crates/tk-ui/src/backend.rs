@@ -1351,6 +1351,11 @@ pub trait Backend: Send + Sync + 'static {
     fn known_sources(&self, _id: &str, _episode: u32) -> Option<Vec<SourceVm>> {
         None
     }
+    /// BUG-140: the `SourceVm::id` remembered as the user's pick for that episode (`set_picked_source`), read from
+    /// the store without any network; `None`: nothing picked. A picker says when that source is not in its list.
+    fn picked_source_key(&self, _id: &str, _episode: u32) -> Option<String> {
+        None
+    }
     /// Resolve one source (`SourceVm::id`) into a playable stream (`streams` has exactly one entry).
     /// A torrent source fails with `ErrorKind::TorrentM2`.
     async fn playback_source(&self, _id: &str, _episode: u32, _source_id: &str) -> UiResult<PlaybackVm> {

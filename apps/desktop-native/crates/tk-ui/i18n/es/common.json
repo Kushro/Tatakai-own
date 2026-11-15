@@ -336,5 +336,6 @@
   "provider.mangaupdates.sub": "Editorial, serialización y estado de publicación",
   "settings.search": "Buscar en Ajustes",
   "settings.search_hint": "Subtítulos, paleta, puerto…",
-  "src.resolving": "Buscando este episodio en tus extensiones… puede tardar hasta un minuto."
+  "src.resolving": "Buscando este episodio en tus extensiones… puede tardar hasta un minuto.",
+  "src.pick_missing": "Tu elección ({name}) no apareció esta vez."
 }
