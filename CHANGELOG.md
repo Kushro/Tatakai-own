@@ -13,6 +13,7 @@ Uso de AniList más cuidadoso y rápido: menos pedidos, sin chocar con el límit
 - Las filas de Inicio, "Porque viste…", el orden de visionado y el mes del calendario se piden juntos en menos pedidos.
 - Inicio se muestra al instante con lo guardado y se refresca por detrás; la ficha de un título se pide una sola vez para Detalle, Episodios y Reproducir.
 - Las tarjetas de las filas piden menos datos.
+- Escritorio: "Nuevos episodios de tus series" ya no hace un pedido por cada 50 títulos de tu lista; el bloque de calendario de Inicio pide solo hoy y mañana; los géneros que usa "Para ti" se guardan una semana. Con la lista real de prueba, abrir Inicio pasó de unos 20 pedidos a 11 la primera vez y 2 las siguientes.
 - Escritorio: Ajustes › Sistema muestra los pedidos a AniList por minuto, los límites recibidos y la espera actual.
 
 **Tatakai Link**
