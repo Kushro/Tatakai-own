@@ -315,6 +315,96 @@ pub struct FrameGen {
     /// Frame generation pulled an integrated-player user into this mpv: the app owns its configuration (no user
     /// `mpv.conf`, even with no preset at all, BUG-035). False when the user chose the external mpv.
     pub app_config: bool,
+    /// "Integrado mejorado" user: this mpv loads mpv-anime-build (its profiles, scripts, input.conf, uosc) instead of
+    /// running with `--no-config`.
+    pub anime_build: Option<AnimeBuild>,
+    /// Where and how the window opens (fullscreen on the app's monitor); `None` = mpv's / the user's own rules.
+    pub window: Option<FgWindow>,
+}
+
+/// mpv-anime-build for the frame-generation mpv: the extracted release (`Backend::prepare_anime_build`, its
+/// `mpv.conf` already run through [`crate::enhanced_conf::sanitize_mpv_conf`]) as mpv's config directory, with the
+/// same script selection as the embedded enhanced engine ([`crate::enhanced_conf::select_scripts`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnimeBuild {
+    pub config_dir: PathBuf,
+    /// The build's uosc draws the UI (its right-click menu switches profiles). Without it mpv's own OSC is on: an
+    /// external window has no Tatakai controls, and the stock OSC is the least intrusive way to keep seek / pause
+    /// with the mouse; the build's profiles stay on its keyboard bindings.
+    pub uosc: bool,
+    /// Scripts to load (`load-scripts=no` + these), resolved when the build is chosen.
+    pub scripts: Vec<PathBuf>,
+}
+
+impl AnimeBuild {
+    /// Reads the build's `scripts/` (blocking, a directory listing).
+    pub fn new(config_dir: PathBuf, uosc: bool) -> Self {
+        let scripts = crate::enhanced_conf::select_scripts(&config_dir, uosc);
+        Self { config_dir, uosc, scripts }
+    }
+
+    /// The build's options. The forced Vulkan / pacing options come after these on the command line (and the build's
+    /// sanitized `mpv.conf` no longer sets them, not even in its auto-profiles), so they always win.
+    fn args(&self) -> Vec<String> {
+        let mut v = vec![format!("--config-dir={}", self.config_dir.display()), "--config=yes".into(), "--load-scripts=no".into()];
+        // `-append`: one path per item, no list-separator splitting.
+        v.extend(self.scripts.iter().map(|s| format!("--scripts-append={}", s.display())));
+        v.push(if self.uosc { "--osc=no" } else { "--osc=yes" }.into());
+        // The app records progress and passes `--start`; the build's own resume would fight it.
+        v.extend(["--resume-playback=no", "--save-position-on-quit=no", "--keep-open=no", "--idle=no"].map(String::from));
+        v
+    }
+}
+
+/// The monitor the frame-generation window opens on (X11 only: on Wayland the compositor places it).
+#[derive(Debug, Clone, PartialEq)]
+pub enum MonitorRef {
+    /// RandR output name (`DP-1`), mpv's `--fs-screen-name` / `--screen-name`.
+    Name(String),
+    /// Index in the X screen order, mpv's `--fs-screen` / `--screen`.
+    Index(u32),
+}
+
+/// Window placement of the frame-generation mpv: fullscreen (borderless) so it does not feel like a pop-up; `f` /
+/// Esc leave fullscreen as in any mpv, and `--autofit-larger` then keeps the window within the screen.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FgWindow {
+    pub fullscreen: bool,
+    pub monitor: Option<MonitorRef>,
+}
+
+impl FgWindow {
+    /// `mpv_wayland`: mpv will run as a Wayland client (it prefers Wayland whenever `WAYLAND_DISPLAY` is set, even
+    /// if the app itself runs on XWayland), so screen choice is the compositor's and X11 monitor data is ignored.
+    pub fn new(fullscreen: bool, mpv_wayland: bool, monitor_name: Option<&str>, monitor_index: Option<u32>) -> Self {
+        let monitor = if mpv_wayland {
+            None
+        } else {
+            match monitor_name.map(str::trim).filter(|n| !n.is_empty()) {
+                Some(n) => Some(MonitorRef::Name(n.to_owned())),
+                None => monitor_index.map(MonitorRef::Index),
+            }
+        };
+        Self { fullscreen, monitor }
+    }
+
+    fn args(&self) -> Vec<String> {
+        let mut v = Vec::new();
+        match &self.monitor {
+            Some(MonitorRef::Name(n)) => v.extend([format!("--screen-name={n}"), format!("--fs-screen-name={n}")]),
+            Some(MonitorRef::Index(i)) => v.extend([format!("--screen={i}"), format!("--fs-screen={i}")]),
+            None => {}
+        }
+        if self.fullscreen {
+            v.push("--fs".into());
+        }
+        v
+    }
+}
+
+/// True when an mpv started with this environment talks Wayland (mpv tries Wayland contexts first).
+pub fn mpv_uses_wayland() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty())
 }
 
 /// Frame rate frame generation assumes for the source before playback (anime: 23.976 fps).
@@ -344,6 +434,8 @@ impl FrameGen {
             config_dir,
             enhancements: Vec::new(),
             app_config: false,
+            anime_build: None,
+            window: None,
         }
     }
 
@@ -355,20 +447,49 @@ impl FrameGen {
         self
     }
 
+    /// "Integrado mejorado" user: run mpv-anime-build in this mpv ([`AnimeBuild`]) instead of `--no-config`. The
+    /// enhancements given here are only the app's deband / image ones (the build brings its own shaders).
+    pub fn with_anime_build(mut self, build: AnimeBuild, enhancements: Vec<String>) -> Self {
+        self.anime_build = Some(build);
+        self.enhancements = enhancements;
+        self.app_config = true;
+        self
+    }
+
+    /// Where the window opens ([`FgWindow`]).
+    pub fn with_window(mut self, window: FgWindow) -> Self {
+        self.window = Some(window);
+        self
+    }
+
     /// mpv options: Vulkan presentation so the layer sees a swapchain; no display-resample (lsfg paces frames).
     pub fn mpv_args(&self) -> Vec<String> {
-        let mut v: Vec<String> =
-            vec!["--vo=gpu-next".into(), "--gpu-api=vulkan".into(), "--video-sync=audio".into(), "--interpolation=no".into()];
-        if self.app_config || !self.enhancements.is_empty() {
-            // The app's preset must win: a user's mpv config can re-set `glsl-shaders` at runtime (auto-profiles,
-            // scripts), so this mpv runs without it (mpv pre-parses `--no-config` wherever it appears), also with the
-            // preset Off (BUG-035). Hardware decoding keeps the GPU free for the shaders and lsfg-vk. Without a config
-            // nothing bounds the window: a 1080p video opened larger than a 1080p screen (BUG-037).
-            v.insert(0, "--no-config".into());
+        let vulkan: [String; 4] =
+            ["--vo=gpu-next", "--gpu-api=vulkan", "--video-sync=audio", "--interpolation=no"].map(String::from);
+        let mut v: Vec<String> = Vec::new();
+        if let Some(build) = &self.anime_build {
+            // The build first, then what the app forces: later options win on mpv's command line.
+            v.extend(build.args());
             v.push("--hwdec=auto-safe".into());
             v.push("--autofit-larger=90%x90%".into());
+            v.extend(self.enhancements.iter().cloned());
+            v.extend(vulkan);
+        } else {
+            v.extend(vulkan);
+            if self.app_config || !self.enhancements.is_empty() {
+                // The app's preset must win: a user's mpv config can re-set `glsl-shaders` at runtime (auto-profiles,
+                // scripts), so this mpv runs without it (mpv pre-parses `--no-config` wherever it appears), also with
+                // the preset Off (BUG-035). Hardware decoding keeps the GPU free for the shaders and lsfg-vk. Without a
+                // config nothing bounds the window: a 1080p video opened larger than a 1080p screen (BUG-037).
+                v.insert(0, "--no-config".into());
+                v.push("--hwdec=auto-safe".into());
+                v.push("--autofit-larger=90%x90%".into());
+            }
+            v.extend(self.enhancements.iter().cloned());
         }
-        v.extend(self.enhancements.iter().cloned());
+        if let Some(w) = &self.window {
+            v.extend(w.args());
+        }
         v
     }
 
@@ -828,6 +949,59 @@ mod tests {
         // An external-mpv user keeps their config (and its own window size rules).
         let own = FrameGen::new(4, None, PathBuf::from("/tmp/x")).mpv_args();
         assert!(!own.iter().any(|a| a == "--no-config" || a.starts_with("--autofit")));
+    }
+
+    #[test]
+    fn frame_gen_with_the_anime_build_loads_it_and_forces_vulkan_last() {
+        let dir = std::env::temp_dir().join(format!("tk-fg-build-{}", std::process::id()));
+        let scripts = dir.join("scripts");
+        std::fs::create_dir_all(scripts.join("uosc")).unwrap();
+        std::fs::write(scripts.join("uosc").join("main.lua"), "").unwrap();
+        std::fs::write(scripts.join("anime_profile_controller.lua"), "").unwrap();
+        std::fs::write(scripts.join("mpvSockets.lua"), "").unwrap();
+        let deband = enhancement_args("", true, None);
+        let with = |uosc| {
+            FrameGen::new(4, None, PathBuf::from("/tmp/x"))
+                .with_anime_build(AnimeBuild::new(dir.clone(), uosc), deband.clone())
+                .mpv_args()
+        };
+        let a = with(true);
+        assert!(!a.iter().any(|x| x == "--no-config"), "the build's config loads: {a:?}");
+        assert!(FrameGen::new(2, None, PathBuf::new()).with_anime_build(AnimeBuild::new(dir.clone(), true), Vec::new()).app_config);
+        assert_eq!(a[0], format!("--config-dir={}", dir.display()));
+        assert!(a.contains(&"--load-scripts=no".to_owned()));
+        assert!(a.contains(&format!("--scripts-append={}", scripts.join("uosc").display())));
+        assert!(a.contains(&format!("--scripts-append={}", scripts.join("anime_profile_controller.lua").display())));
+        assert!(!a.iter().any(|x| x.contains("mpvSockets")), "IPC script left out");
+        assert!(a.contains(&"--osc=no".to_owned()) && a.contains(&"--resume-playback=no".to_owned()));
+        assert!(!a.iter().any(|x| x.starts_with("--glsl-shaders")), "the build brings its own shaders");
+        assert!(a.contains(&"--deband=yes".to_owned()));
+        // The forced Vulkan options come after the build's and the app's options.
+        let at = |opt: &str| a.iter().position(|x| x == opt).unwrap();
+        assert!(at("--vo=gpu-next") > at("--osc=no") && at("--vo=gpu-next") > at("--deband=yes"));
+        assert!(at("--interpolation=no") > at("--load-scripts=no"));
+        // Without uosc: no uosc / thumbfast, mpv's own OSC.
+        let b = with(false);
+        assert!(!b.iter().any(|x| x.ends_with("uosc")) && b.contains(&"--osc=yes".to_owned()));
+        assert!(b.iter().any(|x| x.ends_with("anime_profile_controller.lua")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_frame_gen_window_opens_fullscreen_on_the_apps_monitor() {
+        let fs = |w: FgWindow| FrameGen::new(2, None, PathBuf::from("/tmp/x")).with_enhancements(Vec::new()).with_window(w).mpv_args();
+        let x11 = fs(FgWindow::new(true, false, Some("DP-1"), Some(1)));
+        assert!(x11.ends_with(&["--screen-name=DP-1".into(), "--fs-screen-name=DP-1".into(), "--fs".into()]), "{x11:?}");
+        let idx = fs(FgWindow::new(true, false, Some(" "), Some(1)));
+        assert!(idx.ends_with(&["--screen=1".into(), "--fs-screen=1".into(), "--fs".into()]), "{idx:?}");
+        // Wayland: the compositor places it.
+        let wl = fs(FgWindow::new(true, true, Some("DP-1"), Some(1)));
+        assert!(wl.ends_with(&["--fs".into()]) && !wl.iter().any(|x| x.contains("screen")), "{wl:?}");
+        // Leaving fullscreen keeps a window within the screen.
+        assert!(wl.contains(&"--autofit-larger=90%x90%".to_owned()));
+        assert!(!fs(FgWindow::new(false, false, None, None)).iter().any(|x| x == "--fs" || x.contains("screen")));
+        // No placement: nothing added (the user's own external mpv).
+        assert!(!FrameGen::new(2, None, PathBuf::from("/tmp/x")).mpv_args().iter().any(|x| x == "--fs"));
     }
 
     #[test]

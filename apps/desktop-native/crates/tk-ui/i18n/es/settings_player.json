@@ -14,6 +14,7 @@
   "settings.player.enhanced_ui.ours": "Controles de Tatakai",
   "settings.player.enhanced_ui.uosc": "uosc (mpv-anime-build)",
   "settings.player.engine_hint": "Cómo se reproduce el video. El cambio se aplica la próxima vez que inicies un episodio.",
+  "settings.player.engine_fg_note": "Con generación de cuadros activa se reproduce en mpv externo (Vulkan); Integrado mejorado carga ahí los perfiles y uosc de mpv-anime-build.",
   "settings.player.mode.embedded_hint": "mpv dentro de esta ventana con los controles de Tatakai. Funciona en Linux y Windows.",
   "settings.player.mode.embedded_enhanced_hint": "El mismo reproductor integrado con los perfiles, shaders y scripts de mpv-anime-build.",
   "settings.player.mode.external_hint": "Tu propio mpv en su propia ventana, con tu configuración y tus controles. Tatakai muestra qué se está reproduciendo.",

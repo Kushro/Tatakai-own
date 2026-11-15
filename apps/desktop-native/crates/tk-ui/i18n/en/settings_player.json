@@ -14,6 +14,7 @@
   "settings.player.enhanced_ui.ours": "Tatakai controls",
   "settings.player.enhanced_ui.uosc": "uosc (mpv-anime-build)",
   "settings.player.engine_hint": "How video plays. A change applies the next time you start an episode.",
+  "settings.player.engine_fg_note": "With frame generation on, playback runs in the external mpv (Vulkan); Embedded enhanced loads the mpv-anime-build profiles and uosc there.",
   "settings.player.mode.embedded_hint": "mpv inside this window with Tatakai's controls. Works on Linux and Windows.",
   "settings.player.mode.embedded_enhanced_hint": "The same embedded player with the mpv-anime-build profiles, shaders and scripts.",
   "settings.player.mode.external_hint": "Your own mpv in its own window, with your config and controls. Tatakai shows what is playing.",
