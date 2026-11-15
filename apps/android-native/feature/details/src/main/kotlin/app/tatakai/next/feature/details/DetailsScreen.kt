@@ -234,6 +234,7 @@ fun DetailsScreen(
         onRetryDetails = viewModel::retryDetails,
         onEpisodeQuery = viewModel::setEpisodeQuery,
         onEpisodeView = viewModel::setEpisodeView,
+        onRelationsView = viewModel::setRelationsView,
         onAcceptAdult = viewModel::acceptAdult,
         onRevealCover = viewModel::revealCover,
         onToggleWatched = viewModel::toggleWatched.takeIf { viewModel.canToggleWatched },
@@ -308,6 +309,8 @@ internal data class DetailsActions(
     val onRetryDetails: () -> Unit = {},
     val onEpisodeQuery: (String) -> Unit = {},
     val onEpisodeView: (EpisodeView) -> Unit = {},
+    /** 2026-11 UI refresh: Relacionados graph / list toggle. */
+    val onRelationsView: (app.tatakai.next.model.RelationsView) -> Unit = {},
     val onAcceptAdult: () -> Unit = {},
     /** matureContent BLUR: tap on the blurred banner / cover reveals them. */
     val onRevealCover: () -> Unit = {},

@@ -192,4 +192,10 @@
     <string name="details_rel_other">Other</string>
     <!-- 2026-11 UI refresh -->
     <string name="details_view_cards">Cards</string>
+    <string name="details_relations_graph">Graph</string>
+    <string name="details_relations_list">List</string>
+    <string name="details_graph_zoom_in">Zoom in</string>
+    <string name="details_graph_zoom_out">Zoom out</string>
+    <string name="details_graph_fit">Fit to the view</string>
+    <string name="details_graph_this">This title</string>
 </resources>

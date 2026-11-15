@@ -2,6 +2,8 @@
 
 package app.tatakai.next.feature.details
 
+import app.tatakai.next.model.RelationsView
+import androidx.compose.material.icons.outlined.AccountTree
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -1097,7 +1099,34 @@ private fun RelatedTab(media: Media, state: DetailsUiState, actions: DetailsActi
     LaunchedEffect(Unit) { actions.onLoadRelated() }
     Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         SeasonsSection(media, state.seasons, state.titleLanguage, actions)
-        RelationsSection(state.relations, state.titleLanguage, actions)
+        // 2026-11 UI refresh: graph or list (Diseño y estilo › Relacionados; the toggle here changes and remembers it).
+        val relations = state.relations
+        val seasons = (state.seasons as? LoadState.Ok)?.value.orEmpty()
+        if (relations is LoadState.Ok && relations.value.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth().padding(end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { SectionTitle(stringResource(R.string.details_related)) }
+                    Segmented(
+                        options = listOf(
+                            SegmentedOption(RelationsView.GRAPH, stringResource(R.string.details_relations_graph), icon = Icons.Outlined.AccountTree),
+                            SegmentedOption(RelationsView.LIST, stringResource(R.string.details_relations_list), icon = Icons.AutoMirrored.Outlined.ViewList),
+                        ),
+                        selected = state.relationsView,
+                        onSelect = actions.onRelationsView,
+                        small = true,
+                        iconOnly = true,
+                    )
+                }
+                if (state.relationsView == RelationsView.GRAPH) {
+                    val layout = remember(media, seasons, relations.value) { layoutRelationsGraph(media, seasons, relations.value) }
+                    RelationsGraphView(layout, state.titleLanguage, actions.onOpenMedia)
+                } else {
+                    RelationsSection(relations, state.titleLanguage, actions, showTitle = false)
+                }
+            }
+        } else {
+            RelationsSection(relations, state.titleLanguage, actions)
+        }
         RecommendationsSection(state.recommendations, state.titleLanguage, actions)
     }
 }
@@ -1158,7 +1187,12 @@ private fun SeasonsSection(media: Media, seasons: LoadState<List<Media>>?, langu
 }
 
 @Composable
-private fun RelationsSection(relations: LoadState<List<MediaRelation>>?, language: TitleLanguage, actions: DetailsActions) {
+private fun RelationsSection(
+    relations: LoadState<List<MediaRelation>>?,
+    language: TitleLanguage,
+    actions: DetailsActions,
+    showTitle: Boolean = true,
+) {
     when (relations) {
         null, LoadState.Loading -> DelayedLoading()
         is LoadState.Err -> ErrorState(
@@ -1176,7 +1210,7 @@ private fun RelationsSection(relations: LoadState<List<MediaRelation>>?, languag
             )
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                SectionTitle(stringResource(R.string.details_related))
+                if (showTitle) SectionTitle(stringResource(R.string.details_related))
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
