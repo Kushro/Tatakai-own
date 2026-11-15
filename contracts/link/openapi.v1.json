@@ -1012,6 +1012,88 @@
           }
         }
       }
+    },
+    "/v1/history/mode": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "history"
+        ],
+        "summary": "The calling device's history mode",
+        "description": "Mode the PC set for this device and whether it waits for this device's full push.",
+        "x-milestone": "0.3.0",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/client_certificate_required"
+          },
+          "403": {
+            "$ref": "#/components/responses/device_not_authorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/internal"
+          },
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryModeAnswer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/history/resync-done": {
+      "post": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "history"
+        ],
+        "summary": "The device finished its full push",
+        "description": "Closes this device's authoritative window and asks the other non-paused devices (`history_resync` / `pull_replace`) to replace their history.",
+        "x-milestone": "0.3.0",
+        "responses": {
+          "401": {
+            "$ref": "#/components/responses/client_certificate_required"
+          },
+          "403": {
+            "$ref": "#/components/responses/device_not_authorized"
+          },
+          "500": {
+            "$ref": "#/components/responses/internal"
+          },
+          "200": {
+            "description": "OK",
+            "headers": {
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResyncDoneAnswer"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2414,6 +2496,14 @@
             "type": "integer",
             "minimum": 0,
             "description": "Rows the PC stored (new or newer than what it had)."
+          },
+          "ignored": {
+            "type": "boolean",
+            "default": false,
+            "description": "The device's mode does not take pushes: nothing was stored and the phone treats the rows as synced (no retry). Omitted when false."
+          },
+          "mode": {
+            "$ref": "#/components/schemas/HistoryMode"
           }
         }
       },
@@ -2594,6 +2684,25 @@
                 "type": "string"
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "mode"
+            ],
+            "properties": {
+              "type": {
+                "const": "history_resync"
+              },
+              "mode": {
+                "enum": [
+                  "push_all",
+                  "pull_replace"
+                ],
+                "description": "`push_all`: mark every local row dirty, push, then `POST /v1/history/resync-done`. `pull_replace`: push dirty rows when the mode is `full`, clear the local history, reset the cursor and pull everything."
+              }
+            }
           }
         ],
         "discriminator": {
@@ -2637,6 +2746,46 @@
                 "const": "no player is open on this PC"
               }
             }
+          }
+        }
+      },
+      "HistoryMode": {
+        "type": "string",
+        "enum": [
+          "full",
+          "receive_only",
+          "paused"
+        ],
+        "description": "Per-device history mode set on the PC (2026-11). `full` = pushes merge and pulls serve the PC history; `receive_only` = pushes are accepted and ignored; `paused` = pushes ignored and pulls answer an empty page."
+      },
+      "HistoryModeAnswer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "resync"
+        ],
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/HistoryMode"
+          },
+          "resync": {
+            "type": "boolean",
+            "description": "The PC asked this device to push its whole history (\"use as source\") and its authoritative window is open."
+          }
+        }
+      },
+      "ResyncDoneAnswer": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "notified"
+        ],
+        "properties": {
+          "notified": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Other non-paused devices asked to replace their history from the PC (0 when the caller had no open window)."
           }
         }
       }

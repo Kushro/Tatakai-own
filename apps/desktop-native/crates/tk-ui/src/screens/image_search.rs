@@ -462,7 +462,7 @@ mod tests {
 
     fn hit(sim: f32) -> ImageMatchVm {
         ImageMatchVm {
-            media: MediaVm { id: "21".into(), title: "x".into(), cover: None, color: None, subtitle: String::new(), score: None },
+            media: MediaVm { format: None, status: None, year: None, id: "21".into(), title: "x".into(), cover: None, color: None, subtitle: String::new(), score: None },
             episode: Some(1),
             from_secs: 1.0,
             to_secs: 2.0,

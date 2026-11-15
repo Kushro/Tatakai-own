@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.AutoStories
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Notifications
@@ -100,6 +101,8 @@ fun YouScreen(
     onOpenProfile: () -> Unit = {},
     /** Row "Notificaciones" -> Route.Notifications (worker t). */
     onOpenNotifications: () -> Unit = {},
+    /** 2026-11 UI refresh: "Para ti" from the phone's "more" page (wide windows have it in the rail). */
+    onOpenForYou: (() -> Unit)? = null,
 ) {
     val viewModel: YouViewModel = koinViewModel()
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -132,6 +135,7 @@ fun YouScreen(
         onOpenNovels = onOpenNovels,
         onOpenProfile = onOpenProfile,
         onOpenNotifications = onOpenNotifications,
+        onOpenForYou = onOpenForYou,
         modifier = modifier,
     )
 }
@@ -152,6 +156,8 @@ internal fun YouContent(
     onOpenNovels: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
     onOpenNotifications: () -> Unit = {},
+    /** 2026-11 UI refresh: "Para ti" from the phone's "more" page (wide windows have it in the rail). */
+    onOpenForYou: (() -> Unit)? = null,
 ) {
     Scaffold(modifier = modifier, contentWindowInsets = screenInsets) { padding ->
         Box(Modifier.fillMaxSize().padding(top = padding.calculateTopPadding()), contentAlignment = Alignment.TopCenter) {
@@ -192,6 +198,7 @@ internal fun YouContent(
                             onOpenNovels = onOpenNovels,
                             onOpenProfile = onOpenProfile,
                             onOpenNotifications = onOpenNotifications,
+                            onOpenForYou = onOpenForYou,
                         )
                     }
                 }
@@ -291,9 +298,19 @@ private fun YouList(
     onOpenNovels: () -> Unit = {},
     onOpenProfile: () -> Unit = {},
     onOpenNotifications: () -> Unit = {},
+    /** 2026-11 UI refresh: "Para ti" from the phone's "more" page (wide windows have it in the rail). */
+    onOpenForYou: (() -> Unit)? = null,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = MaterialTheme.shapes.large) {
         Column(Modifier.padding(vertical = 8.dp)) {
+            if (onOpenForYou != null) {
+                YouRow(
+                    icon = Icons.Outlined.AutoAwesome,
+                    title = stringResource(UiR.string.ui_nav_for_you),
+                    subtitle = stringResource(UiR.string.ui_for_you_summary),
+                    onClick = onOpenForYou,
+                )
+            }
             // parity wave A (15 §3.3, worker q): AniList / MAL lists and accounts (Settings › Listas y cuentas).
             YouRow(
                 icon = Icons.Outlined.Bookmarks,

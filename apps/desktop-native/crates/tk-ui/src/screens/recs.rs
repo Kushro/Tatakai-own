@@ -5,7 +5,8 @@
 //! reasons `data-reasons` rendered with `recs.reason.<kind>`, and Not interested / Skip / Like stored by
 //! `recs_feedback`; dismissed cards leave at once and stay out after a reload), **Atlas** (`atlas_points` as an SVG
 //! scatter drawn with tokens only, `data-atlas-points`; a dot opens its title) and **Your taste** (`taste_profile`).
-//! [`RecsRow`] is the Home teaser of the same list.
+//! [`RecsRow`] is the Home teaser of the same list. The page is a rail destination (`NavDest::ForYou`): its head
+//! reads as one (mark, title, intro) and the tabs / grid get the hover motion of calendar.css.
 
 use std::collections::{HashMap, HashSet};
 
@@ -18,6 +19,7 @@ use crate::components::{
     SkeletonGrid, SkeletonLines, SkeletonRow, use_snackbar,
 };
 use crate::i18n::{t, tf, tn};
+use crate::icons::Icon;
 use crate::model::UiError;
 use crate::screens::search::genre_label;
 
@@ -104,10 +106,14 @@ pub fn RecommendationsPage() -> Element {
         },
     };
     rsx! {
-        div { class: "tk-page tk-recs", "data-page": "recs.title", "data-tab": "{current}",
-            div { class: "tk-page__head",
+        div { class: "tk-page tk-recs", "data-page": "recs.title", "data-tab": "{current}", "data-destination": "for_you",
+            // A rail destination ("For you"): its own title and intro, no way back to Home but the rail.
+            div { class: "tk-page__head tk-recs__head",
                 div {
-                    h1 { class: "tk-page__title", {t("recs.title")} }
+                    h1 { class: "tk-page__title",
+                        span { class: "tk-recs__mark", "aria-hidden": "true", Icon { name: "sparkle".to_string(), size: 22 } }
+                        {t("recs.title")}
+                    }
                     p { class: "tk-page__intro", {t("recs.intro")} }
                 }
             }
@@ -271,7 +277,7 @@ fn RecCard(
                 div { class: "tk-rec__actions",
                     for fb in RecsFeedbackVm::ALL {
                         {
-                            let mut send = send.clone();
+                            let send = send.clone();
                             let on = given() == Some(fb);
                             rsx! {
                                 Button {
@@ -504,7 +510,7 @@ mod tests {
     use crate::backend::MediaVm;
 
     fn media(id: &str) -> MediaVm {
-        MediaVm {
+        MediaVm { format: None, status: None, year: None,
             id: id.into(),
             title: id.into(),
             cover: None,

@@ -174,6 +174,20 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
         }
     }
 
+    /** 2026-11: `GET /v1/history/mode` (404 on an older PC). */
+    suspend fun historyMode(): LinkResult<LinkHistoryModeDto> =
+        LinkHttp.exchange(client, LinkHttp.request(url("v1/history/mode")).get().build(), MAX_JSON) { _, b ->
+            LinkHttp.json.decodeFromString(LinkHistoryModeDto.serializer(), b.decodeToString())
+        }
+
+    /** 2026-11: `POST /v1/history/resync-done` (empty body) after pushing everything for a `push_all`. */
+    suspend fun historyResyncDone(): LinkResult<LinkResyncDoneDto> {
+        val request = LinkHttp.request(url("v1/history/resync-done")).post(ByteArray(0).toRequestBody(LinkHttp.JSON_TYPE)).build()
+        return LinkHttp.exchange(client, request, MAX_JSON) { _, b ->
+            if (b.isEmpty()) LinkResyncDoneDto() else LinkHttp.json.decodeFromString(LinkResyncDoneDto.serializer(), b.decodeToString())
+        }
+    }
+
     /** `DELETE /v1/history` (204): the PC drops its whole history (only after the user confirmed "also on the PC"). */
     suspend fun historyClear(): LinkResult<Unit> =
         LinkHttp.exchange(client, LinkHttp.request(url("v1/history")).delete().build(), MAX_JSON) { _, _ -> Unit }

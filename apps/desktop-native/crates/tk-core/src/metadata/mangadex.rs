@@ -236,7 +236,7 @@ pub fn map_manga(m: &Value) -> Option<MdManga> {
     let mut titles = std::collections::BTreeMap::new();
     titles.insert("english".to_owned(), title.clone());
     Some(MdManga {
-        media: Media {
+        media: Media { format: None,
             media_ref: MediaRef { anilist_id: num("al"), mal_id: num("mal"), kitsu_id: None },
             kind: MediaKind::Manga,
             title,

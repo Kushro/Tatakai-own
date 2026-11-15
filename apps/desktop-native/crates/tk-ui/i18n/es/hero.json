@@ -1,0 +1,12 @@
+{
+  "hero.spot.label": "Destacados",
+  "hero.chip.episodes": "{n} episodios",
+  "hero.chip.episodes.one": "1 episodio",
+  "hero.action.continue": "Continuar ep. {n}",
+  "hero.action.watch": "Ver ahora",
+  "hero.action.details": "Detalles",
+  "hero.action.info": "Más información",
+  "hero.row.more": "Ver más",
+  "hero.row.prev": "Desplazar hacia atrás",
+  "hero.row.next": "Desplazar hacia adelante"
+}

@@ -11,6 +11,8 @@ pub fn icon_for(dest: NavDest) -> &'static str {
     match dest {
         NavDest::Home => "home",
         NavDest::Search => "search",
+        NavDest::Calendar => "calendar",
+        NavDest::ForYou => "sparkle",
         NavDest::Library => "library",
         // Wave B (docs/redesign/16 section 2): Downloads (h), Manga (l), Novels (m).
         NavDest::Downloads => "download",

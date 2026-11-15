@@ -36,7 +36,7 @@ use tk_core::recs::{self, Candidate, Seen, TasteProfile};
 use tk_core::store::home::TrackedShowRow;
 use tk_core::{FeedKind, HistoryEntry, Media, MediaKind, MediaRef, ProviderError};
 use tk_ui::backend::{
-    AiringSlotVm, AtlasPointVm, BecauseVm, DetailsExtraVm, HomeVm, LatestEpisodeVm, MediaVm,
+    AiringSlotVm, AtlasPointVm, BecauseVm, DetailsExtraVm, HeroVm, HomeVm, LatestEpisodeVm, MediaVm,
     ProviderHealthVm, RecommendationVm, RecsFeedbackVm, SearchPageVm, SectionVm, TasteProfileVm, TopRangeVm,
     TorrentActivityVm, TorrentStateVm, UiResult,
 };
@@ -48,6 +48,8 @@ use crate::settings_store;
 
 /// "Latest episodes" look back this far.
 const LATEST_WINDOW_SECS: i64 = 3 * 86_400;
+/// Slides of the Home spotlight (2026-11 UI refresh).
+const HERO_SLIDES: usize = 6;
 /// "Followed updates" window when there is no previous visit, and its minimum width.
 const FOLLOWED_DEFAULT_SECS: i64 = 7 * 86_400;
 const FOLLOWED_MIN_SECS: i64 = 86_400;
@@ -224,7 +226,7 @@ fn is_tracked_vm(vm: &MediaVm, tracked: &[TrackedShowRow]) -> bool {
 }
 
 fn tracked_vm(r: &TrackedShowRow) -> MediaVm {
-    MediaVm {
+    MediaVm { format: None, status: None, year: None,
         id: r.media_id.clone(),
         title: r.title.clone(),
         cover: r.poster.clone(),
@@ -393,6 +395,8 @@ pub async fn home(b: &LiveBackend) -> UiResult<HomeVm> {
         items: r.map(|(items, _)| dated_vms(&items, adult)).map_err(provider_err),
     };
     let continue_watching = b.continue_vms(20);
+    // 2026-11 UI refresh: the spotlight takes the first trending titles with their banner, synopsis and facts.
+    let hero = trending.as_ref().map(|p| hero_vms(&p.items)).unwrap_or_default();
     let mut sections = vec![
         section("feed.trending", trending),
         section("feed.airing", airing),
@@ -411,7 +415,29 @@ pub async fn home(b: &LiveBackend) -> UiResult<HomeVm> {
     Ok(HomeVm {
         continue_watching,
         sections,
+        hero,
     })
+}
+
+/// Spotlight slides: up to [`HERO_SLIDES`] trending titles, those with a banner first (a poster stretched to the
+/// window width looks blurry), keeping the trending order inside each group.
+fn hero_vms(items: &[Media]) -> Vec<HeroVm> {
+    let (mut with, without): (Vec<&Media>, Vec<&Media>) = items.iter().partition(|m| m.banner.is_some());
+    with.extend(without);
+    with.into_iter()
+        .take(HERO_SLIDES)
+        .map(|m| HeroVm {
+            media: to_vm(m),
+            banner: m.banner.clone(),
+            synopsis: m.synopsis.clone(),
+            genres: m.genres.clone(),
+            status: m.status.clone(),
+            season: m.season.clone(),
+            year: m.year,
+            episodes: m.episodes,
+            format: m.format.clone(),
+        })
+        .collect()
 }
 
 pub async fn latest_episodes(b: &LiveBackend, page: u32) -> UiResult<Vec<LatestEpisodeVm>> {
@@ -809,7 +835,7 @@ async fn taste(b: &LiveBackend) -> UiResult<Arc<Taste>> {
                 excluded.insert(id);
                 continue;
             }
-            let vm = MediaVm {
+            let vm = MediaVm { format: None, status: None, year: None,
                 id: row.media_id.clone(),
                 title: row.title.clone(),
                 cover: row.poster.clone(),
@@ -829,7 +855,7 @@ async fn taste(b: &LiveBackend) -> UiResult<Arc<Taste>> {
         if f.feedback == RecsFeedbackVm::Like.id()
             && let Ok(id) = f.media_id.parse::<u32>()
         {
-            let vm = MediaVm {
+            let vm = MediaVm { format: None, status: None, year: None,
                 id: f.media_id.clone(),
                 title: String::new(),
                 cover: None,
@@ -1234,7 +1260,7 @@ mod tests {
     use super::*;
 
     fn media(id: u32, title: &str) -> Media {
-        Media {
+        Media { format: None,
             media_ref: MediaRef::anilist(id),
             kind: MediaKind::Anime,
             title: title.into(),

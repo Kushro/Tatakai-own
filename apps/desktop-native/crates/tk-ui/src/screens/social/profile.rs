@@ -542,7 +542,7 @@ mod tests {
 
     fn entry(id: &str, service: ListServiceVm, status: ListStatusVm) -> ListEntryVm {
         ListEntryVm {
-            media: MediaVm { id: id.into(), title: id.into(), cover: None, color: None, subtitle: String::new(), score: None },
+            media: MediaVm { format: None, status: None, year: None, id: id.into(), title: id.into(), cover: None, color: None, subtitle: String::new(), score: None },
             service,
             status,
             progress: 0,

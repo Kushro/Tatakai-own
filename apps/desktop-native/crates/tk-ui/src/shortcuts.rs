@@ -26,7 +26,7 @@ pub enum Shortcut {
     /// Ctrl+1..Ctrl+6 -> 1-based preset index.
     Preset(u8),
     Escape,
-    /// `1`..`9` outside the player -> 1-based index into `NavDest::ALL` (nine destinations).
+    /// `1`..`9` outside the player -> 1-based index into `NavDest::ALL` (the first nine destinations).
     NavTo(u8),
     // --- wave A (worker e): player actions of the classic `keybindings.ts` (defaults in `default_binding`) ---
     /// `J` / `K` in the classic app.
@@ -284,7 +284,7 @@ pub fn shortcut_in(map: &ShortcutMapVm, key: &str, ctrl: bool, editable: bool, i
     }
     if !in_player {
         return match key {
-            // Nine rail destinations (`NavDest::ALL`): 1..=9.
+            // The first nine rail destinations (`NavDest::ALL`): 1..=9.
             "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" => key.parse().ok().map(Shortcut::NavTo),
             _ => None,
         };

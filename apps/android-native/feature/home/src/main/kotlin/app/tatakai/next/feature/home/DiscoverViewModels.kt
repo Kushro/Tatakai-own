@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import app.tatakai.next.model.AiringEpisode
 import app.tatakai.next.model.AiringRepository
 import app.tatakai.next.model.AtlasPoint
+import app.tatakai.next.model.CalendarView
+import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.FollowedShow
 import app.tatakai.next.model.ListStatus
 import app.tatakai.next.model.ListsRepository
@@ -30,6 +32,7 @@ import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 
@@ -39,8 +42,12 @@ import java.time.temporal.TemporalAdjusters
 data class CalendarDay(val date: LocalDate, val episodes: List<AiringEpisode>)
 
 data class CalendarUiState(
-    /** Monday of the shown week. */
+    /** First day of the loaded range: Monday of the shown week (week / agenda), of the month grid (month) or the day itself (day). */
     val weekStart: LocalDate,
+    /** 2026-11 UI refresh: Semana / Agenda / Mes / Hoy (default from Diseño y estilo; switching it on the screen is remembered there). */
+    val view: CalendarView = CalendarView.WEEK,
+    /** The day the view is about: the selected day of the week strip / month grid, the day of the day view. */
+    val anchor: LocalDate = weekStart,
     val days: LoadState<List<CalendarDay>> = LoadState.Loading,
     val followed: List<FollowedShow> = emptyList(),
     val onlyFollowed: Boolean = false,
@@ -66,15 +73,73 @@ internal fun sameRef(a: MediaRef, b: MediaRef): Boolean =
 internal object CalendarLogic {
     fun mondayOf(date: LocalDate): LocalDate = date.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
 
+    /** Whole weeks (Monday..Sunday) covering [month]: 28, 35 or 42 days. */
+    fun monthGrid(month: YearMonth): List<LocalDate> {
+        val first = mondayOf(month.atDay(1))
+        val last = month.atEndOfMonth().with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+        return generateSequence(first) { it.plusDays(1) }.takeWhile { !it.isAfter(last) }.toList()
+    }
+
+    /** First day and length of the range a [view] about [anchor] needs. */
+    fun range(view: CalendarView, anchor: LocalDate): Pair<LocalDate, Int> = when (view) {
+        CalendarView.WEEK, CalendarView.AGENDA -> mondayOf(anchor) to 7
+        CalendarView.DAY -> anchor to 1
+        CalendarView.MONTH -> monthGrid(YearMonth.from(anchor)).let { it.first() to it.size }
+    }
+
+    /** Previous / next page of a view: a week, a month (first day of it) or a day. */
+    fun shift(view: CalendarView, anchor: LocalDate, delta: Long): LocalDate = when (view) {
+        CalendarView.WEEK, CalendarView.AGENDA -> anchor.plusWeeks(delta)
+        CalendarView.MONTH -> anchor.withDayOfMonth(1).plusMonths(delta)
+        CalendarView.DAY -> anchor.plusDays(delta)
+    }
+
+    fun window(start: LocalDate, days: Int, zone: ZoneId): Pair<Long, Long> =
+        start.atStartOfDay(zone).toEpochSecond() to start.plusDays(days.toLong()).atStartOfDay(zone).toEpochSecond()
+
+    /** One line of the day view: an hour heading, an episode, or the "now" marker. */
+    sealed interface DayLine {
+        data class Hour(val hour: Int) : DayLine
+        data class Ep(val episode: AiringEpisode) : DayLine
+        data object Now : DayLine
+    }
+
+    /**
+     * The day view: episodes in time order under their local hour, with [DayLine.Now] after everything that aired by [nowSec] (only
+     * when now falls inside [day]).
+     */
+    fun dayLines(episodes: List<AiringEpisode>, day: LocalDate, zone: ZoneId, nowSec: Long): List<DayLine> {
+        val sorted = episodes.sortedBy { it.airingAtEpochSec }
+        val (from, to) = window(day, 1, zone)
+        val showNow = nowSec in from until to
+        val out = mutableListOf<DayLine>()
+        var lastHour = -1
+        var nowPlaced = !showNow
+        for (ep in sorted) {
+            if (!nowPlaced && ep.airingAtEpochSec > nowSec) {
+                out += DayLine.Now
+                nowPlaced = true
+            }
+            val hour = Instant.ofEpochSecond(ep.airingAtEpochSec).atZone(zone).hour
+            if (hour != lastHour) {
+                out += DayLine.Hour(hour)
+                lastHour = hour
+            }
+            out += DayLine.Ep(ep)
+        }
+        if (!nowPlaced) out += DayLine.Now
+        return out
+    }
+
     fun weekWindow(weekStart: LocalDate, zone: ZoneId): Pair<Long, Long> {
         val from = weekStart.atStartOfDay(zone).toEpochSecond()
         val to = weekStart.plusDays(7).atStartOfDay(zone).toEpochSecond()
         return from to to
     }
 
-    fun group(episodes: List<AiringEpisode>, weekStart: LocalDate, zone: ZoneId): List<CalendarDay> {
+    fun group(episodes: List<AiringEpisode>, weekStart: LocalDate, zone: ZoneId, days: Int = 7): List<CalendarDay> {
         val byDay = episodes.groupBy { Instant.ofEpochSecond(it.airingAtEpochSec).atZone(zone).toLocalDate() }
-        return (0L until 7L).map { i ->
+        return (0L until days.toLong()).map { i ->
             val day = weekStart.plusDays(i)
             CalendarDay(day, byDay[day].orEmpty().sortedBy { it.airingAtEpochSec })
         }
@@ -85,9 +150,16 @@ class CalendarViewModel(
     private val airing: AiringRepository,
     lists: ListsRepository? = null,
     private val zone: () -> ZoneId = { ZoneId.systemDefault() },
-    today: () -> LocalDate = { LocalDate.now() },
+    private val today: () -> LocalDate = { LocalDate.now() },
+    /** 2026-11 UI refresh: default view from Diseño y estilo; a view picked on the screen is saved back there. */
+    private val settings: SettingsRepository? = null,
 ) : ViewModel() {
-    private val week = MutableStateFlow(CalendarUiState(weekStart = CalendarLogic.mondayOf(today())))
+    private val week = MutableStateFlow(
+        (settings?.settings?.value?.look?.calendarView ?: CalendarView.WEEK).let { view ->
+            val day = today()
+            CalendarUiState(weekStart = CalendarLogic.range(view, day).first, view = view, anchor = day)
+        },
+    )
 
     private val watching = lists?.entries(null)?.map { list ->
         list.filter { it.status == ListStatus.WATCHING || it.status == ListStatus.REPEATING }.map { it.ref }.toSet()
@@ -104,21 +176,49 @@ class CalendarViewModel(
     }
 
     fun load() {
-        val start = week.value.weekStart
-        week.update { it.copy(days = LoadState.Loading) }
+        val current = week.value
+        val (start, count) = CalendarLogic.range(current.view, current.anchor)
+        week.update { it.copy(weekStart = start, days = LoadState.Loading) }
         viewModelScope.launch {
             val z = zone()
-            val (from, to) = CalendarLogic.weekWindow(start, z)
-            val r = runCatchingApp { CalendarLogic.group(airing.schedule(from, to), start, z) }
+            val (from, to) = CalendarLogic.window(start, count, z)
+            val r = runCatchingApp { CalendarLogic.group(airing.schedule(from, to), start, z, count) }
             week.update { s ->
-                if (s.weekStart != start) s else s.copy(days = r.fold(onSuccess = { LoadState.Ok(it) }, onFailure = { LoadState.Err(it.toAppError()) }))
+                if (s.weekStart != start || s.view != current.view) s
+                else s.copy(days = r.fold(onSuccess = { LoadState.Ok(it) }, onFailure = { LoadState.Err(it.toAppError()) }))
             }
         }
     }
 
-    fun shiftWeek(delta: Long) {
-        week.update { it.copy(weekStart = it.weekStart.plusWeeks(delta)) }
+    fun shiftWeek(delta: Long) = shift(delta)
+
+    /** Previous / next page of the current view (week, month or day). */
+    fun shift(delta: Long) {
+        week.update { it.copy(anchor = CalendarLogic.shift(it.view, it.anchor, delta)) }
         load()
+    }
+
+    /** Back to today in the current view. */
+    fun goToday() {
+        week.update { it.copy(anchor = today()) }
+        load()
+    }
+
+    /** Selects a day of the loaded range (week strip / month grid); no reload while it stays inside the range. */
+    fun selectDay(day: LocalDate) {
+        val s = week.value
+        val (start, count) = CalendarLogic.range(s.view, s.anchor)
+        week.update { it.copy(anchor = day) }
+        if (day.isBefore(start) || !day.isBefore(start.plusDays(count.toLong()))) load()
+    }
+
+    fun setView(view: CalendarView) {
+        if (week.value.view == view) return
+        week.update { it.copy(view = view) }
+        load()
+        settings?.let { repo ->
+            viewModelScope.launch { runCatchingApp { repo.update { it.copy(look = it.look.copy(calendarView = view)) } } }
+        }
     }
 
     fun setOnlyFollowed(only: Boolean) = week.update { it.copy(onlyFollowed = only) }

@@ -90,9 +90,25 @@ class HistorySyncTriggers(
     private val link: app.tatakai.next.model.LinkRepository?,
     private val syncer: HistorySyncer?,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+    /** 2026-11 history per device: `history_resync` events of the PC (`LinkHistoryRemote.resyncRequests`), carried out in order. */
+    private val resyncs: kotlinx.coroutines.flow.Flow<app.tatakai.next.link.HistoryResyncMode>? = null,
 ) {
     fun start() {
         scheduler.requestSync(immediate = true)
+        if (resyncs != null && syncer != null) {
+            scope.launch {
+                resyncs.collect { mode ->
+                    // a failure is retried by the next normal pass (a cleared history pulls from 0); the PC window expires on its own
+                    try {
+                        syncer.resync(mode)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        scheduler.requestSync(immediate = false)
+                    }
+                }
+            }
+        }
         val repo = link ?: return
         scope.launch {
             var wasPaired: Boolean? = null

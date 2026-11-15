@@ -16,7 +16,7 @@ import kotlinx.serialization.json.JsonPrimitive
 internal object AniListQueries {
     private const val CARD = """
 fragment mediaCard on Media {
-  id idMal type status season seasonYear episodes
+  id idMal type format status season seasonYear episodes
   title { romaji english native }
   coverImage { extraLarge large color } bannerImage
   averageScore isAdult genres

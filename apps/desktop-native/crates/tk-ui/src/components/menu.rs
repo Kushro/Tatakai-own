@@ -108,6 +108,8 @@ pub fn MenuItem(
     #[props(default)] icon: String,
     /// Shortcut or secondary value on the right ("Ctrl+1", "1080p").
     #[props(default)] hint: String,
+    /// A second line of plain text under the label (what the option does).
+    #[props(default)] desc: String,
     /// `Some` makes it a radio item.
     #[props(default)] checked: Option<bool>,
     #[props(default)] disabled: bool,
@@ -130,7 +132,14 @@ pub fn MenuItem(
                     Icon { name: icon.clone(), size: 20 }
                 }
             }
-            span { class: "tk-menu__label", "{label}" }
+            if desc.is_empty() {
+                span { class: "tk-menu__label", "{label}" }
+            } else {
+                span { class: "tk-menu__text",
+                    span { class: "tk-menu__label", "{label}" }
+                    span { class: "tk-menu__desc", "{desc}" }
+                }
+            }
             if !hint.is_empty() {
                 span { class: "tk-menu__hint", "{hint}" }
             }

@@ -72,9 +72,13 @@ pub struct Media {
     pub year: Option<i32>,
     pub score: Option<u32>,
     pub source_provider: String,
+    /// AniList format (`TV`, `TV_SHORT`, `MOVIE`, `OVA`, `ONA`, `SPECIAL`, `MUSIC`), when the provider gives it
+    /// (2026-11 UI refresh: card meta line, spotlight chips).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Episode {
     pub number: u32,
@@ -83,6 +87,15 @@ pub struct Episode {
     pub air_date: Option<String>,
     #[serde(default)]
     pub is_filler: bool,
+    /// Episode synopsis (ani.zip `overview` / `summary`), 2026-11 UI refresh.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    /// Length in minutes (ani.zip `runtime` / `length`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_min: Option<u32>,
+    /// Viewer rating 0..10 (ani.zip `rating`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rating: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

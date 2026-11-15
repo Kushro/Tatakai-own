@@ -14,10 +14,13 @@
 .tk-calendar__none { margin: 0; font-size: var(--md-sys-typescale-body-small-size); }
 .tk-calendar__slot {
   display: flex; align-items: center; gap: var(--tk-space-4); border-radius: var(--md-sys-shape-corner-medium);
-  background: var(--md-sys-color-surface-container); transition: background-color var(--tk-mo-fx);
+  background: var(--md-sys-color-surface-container); transition: background-color var(--tk-mo-fx), transform var(--tk-mo-spatial-fast);
 }
+.tk-calendar__slot:hover { background: var(--md-sys-color-surface-container-highest); transform: translateX(2px); }
+.tk-calendar__slot:has(.tk-calendar__open:active) { transform: translateX(2px) scale(0.98); }
+.tk-calendar__slot[data-tracked="true"]:hover { background: var(--md-sys-color-primary-container); }
+.tk-calendar__slot[data-tracked="true"] { box-shadow: inset 3px 0 0 var(--md-sys-color-primary); }
 .tk-calendar__slot[data-tracked="true"] { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
-[data-reduce-motion="true"] .tk-calendar__slot { transition: none; }
 .tk-calendar__open {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--tk-space-8); padding: var(--tk-space-4);
   border: 0; background: none; color: inherit; text-align: left; cursor: pointer; border-radius: inherit; font: inherit;
@@ -38,16 +41,118 @@
 .tk-calendar-page__show { position: relative; flex: none; }
 .tk-calendar-page__unfollow { position: absolute; top: var(--tk-space-4); right: var(--tk-space-4); background: var(--md-sys-color-surface-container-high); }
 
-/* UX review #10: below ~1500 px seven columns leave one or two words per title; switch to an agenda (one row per
-   day, its shows flowing in wide slots). */
+.tk-calendar__rel { font-family: var(--tk-font-text); color: var(--md-sys-color-on-surface-variant); }
+.tk-calendar__slot[data-tracked="true"] .tk-calendar__rel { color: inherit; opacity: .85; }
+
+/* Week (seven columns) and Agenda (one row per day). UX review #10: below ~1500 px seven columns leave one or two
+   words per title, so the week switches to the agenda layout by itself. */
+.tk-calendar[data-layout="agenda"] { grid-template-columns: 1fr; overflow-x: visible; }
+.tk-calendar[data-layout="agenda"] .tk-calendar__day { flex-direction: row; flex-wrap: wrap; align-items: stretch; }
+.tk-calendar[data-layout="agenda"] .tk-calendar__day-head { flex: 0 0 100%; justify-content: flex-start; gap: var(--tk-space-8); }
+.tk-calendar[data-layout="agenda"] .tk-calendar__slot { flex: 1 1 260px; max-width: 420px; }
+.tk-calendar[data-layout="agenda"] .tk-calendar__none { flex: 0 0 100%; }
+.tk-calendar[data-layout="agenda"] .tk-calendar__day[data-past="true"] { opacity: .55; }
 @media (max-width: 1500px) {
-  .tk-calendar:not([data-compact="true"]) { grid-template-columns: 1fr; overflow-x: visible; }
-  .tk-calendar:not([data-compact="true"]) .tk-calendar__day { flex-direction: row; flex-wrap: wrap; align-items: stretch; }
-  .tk-calendar:not([data-compact="true"]) .tk-calendar__day-head { flex: 0 0 100%; justify-content: flex-start; gap: var(--tk-space-8); }
-  .tk-calendar:not([data-compact="true"]) .tk-calendar__slot { flex: 1 1 260px; max-width: 420px; }
-  .tk-calendar:not([data-compact="true"]) .tk-calendar__none { flex: 0 0 100%; }
+  .tk-calendar[data-layout="week"] { grid-template-columns: 1fr; overflow-x: visible; }
+  .tk-calendar[data-layout="week"] .tk-calendar__day { flex-direction: row; flex-wrap: wrap; align-items: stretch; }
+  .tk-calendar[data-layout="week"] .tk-calendar__day-head { flex: 0 0 100%; justify-content: flex-start; gap: var(--tk-space-8); }
+  .tk-calendar[data-layout="week"] .tk-calendar__slot { flex: 1 1 260px; max-width: 420px; }
+  .tk-calendar[data-layout="week"] .tk-calendar__none { flex: 0 0 100%; }
 }
 @media (max-width: 760px) {
   .tk-calendar { grid-template-columns: 1fr; }
   .tk-calendar[data-compact="true"] { grid-template-columns: 1fr; }
 }
+
+/* Toolbar: week / month / day navigation and the view switch. */
+.tk-calendar-page__nav { display: flex; align-items: center; gap: var(--tk-space-4); }
+.tk-calendar-page__week { min-width: 12ch; text-align: center; }
+.tk-calendar-views__item { gap: var(--tk-space-4); }
+@media (max-width: 900px) { .tk-calendar-views__label { display: none; } }
+
+/* Month: grid of days with poster stacks; the chosen day's list under it, beside it on wide windows. */
+.tk-month { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--tk-space-16); margin-bottom: var(--tk-space-24); }
+@media (min-width: 1400px) {
+  .tk-month[data-has-panel="true"] { grid-template-columns: minmax(0, 1fr) 360px; align-items: start; }
+}
+.tk-month__grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--tk-space-4); }
+.tk-month__dow { padding: var(--tk-space-4) 0; text-align: center; font: 600 12px/16px var(--tk-font-text); color: var(--md-sys-color-on-surface-variant); }
+.tk-month__cell {
+  position: relative; min-height: 96px; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: var(--tk-space-4);
+  padding: var(--tk-space-8); border: 0; border-radius: var(--md-sys-shape-corner-medium); cursor: pointer; text-align: left; font: inherit;
+  background: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface);
+  transition: background-color var(--tk-mo-fx), transform var(--tk-mo-spatial-fast), opacity var(--tk-mo-fx);
+}
+.tk-month__cell:hover { background: var(--md-sys-color-surface-container-high); transform: translateY(-2px); }
+.tk-month__cell:active { transform: translateY(0) scale(0.97); }
+.tk-month__cell:focus-visible { outline: 2px solid var(--md-sys-color-primary); outline-offset: 2px; }
+.tk-month__cell[data-out="true"] { opacity: .4; }
+.tk-month__cell[data-out="true"]:hover { opacity: .7; }
+.tk-month__cell[data-today="true"] { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
+.tk-month__cell[aria-pressed="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+.tk-month__cell[data-tracked="true"] .tk-month__num { color: var(--md-sys-color-primary); font-weight: 700; }
+.tk-month__cell[aria-pressed="true"] .tk-month__num { color: inherit; }
+.tk-month__num { font-size: 12px; line-height: 16px; color: var(--md-sys-color-on-surface-variant); }
+.tk-month__stack { display: flex; align-items: flex-end; }
+.tk-month__poster {
+  width: 26px; height: 38px; flex: none; margin-right: -8px; object-fit: cover; border-radius: var(--md-sys-shape-corner-extra-small);
+  border: 2px solid var(--md-sys-color-surface-container-low); background: var(--md-sys-color-surface-container-highest);
+}
+.tk-month__more { margin-left: 12px; font-size: 11px; color: var(--md-sys-color-on-surface-variant); }
+.tk-month__dot { position: absolute; top: var(--tk-space-8); right: var(--tk-space-8); width: 8px; height: 8px; border-radius: 50%; background: var(--md-sys-color-primary); }
+.tk-month__panel {
+  display: flex; flex-direction: column; gap: var(--tk-space-8); padding: var(--tk-space-12);
+  border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-low);
+}
+.tk-month__panel-title { margin: 0; font: 600 16px/24px var(--tk-font-display); }
+.tk-month__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--tk-space-8); }
+@media (min-width: 1400px) { .tk-month__list { grid-template-columns: 1fr; } }
+.tk-month__hint { margin: 0; }
+@media (max-width: 760px) {
+  .tk-month__cell { min-height: 64px; padding: var(--tk-space-4); }
+  .tk-month__poster { width: 18px; height: 26px; margin-right: -6px; }
+}
+
+/* Day: a time line with hour marks, shows placed by time and the "now" line. */
+.tk-timeline { position: relative; margin: var(--tk-space-8) 0 var(--tk-space-24); padding-left: 64px; }
+.tk-timeline[data-empty="true"] { padding-left: 0; }
+.tk-timeline__hour { position: absolute; left: 0; right: 0; height: 72px; border-top: 1px dashed var(--md-sys-color-outline-variant); }
+.tk-timeline__label { position: absolute; left: 0; top: -9px; padding-right: var(--tk-space-8); font-size: 12px; line-height: 16px; color: var(--md-sys-color-on-surface-variant); background: var(--md-sys-color-surface); }
+.tk-timeline__track { position: absolute; top: 0; bottom: 0; left: 72px; right: 0; }
+.tk-timeline__event { position: absolute; height: 60px; display: flex; }
+.tk-timeline__event .tk-calendar__slot { flex: 1; min-width: 0; height: 100%; }
+.tk-timeline__event[data-past="true"] .tk-calendar__slot { opacity: .6; }
+.tk-timeline__event[data-past="true"] .tk-calendar__slot:hover { opacity: 1; }
+.tk-timeline__event .tk-calendar__poster { width: 34px; height: 48px; }
+.tk-timeline__now { position: absolute; left: 56px; right: 0; height: 2px; background: var(--md-sys-color-tertiary); z-index: 1; pointer-events: none; }
+.tk-timeline__now::before { content: ""; position: absolute; left: -5px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--md-sys-color-tertiary); }
+.tk-timeline__now-label { position: absolute; left: -56px; top: -8px; font: 600 11px/16px var(--tk-font-text); color: var(--md-sys-color-tertiary); text-transform: uppercase; }
+
+/* "For you" as a rail page (screens/recs.rs; its base styles live in home.css). */
+.tk-recs__head .tk-page__title { display: flex; align-items: center; gap: var(--tk-space-12); }
+.tk-recs__mark {
+  display: inline-grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: var(--md-sys-shape-corner-medium);
+  background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container);
+}
+.tk-recs__tabs .tk-seg__item { transition: background-color var(--tk-mo-fx), color var(--tk-mo-fx), transform var(--tk-mo-spatial-fast), border-radius var(--tk-mo-spatial), padding var(--tk-mo-spatial); }
+.tk-recs__tabs .tk-seg__item:hover:not(:disabled) { transform: translateY(-1px); }
+.tk-recs__tabs .tk-seg__item:active:not(:disabled) { transform: scale(0.97); }
+.tk-recs__grid .tk-rec { transition: background-color var(--tk-mo-fx), transform var(--tk-mo-spatial-fast); }
+.tk-recs__grid .tk-rec:hover, .tk-recs__grid .tk-rec:focus-within { background: var(--md-sys-color-surface-container); transform: translateY(-2px); }
+
+/* Motion: subtle keeps color only; reduce / off none (the global rule already drops transitions). */
+:root[data-motion="subtle"] .tk-calendar__slot:hover, :root[data-motion="subtle"] .tk-calendar__slot:has(.tk-calendar__open:active),
+:root[data-motion="subtle"] .tk-month__cell:hover, :root[data-motion="subtle"] .tk-month__cell:active,
+:root[data-motion="subtle"] .tk-recs__tabs .tk-seg__item:hover, :root[data-motion="subtle"] .tk-recs__tabs .tk-seg__item:active,
+:root[data-motion="subtle"] .tk-recs__grid .tk-rec:hover, :root[data-motion="subtle"] .tk-recs__grid .tk-rec:focus-within,
+:root[data-reduce-motion="true"] .tk-calendar__slot:hover, :root[data-reduce-motion="true"] .tk-calendar__slot:has(.tk-calendar__open:active),
+:root[data-reduce-motion="true"] .tk-month__cell:hover, :root[data-reduce-motion="true"] .tk-month__cell:active,
+:root[data-reduce-motion="true"] .tk-recs__tabs .tk-seg__item:hover, :root[data-reduce-motion="true"] .tk-recs__tabs .tk-seg__item:active,
+:root[data-reduce-motion="true"] .tk-recs__grid .tk-rec:hover, :root[data-reduce-motion="true"] .tk-recs__grid .tk-rec:focus-within { transform: none; }
+
+/* QA 0.3: time-line cards keep one line per text and their fixed height (narrow lanes wrapped the title and the
+   relative label into 4-5 lines that spilled over the next card). */
+.tk-timeline__event .tk-calendar__slot { overflow: hidden; }
+.tk-timeline__event .tk-calendar__text { min-width: 0; }
+.tk-timeline__event :is(.tk-calendar__time, .tk-calendar__title, .tk-calendar__ep) { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; }
+.tk-month__partial { margin-bottom: var(--tk-space-12); }

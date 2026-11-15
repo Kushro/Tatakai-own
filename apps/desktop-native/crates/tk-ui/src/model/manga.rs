@@ -1031,7 +1031,7 @@ mod tests {
         assert!(!pages_are_offline(&[off, page(1, 1)]));
         let prog = ReadProgressVm { chapter: ChapterRefVm { ext_id: "e".into(), chapter_id: "c".into() }, chapter_number: 1.0, position: 4, total: Some(10), completed: false, updated_unix: 0 };
         assert!((read_fraction(&prog) - 0.5).abs() < 1e-9);
-        let card = MediaVm { id: "1".into(), title: "x".into(), cover: None, color: None, subtitle: format!("{ADULT_BADGE} - 2020"), score: None };
+        let card = MediaVm { format: None, status: None, year: None, id: "1".into(), title: "x".into(), cover: None, color: None, subtitle: format!("{ADULT_BADGE} - 2020"), score: None };
         assert!(is_adult_card(&card));
     }
     // ---- F6 (parity wave B) ----

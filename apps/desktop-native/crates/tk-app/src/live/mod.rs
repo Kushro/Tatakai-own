@@ -524,7 +524,7 @@ impl LiveBackend {
             .map(|e| {
                 self.remember_title(&e.anime_id, &e.title, e.poster.as_deref());
                 ContinueVm {
-                    media: MediaVm { id: e.anime_id, title: e.title, cover: e.poster, color: None, subtitle: String::new(), score: None },
+                    media: MediaVm { format: None, status: None, year: None, id: e.anime_id, title: e.title, cover: e.poster, color: None, subtitle: String::new(), score: None },
                     episode: e.episode,
                     progress_secs: e.progress_sec,
                     duration_secs: e.duration_sec,
@@ -731,12 +731,15 @@ fn to_vm(m: &Media) -> MediaVm {
         color: m.color.clone(),
         subtitle: parts.join(" - "),
         score: m.score,
+        status: m.status.clone(),
+        format: m.format.clone(),
+        year: m.year,
     }
 }
 
 /// Poster card of a history row (the store keeps title + poster; the id is the UI id).
 fn history_media(e: &HistoryEntry) -> MediaVm {
-    MediaVm { id: e.anime_id.clone(), title: e.title.clone(), cover: e.poster.clone(), color: None, subtitle: String::new(), score: None }
+    MediaVm { format: None, status: None, year: None, id: e.anime_id.clone(), title: e.title.clone(), cover: e.poster.clone(), color: None, subtitle: String::new(), score: None }
 }
 
 fn provider_err(e: ProviderError) -> UiError {
@@ -818,6 +821,9 @@ impl Backend for LiveBackend {
                 air_date: e.air_date,
                 is_filler: e.is_filler,
                 watched: tk_core::lists::progress::watched_fraction(e.number, watched.get(&e.number).copied().unwrap_or(0.0), list_progress),
+                summary: e.summary,
+                runtime_min: e.runtime_min,
+                rating: e.rating.map(|r| r as f32),
             })
             .collect())
     }
@@ -1061,6 +1067,16 @@ impl Backend for LiveBackend {
     }
     async fn link_capabilities(&self) -> UiResult<LinkCapsVm> {
         self.link.capabilities().await
+    }
+    // 2026-11 history per device (`live/link.rs`)
+    async fn link_set_history_mode(&self, device_id: &str, mode: tk_ui::backend::HistoryModeVm) -> UiResult<()> {
+        self.link.set_history_mode(device_id, mode).await
+    }
+    async fn link_use_as_source(&self, device_id: &str) -> UiResult<()> {
+        self.link.use_as_source(device_id).await
+    }
+    async fn link_delete_contributed(&self, device_id: &str) -> UiResult<u64> {
+        self.link.delete_contributed(device_id).await
     }
 
     // --- wave 2 (docs/redesign/09): bodies live in `crate::anime_build` (B). ---
@@ -1748,7 +1764,7 @@ mod season_cap_tests {
     use super::cap_to_season;
 
     fn ep(number: u32, air: Option<&str>) -> tk_core::Episode {
-        tk_core::Episode { number, title: None, image: None, air_date: air.map(str::to_owned), is_filler: false }
+        tk_core::Episode { number, title: None, image: None, air_date: air.map(str::to_owned), is_filler: false, ..Default::default() }
     }
 
     #[test]
@@ -1920,7 +1936,7 @@ mod fallback_tests {
 
     /// Overgeared as Kitsu answers it while AniList is rate-limited (r12, BUG-143).
     fn kitsu_og() -> Media {
-        Media {
+        Media { format: None,
             media_ref: MediaRef { anilist_id: None, mal_id: None, kitsu_id: Some(50743) },
             kind: MediaKind::Anime,
             title: "Temppal: Item no Chikara".into(),

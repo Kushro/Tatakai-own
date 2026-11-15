@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -144,6 +145,9 @@ class LinkRepositoryImpl(
 
     private val scope = CoroutineScope(SupervisorJob() + io)
     private val found = ConcurrentHashMap<String, FoundPc>()
+    /** 2026-11 history per device: `history_resync` events, kept until `HistorySyncTriggers` (:core:data) takes them. */
+    private val historyResyncs = kotlinx.coroutines.channels.Channel<HistoryResyncMode>(capacity = 8, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+    val historyResyncRequests: Flow<HistoryResyncMode> = historyResyncs.receiveAsFlow()
     private val _pendingHandoff = MutableStateFlow<LinkHandoff?>(null)
     override val pendingHandoff: StateFlow<LinkHandoff?> = _pendingHandoff.asStateFlow()
 
@@ -203,6 +207,7 @@ class LinkRepositoryImpl(
     internal suspend fun pollEventsOnce(): Boolean {
         val r = call { c -> c.events(ControlWire.MAX_WAIT_SECS) }
         val events = r.getOrNull() ?: return false
+        events.mapNotNull(LinkWireMapping::historyResync).forEach { historyResyncs.trySend(it) }
         val conn = connectionOrNull() ?: return true
         events.mapNotNull(LinkWireMapping::handoff).lastOrNull()?.let { h ->
             // The PC already started the session (send_to_device): register it so the player can open it by id.

@@ -76,6 +76,20 @@ pub fn apply_theme(palette: &str, mode: &str, contrast: Option<&str>, reduce_mot
     let _ = document::eval(&apply_theme_js(palette, mode, contrast, reduce_motion));
 }
 
+/// Set the layout / style attributes of `Settings::look` (`LookPrefs::html_attrs`) on `<html>`.
+pub fn apply_look_js(attrs: &[(&str, &str)]) -> String {
+    let q = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into());
+    let mut js = String::from("const r=document.documentElement;");
+    for (k, v) in attrs {
+        js.push_str(&format!("r.setAttribute({},{});", q(k), q(v)));
+    }
+    js
+}
+
+pub fn apply_look(attrs: &[(&str, &str)]) {
+    let _ = document::eval(&apply_look_js(attrs));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

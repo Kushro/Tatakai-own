@@ -42,7 +42,7 @@ pub use crate::model::social::{
 };
 
 /// A poster card. `id` is the AniList id as text (`"mal:<id>"` when only MAL is known).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct MediaVm {
     pub id: String,
     pub title: String,
@@ -52,6 +52,13 @@ pub struct MediaVm {
     /// `2024 - 12 ep` style line, already formatted.
     pub subtitle: String,
     pub score: Option<u32>,
+    /// AniList status (`RELEASING`, `FINISHED`, `NOT_YET_RELEASED`, ...), when known (2026-11 UI refresh: the
+    /// status dot of the detailed cards).
+    pub status: Option<String>,
+    /// AniList format (`TV`, `MOVIE`, `ONA`, ...), when known.
+    pub format: Option<String>,
+    /// Season year, when known.
+    pub year: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,6 +90,27 @@ pub struct SectionVm {
 pub struct HomeVm {
     pub continue_watching: Vec<ContinueVm>,
     pub sections: Vec<SectionVm>,
+    /// Spotlight slides (2026-11 UI refresh): the first trending titles with their banner, synopsis and facts.
+    /// Empty = the UI falls back to the first section's cards.
+    pub hero: Vec<HeroVm>,
+}
+
+/// One slide of the Home spotlight (2026-11 UI refresh). Raw AniList values: the UI formats them.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct HeroVm {
+    pub media: MediaVm,
+    /// Wide artwork (AniList `bannerImage`); `None` = the UI uses the cover.
+    pub banner: Option<String>,
+    pub synopsis: Option<String>,
+    pub genres: Vec<String>,
+    /// `RELEASING`, `FINISHED`, ...
+    pub status: Option<String>,
+    /// `WINTER` / `SPRING` / `SUMMER` / `FALL`.
+    pub season: Option<String>,
+    pub year: Option<i32>,
+    pub episodes: Option<u32>,
+    /// `TV`, `MOVIE`, `ONA`, ... when the provider gives it.
+    pub format: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -98,7 +126,7 @@ pub struct DetailsVm {
     pub resume_secs: u32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct EpisodeVm {
     pub number: u32,
     pub title: Option<String>,
@@ -107,6 +135,12 @@ pub struct EpisodeVm {
     pub is_filler: bool,
     /// 0.0..=1.0 from the local history.
     pub watched: f64,
+    /// Episode synopsis (ani.zip `overview` / `summary`), when known (2026-11 UI refresh).
+    pub summary: Option<String>,
+    /// Length in minutes (ani.zip `runtime` / `length`).
+    pub runtime_min: Option<u32>,
+    /// Viewer rating on a 0..10 scale (ani.zip `rating`).
+    pub rating: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,7 +180,7 @@ pub struct ExtensionVm {
     pub permissions: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct DeviceVm {
     pub id: String,
     pub name: String,
@@ -155,6 +189,24 @@ pub struct DeviceVm {
     pub last_seen_unix: Option<i64>,
     /// Has a live session with this PC right now ("Connected now" pill).
     pub online: bool,
+    /// 2026-11 history per device: how this PC treats the device's watch history.
+    pub history_mode: HistoryModeVm,
+    /// History rows on this PC whose origin is this device ("contributed N episodes").
+    pub contributed: u64,
+    /// "Use as source" is running for this device (its authoritative window is open).
+    pub resyncing: bool,
+}
+
+/// How the PC treats one paired device's watch history (tk-link `devices::HistoryMode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HistoryModeVm {
+    /// Its pushes merge and it pulls the PC history.
+    #[default]
+    Full,
+    /// It pulls, but what it pushes is ignored.
+    ReceiveOnly,
+    /// Nothing in either direction.
+    Paused,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -1395,6 +1447,20 @@ pub trait Backend: Send + Sync + 'static {
     }
     async fn link_capabilities(&self) -> UiResult<LinkCapsVm> {
         Err(UiError::not_wired("link_capabilities"))
+    }
+    /// 2026-11 history per device: set the device's history mode.
+    async fn link_set_history_mode(&self, _device_id: &str, _mode: HistoryModeVm) -> UiResult<()> {
+        Err(UiError::not_wired("link_set_history_mode"))
+    }
+    /// "Use as source": the device pushes its whole history (its rows win), then the other non-paused devices replace
+    /// theirs with the PC's.
+    async fn link_use_as_source(&self, _device_id: &str) -> UiResult<()> {
+        Err(UiError::not_wired("link_use_as_source"))
+    }
+    /// Delete the history rows this device contributed (rows merged before origins existed are not touched).
+    /// Returns the rows removed.
+    async fn link_delete_contributed(&self, _device_id: &str) -> UiResult<u64> {
+        Err(UiError::not_wired("link_delete_contributed"))
     }
 
     // --- wave 2 (docs/redesign/09). Same rule: defaults keep every implementation compiling. ---

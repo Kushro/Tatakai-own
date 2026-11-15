@@ -407,13 +407,20 @@ button.tk-chip:hover:not(:disabled) { background: var(--tk-hover); }
 .tk-wavy[data-active="true"] .tk-wavy__fill { animation: tk-wave 900ms linear infinite; }
 @keyframes tk-wave { to { transform: translateX(-36px); } }
 
+/* 2026-11 perf: the shimmer is a translated overlay (compositor only) instead of an animated background-position,
+   which repainted every skeleton on every frame while Home loads. */
 .tk-skel {
-  border-radius: var(--md-sys-shape-corner-large);
-  background: linear-gradient(90deg, var(--md-sys-color-surface-container) 0%, var(--md-sys-color-surface-container-high) 40%, var(--md-sys-color-surface-container) 80%);
-  background-size: 200% 100%; opacity: 0; animation: tk-skel-in var(--tk-mo-fx) 150ms forwards, tk-shimmer 1.6s linear 150ms infinite;
+  position: relative; overflow: hidden; isolation: isolate;
+  border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container);
+  opacity: 0; animation: tk-skel-in var(--tk-mo-fx) 150ms forwards;
+}
+.tk-skel::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0%, var(--md-sys-color-surface-container-high) 50%, transparent 100%);
+  animation: tk-shimmer 1.6s linear 150ms infinite;
 }
 @keyframes tk-skel-in { to { opacity: 1; } }
-@keyframes tk-shimmer { to { background-position: -200% 0; } }
+@keyframes tk-shimmer { to { transform: translateX(100%); } }
 .tk-skel--card { aspect-ratio: 13 / 18; width: 150px; flex: none; }
 .tk-skel--line { height: 14px; width: 60%; border-radius: var(--md-sys-shape-corner-small); }
 .tk-skel--header { height: 280px; width: 100%; }
@@ -494,6 +501,12 @@ details[open] > summary.tk-summary > .tk-summary__chevron { transform: rotate(90
 .tk-menu__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk-menu__hint { margin-inline-start: auto; font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-small-size); color: var(--md-sys-color-on-surface-variant); }
 .tk-menu__item[aria-checked="true"] .tk-menu__hint { color: inherit; opacity: 0.8; }
+/* two-line items (label + description), e.g. Link's history modes */
+.tk-menu__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: start; }
+.tk-menu__text .tk-menu__label { white-space: normal; }
+.tk-menu__desc { font-size: var(--md-sys-typescale-body-small-size); line-height: 16px; color: var(--md-sys-color-on-surface-variant); white-space: normal; }
+.tk-menu__item:has(.tk-menu__desc) { height: auto; min-height: 48px; padding-block: var(--tk-space-8); align-items: flex-start; }
+.tk-menu:has(.tk-menu__desc) { min-width: 300px; }
 .tk-menu__sep { height: 1px; flex: none; margin: var(--tk-space-4) var(--tk-space-8); background: var(--md-sys-color-outline-variant); }
 
 /* ---- dialog --------------------------------------------------------------------------------- */
@@ -568,3 +581,95 @@ details[open] > summary.tk-summary > .tk-summary__chevron { transform: rotate(90
 
 /* ---- component gallery (debug builds only) -------------------------------------------------- */
 .tk-gallery__grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--tk-space-16); align-items: start; }
+
+/* =============================================================================================
+   2026-11 UI refresh (owner: coordinator). Settings::look → attributes on <html>:
+   data-density, data-rail, data-cards, data-motion, data-effects (+ data-reduce-motion when motion is off).
+   Motion rule: transforms and opacity only; "subtle" keeps color/opacity changes and drops every transform.
+   ============================================================================================= */
+
+/* ---- slim rail (icons only, labels as tooltips through `title`) ---- */
+:root[data-rail="slim"] .tk-shell { --tk-rail-w: 64px; }
+:root[data-rail="slim"] .tk-rail:not([data-expanded="true"]) { padding-inline: var(--tk-space-8); align-items: center; }
+:root[data-rail="slim"] .tk-rail:not([data-expanded="true"]) .tk-rail__label { display: none; }
+:root[data-rail="slim"] .tk-rail:not([data-expanded="true"]) .tk-rail__item { height: 48px; padding: 0; width: 48px; }
+:root[data-rail="slim"] .tk-rail:not([data-expanded="true"]) .tk-rail__indicator { width: 44px; height: 44px; border-radius: var(--md-sys-shape-corner-medium); }
+:root[data-rail="slim"] .tk-rail:not([data-expanded="true"]) .tk-rail__toggle { width: 48px; }
+:root[data-rail="slim"] .tk-rail:not([data-expanded="true"]) .tk-rail__fab { width: 48px; min-width: 48px; height: 48px; margin-bottom: var(--tk-space-8); }
+:root[data-rail="slim"] .tk-rail:not([data-expanded="true"]) .tk-rail__foot .tk-rail__item { height: 40px; }
+
+/* ---- density ---- */
+:root[data-density="compact"] .tk-page { gap: var(--tk-space-20); padding-top: var(--tk-space-16); }
+:root[data-density="compact"] .tk-section { gap: var(--tk-space-8); }
+:root[data-density="compact"] .tk-row { gap: var(--tk-space-12); }
+:root[data-density="compact"] .tk-panel { padding: var(--tk-space-16); gap: var(--tk-space-12); }
+:root[data-density="compact"] .tk-setting-row { padding: var(--tk-space-8) 0; }
+
+/* ---- expressive motion (default) ---- */
+/* rail: the active pill pops in, icons nudge on hover */
+.tk-rail__indicator .tk-icon { transition: transform var(--tk-mo-spatial-fast); }
+.tk-rail__item:hover .tk-rail__indicator .tk-icon { transform: translateY(-1px) scale(1.06); }
+.tk-rail__item:active .tk-rail__indicator { transform: scale(0.94); }
+.tk-rail__item[data-active="true"] .tk-rail__indicator { animation: tk-pop var(--md-sys-motion-spatial-default-duration) var(--md-sys-motion-spatial-default-easing); }
+@keyframes tk-pop { from { transform: scaleX(0.6); opacity: .4; } to { transform: none; opacity: 1; } }
+/* buttons: a small lift on hover */
+.tk-btn:hover:not(:disabled) { transform: translateY(-1px); }
+.tk-btn:active:not(:disabled) { transform: translateY(0) scale(0.97); }
+.tk-iconbtn:hover:not(:disabled) .tk-icon { transform: scale(1.08); }
+.tk-iconbtn .tk-icon { transition: transform var(--tk-mo-spatial-fast); }
+/* chips, pills and tags: lift and tint */
+button.tk-chip { transition: background-color var(--tk-mo-fx-fast), border-radius var(--tk-mo-spatial-fast), color var(--tk-mo-fx-fast), transform var(--tk-mo-spatial-fast); }
+button.tk-chip:hover:not(:disabled) { transform: translateY(-2px); }
+button.tk-chip:active:not(:disabled) { transform: scale(0.96); }
+.tk-chip--info { transition: background-color var(--tk-mo-fx-fast), transform var(--tk-mo-spatial-fast); }
+.tk-chip--info:hover { background: var(--md-sys-color-surface-container-highest); transform: translateY(-1px); }
+/* segmented: the checked item springs */
+.tk-seg__item { transition: background-color var(--tk-mo-fx), color var(--tk-mo-fx), border-radius var(--tk-mo-spatial), padding var(--tk-mo-spatial), transform var(--tk-mo-spatial-fast); }
+.tk-seg__item:active:not(:disabled) { transform: scale(0.95); }
+/* switches: the thumb settles with a spring */
+.tk-switch:hover:not(:disabled) { border-color: var(--md-sys-color-on-surface-variant); }
+/* page entrance: a short fade + rise of the routed page (no layout change) */
+.tk-main > .tk-page, .tk-main > div > .tk-page { animation: tk-page-in var(--md-sys-motion-effects-default-duration) var(--md-sys-motion-effects-default-easing); }
+@keyframes tk-page-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+/* panels and setting rows react to the pointer */
+.tk-setting-row { transition: background-color var(--tk-mo-fx-fast); border-radius: var(--md-sys-shape-corner-small); }
+.tk-setting-row:hover { background: color-mix(in srgb, var(--md-sys-color-on-surface) 3%, transparent); }
+
+/* ---- subtle motion: color / opacity only ---- */
+:root[data-motion="subtle"] :is(.tk-btn, .tk-iconbtn, .tk-iconbtn .tk-icon, button.tk-chip, .tk-chip--info, .tk-seg__item, .tk-rail__indicator, .tk-rail__indicator .tk-icon, .tk-card .tk-cover, .tk-cont):is(:hover, :active, :focus-visible) { transform: none; }
+:root[data-motion="subtle"] .tk-rail__item:hover .tk-rail__indicator .tk-icon, :root[data-motion="subtle"] .tk-iconbtn:hover .tk-icon { transform: none; }
+:root[data-motion="subtle"] .tk-rail__item[data-active="true"] .tk-rail__indicator { animation: none; }
+:root[data-motion="subtle"] .tk-main > .tk-page, :root[data-motion="subtle"] .tk-main > div > .tk-page { animation-name: tk-fade-in; }
+@keyframes tk-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ---- glass effects (opt-in, Settings > Appearance > Blur effects) ---- */
+:root[data-effects="glass"] .tk-titlebar { background: color-mix(in srgb, var(--md-sys-color-surface-container-low) 82%, transparent); backdrop-filter: blur(12px) saturate(1.2); }
+:root[data-effects="glass"] .tk-snack, :root[data-effects="glass"] .tk-menu { backdrop-filter: blur(14px); }
+
+/* ---- Settings > Appearance > Layout and style: preset cards ---- */
+.tk-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--tk-space-12); width: 100%; }
+.tk-preset {
+  display: flex; flex-direction: column; gap: var(--tk-space-8); padding: var(--tk-space-12); text-align: start;
+  border-radius: var(--md-sys-shape-corner-large); border: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);
+  transition: border-color var(--tk-mo-fx-fast), background-color var(--tk-mo-fx-fast), transform var(--tk-mo-spatial-fast);
+}
+.tk-preset:hover { border-color: var(--md-sys-color-primary); transform: translateY(-2px); }
+.tk-preset:active { transform: scale(0.98); }
+.tk-preset[aria-checked="true"] { border-color: var(--md-sys-color-primary); background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
+:root[data-motion="subtle"] .tk-preset:is(:hover, :active) { transform: none; }
+.tk-preset__name { font: 600 15px/20px var(--tk-font-display); }
+.tk-preset__hint { font-size: var(--md-sys-typescale-body-small-size); line-height: 16px; color: var(--md-sys-color-on-surface-variant); }
+.tk-preset[aria-checked="true"] .tk-preset__hint { color: inherit; opacity: .85; }
+.tk-preset__thumb { display: flex; height: 84px; overflow: hidden; border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container-lowest); }
+.tk-preset__rail { width: 22px; flex: none; background: var(--md-sys-color-surface-container-high); }
+.tk-preset__thumb[data-preset="cinema"] .tk-preset__rail, .tk-preset__thumb[data-preset="dense"] .tk-preset__rail { width: 12px; }
+.tk-preset__body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; padding: 6px; }
+.tk-preset__hero { height: 34px; flex: none; border-radius: 6px; background: linear-gradient(120deg, var(--md-sys-color-primary), var(--md-sys-color-tertiary)); }
+.tk-preset__thumb[data-preset="cinema"] .tk-preset__hero { height: 42px; }
+.tk-preset__thumb[data-preset="calm"] .tk-preset__hero { height: 26px; margin-inline: 10%; }
+.tk-preset__thumb[data-preset="dense"] .tk-preset__hero { display: none; }
+.tk-preset__cards { display: flex; gap: 3px; }
+.tk-preset__cards i { flex: 1; aspect-ratio: 13 / 18; max-height: 22px; border-radius: 3px; background: var(--md-sys-color-surface-container-highest); }
+.tk-preset__thumb[data-preset="dense"] .tk-preset__cards i { max-height: 16px; }
+.tk-look__autoplay { display: flex; align-items: center; flex-wrap: wrap; gap: var(--tk-space-12); }

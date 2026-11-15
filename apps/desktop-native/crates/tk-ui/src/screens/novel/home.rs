@@ -524,7 +524,7 @@ mod tests {
     #[test]
     fn resume_goes_to_the_saved_chapter() {
         let c = ContinueReadVm {
-            media: MediaVm {
+            media: MediaVm { format: None, status: None, year: None,
                 id: "9".into(),
                 title: "T".into(),
                 cover: None,

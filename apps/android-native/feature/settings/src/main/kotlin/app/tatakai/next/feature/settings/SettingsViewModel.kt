@@ -6,6 +6,8 @@ import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppLanguage
 import app.tatakai.next.model.AppReset
 import app.tatakai.next.model.AppSettings
+import app.tatakai.next.model.LookPrefs
+import app.tatakai.next.model.LookPreset
 import app.tatakai.next.model.ContrastPref
 import app.tatakai.next.model.HistoryRepository
 import app.tatakai.next.model.LinkRepository
@@ -139,6 +141,12 @@ class SettingsViewModel(
     fun setLanguage(value: AppLanguage) = update { it.copy(language = value) }
 
     fun setReduceMotion(value: Boolean) = update(announce = true) { it.copy(reduceMotion = value) }
+
+    /** 2026-11 UI refresh: one Diseño y estilo field (the preset stays as it was; the screen shows "Personalizado" when nothing matches). */
+    fun setLook(transform: (LookPrefs) -> LookPrefs) = update { it.copy(look = transform(it.look).sanitized()) }
+
+    /** Applies every field of [preset] at once. */
+    fun applyLookPreset(preset: LookPreset) = update(announce = true) { it.copy(look = LookPrefs.of(preset)) }
 
     // ---------------------------------------------------------------- player
 

@@ -29,9 +29,22 @@ object Fixtures {
 
     fun expected(name: String): JsonObject = (element("expected.json") as JsonObject)[name] as JsonObject
 
-    fun encode(m: Media): JsonElement = json.encodeToJsonElement(Media.serializer(), m)
+    /**
+     * Fields Android / desktop add beyond the shared contract (2026-11 UI refresh: card format, episode synopsis / length / rating).
+     * expected.json is shared with the Rust tests and is not edited, so they are compared by leaving them out (same as
+     * `tk-core/tests/metadata_fixtures.rs`); [MappersExtrasTest] checks their values.
+     */
+    private val APP_ONLY = setOf("format", "summary", "runtimeMin", "rating")
 
-    fun encode(e: Episode): JsonElement = json.encodeToJsonElement(Episode.serializer(), e)
+    private fun JsonElement.stripAppOnly(): JsonElement = when (this) {
+        is JsonObject -> JsonObject(filterKeys { it !in APP_ONLY }.mapValues { it.value.stripAppOnly() })
+        is JsonArray -> JsonArray(map { it.stripAppOnly() })
+        else -> this
+    }
+
+    fun encode(m: Media): JsonElement = json.encodeToJsonElement(Media.serializer(), m).stripAppOnly()
+
+    fun encode(e: Episode): JsonElement = json.encodeToJsonElement(Episode.serializer(), e).stripAppOnly()
 
     fun encode(p: FeedPage): JsonObject = JsonObject(
         mapOf(

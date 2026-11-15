@@ -93,13 +93,27 @@ pub fn relation_rank(relation: &str) -> u8 {
 }
 
 /// Relations sorted by [`relation_rank`] (stable inside a group).
+#[cfg(test)]
 pub fn sorted_relations(list: &[RelatedVm]) -> Vec<RelatedVm> {
     let mut out = list.to_vec();
     out.sort_by_key(|r| relation_rank(&r.relation));
     out
 }
 
-fn relation_label(relation: &str) -> String {
+/// Relations grouped by type, groups in [`relation_rank`] order (then by name), items in their original order.
+pub fn grouped_relations(list: &[RelatedVm]) -> Vec<(String, Vec<RelatedVm>)> {
+    let mut groups: Vec<(String, Vec<RelatedVm>)> = Vec::new();
+    for r in list {
+        match groups.iter_mut().find(|g| g.0 == r.relation) {
+            Some(g) => g.1.push(r.clone()),
+            None => groups.push((r.relation.clone(), vec![r.clone()])),
+        }
+    }
+    groups.sort_by(|a, b| relation_rank(&a.0).cmp(&relation_rank(&b.0)).then_with(|| a.0.cmp(&b.0)));
+    groups
+}
+
+pub(super) fn relation_label(relation: &str) -> String {
     relation_key(relation).map(t).unwrap_or_else(|| relation.replace('_', " "))
 }
 
@@ -112,7 +126,7 @@ fn role_label(role: &str) -> String {
     }
 }
 
-fn format_label(format: &str) -> String {
+pub(super) fn format_label(format: &str) -> String {
     match format {
         "TV" => t("details.format.tv"),
         "TV_SHORT" => t("details.format.tv_short"),
@@ -518,53 +532,42 @@ pub fn RelatedTab(extra: ExtraState, on_retry: EventHandler<()>) -> Element {
         },
         Some(Ok(x)) => rsx! {
             div { class: "tk-drelated", "data-extra": "relations",
-                for r in sorted_relations(&x.relations) {
-                    {
-                        let label = relation_label(&r.relation);
-                        let manga = r.kind == "manga";
-                        let id = r.media.id.clone();
-                        let body = rsx! {
-                            span { class: "tk-drelated__cover",
-                                MediaCover { src: r.media.cover.clone(), color: r.media.color.clone(), title: r.media.title.clone() }
-                            }
-                            span { class: "tk-drelated__text",
-                                span { class: "tk-drelated__rel", "{label}" }
-                                span { class: "tk-drelated__title", "{r.media.title}" }
-                                span { class: "tk-chips",
-                                    if manga {
-                                        Pill { text: t("details.kind.manga"), tone: Tone::Primary, plain: true }
-                                    }
-                                    if !r.media.subtitle.is_empty() {
-                                        span { class: "tk-drelated__sub", "{r.media.subtitle}" }
+                for (relation , items) in grouped_relations(&x.relations) {
+                    h3 { key: "h-{relation}", class: "tk-drelated__group", "data-relation": "{relation}", {relation_label(&relation)} }
+                    for r in items {
+                        {
+                            let manga = r.kind == "manga";
+                            let id = r.media.id.clone();
+                            let body = rsx! {
+                                span { class: "tk-drelated__cover",
+                                    MediaCover { src: r.media.cover.clone(), color: r.media.color.clone(), title: r.media.title.clone() }
+                                }
+                                span { class: "tk-drelated__text",
+                                    span { class: "tk-drelated__title", "{r.media.title}" }
+                                    span { class: "tk-chips",
+                                        if manga {
+                                            Pill { text: t("details.kind.manga"), tone: Tone::Primary, plain: true }
+                                        }
+                                        if !r.media.subtitle.is_empty() {
+                                            span { class: "tk-drelated__sub", "{r.media.subtitle}" }
+                                        }
                                     }
                                 }
-                            }
-                        };
-                        if manga {
-                            // Wave B (l, `manga.details.anime-link`): anime -> manga opens the manga details page.
+                            };
                             rsx! {
                                 button {
                                     key: "{r.media.id}",
                                     class: "tk-drelated__row",
                                     r#type: "button",
                                     "data-relation": "{r.relation}",
-                                    "data-kind": "manga",
+                                    "data-kind": if manga { "manga" } else { "anime" },
                                     onclick: move |_| {
-                                        navigator.push(Route::MangaDetailsPage { id: id.clone() });
-                                    },
-                                    {body}
-                                }
-                            }
-                        } else {
-                            rsx! {
-                                button {
-                                    key: "{r.media.id}",
-                                    class: "tk-drelated__row",
-                                    r#type: "button",
-                                    "data-relation": "{r.relation}",
-                                    "data-kind": "anime",
-                                    onclick: move |_| {
-                                        navigator.push(Route::DetailsPage { id: id.clone() });
+                                        // Wave B (l, `manga.details.anime-link`): anime -> manga opens the manga details page.
+                                        if manga {
+                                            navigator.push(Route::MangaDetailsPage { id: id.clone() });
+                                        } else {
+                                            navigator.push(Route::DetailsPage { id: id.clone() });
+                                        }
                                     },
                                     {body}
                                 }
@@ -697,7 +700,7 @@ mod tests {
 
     fn rel(relation: &str) -> RelatedVm {
         RelatedVm {
-            media: MediaVm {
+            media: MediaVm { format: None, status: None, year: None,
                 id: relation.into(),
                 title: relation.into(),
                 cover: None,
@@ -733,6 +736,17 @@ mod tests {
         assert_eq!(ids, vec!["PREQUEL", "SEQUEL", "SOURCE", "OTHER"]);
         assert_eq!(relation_key("SPIN_OFF"), Some("details.relation.spin_off"));
         assert_eq!(relation_key("NEW_KIND"), None);
+    }
+
+    #[test]
+    fn relations_list_groups_by_type_with_story_first() {
+        let list = [rel("OTHER"), rel("SIDE_STORY"), rel("SEQUEL"), rel("SIDE_STORY"), rel("PREQUEL")];
+        let groups: Vec<(String, usize)> = grouped_relations(&list).into_iter().map(|(k, v)| (k, v.len())).collect();
+        assert_eq!(
+            groups,
+            vec![("PREQUEL".into(), 1), ("SEQUEL".into(), 1), ("SIDE_STORY".into(), 2), ("OTHER".into(), 1)]
+        );
+        assert!(grouped_relations(&[]).is_empty());
     }
 
     #[test]

@@ -108,3 +108,8 @@
 }
 .tk-titlebar__pill--offline { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container); }
 .tk-titlebar__pill--link { background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); }
+
+/* ---- 2026-11 history per device (task D): mode pill, contributed count, "Historial" menu ---------- */
+.tk-device__history { font-size: var(--md-sys-typescale-label-small-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-device[data-history-mode="paused"] .tk-device__history { opacity: 0.7; }
+.tk-device__ctl { flex-wrap: wrap; justify-content: flex-end; }

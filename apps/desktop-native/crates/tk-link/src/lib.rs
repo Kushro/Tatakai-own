@@ -99,6 +99,12 @@ pub trait LinkHost: Send + Sync + 'static {
     fn history_merge(&self, _rows: Vec<tk_core::HistoryEntry>) -> usize {
         0
     }
+    /// 2026-11 history per device: rows pushed by `device_id` (the authenticated phone). The host remembers the device
+    /// as the rows' origin; with `authoritative` (the device is the chosen source and its window is open) every row
+    /// wins regardless of timestamps. Returns how many were stored. Default: [`history_merge`](Self::history_merge).
+    fn history_merge_from(&self, _device_id: &str, rows: Vec<tk_core::HistoryEntry>, _authoritative: bool) -> usize {
+        self.history_merge(rows)
+    }
     /// Drop the whole local history (`DELETE /v1/history`, user-confirmed on the phone). Returns `false` when the
     /// host cannot (no store): the route then answers `internal`. Default: `false`.
     fn history_clear(&self) -> bool {
@@ -474,6 +480,23 @@ impl LinkHandle {
         }
     }
 
+    /// 2026-11 history per device: set how this PC treats `id`'s history (persisted in `devices.json`).
+    pub fn set_history_mode(&self, id: &str, mode: devices::HistoryMode) -> bool {
+        self.state.devices.set_history_mode(id, mode)
+    }
+
+    /// "Use this device as the source": ask `id` to push its whole history and let those rows win for
+    /// [`devices::RESYNC_WINDOW_SECS`]; its `resync-done` then asks the other devices to replace theirs. `false` when the
+    /// device is unknown, revoked or not in `full` mode.
+    pub fn start_resync_from(&self, id: &str) -> bool {
+        self.state.devices.start_resync(id, OffsetDateTime::now_utc().unix_timestamp())
+    }
+
+    /// Whether `id`'s authoritative window is open (a resync from it is running).
+    pub fn resync_running(&self, id: &str) -> bool {
+        self.state.devices.resync_open(id, OffsetDateTime::now_utc().unix_timestamp())
+    }
+
     pub fn rename_device(&self, id: &str, name: &str) -> bool {
         self.state.devices.rename(id, &pairing::sanitize_device_name(name))
     }
@@ -539,7 +562,7 @@ mod online_tests {
     use super::*;
 
     fn dev(id: &str, seen: Option<i64>) -> Device {
-        Device { id: id.into(), name: id.into(), fingerprint: String::new(), created_at: 0, not_after: 10_000, revoked_at: None, platform: String::new(), last_seen_at: seen }
+        Device { id: id.into(), name: id.into(), fingerprint: String::new(), created_at: 0, not_after: 10_000, revoked_at: None, platform: String::new(), last_seen_at: seen, history_mode: devices::HistoryMode::Full }
     }
 
     #[test]

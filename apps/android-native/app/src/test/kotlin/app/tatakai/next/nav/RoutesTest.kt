@@ -12,12 +12,12 @@ import kotlin.test.assertTrue
 class RoutesTest {
 
     @Test
-    fun `compact has four destinations and wide has eleven in rail order`() {
-        assertEquals(listOf(Route.Home, Route.Search, Route.Library, Route.You), topLevelRoutes(wide = false))
+    fun `compact has five destinations and wide has thirteen in rail order`() {
+        assertEquals(listOf(Route.Home, Route.Search, Route.Calendar, Route.Library, Route.You), topLevelRoutes(wide = false))
         // parity wave B (16 §3.12): Manga, Novelas, Descargas and Perfil join the rail.
         assertEquals(
             listOf(
-                Route.Home, Route.Search, Route.Library, Route.Manga(), Route.Novels(), Route.Downloads(), Route.Torrents(),
+                Route.Home, Route.Search, Route.Calendar, Route.ForYou, Route.Library, Route.Manga(), Route.Novels(), Route.Downloads(), Route.Torrents(),
                 Route.Extensions, Route.Linked, Route.Profile(), Route.Settings,
             ),
             topLevelRoutes(wide = true),
@@ -34,7 +34,11 @@ class RoutesTest {
         assertEquals(Route.Profile(), Route.Notifications.topLevel(wide = true))
         assertEquals(Route.You, Route.Profile("someone").topLevel(wide = false))
         assertEquals(Route.Extensions, Route.Provider("ext", "src").topLevel(wide = true))
-        assertEquals(Route.Home, Route.Calendar.topLevel(wide = false))
+        // 2026-11 UI refresh: Calendario is a destination on both; Para ti lives in the rail / in "Tú".
+        assertEquals(Route.Calendar, Route.Calendar.topLevel(wide = false))
+        assertEquals(Route.Calendar, Route.Calendar.topLevel(wide = true))
+        assertEquals(Route.ForYou, Route.ForYou.topLevel(wide = true))
+        assertEquals(Route.You, Route.ForYou.topLevel(wide = false))
     }
 
     @Test

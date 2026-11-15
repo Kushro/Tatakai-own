@@ -21,6 +21,8 @@ pub mod ext;
 pub mod flow;
 pub mod home;
 pub mod lists;
+/// Layout / style choices and presets (2026-11 UI refresh).
+pub mod look;
 pub mod manga;
 pub mod novel;
 pub mod server;
@@ -35,6 +37,9 @@ pub use ext::ExtPrefs;
 pub use flow::{PlayerFlowPrefs, ShortcutMapVm};
 pub use home::HomePrefs;
 pub use lists::{ListPrefsVm, ListServiceVm};
+pub use look::{
+    CalendarView, CardStyle, Density, EpisodeView, HomeLayout, LookPrefs, LookPreset, Motion, RailStyle, RelationsView,
+};
 pub use manga::{MangaPrefs, MangaReaderPrefs, ReadKindVm, ReaderBackgroundVm, ReaderDirectionVm, ReaderFitVm, ReaderModeVm};
 pub use novel::{NovelPrefs, NovelThemeVm, TtsPrefs, TtsProviderVm};
 pub use server::ServerPrefs;
@@ -164,6 +169,9 @@ pub struct Settings {
     pub novel: NovelPrefs,
     /// AniList notifications polling, details extras (worker n, `model/social.rs`).
     pub social: SocialPrefs,
+    // --- 2026-11 UI refresh ---
+    /// Layout and style choices with presets (`model/look.rs`).
+    pub look: LookPrefs,
 }
 
 /// Values of `Settings::title_language`; the first one is the default.
@@ -197,6 +205,7 @@ impl Default for Settings {
             manga: MangaPrefs::default(),
             novel: NovelPrefs::default(),
             social: SocialPrefs::default(),
+            look: LookPrefs::default(),
         }
     }
 }
@@ -449,6 +458,7 @@ impl Settings {
         self.manga = self.manga.sanitized();
         self.novel = self.novel.sanitized();
         self.social = self.social.sanitized();
+        self.look = self.look.sanitized();
         self
     }
 }
@@ -520,6 +530,8 @@ pub enum SettingsAction {
     SetNovel(NovelPrefs),
     /// Worker n.
     SetSocial(SocialPrefs),
+    /// 2026-11 UI refresh: layout / style choices.
+    SetLook(LookPrefs),
 }
 
 pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
@@ -571,6 +583,7 @@ pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
             }
         }
         SettingsAction::SetHome(p) => n.home = p.sanitized(),
+        SettingsAction::SetLook(p) => n.look = p.sanitized(),
         SettingsAction::SetDownloads(p) => n.downloads = p.sanitized(),
         SettingsAction::SetExt(p) => n.ext = p.sanitized(),
         SettingsAction::SetServer(p) => n.server = p.sanitized(),
@@ -589,6 +602,10 @@ pub fn reduce_settings(s: &Settings, action: SettingsAction) -> Settings {
 pub enum NavDest {
     Home,
     Search,
+    /// Airing calendar (2026-11 UI refresh: a rail entry instead of a link inside Settings / Home).
+    Calendar,
+    /// "For you" recommendations (2026-11 UI refresh: a rail entry).
+    ForYou,
     Library,
     /// Downloads: web (HLS / MP4) + torrent downloads, local library (wave B, worker h; classic "Descargas" entry).
     Downloads,
@@ -607,12 +624,14 @@ impl NavDest {
     /// Rail order; shortcut digit `n` (1..=9, outside the player) opens `ALL[n - 1]`. The first [`Self::PRIMARY`]
     /// are the content destinations; the rest sit at the rail's foot (UX review 2026-11-09 #1: 10 entries overflowed
     /// and truncated their labels). The torrent client has no entry of its own: its pages hang under Downloads.
-    /// Other pages without an entry hang under a destination (`app::Route::nav_dest`): `/calendar` and
-    /// `/recommendations` under Home; the AniList social pages under Library; provider pages under Extensions; the
-    /// Server page under Link.
-    pub const ALL: [NavDest; 9] = [
+    /// Other pages without an entry hang under a destination (`app::Route::nav_dest`): the AniList social pages
+    /// under Library; provider pages under Extensions; the Server page under Link. Since the 2026-11 UI refresh the
+    /// calendar and "For you" have their own entries; digits 1..9 reach the first nine.
+    pub const ALL: [NavDest; 11] = [
         Self::Home,
         Self::Search,
+        Self::Calendar,
+        Self::ForYou,
         Self::Library,
         Self::Manga,
         Self::Novels,
@@ -622,13 +641,15 @@ impl NavDest {
         Self::Settings,
     ];
     /// How many of [`Self::ALL`] are content destinations (the rest go to the rail's foot).
-    pub const PRIMARY: usize = 6;
+    pub const PRIMARY: usize = 8;
 
     /// i18n key of the label (`nav.<id>`).
     pub fn label_key(self) -> &'static str {
         match self {
             Self::Home => "nav.home",
             Self::Search => "nav.search",
+            Self::Calendar => "nav.calendar",
+            Self::ForYou => "nav.for_you",
             Self::Library => "nav.library",
             Self::Downloads => "nav.downloads",
             Self::Manga => "nav.manga",

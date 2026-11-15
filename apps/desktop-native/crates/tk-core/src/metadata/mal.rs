@@ -119,7 +119,7 @@ pub fn map_mal_node(n: &Value, kind: MediaKind) -> Option<Media> {
             .as_i64()
             .and_then(|y| i32::try_from(y).ok()),
     );
-    Some(Media {
+    Some(Media { format: None,
         media_ref: MediaRef {
             mal_id: Some(id),
             ..MediaRef::default()

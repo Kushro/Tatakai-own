@@ -163,4 +163,8 @@
     <string name="extserver_extra_revocable">Tokens de dispositivo que puedes revocar desde la PC cuando quieras.</string>
     <string name="extserver_extra_fallback">Si la PC no responde, la app sigue usando sus extensiones locales.</string>
     <string name="extserver_extra_viewer_password">Contraseña de visor opcional.</string>
+    <!-- 2026-11 historial por dispositivo: el modo de historial de este teléfono en la PC -->
+    <string name="linked_history_receive_only">Esta PC no guarda lo que reproduces aquí</string>
+    <string name="linked_history_paused">Sincronización pausada por la PC</string>
+    <string name="linked_history_resyncing">Sincronizando el historial con la PC…</string>
 </resources>

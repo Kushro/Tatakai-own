@@ -1,0 +1,12 @@
+{
+  "hero.spot.label": "Spotlight",
+  "hero.chip.episodes": "{n} episodes",
+  "hero.chip.episodes.one": "1 episode",
+  "hero.action.continue": "Continue ep. {n}",
+  "hero.action.watch": "Watch now",
+  "hero.action.details": "Details",
+  "hero.action.info": "More info",
+  "hero.row.more": "See more",
+  "hero.row.prev": "Scroll back",
+  "hero.row.next": "Scroll forward"
+}

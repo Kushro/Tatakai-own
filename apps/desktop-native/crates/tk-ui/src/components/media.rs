@@ -1,7 +1,10 @@
 //! `media.rs`: MediaCover (13:18 with a monogram placeholder), MediaCard, ContinueCard, EpisodeRow and the
 //! home HeroCarousel (docs/redesign/07 section 2; prototype `ui.js::cover/card`, `screens.js::home`).
-
-use std::time::Duration;
+//!
+//! 2026-11 UI refresh: `MediaCard` renders the parts of the three card styles (`:root[data-cards]`: classic,
+//! detailed, minimal) and media.css hides per style; the carousel keeps a fixed DOM order and moves only with
+//! transform / opacity; [`HeroSegments`] is the timed progress bar shared with the spotlight (its CSS animation
+//! drives autoplay, so hover / focus / a hidden window pause it without any Rust timer).
 
 use dioxus::prelude::*;
 
@@ -12,14 +15,20 @@ use crate::components::chips::{Pill, Tone};
 use crate::i18n::{t, tf};
 use crate::icons::Icon;
 
-/// Hero autoplay period (prototype: 9 s).
+/// Hero autoplay period when no settings are in context (prototype: 9 s).
 pub const HERO_AUTOPLAY_MS: u64 = 9000;
+/// Name of the `@keyframes` of the active progress segment (media.css); its `animationend` advances the hero.
+const SEG_FILL_ANIMATION: &str = "tk-seg-fill";
+/// Narrow previews visible next to the carousel stage.
+const CAROUSEL_PEEKS: usize = 3;
 
-/// Sends `prefers-reduced-motion: reduce` now and on every change.
-const REDUCED_MOTION_JS: &str = r#"
+/// Sends `[prefers-reduced-motion, document hidden]` now and on every change.
+const HERO_MOTION_JS: &str = r#"
 const q = window.matchMedia('(prefers-reduced-motion: reduce)');
-dioxus.send(q.matches);
-q.addEventListener('change', e => dioxus.send(e.matches));
+const send = () => { try { dioxus.send([q.matches, document.visibilityState === 'hidden']); } catch (e) {} };
+send();
+q.addEventListener('change', send);
+document.addEventListener('visibilitychange', send);
 "#;
 
 /// Only `#RGB` / `#RRGGBB` pass: the value comes from a remote metadata provider and lands in a
@@ -31,7 +40,7 @@ pub fn safe_css_color(c: &str) -> Option<&str> {
 
 /// `--tk-cover-c:<color>` for the placeholder gradient, empty when the color is missing or unsafe
 /// (CSS then falls back to a container token).
-fn cover_color_var(color: Option<&str>) -> String {
+pub(crate) fn cover_color_var(color: Option<&str>) -> String {
     color.and_then(safe_css_color).map(|c| format!("--tk-cover-c:{c}")).unwrap_or_default()
 }
 
@@ -49,6 +58,64 @@ pub fn monogram(title: &str) -> String {
 /// AniList-style 0..=100 score as the prototype shows it (`84` -> `8.4`).
 pub fn format_score(score: u32) -> String {
     format!("{:.1}", f64::from(score.min(100)) / 10.0)
+}
+
+/// Status of a title for the card dot (`data-status`): AniList `MediaStatus` grouped in four.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusKind {
+    Releasing,
+    Finished,
+    Upcoming,
+    Other,
+}
+
+impl StatusKind {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Releasing => "releasing",
+            Self::Finished => "finished",
+            Self::Upcoming => "upcoming",
+            Self::Other => "other",
+        }
+    }
+}
+
+/// `None` when the status is unknown (no dot is drawn).
+pub fn status_kind(status: Option<&str>) -> Option<StatusKind> {
+    let s = status.map(str::trim).filter(|s| !s.is_empty())?;
+    Some(match s.to_ascii_uppercase().as_str() {
+        "RELEASING" => StatusKind::Releasing,
+        "FINISHED" => StatusKind::Finished,
+        "NOT_YET_RELEASED" => StatusKind::Upcoming,
+        _ => StatusKind::Other,
+    })
+}
+
+/// `NOT_YET_RELEASED` -> "Not yet released" (labels without an i18n key).
+fn humanize(raw: &str) -> String {
+    let lower = raw.trim().replace('_', " ").to_lowercase();
+    let mut chars = lower.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
+/// `prefix.<raw lowercased>` from the catalog, else the raw value made readable.
+fn enum_label(prefix: &str, raw: &str) -> String {
+    let key = format!("{prefix}.{}", raw.trim().to_ascii_lowercase());
+    let text = t(&key);
+    if text == key { humanize(raw) } else { text }
+}
+
+/// AniList status (`RELEASING`, ...) as shown to the user (Details keys `details.status.*`).
+pub fn status_label(raw: &str) -> String {
+    enum_label("details.status", raw)
+}
+
+/// AniList format (`TV`, `TV_SHORT`, `MOVIE`, ...) as shown to the user (Details keys `details.format.*`).
+pub fn format_label(raw: &str) -> String {
+    enum_label("details.format", raw)
 }
 
 /// Poster (13:18). The art layer (poster color gradient + monogram) is always drawn and the image, if
@@ -101,6 +168,9 @@ pub fn MediaCover(
     }
 }
 
+/// A poster card. Every card style's parts are in the DOM and media.css shows them per `:root[data-cards]`:
+/// `classic` = title + sub line; `detailed` = status dot + title + "year … format" meta line (the sub line too when
+/// the caller passed its own `sub`); `minimal` = poster only, the title slides up over it on hover / focus.
 #[component]
 pub fn MediaCard(
     media: MediaVm,
@@ -116,29 +186,96 @@ pub fn MediaCard(
     #[props(default)] hide_score: bool,
     #[props(default)] onclick: EventHandler<MouseEvent>,
 ) -> Element {
-    let sub = if sub.is_empty() { media.subtitle.clone() } else { sub };
+    let custom_sub = !sub.is_empty();
+    let sub = if custom_sub { sub } else { media.subtitle.clone() };
     let progress = (progress > 0.0).then_some(progress);
     let score = if hide_score { None } else { media.score };
+    let kind = status_kind(media.status.as_deref());
+    let status_text = kind.and(media.status.as_deref()).map(status_label).unwrap_or_default();
+    let format = media.format.as_deref().map(str::trim).filter(|f| !f.is_empty()).map(format_label);
+    let year = media.year.filter(|y| *y > 0);
+    let has_meta = format.is_some() || year.is_some();
+    // The status is part of the accessible name (the dot itself is decorative inside the button).
+    let label = if status_text.is_empty() {
+        media.title.clone()
+    } else {
+        format!("{} · {status_text}", media.title)
+    };
     rsx! {
         button {
             class: "tk-card",
             r#type: "button",
             "data-selected": "{selected}",
             "data-wide": "{wide}",
-            "aria-label": "{media.title}",
+            "data-meta": "{has_meta}",
+            "data-sub": if custom_sub { "custom" } else { "default" },
+            "aria-label": "{label}",
             onclick: move |e| onclick.call(e),
-            MediaCover {
-                src: media.cover.clone(),
-                color: media.color.clone(),
-                title: media.title.clone(),
-                badge,
-                score,
-                progress,
+            div { class: "tk-card__poster",
+                MediaCover {
+                    src: media.cover.clone(),
+                    color: media.color.clone(),
+                    title: media.title.clone(),
+                    badge,
+                    score,
+                    progress,
+                }
+                div { class: "tk-card__over", "aria-hidden": "true",
+                    span { "{media.title}" }
+                }
             }
-            div { class: "tk-card__title", "{media.title}" }
+            div { class: "tk-card__title",
+                if let Some(k) = kind {
+                    span {
+                        class: "tk-card__dot",
+                        "data-status": k.id(),
+                        role: "img",
+                        "aria-label": "{status_text}",
+                        title: "{status_text}",
+                    }
+                }
+                "{media.title}"
+            }
             if !sub.is_empty() {
                 div { class: "tk-card__sub", "{sub}" }
             }
+            if has_meta {
+                div { class: "tk-card__meta", "aria-hidden": "true",
+                    span { class: "tk-card__year",
+                        if let Some(y) = year {
+                            Icon { name: "calendar".to_string(), size: 14 }
+                            "{y}"
+                        }
+                    }
+                    span { class: "tk-card__fmt",
+                        if let Some(f) = format {
+                            "{f}"
+                            TvGlyph {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Small "screen" glyph after the format (not in `icons.rs`; local to the card).
+#[component]
+fn TvGlyph() -> Element {
+    rsx! {
+        svg {
+            class: "tk-icon",
+            view_box: "0 0 24 24",
+            width: "14",
+            height: "14",
+            fill: "none",
+            stroke: "currentColor",
+            stroke_width: "2",
+            stroke_linecap: "round",
+            stroke_linejoin: "round",
+            "aria-hidden": "true",
+            rect { x: "3", y: "7", width: "18", height: "13", rx: "2" }
+            path { d: "M8 3l4 4 4-4" }
         }
     }
 }
@@ -265,62 +402,154 @@ pub fn EpisodeRow(
     }
 }
 
-/// Multi-browse hero: the front slide is wide, the rest are narrow previews. Clicking a preview (or a
-/// dot, or Left/Right) brings it to the front; clicking the front slide or its buttons calls `on_open`.
+/// OS reduced-motion preference and window visibility, tracked for the hero autoplay.
+#[derive(Clone, Copy)]
+pub struct HeroMotion {
+    pub os_reduced: Signal<bool>,
+    pub hidden: Signal<bool>,
+}
+
+/// [`HeroMotion`] of the calling component (one small listener script per mount).
+pub fn use_hero_motion() -> HeroMotion {
+    let mut os_reduced = use_signal(|| false);
+    let mut hidden = use_signal(|| false);
+    use_future(move || async move {
+        let mut eval = document::eval(HERO_MOTION_JS);
+        while let Ok((reduced, gone)) = eval.recv::<(bool, bool)>().await {
+            if *os_reduced.peek() != reduced {
+                os_reduced.set(reduced);
+            }
+            if *hidden.peek() != gone {
+                hidden.set(gone);
+            }
+        }
+    });
+    HeroMotion { os_reduced, hidden }
+}
+
+/// Autoplay period of a hero with `n` slides, `None` when it must stay still: autoplay off in the props or in
+/// `Settings::look`, a single slide, Settings > Reduce motion, or the OS asking for reduced motion.
+pub fn hero_autoplay(ui: Option<Ui>, allowed: bool, n: usize, os_reduced: bool) -> Option<u64> {
+    if !allowed || n < 2 || os_reduced {
+        return None;
+    }
+    match ui {
+        Some(u) => {
+            let s = u.settings.read();
+            if s.reduce_motion {
+                None
+            } else {
+                s.look.hero_autoplay_ms()
+            }
+        }
+        None => Some(HERO_AUTOPLAY_MS),
+    }
+}
+
+/// Index after `cur` (wrapping), `None` with fewer than two slides.
+pub fn next_index(cur: usize, n: usize) -> Option<usize> {
+    (n > 1).then(|| (cur + 1) % n)
+}
+
+/// Index before `cur` (wrapping), `None` with fewer than two slides.
+pub fn prev_index(cur: usize, n: usize) -> Option<usize> {
+    (n > 1).then(|| (cur + n - 1) % n)
+}
+
+/// Timed progress segments under a hero. The active segment fills over `period_ms` with a CSS animation
+/// (`transform: scaleX`); its `animationend` calls `on_done`. Hover / focus inside the hero and `paused` (window
+/// hidden) freeze it through `animation-play-state`; with `period_ms = None` it is a plain static indicator.
+#[component]
+pub fn HeroSegments(
+    n: usize,
+    active: usize,
+    period_ms: Option<u64>,
+    #[props(default)] paused: bool,
+    on_pick: EventHandler<usize>,
+    #[props(default)] on_done: EventHandler<()>,
+) -> Element {
+    let run = period_ms.is_some();
+    let dur = period_ms.unwrap_or(HERO_AUTOPLAY_MS);
+    rsx! {
+        div {
+            class: "tk-segs",
+            "data-run": "{run}",
+            "data-paused": "{paused}",
+            style: "--tk-seg-dur:{dur}ms",
+            for k in 0..n {
+                {
+                    let label = tf("home.hero.slide", &[("n", &(k + 1).to_string())]);
+                    let is_cur = k == active;
+                    rsx! {
+                        button {
+                            key: "{k}",
+                            class: "tk-segs__seg",
+                            r#type: "button",
+                            "aria-current": "{is_cur}",
+                            "data-done": "{k < active}",
+                            "aria-label": "{label}",
+                            title: "{label}",
+                            onclick: move |_| on_pick.call(k),
+                            span {
+                                class: "tk-segs__fill",
+                                onanimationend: move |e: AnimationEvent| {
+                                    if is_cur && e.data().animation_name() == SEG_FILL_ANIMATION {
+                                        on_done.call(());
+                                    }
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Multi-browse hero: a wide stage with the active slide and a strip of narrow previews. The DOM order never
+/// changes: slides are stacked in the stage and cross-fade (opacity), the preview strip is a track moved with
+/// `transform`. Clicking a preview (or a segment, or Left/Right) brings it to the stage; clicking the stage or
+/// its buttons calls `on_open`.
 ///
-/// Autoplay rotates every [`HERO_AUTOPLAY_MS`] and pauses while hovered or focused, while Settings >
-/// Reduce motion is on, or while the OS asks for reduced motion. `autoplay` and the item count are read
-/// at mount: key the carousel by its items so a new list remounts it.
+/// Autoplay follows `Settings::look` (period, on/off) and stops under Reduce motion (app or OS); hovering or
+/// focusing the hero and hiding the window pause it ([`HeroSegments`]). Key the carousel by its items so a new
+/// list remounts it.
 #[component]
 pub fn HeroCarousel(
     items: Vec<MediaVm>,
+    /// Wide artwork per item (banner); a missing entry uses the cover.
+    #[props(default)]
+    art: Vec<Option<String>>,
     /// Label after the rank ("#1 Trending now") and accessible name of the carousel.
-    #[props(default)] kicker: String,
+    #[props(default)]
+    kicker: String,
     #[props(default = true)] autoplay: bool,
     #[props(default = true)] dots: bool,
     /// Primary button text (default `details.watch`; manga and novels pass "Leer", UX review #14).
-    #[props(default)] cta: String,
+    #[props(default)]
+    cta: String,
     /// Called with `MediaVm::id`.
-    #[props(default)] on_open: EventHandler<String>,
+    #[props(default)]
+    on_open: EventHandler<String>,
 ) -> Element {
     let cta = if cta.is_empty() { t("details.watch") } else { cta };
     let mut active = use_signal(|| 0_usize);
-    let mut paused = use_signal(|| false);
-    let mut os_reduced = use_signal(|| false);
+    let motion = use_hero_motion();
     let ui = try_use_context::<Ui>();
     let n = items.len();
-
-    use_future(move || async move {
-        let mut eval = document::eval(REDUCED_MOTION_JS);
-        while let Ok(v) = eval.recv::<bool>().await {
-            os_reduced.set(v);
-        }
-    });
-
-    use_future(move || async move {
-        if !autoplay || n < 2 {
-            return;
-        }
-        loop {
-            tokio::time::sleep(Duration::from_millis(HERO_AUTOPLAY_MS)).await;
-            let reduce = ui.is_some_and(|u| u.settings.peek().reduce_motion);
-            if reduce || *paused.peek() || *os_reduced.peek() {
-                continue;
-            }
-            let next = (*active.peek() + 1) % n;
-            active.set(next);
-        }
-    });
-
     if n == 0 {
         return rsx! {};
     }
+    let period = hero_autoplay(ui, autoplay, n, (motion.os_reduced)());
     let cur = active() % n;
-    // Rotate so the active slide comes first (the layout makes the first slide wide).
-    let slides: Vec<(bool, usize, MediaVm)> =
-        (cur..n).chain(0..cur).enumerate().map(|(pos, k)| (pos == 0, k, items[k].clone())).collect();
-    let dot_list: Vec<(usize, bool, String)> =
-        (0..n).map(|k| (k, k == cur, tf("home.hero.slide", &[("n", &(k + 1).to_string())]))).collect();
+    let next = next_index(cur, n).unwrap_or(cur);
+    let off = (cur + 1).min(n.saturating_sub(CAROUSEL_PEEKS));
+    let advance = move |_: ()| {
+        let c = *active.peek();
+        if let Some(k) = next_index(c, n) {
+            active.set(k);
+        }
+    };
 
     rsx! {
         div { class: "tk-hero-wrap",
@@ -330,41 +559,71 @@ pub fn HeroCarousel(
                 "aria-roledescription": t("home.hero.carousel"),
                 "aria-label": "{kicker}",
                 tabindex: "0",
-                onmouseenter: move |_| paused.set(true),
-                onmouseleave: move |_| paused.set(false),
-                onfocusin: move |_| paused.set(true),
-                onfocusout: move |_| paused.set(false),
                 onkeydown: move |e| match e.key() {
-                    Key::ArrowRight => active.set((cur + 1) % n),
-                    Key::ArrowLeft => active.set((cur + n - 1) % n),
+                    Key::ArrowRight => active.set(next_index(cur, n).unwrap_or(cur)),
+                    Key::ArrowLeft => active.set(prev_index(cur, n).unwrap_or(cur)),
                     _ => {}
                 },
-                for (front , k , m) in slides {
-                    HeroSlide {
-                        key: "{m.id}",
-                        media: m.clone(),
-                        rank: k + 1,
-                        kicker: kicker.clone(),
-                        cta: cta.clone(),
-                        front,
-                        on_front: move |_| active.set(k),
-                        on_open,
+                div { class: "tk-hero__stage",
+                    for (k , m) in items.iter().enumerate() {
+                        HeroSlide {
+                            key: "{m.id}",
+                            media: m.clone(),
+                            art: art.get(k).cloned().flatten(),
+                            rank: k + 1,
+                            kicker: kicker.clone(),
+                            cta: cta.clone(),
+                            active: k == cur,
+                            eager: k == cur || k == next,
+                            on_open,
+                        }
+                    }
+                }
+                if n > 1 {
+                    div { class: "tk-hero__strip", "aria-hidden": "true",
+                        div { class: "tk-hero__track", style: "--tk-hero-off:{off}",
+                            for (k , m) in items.iter().enumerate() {
+                                {
+                                    let style = cover_color_var(m.color.as_deref());
+                                    let mono = monogram(&m.title);
+                                    rsx! {
+                                        button {
+                                            key: "{m.id}",
+                                            class: "tk-hero__peek",
+                                            r#type: "button",
+                                            tabindex: "-1",
+                                            "data-active": "{k == cur}",
+                                            style: "{style}",
+                                            onclick: move |_| active.set(k),
+                                            div { class: "tk-cover__art", "data-mono": "{mono}" }
+                                            if let Some(src) = m.cover.clone() {
+                                                img {
+                                                    class: "tk-hero__img",
+                                                    src: "{src}",
+                                                    alt: "",
+                                                    loading: "lazy",
+                                                    decoding: "async",
+                                                    draggable: "false",
+                                                }
+                                            }
+                                            div { class: "tk-hero__peek-shade" }
+                                            span { class: "tk-hero__peek-title", "{m.title}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
             if dots && n > 1 {
-                div { class: "tk-hero__dots",
-                    for (k , is_cur , label) in dot_list {
-                        button {
-                            key: "{k}",
-                            class: "tk-hero__dot",
-                            r#type: "button",
-                            "aria-current": "{is_cur}",
-                            "aria-label": "{label}",
-                            title: "{label}",
-                            onclick: move |_| active.set(k),
-                        }
-                    }
+                HeroSegments {
+                    n,
+                    active: cur,
+                    period_ms: period,
+                    paused: (motion.hidden)(),
+                    on_pick: move |k| active.set(k),
+                    on_done: advance,
                 }
             }
         }
@@ -374,31 +633,35 @@ pub fn HeroCarousel(
 #[component]
 fn HeroSlide(
     media: MediaVm,
+    art: Option<String>,
     rank: usize,
     kicker: String,
     cta: String,
-    front: bool,
-    on_front: EventHandler<()>,
+    active: bool,
+    eager: bool,
     on_open: EventHandler<String>,
 ) -> Element {
     let style = cover_color_var(media.color.as_deref());
     let mono = monogram(&media.title);
     let (id_slide, id_watch, id_info) = (media.id.clone(), media.id.clone(), media.id.clone());
+    let src = art.or_else(|| media.cover.clone());
     rsx! {
         article {
             class: "tk-hero__slide",
-            "data-front": "{front}",
+            "data-active": "{active}",
+            "aria-hidden": "{!active}",
             style: "{style}",
-            onclick: move |_| {
-                if front {
-                    on_open.call(id_slide.clone());
-                } else {
-                    on_front.call(());
-                }
-            },
+            onclick: move |_| on_open.call(id_slide.clone()),
             div { class: "tk-cover__art", "data-mono": "{mono}" }
-            if let Some(src) = media.cover.clone() {
-                img { class: "tk-hero__img", src: "{src}", alt: "", loading: "lazy", decoding: "async", draggable: "false" }
+            if let Some(src) = src {
+                img {
+                    class: "tk-hero__img",
+                    src: "{src}",
+                    alt: "",
+                    loading: if eager { "eager" } else { "lazy" },
+                    decoding: "async",
+                    draggable: "false",
+                }
             }
             div { class: "tk-hero__shade" }
             div { class: "tk-hero__body",
@@ -436,7 +699,7 @@ fn HeroSlide(
 
 #[cfg(test)]
 mod tests {
-    use super::{format_score, monogram, safe_css_color};
+    use super::*;
 
     #[test]
     fn only_hex_colors_pass() {
@@ -460,5 +723,46 @@ mod tests {
         assert_eq!(format_score(84), "8.4");
         assert_eq!(format_score(100), "10.0");
         assert_eq!(format_score(250), "10.0");
+    }
+
+    #[test]
+    fn status_maps_to_a_dot_kind() {
+        assert_eq!(status_kind(Some("RELEASING")), Some(StatusKind::Releasing));
+        assert_eq!(status_kind(Some("finished")), Some(StatusKind::Finished));
+        assert_eq!(status_kind(Some("NOT_YET_RELEASED")), Some(StatusKind::Upcoming));
+        assert_eq!(status_kind(Some("HIATUS")), Some(StatusKind::Other));
+        assert_eq!(status_kind(Some(" ")), None);
+        assert_eq!(status_kind(None), None);
+        let ids: Vec<&str> = [StatusKind::Releasing, StatusKind::Finished, StatusKind::Upcoming, StatusKind::Other]
+            .iter()
+            .map(|k| k.id())
+            .collect();
+        assert_eq!(ids, ["releasing", "finished", "upcoming", "other"]);
+    }
+
+    #[test]
+    fn labels_reuse_details_keys_and_humanize_unknowns() {
+        assert_eq!(format_label("TV_SHORT"), t("details.format.tv_short"));
+        assert_eq!(format_label("MOVIE"), t("details.format.movie"));
+        assert_eq!(status_label("NOT_YET_RELEASED"), t("details.status.not_yet_released"));
+        assert_eq!(format_label("WEIRD_THING"), "Weird thing");
+        assert_eq!(humanize(""), "");
+    }
+
+    #[test]
+    fn hero_indices_wrap_and_need_two_slides() {
+        assert_eq!(next_index(0, 3), Some(1));
+        assert_eq!(next_index(2, 3), Some(0));
+        assert_eq!(prev_index(0, 3), Some(2));
+        assert_eq!(next_index(0, 1), None);
+        assert_eq!(prev_index(0, 0), None);
+    }
+
+    #[test]
+    fn autoplay_stops_for_single_slides_and_reduced_motion() {
+        assert_eq!(hero_autoplay(None, true, 5, false), Some(HERO_AUTOPLAY_MS));
+        assert_eq!(hero_autoplay(None, false, 5, false), None);
+        assert_eq!(hero_autoplay(None, true, 1, false), None);
+        assert_eq!(hero_autoplay(None, true, 5, true), None);
     }
 }

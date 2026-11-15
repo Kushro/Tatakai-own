@@ -123,7 +123,7 @@
     <string name="details_episode_search_empty">Nada coincide con \"%1$s\".</string>
     <string name="details_unaired">Aún no emitido</string>
     <string name="details_episode_unaired_cd">Episodio %1$d, aún no emitido</string>
-    <string name="details_view_list">Con miniaturas</string>
+    <string name="details_view_list">Lista</string>
     <string name="details_view_compact">Compacta</string>
     <string name="details_facts">Ficha técnica</string>
     <string name="details_fact_format">Formato</string>
@@ -190,4 +190,14 @@
     <string name="details_rel_compilation">Recopilación</string>
     <string name="details_rel_contains">Contiene</string>
     <string name="details_rel_other">Otra</string>
+    <!-- 2026-11 UI refresh -->
+    <string name="details_view_cards">Tarjetas</string>
+    <string name="details_relations_graph">Grafo</string>
+    <string name="details_relations_list">Lista</string>
+    <string name="details_graph_zoom_in">Acercar</string>
+    <string name="details_graph_zoom_out">Alejar</string>
+    <string name="details_graph_fit">Ajustar a la vista</string>
+    <string name="details_graph_this">Este título</string>
+    <string name="details_graph_expand">Abrir el grafo en pantalla completa</string>
+    <string name="details_graph_close">Cerrar el grafo</string>
 </resources>

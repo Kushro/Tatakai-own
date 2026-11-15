@@ -235,7 +235,7 @@ async fn continue_reading(b: &LiveBackend, al: &AniListNovels) -> Vec<ContinueRe
                 .and_then(|c| c.get(&r.media_id).map(novel_vm))
             {
                 Some(vm) => vm,
-                None => MediaVm {
+                None => MediaVm { format: None, status: None, year: None,
                     id: r.media_id.clone(),
                     title: r.title.clone()?,
                     cover: r.poster.clone(),
@@ -933,7 +933,7 @@ mod tests {
 
     fn info_of(titles: &[&str]) -> NovelInfo {
         NovelInfo {
-            media: Media {
+            media: Media { format: None,
                 media_ref: MediaRef {
                     anilist_id: Some(85737),
                     mal_id: Some(21479),

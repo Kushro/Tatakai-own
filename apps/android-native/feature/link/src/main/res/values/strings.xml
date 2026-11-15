@@ -164,4 +164,8 @@
     <string name="extserver_extra_revocable">Device tokens you can revoke from the PC at any time.</string>
     <string name="extserver_extra_fallback">If the PC does not answer, the app keeps using its local extensions.</string>
     <string name="extserver_extra_viewer_password">Optional viewer password.</string>
+    <!-- 2026-11 history per device: this phone's history mode on the PC -->
+    <string name="linked_history_receive_only">This PC does not save what you play here</string>
+    <string name="linked_history_paused">History sync paused by the PC</string>
+    <string name="linked_history_resyncing">Syncing the history with the PC…</string>
 </resources>

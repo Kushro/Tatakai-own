@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 2026-11 UI refresh (shared by Home, Details, Calendar): relative days, status and format labels of the cards. -->
+<resources>
+    <string name="ui_day_today">hoy</string>
+    <string name="ui_day_tomorrow">mañana</string>
+    <string name="ui_day_yesterday">ayer</string>
+    <plurals name="ui_days_in">
+        <item quantity="one">en %1$d día</item>
+        <item quantity="many">en %1$d días</item>
+        <item quantity="other">en %1$d días</item>
+    </plurals>
+    <plurals name="ui_days_ago">
+        <item quantity="one">hace %1$d día</item>
+        <item quantity="many">hace %1$d días</item>
+        <item quantity="other">hace %1$d días</item>
+    </plurals>
+    <plurals name="ui_weeks_in">
+        <item quantity="one">en %1$d semana</item>
+        <item quantity="many">en %1$d semanas</item>
+        <item quantity="other">en %1$d semanas</item>
+    </plurals>
+    <plurals name="ui_weeks_ago">
+        <item quantity="one">hace %1$d semana</item>
+        <item quantity="many">hace %1$d semanas</item>
+        <item quantity="other">hace %1$d semanas</item>
+    </plurals>
+    <plurals name="ui_months_in">
+        <item quantity="one">en %1$d mes</item>
+        <item quantity="many">en %1$d meses</item>
+        <item quantity="other">en %1$d meses</item>
+    </plurals>
+    <plurals name="ui_months_ago">
+        <item quantity="one">hace %1$d mes</item>
+        <item quantity="many">hace %1$d meses</item>
+        <item quantity="other">hace %1$d meses</item>
+    </plurals>
+    <plurals name="ui_years_in">
+        <item quantity="one">en %1$d año</item>
+        <item quantity="many">en %1$d años</item>
+        <item quantity="other">en %1$d años</item>
+    </plurals>
+    <plurals name="ui_years_ago">
+        <item quantity="one">hace %1$d año</item>
+        <item quantity="many">hace %1$d años</item>
+        <item quantity="other">hace %1$d años</item>
+    </plurals>
+    <plurals name="ui_episodes_short">
+        <item quantity="one">%1$d ep</item>
+        <item quantity="many">%1$d ep</item>
+        <item quantity="other">%1$d ep</item>
+    </plurals>
+    <string name="ui_status_airing">En emisión</string>
+    <string name="ui_status_finished">Terminado</string>
+    <string name="ui_status_upcoming">Próximamente</string>
+    <string name="ui_status_cancelled">Cancelado</string>
+    <string name="ui_status_hiatus">En pausa</string>
+    <string name="ui_format_tv">TV</string>
+    <string name="ui_format_tv_short">TV corto</string>
+    <string name="ui_format_movie">Película</string>
+    <string name="ui_format_special">Especial</string>
+    <string name="ui_format_ova">OVA</string>
+    <string name="ui_format_ona">ONA</string>
+    <string name="ui_format_music">Musical</string>
+    <string name="ui_format_manga">Manga</string>
+    <string name="ui_format_novel">Novela</string>
+    <string name="ui_format_one_shot">One shot</string>
+    <string name="ui_minutes_short">%1$d min</string>
+    <string name="ui_nav_calendar">Calendario</string>
+    <string name="ui_nav_for_you">Para ti</string>
+    <string name="ui_for_you_summary">Recomendaciones según lo que ves</string>
+    <string name="ui_hero_go_to">Título %1$d de %2$d</string>
+</resources>

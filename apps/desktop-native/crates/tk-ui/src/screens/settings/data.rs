@@ -501,6 +501,7 @@ mod tests {
             platform: "android".into(),
             last_seen_unix: seen,
             online,
+            ..Default::default()
         };
         let mut s = LinkStatusVm { running: true, port: 1, devices: vec![d("a", Some(10), false), d("b", Some(20), false)], error: None };
         assert_eq!(latest_device(&s).unwrap().id, "b");

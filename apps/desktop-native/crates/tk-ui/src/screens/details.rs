@@ -1,12 +1,15 @@
 //! Details: header with metadata chips, the next-episode countdown, the Watch/Continue split button (its chevron
-//! opens the source picker), list / share / trailer actions; tabs Episodes / Info / Characters / Related (all
-//! panels stay in the DOM, only the active one is visible); episodes in ranges of 100 with search, thumbnail or
-//! compact view, Watched / Filler / Not yet aired pills; the watch order of the franchise and AniList
+//! opens the source picker), list / share / trailer actions; tabs Episodes / Info / Characters / Relations with a
+//! sliding indicator (Episodes and Info mount at once, the other two when first opened); episodes in ranges of 100
+//! with search and three views (`details/episodes.rs`: cards, list, compact), Watched / Filler / Not yet aired
+//! pills; the relations graph or grouped list (`details/relations.rs`); the watch order of the franchise and AniList
 //! recommendations under the tabs; the source summary and "send to device" side panel; a sticky floating toolbar;
 //! the adult content gate. `DetailsView { embedded: true }` is the right pane of Search on wide windows (header
 //! only). Wave A (worker c): extras come from `Backend::details_extra` / `watch_order` (`details/extra.rs`).
 
+mod episodes;
 mod extra;
+mod relations;
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -20,19 +23,19 @@ use crate::backend::{
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
     Button, ButtonSize, ButtonVariant, ConfirmDialog, DownloadSeasonSheet, EmptyState, ErrorState,
-    FloatingToolbar, IconButton, IconButtonSize, IconButtonVariant, InfoChip, ListButton, LoadingIndicator, MediaCover, Menu, MenuItem, Pill,
+    FloatingToolbar, IconButton, IconButtonVariant, InfoChip, ListButton, LoadingIndicator, MediaCover, Menu, MenuItem, Pill,
     Reviews,
-    Segmented, Sheet, SkeletonLines, SourcePicker, SourceSummary, SourcesError, SplitButton, TextField, ToolbarSeparator, Tone,
+    Sheet, SkeletonLines, SourcePicker, SourceSummary, SourcesError, SplitButton, ToolbarSeparator, Tone,
     missing_pick_label, use_snackbar,
 };
 use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
-use crate::model::{EPISODE_RANGE, UiError, episode_ranges, format_time, range_index_for};
+use crate::model::{UiError, format_time};
 use crate::screens::extensions::rel_time;
 pub(crate) use extra::{country_label, source_label};
-use extra::{
-    AdultGate, CharactersTab, FactsSheet, Recommendations, RelatedTab, WatchOrder, airing_label, share_url,
-};
+use episodes::EpisodeList;
+use extra::{AdultGate, CharactersTab, FactsSheet, Recommendations, WatchOrder, airing_label, share_url};
+use relations::RelationsTab;
 
 /// From this fraction an episode counts as watched ("Watched" pill).
 pub const WATCHED_AT: f64 = 0.9;
@@ -40,8 +43,8 @@ pub const WATCHED_AT: f64 = 0.9;
 const SIDE_DEVICES: usize = 2;
 /// Synopses longer than this get the More / Less toggle.
 const CLAMP_CHARS: usize = 120;
-/// Web view `localStorage` keys (per-viewer conveniences; the backend has no UI-state store).
-const VIEW_KEY: &str = "tk.details.episodeView";
+/// Web view `localStorage` key (per-viewer convenience; the backend has no UI-state store). The episode view moved
+/// to `Settings::look.episode_view` (2026-11 UI refresh); the old `tk.details.episodeView` key is ignored.
 const ADULT_KEY: &str = "tk.details.adultOk";
 /// The next-episode countdown refreshes this often.
 const CLOCK_TICK: Duration = Duration::from_secs(30);
@@ -71,32 +74,17 @@ impl Tab {
             Self::Episodes => "details.episodes",
             Self::Info => "details.info",
             Self::Characters => "details.tab.characters",
-            Self::Related => "details.related",
-        }
-    }
-}
-
-/// Episode list layout (remembered per viewer).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EpisodeView {
-    Thumbnails,
-    Compact,
-}
-
-impl EpisodeView {
-    pub fn id(self) -> &'static str {
-        match self {
-            Self::Thumbnails => "thumbnails",
-            Self::Compact => "compact",
+            Self::Related => "episodes.tab.relations",
         }
     }
 
-    pub fn from_id(id: &str) -> Option<Self> {
-        match id {
-            "thumbnails" => Some(Self::Thumbnails),
-            "compact" => Some(Self::Compact),
-            _ => None,
-        }
+    fn index(self) -> usize {
+        Self::ALL.iter().position(|t| *t == self).unwrap_or(0)
+    }
+
+    /// Characters and Relations mount the first time they are opened (Characters loads every image).
+    fn lazy(self) -> bool {
+        matches!(self, Self::Characters | Self::Related)
     }
 }
 
@@ -178,8 +166,7 @@ pub fn with_next_airing(mut eps: Vec<EpisodeVm>, next: Option<AiringVm>) -> Vec<
                 title: None,
                 image: None,
                 air_date: Some(unix_to_date(n.at_unix)),
-                is_filler: false,
-                watched: 0.0,
+                ..EpisodeVm::default()
             });
         }
     }
@@ -358,6 +345,8 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
     });
 
     let mut tab = use_signal(|| Tab::Episodes);
+    // Lazy panels already opened once (they stay mounted afterwards).
+    let mut opened = use_signal(|| [false; 4]);
     let mut picker_open = use_signal(|| false);
     // BUG-078: the floating toolbar shows only once the header's Watch / Continue row has scrolled away.
     let mut header_actions_visible = use_signal(|| false);
@@ -922,7 +911,11 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
             {header}
             div { class: "tk-details__layout",
                 div { class: "tk-section tk-details__main",
-                    div { class: "tk-dtabs", role: "tablist", "aria-label": "{tablist_label}",
+                    div {
+                        class: "tk-dtabs",
+                        role: "tablist",
+                        "aria-label": "{tablist_label}",
+                        style: "--tk-dtab-i: {tab().index()}; --tk-dtab-n: {Tab::ALL.len()}",
                         for tb in Tab::ALL {
                             button {
                                 key: "{tb.id()}",
@@ -933,12 +926,20 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                                 "data-tab": "{tb.id()}",
                                 "aria-selected": if tab() == tb { "true" } else { "false" },
                                 "aria-controls": "tk-dtabpanel-{tb.id()}",
-                                onclick: move |_| tab.set(tb),
+                                onclick: move |_| {
+                                    if tb.lazy() && !opened.peek()[tb.index()] {
+                                        opened.write()[tb.index()] = true;
+                                    }
+                                    tab.set(tb);
+                                },
                                 {t(tb.label_key())}
                             }
                         }
+                        // One indicator for the row, slid under the active tab with a transform.
+                        span { class: "tk-dtabs__indicator", "aria-hidden": "true" }
                     }
-                    // Every panel stays mounted (the verifier and in-page find see all of them); only one is visible.
+                    // Episodes and Info mount at once; Characters and Relations the first time they are opened, then
+                    // stay mounted (only the active panel is visible).
                     div {
                         id: "tk-dtabpanel-episodes",
                         class: "tk-details__tab",
@@ -961,7 +962,9 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                         role: "tabpanel",
                         "aria-labelledby": "tk-dtab-characters",
                         hidden: tab() != Tab::Characters,
-                        CharactersTab { extra: extra_state.clone(), images, on_retry: move |_| extra.restart() }
+                        if opened()[Tab::Characters.index()] || tab() == Tab::Characters {
+                            CharactersTab { extra: extra_state.clone(), images, on_retry: move |_| extra.restart() }
+                        }
                     }
                     div {
                         id: "tk-dtabpanel-related",
@@ -969,7 +972,14 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
                         role: "tabpanel",
                         "aria-labelledby": "tk-dtab-related",
                         hidden: tab() != Tab::Related,
-                        RelatedTab { extra: extra_state.clone(), on_retry: move |_| extra.restart() }
+                        if opened()[Tab::Related.index()] || tab() == Tab::Related {
+                            RelationsTab {
+                                extra: extra_state.clone(),
+                                order: order_state.clone(),
+                                current: vm.as_ref().map(|v| v.media.clone()),
+                                on_retry: move |_| extra.restart(),
+                            }
+                        }
                     }
                     WatchOrder { order: order_state.clone(), on_retry: move |_| order.restart() }
                     Recommendations { extra: extra_state.clone() }
@@ -1280,222 +1290,6 @@ fn InfoTab(vm: DetailsVm) -> Element {
     }
 }
 
-#[component]
-fn EpisodeList(
-    id: String,
-    episodes: Vec<EpisodeVm>,
-    resume: u32,
-    #[props(default)] next_airing: Option<AiringVm>,
-    #[props(default)] now: i64,
-    #[props(default = true)] images: bool,
-    /// Manual watched / not-watched toggle of an episode (`(number, watched)`); `None` hides the buttons.
-    #[props(default)] on_toggle: Option<EventHandler<(u32, bool)>>,
-    /// Series artwork for episodes without their own thumbnail (banner, else cover).
-    #[props(default)] fallback_image: Option<String>,
-) -> Element {
-    let navigator = use_navigator();
-    let mut query = use_signal(String::new);
-    let mut view = use_signal(|| None::<EpisodeView>);
-    use_future(move || async move {
-        if let Some(v) = ls_get(VIEW_KEY).await.as_deref().and_then(EpisodeView::from_id) {
-            view.set(Some(v));
-        }
-    });
-    // Like the classic: thumbnails when the list has any, else compact, until the viewer picks one.
-    let has_thumbs = episodes.iter().any(|e| e.image.is_some());
-    let active_view = view().unwrap_or(if has_thumbs { EpisodeView::Thumbnails } else { EpisodeView::Compact });
-    let compact = active_view == EpisodeView::Compact;
-
-    let max = episodes.iter().map(|e| e.number).max().unwrap_or(0);
-    let ranges = episode_ranges(max, EPISODE_RANGE);
-    let mut range = use_signal(|| if resume > 0 { range_index_for(resume, EPISODE_RANGE) } else { 0 });
-    let active = range().min(ranges.len().saturating_sub(1));
-    let (from, to) = ranges.get(active).copied().unwrap_or((1, max));
-    let q = query();
-    let searching = !q.trim().is_empty();
-    // A search looks through every episode, not only the selected range.
-    let shown: Vec<EpisodeVm> = if searching {
-        filter_episodes(&episodes, &q)
-    } else {
-        episodes.iter().filter(|e| e.number >= from && e.number <= to).cloned().collect()
-    };
-    let options: Vec<(String, String)> = ranges
-        .iter()
-        .enumerate()
-        .map(|(i, (a, b))| (i.to_string(), tf("details.range", &[("from", &a.to_string()), ("to", &b.to_string())])))
-        .collect();
-    let view_options: Vec<(String, String)> = vec![
-        (EpisodeView::Thumbnails.id().to_owned(), t("details.view.thumbnails")),
-        (EpisodeView::Compact.id().to_owned(), t("details.view.compact")),
-    ];
-    let shown_count = shown.len();
-
-    rsx! {
-        div { class: "tk-deps__tools",
-            div { class: "tk-deps__search", "data-episode-search": "{searching}",
-                TextField {
-                    label: t("details.ep_search"),
-                    value: q.clone(),
-                    kind: "search".to_string(),
-                    placeholder: t("details.ep_search.placeholder"),
-                    icon: "search".to_string(),
-                    oninput: move |v: String| query.set(v),
-                }
-            }
-            Segmented {
-                options: view_options,
-                selected: active_view.id().to_string(),
-                label: t("details.view"),
-                small: true,
-                on_select: move |v: String| {
-                    if let Some(x) = EpisodeView::from_id(&v) {
-                        view.set(Some(x));
-                        ls_set(VIEW_KEY, x.id());
-                    }
-                },
-            }
-        }
-        if ranges.len() > 1 && !searching {
-            Segmented {
-                options,
-                selected: active.to_string(),
-                label: t("details.episodes"),
-                small: true,
-                on_select: move |v: String| range.set(v.parse().unwrap_or(0)),
-            }
-        }
-        if searching && shown.is_empty() {
-            EmptyState {
-                icon: "search".to_string(),
-                title: t("details.ep_search.none.title"),
-                body: t("details.ep_search.none.body"),
-            }
-        }
-        div { class: "tk-list tk-deps", "data-view": "{active_view.id()}", "data-shown": "{shown_count}",
-            for e in shown {
-                {
-                    let (id, n) = (id.clone(), e.number);
-                    let unaired = is_unaired(&e, next_airing, now);
-                    let mut pills: Vec<(String, Tone)> = Vec::new();
-                    // BUG-073: an unaired episode with a date already says "Airs on …" in its meta line.
-                    if unaired && e.air_date.is_none() {
-                        pills.push((t("details.unaired"), Tone::Primary));
-                    }
-                    let with_check = on_toggle.is_some() && !unaired;
-                    pills.extend(episode_pills(&e, resume, with_check).into_iter().map(|(k, tone)| (t(k), tone)));
-                    let seen = e.watched >= WATCHED_AT;
-                    rsx! {
-                        div { key: "{n}", class: "tk-dep-wrap", "data-watched": "{seen}",
-                            DetailsEpisodeRow {
-                                episode: e.clone(),
-                                fallback_image: fallback_image.clone(),
-                                current: n == resume,
-                                pills,
-                                unaired,
-                                compact,
-                                images,
-                                onclick: move |_| {
-                                    if !unaired {
-                                        navigator.push(Route::PlayerPage { id: id.clone(), episode: n });
-                                    }
-                                },
-                            }
-                            if let Some(toggle) = on_toggle.filter(|_| !unaired) {
-                                IconButton {
-                                    icon: "check".to_string(),
-                                    label: if seen { tf("details.mark_unwatched", &[("n", &n.to_string())]) } else { tf("details.mark_watched", &[("n", &n.to_string())]) },
-                                    variant: if seen { IconButtonVariant::Filled } else { IconButtonVariant::Standard },
-                                    size: IconButtonSize::Sm,
-                                    toggle: true,
-                                    toggled: seen,
-                                    class: "tk-dep__mark".to_string(),
-                                    onclick: move |_| toggle.call((n, !seen)),
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Episode row of this screen (thumb with progress, `n. title`, pills, air date). Compact rows drop the thumb;
-/// unaired rows are disabled.
-#[component]
-fn DetailsEpisodeRow(
-    episode: EpisodeVm,
-    current: bool,
-    pills: Vec<(String, Tone)>,
-    #[props(default)] unaired: bool,
-    #[props(default)] compact: bool,
-    #[props(default = true)] images: bool,
-    #[props(default)] fallback_image: Option<String>,
-    #[props(default)] onclick: EventHandler<MouseEvent>,
-) -> Element {
-    let n = episode.number;
-    // No episode thumbnail: the series artwork, dimmed, with the number on top (a bare grey box read as "broken").
-    let (thumb, fallback) = match episode.image.clone() {
-        Some(i) => (Some(i), false),
-        None => (fallback_image.clone(), true),
-    };
-    let heading = match episode.title.clone() {
-        Some(title) => format!("{n}. {title}"),
-        None => tf("details.episode", &[("n", &n.to_string())]),
-    };
-    let aired = episode.air_date.clone().map(|d| {
-        let day = d.get(..10).unwrap_or(d.as_str()).to_owned();
-        if unaired { tf("details.unaired_on", &[("d", &day)]) } else { tf("details.aired", &[("d", &day)]) }
-    });
-    let in_progress = episode.watched > 0.0 && episode.watched < WATCHED_AT;
-    let bar = (episode.watched * 100.0).round();
-    let tip = if unaired { tf("details.unaired_title", &[("title", &heading)]) } else { heading.clone() };
-    rsx! {
-        button {
-            class: "tk-dep",
-            r#type: "button",
-            title: "{tip}",
-            "aria-current": "{current}",
-            "data-compact": "{compact}",
-            "data-unaired": "{unaired}",
-            "data-episode": "{n}",
-            disabled: unaired,
-            "aria-disabled": "{unaired}",
-            onclick: move |e| onclick.call(e),
-            if compact {
-                span { class: "tk-dep__num", "aria-hidden": "true", "{n}" }
-            } else {
-                div { class: "tk-dep__thumb", "data-fallback": "{fallback}",
-                    if let Some(img) = thumb.filter(|_| images) {
-                        img { src: "{img}", alt: "", loading: "lazy", decoding: "async", draggable: "false" }
-                        if fallback {
-                            span { class: "tk-dep__badge", "aria-hidden": "true", "{n}" }
-                        }
-                    } else {
-                        span { class: "tk-dep__mono", "aria-hidden": "true", "{n}" }
-                    }
-                    if in_progress {
-                        div { class: "tk-dep__progress",
-                            div { style: "width:{bar}%" }
-                        }
-                    }
-                }
-            }
-            div { class: "tk-dep__body",
-                div { class: "tk-dep__title",
-                    span { "{heading}" }
-                    for (text , tone) in pills {
-                        Pill { key: "{text}", text: text.clone(), tone, plain: true }
-                    }
-                }
-                if let Some(a) = aired {
-                    div { class: "tk-dep__sub", "{a}" }
-                }
-            }
-        }
-    }
-}
-
 /// Plan §9.1 / §11.4: the notice after "Enviar a dispositivo" when another source than the chosen one went (never a
 /// technical id: the source is named as the lists name it). `None` = the chosen source was sent.
 /// BUG-107: a "Enviar a dispositivo" in flight.
@@ -1635,11 +1429,11 @@ mod tests {
     use super::*;
 
     fn ep(n: u32, watched: f64, filler: bool) -> EpisodeVm {
-        EpisodeVm { number: n, title: None, image: None, air_date: None, is_filler: filler, watched }
+        EpisodeVm { number: n, title: None, image: None, air_date: None, is_filler: filler, watched, ..EpisodeVm::default() }
     }
 
     fn dev(id: &str, online: bool) -> DeviceVm {
-        DeviceVm { id: id.into(), name: id.into(), platform: "android".into(), last_seen_unix: None, online }
+        DeviceVm { id: id.into(), name: id.into(), platform: "android".into(), last_seen_unix: None, online, ..Default::default() }
     }
 
     #[test]
@@ -1720,14 +1514,6 @@ mod tests {
         assert_eq!(n, vec![12]);
         assert_eq!(filter_episodes(&list, "  ").len(), 3);
         assert!(filter_episodes(&list, "nothing").is_empty());
-    }
-
-    #[test]
-    fn episode_view_ids_round_trip() {
-        for v in [EpisodeView::Thumbnails, EpisodeView::Compact] {
-            assert_eq!(EpisodeView::from_id(v.id()), Some(v));
-        }
-        assert_eq!(EpisodeView::from_id("grid"), None);
     }
 
     #[test]

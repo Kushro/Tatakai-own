@@ -333,7 +333,7 @@ mod tests {
             id,
             kind: kind.into(),
             text: "x".into(),
-            media: media.then(|| MediaVm { id: "21".into(), title: "One Piece".into(), cover: None, color: None, subtitle: String::new(), score: None }),
+            media: media.then(|| MediaVm { format: None, status: None, year: None, id: "21".into(), title: "One Piece".into(), cover: None, color: None, subtitle: String::new(), score: None }),
             user: user.then(|| UserVm { id: 7, name: "Mia".into(), avatar: None, url: String::new() }),
             created_unix: 0,
             url: url.then(|| "https://anilist.co/activity/1".to_owned()),

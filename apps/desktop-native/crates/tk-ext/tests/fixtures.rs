@@ -21,7 +21,7 @@ fn host() -> (tempfile::TempDir, ExtensionHost) {
 }
 
 fn media() -> Media {
-    Media {
+    Media { format: None,
         media_ref: MediaRef::anilist(1),
         kind: MediaKind::Anime,
         title: "Synthetic".into(),

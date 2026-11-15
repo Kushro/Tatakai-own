@@ -285,7 +285,7 @@ async fn queued_calls_nobody_waits_for_are_skipped() {
 }
 
 fn anime() -> tk_core::Media {
-    tk_core::Media {
+    tk_core::Media { format: None,
         media_ref: tk_core::MediaRef::anilist(1),
         kind: tk_core::MediaKind::Anime,
         title: "Synthetic".into(),

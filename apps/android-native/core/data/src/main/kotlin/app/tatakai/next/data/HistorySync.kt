@@ -10,11 +10,15 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import app.tatakai.next.database.HistoryDao
+import app.tatakai.next.link.HistoryResyncMode
 import app.tatakai.next.link.LinkException
+import app.tatakai.next.link.LinkHistoryMode
 import app.tatakai.next.link.LinkHistoryRemote
 import app.tatakai.next.link.LinkHistoryUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import java.util.concurrent.TimeUnit
@@ -74,6 +78,9 @@ class HistorySyncer(
 ) {
     enum class Outcome { SKIPPED_NOT_PAIRED, SKIPPED_DISABLED, SYNCED }
 
+    /** One pass at a time: a resync and a WorkManager pass never interleave their pushes / clears. */
+    private val lock = Mutex()
+
     /** Epoch ms of the last successful [syncOnce]; null = never / no paired PC. */
     val lastSyncedAt: StateFlow<Long?> get() = stamp.value
 
@@ -87,18 +94,67 @@ class HistorySyncer(
      * @throws LinkHistoryUnavailableException when the pairing is gone / revoked (treat as not paired);
      *   [LinkException] or any other exception means "retry later".
      */
-    suspend fun syncOnce(): Outcome {
-        if (!enabled()) return Outcome.SKIPPED_DISABLED
-        if (!remote.available) return Outcome.SKIPPED_NOT_PAIRED
+    suspend fun syncOnce(): Outcome = lock.withLock {
+        if (!enabled()) return@withLock Outcome.SKIPPED_DISABLED
+        if (!remote.available) return@withLock Outcome.SKIPPED_NOT_PAIRED
+        pushDirty()
+        pull(cursor())
+        stamp.set(clock())
+        Outcome.SYNCED
+    }
+
+    /**
+     * 2026-11 history per device: carry out a `history_resync` event of the PC ("Use this device as the source").
+     * * [HistoryResyncMode.PUSH_ALL] (this phone is the source): every local row becomes dirty and is pushed (the PC lets them win
+     *   while its window is open), then `POST /v1/history/resync-done` so the PC asks the other devices to replace theirs; a normal
+     *   pull follows.
+     * * [HistoryResyncMode.PULL_REPLACE]: the dirty rows are pushed first when the PC takes this phone's pushes (mode `full`, or
+     *   unknown), then the local history is dropped, the cursor goes back to 0 and everything is pulled from the PC.
+     * A failure leaves the cursor at 0 after the drop, so the next pass pulls everything anyway.
+     * @throws LinkHistoryUnavailableException, LinkException
+     */
+    suspend fun resync(mode: HistoryResyncMode): Outcome = lock.withLock {
+        if (!enabled()) return@withLock Outcome.SKIPPED_DISABLED
+        if (!remote.available) return@withLock Outcome.SKIPPED_NOT_PAIRED
+        remote.noteResync(true)
+        try {
+            when (mode) {
+                HistoryResyncMode.PUSH_ALL -> {
+                    dao.markAllDirty()
+                    pushDirty()
+                    remote.resyncDone()
+                    pull(cursor())
+                }
+                HistoryResyncMode.PULL_REPLACE -> {
+                    val pcMode = remote.mode()
+                    if (pcMode == null || pcMode == LinkHistoryMode.FULL) pushDirty()
+                    dao.clear()
+                    saveCursor(0L)
+                    pull(0L)
+                }
+            }
+            stamp.set(clock())
+            Outcome.SYNCED
+        } finally {
+            remote.noteResync(false)
+        }
+    }
+
+    /** Push the dirty rows in batches; a row touched again while its request was in flight stays dirty. */
+    private suspend fun pushDirty() {
         while (true) {
             val batch = dao.dirty(BATCH)
             if (batch.isEmpty()) break
+            // an ignored push (`receive_only` / `paused` on the PC) still counts as synced: the PC answered and will not want them
             remote.push(batch.map { it.toRemote() })
-            // Only rows not touched again while the request was in flight become clean.
             batch.forEach { dao.markSynced(it.episodeId, it.watchedAtMs) }
             if (batch.size < BATCH) break
         }
-        var since = cursor()
+    }
+
+    /** Pull from [from] while the PC says `truncated`, merging each row; the cursor is saved at the end. */
+    private suspend fun pull(from: Long) {
+        var since = from
         while (true) {
             val page = remote.since(since)
             page.items.forEach { dao.mergeRemote(it.toRow()) }
@@ -106,8 +162,6 @@ class HistorySyncer(
             if (!page.truncated) break
         }
         saveCursor(since)
-        stamp.set(clock())
-        return Outcome.SYNCED
     }
 
     suspend fun hasPending(): Boolean = dao.dirtyCount() > 0

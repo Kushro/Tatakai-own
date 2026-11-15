@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import app.tatakai.next.link.LinkApiError
 import app.tatakai.next.link.LinkDiscoveryAccess
 import app.tatakai.next.link.LinkError
+import app.tatakai.next.link.LinkHistoryMode
+import app.tatakai.next.link.LinkHistoryStatus
 import app.tatakai.next.link.linkErrorOrNull
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.DiscoveredPc
@@ -78,7 +80,15 @@ data class LinkUiState(
     val discovered: List<DiscoveredPc> = emptyList(),
     /** PC -> phone "Enviar a dispositivo" waiting for "Reproducir aquí". */
     val pendingHandoff: LinkHandoff? = null,
+    // --- 2026-11 history per device ---
+    /** How the paired PC treats this phone's history; null = unknown (older PC, not asked yet). */
+    val historyMode: LinkHistoryMode? = null,
+    /** The PC asked for a history resync ("Use this device as the source") and it is running here. */
+    val historyResyncing: Boolean = false,
 )
+
+/** 2026-11 history per device: the notices the Linked screen shows under the PC card. */
+enum class HistoryNotice { RECEIVE_ONLY, PAUSED, RESYNCING }
 
 /** BUG-024: "Enhance a stream" problems the screen explains itself. */
 enum class EnhanceProblem {
@@ -109,6 +119,8 @@ class LinkViewModel(
     private val decodeLimits: () -> VideoDecodeLimits? = { null },
     /** BUG-136: epoch ms, to date a PC hand-off against the history rows (tests pass a fixed clock). */
     private val nowMs: () -> Long = System::currentTimeMillis,
+    /** 2026-11 history per device: this phone's mode on the PC and the "resync running" flag (:core:link). */
+    private val historyStatus: LinkHistoryStatus? = null,
 ) : ViewModel() {
 
     /** BUG-136: this phone's newest history row, and the pending PC hand-off with when it arrived. */
@@ -136,6 +148,7 @@ class LinkViewModel(
                 }
                 if (s is LinkState.Paired) {
                     syncHistoryOnce()
+                    historyStatus?.let { hs -> viewModelScope.launch { runCatching { hs.refreshMode() } } }
                     loadCapabilities()
                 }
             }
@@ -160,6 +173,10 @@ class LinkViewModel(
                     _state.update { it.copy(continueEntry = LinkLogic.continuePoint(localContinue, handoffAt)) }
                 }
             }
+        }
+        historyStatus?.let { hs ->
+            viewModelScope.launch { hs.mode.collect { m -> _state.update { it.copy(historyMode = m) } } }
+            viewModelScope.launch { hs.resyncing.collect { r -> _state.update { it.copy(historyResyncing = r) } } }
         }
         viewModelScope.launch {
             link.discover().catch { emit(emptyList()) }.collect { pcs -> _state.update { it.copy(discovered = pcs) } }
@@ -343,6 +360,16 @@ class LinkViewModel(
 
 /** Pure helpers of the Linked screen (JVM-tested). */
 internal object LinkLogic {
+    /** 2026-11 history per device: what to say under the PC card (a resync first, then the mode when it is not `full`). Pure. */
+    fun historyNotices(mode: LinkHistoryMode?, resyncing: Boolean): List<HistoryNotice> = buildList {
+        if (resyncing) add(HistoryNotice.RESYNCING)
+        when (mode) {
+            LinkHistoryMode.RECEIVE_ONLY -> add(HistoryNotice.RECEIVE_ONLY)
+            LinkHistoryMode.PAUSED -> add(HistoryNotice.PAUSED)
+            LinkHistoryMode.FULL, null -> Unit
+        }
+    }
+
     /** BUG-024: a complete http(s) link with a host and no spaces ("Master.m3u8" alone, or a typo'd scheme, is not). */
     fun enhanceUrlValid(url: String): Boolean {
         val u = url.trim()

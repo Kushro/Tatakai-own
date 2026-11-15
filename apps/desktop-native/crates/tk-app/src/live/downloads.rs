@@ -629,7 +629,7 @@ async fn torrent_for(b: &LiveBackend, id: i64) -> UiResult<String> {
 }
 
 fn media_vm(id: &str, title: &str, poster: Option<&str>) -> MediaVm {
-    MediaVm { id: id.to_owned(), title: title.to_owned(), cover: poster.map(str::to_owned), color: None, subtitle: String::new(), score: None }
+    MediaVm { format: None, status: None, year: None, id: id.to_owned(), title: title.to_owned(), cover: poster.map(str::to_owned), color: None, subtitle: String::new(), score: None }
 }
 
 fn local_vm(r: &LocalItemRow) -> LocalItemVm {

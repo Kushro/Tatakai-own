@@ -498,7 +498,7 @@ fn HistoryRow(item: HistoryItemVm, now: i64) -> Element {
         tf("details.episode", &[("n", &ep)]),
         tf("lib.watched_on", &[("when", &rel_time(now, item.watched_unix))])
     );
-    let row = EpisodeVm { number: episode, title: None, image: None, air_date: None, is_filler: false, watched: 0.0 };
+    let row = EpisodeVm { number: episode, title: None, image: None, air_date: None, is_filler: false, watched: 0.0, ..EpisodeVm::default() };
     rsx! {
         EpisodeRow {
             episode: row,
@@ -743,7 +743,7 @@ mod tests {
 
     fn entry(title: &str, progress: u32, score: Option<u8>, updated: i64) -> ListEntryVm {
         ListEntryVm {
-            media: MediaVm {
+            media: MediaVm { format: None, status: None, year: None,
                 id: title.to_owned(),
                 title: title.to_owned(),
                 cover: None,
@@ -783,7 +783,7 @@ mod tests {
 
     #[test]
     fn favourites_sort() {
-        let m = |t: &str| MediaVm { id: t.into(), title: t.into(), cover: None, color: None, subtitle: String::new(), score: None };
+        let m = |t: &str| MediaVm { format: None, status: None, year: None, id: t.into(), title: t.into(), cover: None, color: None, subtitle: String::new(), score: None };
         let v = sort_media(vec![m("b"), m("A"), m("c")], LibSort::Title, "");
         assert_eq!(v.iter().map(|m| m.title.as_str()).collect::<Vec<_>>(), ["A", "b", "c"]);
         assert_eq!(sort_media(vec![m("b"), m("A")], LibSort::Updated, "a").len(), 1);

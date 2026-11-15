@@ -124,9 +124,23 @@ pub enum PhoneEvent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         title: Option<String>,
     },
+    /// 2026-11 history per device: `{"type":"history_resync","mode":"push_all"|"pull_replace"}`. Phones before this
+    /// version skip unknown types (their `PhoneEventDto` reads only `type` and ignores unknown keys).
+    #[serde(rename = "history_resync")]
+    HistoryResync { mode: ResyncMode },
 }
 
-/// `GET /v1/events` `200` body.
+/// What a [`PhoneEvent::HistoryResync`] asks the phone to do ("Use this device as the source", 2026-11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResyncMode {
+    /// Mark every local row dirty, push them all (the PC lets them win while its window is open), then call
+    /// `POST /v1/history/resync-done`.
+    PushAll,
+    /// Push the dirty rows first when the phone's mode is `full`, then drop the local history, reset the cursor to 0
+    /// and pull everything from the PC.
+    PullReplace,
+}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct EventsPage {
     pub events: Vec<PhoneEvent>,
@@ -223,6 +237,17 @@ mod tests {
         assert_eq!(st, PlayerState { playing: false, title: None, episode: None, position_secs: 0, duration_secs: None, media_id: None });
         assert_eq!(serde_json::to_string(&st).unwrap(), r#"{"playing":false,"positionSecs":0}"#);
         assert!(serde_json::from_str::<PlayerState>("{}").is_err(), "playing is required");
+    }
+
+    #[test]
+    fn history_resync_events_are_snake_case() {
+        use super::ResyncMode;
+        let page = EventsPage { events: vec![PhoneEvent::HistoryResync { mode: ResyncMode::PushAll }, PhoneEvent::HistoryResync { mode: ResyncMode::PullReplace }] };
+        assert_eq!(
+            serde_json::to_string(&page).unwrap(),
+            r#"{"events":[{"type":"history_resync","mode":"push_all"},{"type":"history_resync","mode":"pull_replace"}]}"#
+        );
+        assert_eq!(serde_json::from_str::<EventsPage>(&serde_json::to_string(&page).unwrap()).unwrap(), page);
     }
 
     #[test]

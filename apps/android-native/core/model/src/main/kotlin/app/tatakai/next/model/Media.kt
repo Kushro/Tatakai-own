@@ -36,6 +36,13 @@ data class Media(
     @OptIn(ExperimentalSerializationApi::class)
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val altTitles: List<String> = emptyList(),
+    /**
+     * 2026-11 UI refresh: AniList `format` (`TV`, `MOVIE`, `OVA`, `ONA`, `SPECIAL`, `TV_SHORT`, `MUSIC`), shown by the detailed cards and
+     * the Home spotlight. Not part of the shared metadata contract (the fixture test leaves it out); never encoded when null.
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val format: String? = null,
 )
 
 /**
@@ -59,6 +66,20 @@ data class Episode(
     val image: String?,
     val airDate: String?,
     val isFiller: Boolean = false,
+    // --- 2026-11 UI refresh (desktop `EpisodeVm::{summary, runtime_min, rating}`): ani.zip / Kitsu extras, outside the shared
+    // metadata contract (the fixture test leaves them out); never encoded when null so cached lists and payloads stay as they were.
+    /** Episode synopsis (ani.zip `overview` / `summary`, Kitsu `synopsis`). */
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val summary: String? = null,
+    /** Length in minutes (ani.zip `runtime` / `length`, Kitsu `length`). */
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val runtimeMin: Int? = null,
+    /** ani.zip rating 0..10 (number or numeric text), two decimals. */
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val rating: Double? = null,
 )
 
 data class FeedPage(val items: List<Media>, val page: Int, val hasNext: Boolean)

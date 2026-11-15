@@ -34,6 +34,12 @@ object Mappers {
         return p.content.toIntOrNull() ?: p.content.toDoubleOrNull()?.toInt()
     }
 
+    /** A number sent as JSON number or numeric text (ani.zip `"rating": "8.03"`); null when missing or not finite. */
+    internal fun JsonObject.num(key: String): Double? {
+        val p = child(key) as? JsonPrimitive ?: return null
+        return p.content.trim().toDoubleOrNull()?.takeIf { it.isFinite() }
+    }
+
     internal fun JsonObject.bool(key: String): Boolean = (child(key) as? JsonPrimitive)?.content == "true"
 
     // ---- synopsis ----
@@ -87,6 +93,7 @@ object Mappers {
             year = m.int("seasonYear"),
             score = m.int("averageScore"),
             sourceProvider = "anilist",
+            format = m.str("format"),
         )
     }
 
@@ -118,6 +125,9 @@ object Mappers {
                 image = e.str("image"),
                 airDate = e.str("airDateUtc") ?: e.str("airDate") ?: e.str("airdate"),
                 isFiller = false,
+                summary = cleanZipTitle(e.str("overview")) ?: cleanZipTitle(e.str("summary")),
+                runtimeMin = (e.num("runtime") ?: e.num("length"))?.let { Math.round(it).toInt() }?.takeIf { it > 0 },
+                rating = e.num("rating")?.takeIf { it > 0.0 && it <= 10.0 }?.let { Math.round(it * 100.0) / 100.0 },
             )
         }
         return out.sortedBy { it.number }
@@ -202,6 +212,8 @@ object Mappers {
                 image = th?.str("original") ?: th?.str("large") ?: th?.str("medium"),
                 airDate = a.str("airdate"),
                 isFiller = false,
+                summary = cleanSynopsis(a.str("synopsis") ?: a.str("description")),
+                runtimeMin = a.int("length")?.takeIf { it > 0 },
             )
         }.sortedBy { it.number }
 }

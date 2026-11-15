@@ -40,12 +40,18 @@
 .tk-details__hint { font-size: var(--md-sys-typescale-body-small-size); }
 .tk-details__sheetstate { display: grid; place-items: center; min-height: 240px; }
 
-.tk-dtabs { display: flex; gap: var(--tk-space-4); border-bottom: 1px solid var(--md-sys-color-outline-variant); overflow-x: auto; }
-.tk-dtab { position: relative; height: 48px; padding: 0 var(--tk-space-16); display: inline-flex; align-items: center; border: 0; background: transparent; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-title-small-size); font-weight: var(--md-sys-typescale-title-small-weight-emphasized); white-space: nowrap; border-radius: var(--md-sys-shape-corner-small) var(--md-sys-shape-corner-small) 0 0; transition: background-color var(--tk-mo-fx-fast), color var(--tk-mo-fx-fast); }
+/* tabs: equal columns and one indicator slid under the active one with a transform (2026-11 UI refresh) */
+.tk-dtabs { position: relative; display: grid; grid-template-columns: repeat(var(--tk-dtab-n, 4), minmax(0, 1fr)); border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+.tk-dtab { position: relative; display: block; height: 48px; line-height: 48px; padding: 0 var(--tk-space-8); text-align: center; min-width: 0; border: 0; background: transparent; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-title-small-size); font-weight: var(--md-sys-typescale-title-small-weight-emphasized); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-radius: var(--md-sys-shape-corner-small) var(--md-sys-shape-corner-small) 0 0; transition: background-color var(--tk-mo-fx-fast), color var(--tk-mo-fx-fast); }
 .tk-dtab:hover { background: var(--tk-hover); }
 .tk-dtab[aria-selected="true"] { color: var(--md-sys-color-primary); }
-.tk-dtab::after { content: ""; position: absolute; left: var(--tk-space-12); right: var(--tk-space-12); bottom: 0; height: 3px; border-radius: var(--md-sys-shape-corner-extra-small) var(--md-sys-shape-corner-extra-small) 0 0; background: var(--md-sys-color-primary); transform: scaleX(0); transition: transform var(--tk-mo-spatial); }
-.tk-dtab[aria-selected="true"]::after { transform: scaleX(1); }
+.tk-dtabs__indicator { position: absolute; left: 0; bottom: 0; width: calc(100% / var(--tk-dtab-n, 4)); height: 3px; padding: 0 var(--tk-space-16); transform: translateX(calc(var(--tk-dtab-i, 0) * 100%)); transition: transform var(--tk-mo-spatial); pointer-events: none; }
+.tk-dtabs__indicator::before { content: ""; display: block; height: 100%; border-radius: var(--md-sys-shape-corner-extra-small) var(--md-sys-shape-corner-extra-small) 0 0; background: var(--md-sys-color-primary); }
+:root[data-motion="subtle"] .tk-dtabs__indicator, :root[data-reduce-motion="true"] .tk-dtabs__indicator { transition: none; }
+/* the panel that becomes visible fades in (opacity only) */
+.tk-details__tab:not([hidden]) { animation: tk-dtab-in var(--tk-mo-fx) both; }
+@keyframes tk-dtab-in { from { opacity: 0; } }
+:root[data-reduce-motion="true"] .tk-details__tab:not([hidden]) { animation: none; }
 
 /* episode rows (local to Details) */
 .tk-dep { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: var(--tk-space-16); align-items: center; width: 100%; padding: var(--tk-space-8); border: 0; border-radius: var(--md-sys-shape-corner-large); background: transparent; color: inherit; text-align: start; transition: background-color var(--tk-mo-fx-fast); }
@@ -169,3 +175,107 @@ button.tk-drelated__row:hover { background: var(--md-sys-color-surface-container
 .tk-details__sending > .tk-btn { flex: none; }
 .tk-drel:disabled { opacity: .6; cursor: default; }
 .tk-drel:disabled:hover { background: transparent; }
+
+/* ---- episodes: shared bits of the three views (2026-11 UI refresh) ---------------------------------------- */
+.tk-dviews .tk-seg__item .tk-icon { flex: none; }
+.tk-dep__name { min-width: 0; overflow-wrap: anywhere; }
+.tk-dep__bar { height: 3px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-surface-container-highest); overflow: hidden; }
+.tk-dep__bar > div { height: 100%; background: var(--md-sys-color-primary); }
+.tk-dep__resume { display: inline-flex; align-items: center; gap: var(--tk-space-4); color: var(--md-sys-color-primary); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-dep[aria-current="true"] .tk-dep__resume { color: inherit; }
+.tk-deps[data-view="list"] > .tk-dep-wrap, .tk-deps[data-view="compact"] > .tk-dep-wrap { content-visibility: auto; contain-intrinsic-size: auto 72px; }
+.tk-deps[data-view="compact"] > .tk-dep-wrap { contain-intrinsic-size: auto 52px; }
+
+/* cards: two columns (one when narrow) of large cards */
+.tk-deps[data-view="cards"] { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, max(380px, calc(50% - var(--tk-space-12)))), 1fr)); gap: var(--tk-space-12); }
+.tk-dep[data-layout="cards"] { position: relative; grid-template-columns: minmax(128px, 40%) minmax(0, 1fr); gap: 0; align-items: stretch; height: 100%; min-height: 116px; padding: 0; border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-low); outline: 2px solid transparent; outline-offset: -2px; transition: background-color var(--tk-mo-fx-fast), outline-color var(--tk-mo-fx-fast); }
+.tk-dep[data-layout="cards"]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; box-shadow: var(--tk-shadow-3); opacity: 0; transition: opacity var(--tk-mo-fx); pointer-events: none; }
+.tk-dep[data-layout="cards"]:hover { background: var(--md-sys-color-surface-container); }
+.tk-dep[data-layout="cards"][aria-current="true"] { background: var(--md-sys-color-surface-container); color: inherit; outline-color: var(--md-sys-color-primary); }
+.tk-dep-wrap[data-unaired="false"]:hover > .tk-dep[data-layout="cards"], .tk-dep[data-layout="cards"]:focus-visible { outline-color: var(--md-sys-color-primary); }
+.tk-dep-wrap[data-unaired="false"]:hover > .tk-dep[data-layout="cards"]::after { opacity: 1; }
+/* QA 0.3: the thumb fills its grid column (aspect-ratio + height:100% computed a width wider than the column and the
+   art covered the title). */
+.tk-dep[data-layout="cards"] .tk-dep__thumb { aspect-ratio: auto; width: 100%; height: 100%; min-height: 116px; min-width: 0; border-radius: var(--md-sys-shape-corner-large) 0 0 var(--md-sys-shape-corner-large); }
+.tk-dep__k { position: absolute; bottom: var(--tk-space-8); display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: var(--md-sys-shape-corner-extra-small); background: color-mix(in srgb, var(--md-sys-color-surface-container-lowest) 82%, transparent); color: var(--md-sys-color-on-surface); font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-small-size); line-height: 1.3; }
+.tk-dep__k[data-k="runtime"] { left: var(--tk-space-8); }
+.tk-dep__k[data-k="rating"] { right: var(--tk-space-8); }
+.tk-dep__k[data-k="rating"] .tk-icon { color: var(--md-sys-color-tertiary); fill: currentColor; }
+.tk-dep[data-layout="cards"] .tk-dep__body { gap: var(--tk-space-4); padding: var(--tk-space-12) var(--tk-space-16); align-self: stretch; }
+.tk-dep[data-layout="cards"] .tk-dep__title { padding-inline-end: 32px; }
+.tk-dep__syn { margin: 0; font-size: var(--md-sys-typescale-body-small-size); line-height: var(--md-sys-typescale-body-small-line-height); color: var(--md-sys-color-on-surface-variant); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
+.tk-dep__when { display: flex; justify-content: space-between; align-items: center; gap: var(--tk-space-8); margin-top: auto; padding-top: var(--tk-space-4); font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); }
+.tk-deps[data-view="cards"] .tk-dep-wrap > .tk-dep { padding-inline-end: 0; }
+.tk-deps[data-view="cards"] .tk-dep-wrap > .tk-dep__mark { top: var(--tk-space-8); inset-inline-end: var(--tk-space-8); transform: none; opacity: 0; transition: opacity var(--tk-mo-fx-fast); }
+.tk-deps[data-view="cards"] .tk-dep-wrap[data-watched="true"] > .tk-dep__mark,
+.tk-deps[data-view="cards"] .tk-dep-wrap:hover > .tk-dep__mark,
+.tk-deps[data-view="cards"] .tk-dep-wrap:focus-within > .tk-dep__mark { opacity: 1; }
+.tk-dep[data-layout="cards"][data-unaired="true"]:hover { background: var(--md-sys-color-surface-container-low); }
+/* expressive motion: the card lifts (transform only); subtle / off keep the color changes */
+:root:not([data-motion="subtle"]):not([data-motion="off"]):not([data-reduce-motion="true"]) .tk-deps[data-view="cards"] > .tk-dep-wrap { transition: transform var(--tk-mo-spatial-fast); }
+:root:not([data-motion="subtle"]):not([data-motion="off"]):not([data-reduce-motion="true"]) .tk-deps[data-view="cards"] > .tk-dep-wrap[data-unaired="false"]:hover,
+:root:not([data-motion="subtle"]):not([data-motion="off"]):not([data-reduce-motion="true"]) .tk-deps[data-view="cards"] > .tk-dep-wrap[data-unaired="false"]:focus-within { transform: translateY(-2px); }
+:root[data-reduce-motion="true"] .tk-dep[data-layout="cards"], :root[data-reduce-motion="true"] .tk-dep[data-layout="cards"]::after { transition: none; }
+
+/* list: thumbnail rows with the date and the length on the right */
+.tk-dep[data-layout="list"] { grid-template-columns: 112px minmax(0, 1fr) auto; }
+.tk-dep__meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: var(--md-sys-typescale-body-small-size); color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
+.tk-dep[aria-current="true"] .tk-dep__meta { color: inherit; opacity: 0.8; }
+.tk-dep__runtime { font-family: var(--tk-font-mono); }
+
+/* compact: a dense grid of "N. Title · date" tiles */
+.tk-deps[data-view="compact"] { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: var(--tk-space-4); }
+.tk-dep[data-layout="compact"] { display: flex; flex-direction: column; align-items: stretch; gap: var(--tk-space-4); height: 100%; padding: var(--tk-space-8) var(--tk-space-12); background: var(--md-sys-color-surface-container-low); }
+.tk-dep[data-layout="compact"]:hover { background: var(--md-sys-color-surface-container-high); }
+.tk-dep[data-layout="compact"][aria-current="true"] { background: var(--md-sys-color-secondary-container); }
+.tk-dep[data-layout="compact"] .tk-dep__title { flex-wrap: nowrap; }
+.tk-dep[data-layout="compact"] .tk-dep__name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-deps[data-view="compact"] .tk-dep-wrap > .tk-dep { padding-inline-end: 48px; }
+
+/* ---- relations ------------------------------------------------------------------------------------------ */
+.tk-drelations { display: flex; flex-direction: column; gap: var(--tk-space-12); min-width: 0; }
+.tk-drelations__tools { display: flex; justify-content: flex-end; }
+.tk-drelated__group { grid-column: 1 / -1; margin: var(--tk-space-8) 0 0; font-size: var(--md-sys-typescale-label-medium-size); letter-spacing: var(--md-sys-typescale-label-small-tracking); text-transform: uppercase; color: var(--md-sys-color-primary); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); }
+.tk-drelated__group:first-child { margin-top: 0; }
+
+/* graph: pan / zoom canvas with a dotted background */
+.tk-graph { position: relative; height: 440px; overflow: hidden; border-radius: var(--md-sys-shape-corner-large); border: 1px solid var(--md-sys-color-outline-variant); background-color: var(--md-sys-color-surface-container-lowest); background-image: radial-gradient(color-mix(in srgb, var(--md-sys-color-on-surface) 14%, transparent) 1px, transparent 1px); background-size: 22px 22px; cursor: grab; touch-action: none; user-select: none; }
+.tk-graph[data-dragging="true"] { cursor: grabbing; }
+.tk-graph[data-fullscreen="true"] { position: fixed; inset: 0; z-index: 50; height: auto; border-radius: 0; border: 0; }
+.tk-graph__world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.tk-graph[data-animate="true"] .tk-graph__world { transition: transform var(--tk-mo-spatial); }
+.tk-graph__plane { position: relative; }
+.tk-graph__edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.tk-graph__edges path { fill: none; stroke: var(--md-sys-color-outline); stroke-width: 1.5; stroke-dasharray: 5 5; }
+.tk-graph__edges path[data-main="true"] { stroke: var(--md-sys-color-primary); stroke-width: 2; stroke-dasharray: none; }
+.tk-graph__label { position: absolute; transform: translate(-50%, -50%); padding: 3px 6px; border-radius: var(--md-sys-shape-corner-extra-small); background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-small-size); letter-spacing: var(--md-sys-typescale-label-small-tracking); text-transform: uppercase; white-space: nowrap; pointer-events: none; }
+.tk-graph__label[data-main="true"] { color: var(--md-sys-color-primary); }
+.tk-gnode { position: absolute; width: 208px; height: 76px; display: flex; align-items: center; gap: var(--tk-space-8); padding: var(--tk-space-8) var(--tk-space-12) var(--tk-space-8) var(--tk-space-8); border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface); text-align: start; cursor: pointer; transition: border-color var(--tk-mo-fx-fast), background-color var(--tk-mo-fx-fast); }
+.tk-gnode::after { content: ""; position: absolute; inset: -1px; border-radius: inherit; box-shadow: var(--tk-shadow-3); opacity: 0; transition: opacity var(--tk-mo-fx); pointer-events: none; }
+.tk-gnode:hover, .tk-gnode:focus-visible { border-color: var(--md-sys-color-primary); }
+.tk-gnode:hover::after, .tk-gnode:focus-visible::after { opacity: 1; }
+.tk-gnode[aria-current="true"] { border: 2px solid var(--md-sys-color-primary); background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); cursor: default; }
+:root:not([data-motion="subtle"]):not([data-motion="off"]):not([data-reduce-motion="true"]) .tk-gnode { transition: border-color var(--tk-mo-fx-fast), background-color var(--tk-mo-fx-fast), transform var(--tk-mo-spatial-fast); }
+:root:not([data-motion="subtle"]):not([data-motion="off"]):not([data-reduce-motion="true"]) .tk-gnode:not([aria-current="true"]):hover { transform: translateY(-2px); }
+.tk-gnode__cover { width: 40px; flex: none; }
+.tk-gnode__cover .tk-cover { border-radius: var(--md-sys-shape-corner-small); }
+.tk-gnode__cover .tk-cover__art::after { display: none; }
+.tk-gnode__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.tk-gnode__title { font-size: var(--md-sys-typescale-label-large-size); font-weight: var(--md-sys-typescale-title-small-weight-emphasized); line-height: 1.25; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.tk-gnode__facts { display: flex; justify-content: space-between; gap: var(--tk-space-8); font-size: var(--md-sys-typescale-label-small-size); color: var(--md-sys-color-on-surface-variant); white-space: nowrap; }
+.tk-gnode__facts > span { overflow: hidden; text-overflow: ellipsis; }
+.tk-gnode[aria-current="true"] .tk-gnode__facts { color: inherit; opacity: 0.8; }
+.tk-graph__tools { position: absolute; left: var(--tk-space-12); bottom: var(--tk-space-12); display: flex; gap: 2px; padding: 3px; border-radius: var(--md-sys-shape-corner-medium); background: var(--md-sys-color-surface-container-high); box-shadow: var(--tk-shadow-1); cursor: default; }
+.tk-graph__tool, .tk-graph__close { display: grid; place-items: center; width: 34px; height: 32px; border: 0; border-radius: var(--md-sys-shape-corner-small); background: transparent; color: var(--md-sys-color-on-surface); cursor: pointer; transition: background-color var(--tk-mo-fx-fast); }
+.tk-graph__tool:hover, .tk-graph__close:hover { background: var(--tk-hover); }
+.tk-graph__close { position: absolute; top: var(--tk-space-12); left: var(--tk-space-12); width: 40px; height: 40px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-surface-container-high); box-shadow: var(--tk-shadow-1); }
+.tk-graph:not([data-fullscreen="true"]) .tk-graph__close { display: none; }
+.tk-graph[data-fullscreen="true"] .tk-graph__tool[data-graph="full"] { color: var(--md-sys-color-primary); }
+.tk-graph__legend { position: absolute; right: var(--tk-space-12); top: var(--tk-space-12); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--tk-space-4) var(--tk-space-12); max-width: 60%; padding: var(--tk-space-4) var(--tk-space-8); border-radius: var(--md-sys-shape-corner-small); background: color-mix(in srgb, var(--md-sys-color-surface-container-lowest) 85%, transparent); font-size: var(--md-sys-typescale-label-small-size); color: var(--md-sys-color-on-surface-variant); cursor: default; }
+.tk-graph__legend > span { display: inline-flex; align-items: center; gap: var(--tk-space-4); }
+.tk-graph__legend i { display: inline-block; width: 20px; height: 0; border-top: 2px dashed var(--md-sys-color-outline); }
+.tk-graph__legend [data-main="true"] { color: var(--md-sys-color-primary); }
+.tk-graph__legend [data-main="true"] i { border-top-style: solid; border-top-color: var(--md-sys-color-primary); }
+.tk-graph__hint { position: absolute; right: var(--tk-space-12); bottom: var(--tk-space-12); margin: 0; font-size: var(--md-sys-typescale-label-small-size); color: var(--md-sys-color-on-surface-variant); pointer-events: none; }
+:root[data-reduce-motion="true"] .tk-gnode, :root[data-reduce-motion="true"] .tk-gnode::after, :root[data-reduce-motion="true"] .tk-graph[data-animate="true"] .tk-graph__world { transition: none; }
+@media (max-width: 839px) { .tk-graph { height: 360px; } .tk-graph__hint { display: none; } }
