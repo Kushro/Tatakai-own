@@ -149,3 +149,10 @@
 :root[data-reduce-motion="true"] .tk-month__cell:hover, :root[data-reduce-motion="true"] .tk-month__cell:active,
 :root[data-reduce-motion="true"] .tk-recs__tabs .tk-seg__item:hover, :root[data-reduce-motion="true"] .tk-recs__tabs .tk-seg__item:active,
 :root[data-reduce-motion="true"] .tk-recs__grid .tk-rec:hover, :root[data-reduce-motion="true"] .tk-recs__grid .tk-rec:focus-within { transform: none; }
+
+/* QA 0.3: time-line cards keep one line per text and their fixed height (narrow lanes wrapped the title and the
+   relative label into 4-5 lines that spilled over the next card). */
+.tk-timeline__event .tk-calendar__slot { overflow: hidden; }
+.tk-timeline__event .tk-calendar__text { min-width: 0; }
+.tk-timeline__event :is(.tk-calendar__time, .tk-calendar__title, .tk-calendar__ep) { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; }
+.tk-month__partial { margin-bottom: var(--tk-space-12); }

@@ -622,9 +622,15 @@ fn MonthBody(year: i64, month: u32, tracked_only: bool, offset_min: i64, today: 
         move |(y, m, off)| {
             let backend = backend.clone();
             async move {
+                // QA 0.3: one week after the other. Six calls at once tripped AniList's rate limit and the failed
+                // weeks showed up as empty days; now a partial answer also says how many weeks are missing.
                 let weeks = MonthGrid::new(y, m).weeks(off);
-                let calls: Vec<_> = weeks.iter().map(|w| backend.airing_schedule(*w)).collect();
-                merge_weeks(join_all(calls).await)
+                let mut results = Vec::with_capacity(weeks.len());
+                for w in &weeks {
+                    results.push(backend.airing_schedule(*w).await);
+                }
+                let failed = results.iter().filter(|r| r.is_err()).count();
+                merge_weeks(results).map(|list| (list, failed))
             }
         }
     }));
@@ -645,8 +651,9 @@ fn MonthBody(year: i64, month: u32, tracked_only: bool, offset_min: i64, today: 
                 ErrorState { error: e.clone(), compact: true, on_retry: move |_| schedule.restart() }
             };
         }
-        Some(Ok(list)) => with_overrides(list, &overrides.read()),
+        Some(Ok((list, failed))) => (with_overrides(list, &overrides.read()), *failed),
     };
+    let (list, failed) = list;
     let cols = columns(&list, day_start_unix(grid.first, offset_min), grid.cells, tracked_only);
     let selected = picked()
         .filter(|d| grid.contains(*d))
@@ -669,6 +676,19 @@ fn MonthBody(year: i64, month: u32, tracked_only: bool, offset_min: i64, today: 
         }
     });
     rsx! {
+        if failed > 0 {
+            div { class: "tk-banner tk-banner--warn tk-month__partial", role: "status", "data-failed-weeks": "{failed}",
+                span { class: "tk-banner__text", {tn("schedule.month.partial", failed)} }
+                div { class: "tk-banner__actions",
+                    Button {
+                        label: t("common.retry"),
+                        variant: ButtonVariant::Text,
+                        size: ButtonSize::Sm,
+                        onclick: move |_| schedule.restart(),
+                    }
+                }
+            }
+        }
         div { class: "tk-month", "data-calendar-month": "{key}", "data-has-panel": "{selected.is_some()}",
             div { class: "tk-month__grid", role: "group", "aria-label": "{key}",
                 for i in 0..7 {

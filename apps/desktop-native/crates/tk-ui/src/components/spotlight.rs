@@ -228,7 +228,9 @@ fn SpotSlide(slide: HeroVm, active: bool, eager: bool, resume: Option<u32>) -> E
                             r#type: "button",
                             tabindex: if active { "0" } else { "-1" },
                             onclick: move |_| open(id_title.clone()),
-                            "{m.title}"
+                            // QA 0.3: the clamp lives on a span (WebKit ignores -webkit-box on <button>, the title
+                            // wrapped one word per line at min-content width).
+                            span { class: "tk-spot__title-text", "{m.title}" }
                         }
                     }
                     if !chips.is_empty() {

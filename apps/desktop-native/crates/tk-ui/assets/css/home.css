@@ -100,13 +100,13 @@
 .tk-spot__main, .tk-spot__aside { display: flex; flex-direction: column; gap: var(--tk-space-16); min-width: 0; }
 .tk-spot__main > *, .tk-spot__aside > * { pointer-events: auto; }
 .tk-spot__aside { align-items: flex-end; text-align: end; }
-.tk-spot__title { margin: 0; max-width: 18ch; }
+.tk-spot__title { margin: 0; width: min(100%, 16em); font-size: clamp(30px, 4.4vw, 60px); }
 .tk-spot__title > button {
-  font: 700 clamp(30px, 4.4vw, 60px)/1.02 var(--tk-font-display); letter-spacing: -.02em; text-align: start; text-wrap: balance;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  display: block; width: 100%; font: 700 1em/1.02 var(--tk-font-display); letter-spacing: -.02em; text-align: start;
   text-shadow: 0 2px 18px color-mix(in srgb, var(--md-sys-color-scrim) 45%, transparent);
   transition: opacity var(--tk-mo-fx-fast);
 }
+.tk-spot__title-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-wrap: balance; }
 .tk-spot__title > button:hover { opacity: .9; }
 .tk-spot__title > button:focus-visible { outline: 2px solid var(--md-sys-color-primary-fixed); outline-offset: 4px; border-radius: var(--md-sys-shape-corner-small); }
 .tk-spot__chips, .tk-spot__genres { display: flex; flex-wrap: wrap; gap: var(--tk-space-8); list-style: none; margin: 0; padding: 0; }

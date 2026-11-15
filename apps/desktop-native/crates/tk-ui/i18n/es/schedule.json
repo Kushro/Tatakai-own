@@ -41,5 +41,7 @@
   "schedule.month.9": "Septiembre",
   "schedule.month.10": "Octubre",
   "schedule.month.11": "Noviembre",
-  "schedule.month.12": "Diciembre"
+  "schedule.month.12": "Diciembre",
+  "schedule.month.partial.one": "1 semana no cargó (límite de AniList). Los días vacíos pueden tener episodios.",
+  "schedule.month.partial": "{n} semanas no cargaron (límite de AniList). Los días vacíos pueden tener episodios."
 }

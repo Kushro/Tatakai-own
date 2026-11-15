@@ -501,6 +501,12 @@ details[open] > summary.tk-summary > .tk-summary__chevron { transform: rotate(90
 .tk-menu__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk-menu__hint { margin-inline-start: auto; font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-small-size); color: var(--md-sys-color-on-surface-variant); }
 .tk-menu__item[aria-checked="true"] .tk-menu__hint { color: inherit; opacity: 0.8; }
+/* two-line items (label + description), e.g. Link's history modes */
+.tk-menu__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: start; }
+.tk-menu__text .tk-menu__label { white-space: normal; }
+.tk-menu__desc { font-size: var(--md-sys-typescale-body-small-size); line-height: 16px; color: var(--md-sys-color-on-surface-variant); white-space: normal; }
+.tk-menu__item:has(.tk-menu__desc) { height: auto; min-height: 48px; padding-block: var(--tk-space-8); align-items: flex-start; }
+.tk-menu:has(.tk-menu__desc) { min-width: 300px; }
 .tk-menu__sep { height: 1px; flex: none; margin: var(--tk-space-4) var(--tk-space-8); background: var(--md-sys-color-outline-variant); }
 
 /* ---- dialog --------------------------------------------------------------------------------- */

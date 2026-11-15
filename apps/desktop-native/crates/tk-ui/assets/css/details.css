@@ -194,7 +194,9 @@ button.tk-drelated__row:hover { background: var(--md-sys-color-surface-container
 .tk-dep[data-layout="cards"][aria-current="true"] { background: var(--md-sys-color-surface-container); color: inherit; outline-color: var(--md-sys-color-primary); }
 .tk-dep-wrap[data-unaired="false"]:hover > .tk-dep[data-layout="cards"], .tk-dep[data-layout="cards"]:focus-visible { outline-color: var(--md-sys-color-primary); }
 .tk-dep-wrap[data-unaired="false"]:hover > .tk-dep[data-layout="cards"]::after { opacity: 1; }
-.tk-dep[data-layout="cards"] .tk-dep__thumb { aspect-ratio: 16 / 9; height: 100%; border-radius: var(--md-sys-shape-corner-large) 0 0 var(--md-sys-shape-corner-large); }
+/* QA 0.3: the thumb fills its grid column (aspect-ratio + height:100% computed a width wider than the column and the
+   art covered the title). */
+.tk-dep[data-layout="cards"] .tk-dep__thumb { aspect-ratio: auto; width: 100%; height: 100%; min-height: 116px; min-width: 0; border-radius: var(--md-sys-shape-corner-large) 0 0 var(--md-sys-shape-corner-large); }
 .tk-dep__k { position: absolute; bottom: var(--tk-space-8); display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: var(--md-sys-shape-corner-extra-small); background: color-mix(in srgb, var(--md-sys-color-surface-container-lowest) 82%, transparent); color: var(--md-sys-color-on-surface); font-family: var(--tk-font-mono); font-size: var(--md-sys-typescale-label-small-size); line-height: 1.3; }
 .tk-dep__k[data-k="runtime"] { left: var(--tk-space-8); }
 .tk-dep__k[data-k="rating"] { right: var(--tk-space-8); }

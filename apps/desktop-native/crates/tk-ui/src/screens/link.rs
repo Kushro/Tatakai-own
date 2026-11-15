@@ -944,7 +944,7 @@ fn DeviceRow(
                         MenuItem {
                             key: "{history_mode_attr(m)}",
                             label: t(history_mode_key(m)),
-                            hint: t(history_mode_hint_key(m)),
+                            desc: t(history_mode_hint_key(m)),
                             checked: Some(m == mode),
                             on_select: {
                                 let d = device.clone();
@@ -959,7 +959,7 @@ fn DeviceRow(
                     MenuItem {
                         label: t("sync.history.use_source"),
                         icon: "sync".to_string(),
-                        hint: if mode == HistoryModeVm::Full { String::new() } else { t("sync.history.use_source_hint") },
+                        desc: if mode == HistoryModeVm::Full { String::new() } else { t("sync.history.use_source_hint") },
                         disabled: !can_source,
                         on_select: move |_| {
                             menu_open.set(false);

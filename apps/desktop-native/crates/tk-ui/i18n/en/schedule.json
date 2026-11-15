@@ -41,5 +41,7 @@
   "schedule.month.9": "September",
   "schedule.month.10": "October",
   "schedule.month.11": "November",
-  "schedule.month.12": "December"
+  "schedule.month.12": "December",
+  "schedule.month.partial.one": "1 week did not load (AniList rate limit). Empty days may have episodes.",
+  "schedule.month.partial": "{n} weeks did not load (AniList rate limit). Empty days may have episodes."
 }
