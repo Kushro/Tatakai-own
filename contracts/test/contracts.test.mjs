@@ -26,7 +26,8 @@ test('link/openapi.v1.json: M0 scope (E6/E7 trims) and structural integrity', ()
     assert.ok(paths.includes(p), `missing path ${p}`);
   }
   for (const gone of ['settings', 'handoff', 'sync', 'downloads', 'source/', 'subtitles', 'mdns']) {
-    assert.ok(!paths.some((p) => p.includes(gone)), `${gone} must not be in the API`);
+    // 2026-11: `/v1/history/resync-done` is the per-device history resync, not the removed cloud sync.
+    assert.ok(!paths.some((p) => p.includes(gone) && p !== '/v1/history/resync-done'), `${gone} must not be in the API`);
   }
   // wave B (worker k): remote control, player state and the events long-poll (canonical wire of tk-link control.rs)
   for (const p of ['/v1/control', '/v1/player', '/v1/events']) assert.ok(paths.includes(p), `missing wave B path ${p}`);
