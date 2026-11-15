@@ -48,7 +48,9 @@ class SearchViewModelTest {
         val onFeed: (FeedKind, Int) -> FeedPage = { _, p -> FeedPage(emptyList(), p, false) },
         val onAdvanced: (MediaSearchQuery, Int) -> FeedPage,
         val onCharacters: (String, Int) -> List<CharacterRef> = { _, _ -> emptyList() },
+        val onSearch: ((String, Int) -> FeedPage)? = null,
     ) : MetadataRepository {
+        val plain = mutableListOf<Pair<String, Int>>()
         val advanced = mutableListOf<Pair<MediaSearchQuery, Int>>()
         val feeds = mutableListOf<String>()
         val characterQueries = mutableListOf<String>()
@@ -56,7 +58,10 @@ class SearchViewModelTest {
             feeds += "$feed#$page"
             return onFeed(feed, page)
         }
-        override suspend fun search(kind: MediaKind, query: String, page: Int): FeedPage = error("plain search must not be used")
+        override suspend fun search(kind: MediaKind, query: String, page: Int): FeedPage {
+            plain += query to page
+            return onSearch?.invoke(query, page) ?: error("plain search must not be used")
+        }
         override suspend fun searchAdvanced(kind: MediaKind, query: MediaSearchQuery, page: Int): FeedPage {
             advanced += query to page
             return onAdvanced(query, page)
@@ -331,5 +336,97 @@ class SearchViewModelTest {
         val list = listOf(m(1, 0.80), m(1, 0.97), m(2, 0.90), m(3, 0.50))
         assertEquals(listOf(1, 2, 3), bestPerTitle(list).map { it.ref.anilistId })
         assertEquals(listOf(0.97, 0.90), rankMatches(list, 0.85f).map { it.similarity })
+    }
+
+    // --- BUG-146: AniList not answering must not leave a text search empty ---
+
+    private val limited = AppException(AppError.RateLimited("anilist"))
+
+    @Test
+    fun `a text search answered by AniList keeps its results and never asks the plain search`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val repo = FakeMetadata(
+            onAdvanced = { _, p -> FeedPage(listOf(media(3), media(1), media(2)), p, false) },
+            onSearch = { _, p -> FeedPage(listOf(media(9)), p, false) },
+        )
+        val vm = SearchViewModel(repo, debounceMillis = 10)
+        vm.onQueryChange("frieren")
+        advanceUntilIdle()
+
+        val ok = assertIs<SearchResults.Ok>(vm.state.value.results)
+        assertEquals(listOf(3, 1, 2), ok.items.map { it.ref.anilistId })
+        assertTrue(repo.plain.isEmpty())
+    }
+
+    @Test
+    fun `with AniList limiting a text search falls back to the plain search and pages through it`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val repo = FakeMetadata(
+            onAdvanced = { _, _ -> throw limited },
+            onSearch = { _, p -> if (p == 1) FeedPage(listOf(media(1), media(2)), 1, true) else FeedPage(listOf(media(3)), 2, false) },
+        )
+        val vm = SearchViewModel(repo, debounceMillis = 10)
+        vm.onQueryChange("Frieren")
+        advanceUntilIdle()
+        val first = assertIs<SearchResults.Ok>(vm.state.value.results)
+        assertEquals(listOf(1, 2), first.items.map { it.ref.anilistId })
+
+        vm.loadMore()
+        advanceUntilIdle()
+        val ok = assertIs<SearchResults.Ok>(vm.state.value.results)
+        assertEquals(listOf(1, 2, 3), ok.items.map { it.ref.anilistId })
+        assertEquals(listOf("Frieren" to 1, "Frieren" to 2), repo.plain)
+        // page 2 is not asked to AniList again: it would mix two providers' pages
+        assertEquals(listOf(1), repo.advanced.map { it.second })
+    }
+
+    @Test
+    fun `when the fallback fails too the AniList rate limit is shown, not a connection error`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val repo = FakeMetadata(
+            onAdvanced = { _, _ -> throw limited },
+            onSearch = { _, _ -> throw AppException(AppError.Offline) },
+        )
+        val vm = SearchViewModel(repo, debounceMillis = 10)
+        vm.onQueryChange("Frieren")
+        advanceUntilIdle()
+
+        assertEquals(AppError.RateLimited("anilist"), assertIs<SearchResults.Err>(vm.state.value.results).cause)
+    }
+
+    @Test
+    fun `a filtered search does not fall back to the plain search, which cannot honour the filters`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val repo = FakeMetadata(
+            onAdvanced = { _, _ -> throw limited },
+            onSearch = { _, p -> FeedPage(listOf(media(1)), p, false) },
+        )
+        val vm = SearchViewModel(repo, debounceMillis = 10)
+        vm.applySheet(SearchFilters(genres = listOf("Fantasy")), adult = false)
+        vm.onQueryChange("Frieren")
+        advanceUntilIdle()
+
+        assertEquals("Frieren", repo.advanced.last().first.query)
+        assertEquals(AppError.RateLimited("anilist"), assertIs<SearchResults.Err>(vm.state.value.results).cause)
+        assertTrue(repo.plain.isEmpty())
+    }
+
+    @Test
+    fun `retrying after AniList answers again goes back to AniList`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        var aniListUp = false
+        val repo = FakeMetadata(
+            onAdvanced = { _, p -> if (aniListUp) FeedPage(listOf(media(5)), p, false) else throw limited },
+            onSearch = { _, p -> FeedPage(listOf(media(1)), p, false) },
+        )
+        val vm = SearchViewModel(repo, debounceMillis = 10)
+        vm.onQueryChange("Frieren")
+        advanceUntilIdle()
+        assertEquals(listOf(1), assertIs<SearchResults.Ok>(vm.state.value.results).items.map { it.ref.anilistId })
+
+        aniListUp = true
+        vm.retry()
+        advanceUntilIdle()
+        assertEquals(listOf(5), assertIs<SearchResults.Ok>(vm.state.value.results).items.map { it.ref.anilistId })
     }
 }

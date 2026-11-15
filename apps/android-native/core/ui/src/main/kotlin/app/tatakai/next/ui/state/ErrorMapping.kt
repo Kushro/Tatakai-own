@@ -31,8 +31,18 @@ suspend inline fun <T> runCatchingApp(block: () -> T): Result<T> = try {
 @Composable
 fun AppError.userMessage(): String = when (this) {
     AppError.Offline -> stringResource(R.string.ui_error_offline)
-    is AppError.RateLimited -> stringResource(R.string.ui_error_rate_limited, provider)
+    is AppError.RateLimited -> stringResource(R.string.ui_error_rate_limited, providerLabel(provider))
     is AppError.Extension -> stringResource(R.string.ui_error_extension, id, msg)
     is AppError.Http -> stringResource(R.string.ui_error_http, code)
     is AppError.Unknown -> stringResource(R.string.ui_error_unknown, msg)
+}
+
+/** BUG-146: the name a metadata provider id is shown with ("anilist" → "AniList limitó las solicitudes…"); unknown ids as they are. */
+fun providerLabel(id: String): String = when (id.lowercase()) {
+    "anilist" -> "AniList"
+    "kitsu" -> "Kitsu"
+    "mal", "myanimelist" -> "MyAnimeList"
+    "shikimori" -> "Shikimori"
+    "tenrai" -> "Tenrai"
+    else -> id
 }

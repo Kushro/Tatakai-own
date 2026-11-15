@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.tatakai.next.metadata.TrendWindow
 import app.tatakai.next.model.AppError
+import app.tatakai.next.model.AppLog
 import app.tatakai.next.model.CharacterRef
 import app.tatakai.next.model.ExtensionHomeItem
 import app.tatakai.next.model.ExtensionRepository
@@ -34,6 +35,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -227,6 +229,8 @@ class SearchViewModel(
     private val queries = MutableStateFlow("")
     private var lastRequest: SearchRequest? = null
     private var loadMoreJob: Job? = null
+    /** BUG-146: the text request whose first page came from the plain-search fallback (its next pages come from there too). */
+    private var fallbackRequest: SearchRequest? = null
     private var appliedInitial: List<Any?>? = null
     private var tagsRequested = false
     private var lastShowAdult: Boolean? = settings?.settings?.value?.showAdult
@@ -507,8 +511,7 @@ class SearchViewModel(
         val p: FeedPage = when {
             request.studio != null ->
                 metadata.searchAdvanced(MediaKind.ANIME, request.filters.toQuery(request.query, request.adult, request.studio), page)
-            request.query.isNotEmpty() ->
-                metadata.searchAdvanced(MediaKind.ANIME, request.filters.toQuery(request.query, request.adult), page)
+            request.query.isNotEmpty() -> textSearch(request, page)
             feed == FeedKind.TRENDING && request.window != TrendWindow.TODAY && request.filters.isEmpty && trending != null ->
                 trending.page(request.window, page, request.adult)
             feed != null && request.filters.isEmpty && !request.adult ->
@@ -522,8 +525,38 @@ class SearchViewModel(
         return SearchResults.Ok(items, p.page, p.hasNext)
     }
 
+    /**
+     * BUG-146: a text search goes to AniList's filtered search first (same results and order as always). When that fails (AniList
+     * limiting or not answering) and the search is text only (no filters: the plain search cannot honour them), the plain
+     * [MetadataRepository.search] answers through the fallback providers (Kitsu, ...), and so do the next pages of that query. If
+     * the fallback fails too, the original error stays (it is the one that says AniList is limiting requests).
+     */
+    private suspend fun textSearch(request: SearchRequest, page: Int): FeedPage {
+        if (page > 1 && fallbackRequest == request) return metadata.search(MediaKind.ANIME, request.query, page)
+        val advanced = try {
+            metadata.searchAdvanced(MediaKind.ANIME, request.filters.toQuery(request.query, request.adult), page)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (page > 1 || !request.filters.isEmpty) throw e
+            val plain = try {
+                metadata.search(MediaKind.ANIME, request.query, page)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (_: Exception) {
+                throw e
+            }
+            AppLog.i(TAG, "text search: filtered search failed (${e.toAppError()}), answered by the plain search (${plain.items.size} results)")
+            fallbackRequest = request
+            return plain
+        }
+        if (fallbackRequest == request) fallbackRequest = null
+        return advanced
+    }
+
     companion object {
         const val DEFAULT_DEBOUNCE_MS = 350L
+        private const val TAG = "search"
         private const val CUSTOM_TYPE = "custom"
     }
 }

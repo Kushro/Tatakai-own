@@ -94,6 +94,7 @@ import app.tatakai.next.model.RankedSource
 import app.tatakai.next.model.SettingsSection
 import app.tatakai.next.ui.R as UiR
 import app.tatakai.next.ui.state.LoadStateContent
+import app.tatakai.next.ui.state.providerLabel
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -498,7 +499,7 @@ internal fun sendFailedMessage(resources: Resources, event: DetailsEvent.SendFai
 /** Non-composable twin of `AppError.userMessage()` for snackbars raised from events. */
 internal fun AppError.describe(resources: Resources): String = when (this) {
     AppError.Offline -> resources.getString(UiR.string.ui_error_offline)
-    is AppError.RateLimited -> resources.getString(UiR.string.ui_error_rate_limited, provider)
+    is AppError.RateLimited -> resources.getString(UiR.string.ui_error_rate_limited, providerLabel(provider))
     is AppError.Extension -> resources.getString(UiR.string.ui_error_extension, id, msg)
     is AppError.Http -> resources.getString(UiR.string.ui_error_http, code)
     is AppError.Unknown -> resources.getString(UiR.string.ui_error_unknown, msg)

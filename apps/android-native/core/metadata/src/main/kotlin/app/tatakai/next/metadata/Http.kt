@@ -43,7 +43,7 @@ private suspend fun OkHttpClient.awaitResponse(provider: String, request: Reques
         cont.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                if (cont.isActive) cont.resumeWithException(ProviderException(provider, 0, e.message ?: "network error", e))
+                if (cont.isActive) cont.resumeWithException(ProviderException(provider, transportStatus(e), e.message ?: "network error", e))
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -51,3 +51,12 @@ private suspend fun OkHttpClient.awaitResponse(provider: String, request: Reques
             }
         })
     }
+
+private val CONNECT_STATUS = Regex("""Unexpected response code for CONNECT: (\d{3})""")
+
+/**
+ * BUG-146: status of a transport failure. 0 (offline) except when an HTTPS proxy refused the tunnel with an HTTP status (OkHttp's
+ * "Unexpected response code for CONNECT: 429"): that one is the server's answer, so a 429 there is a rate limit, not "Sin conexión".
+ */
+internal fun transportStatus(e: IOException): Int =
+    e.message?.let { CONNECT_STATUS.find(it) }?.groupValues?.get(1)?.toIntOrNull() ?: 0
