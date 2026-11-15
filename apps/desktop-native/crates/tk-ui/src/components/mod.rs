@@ -31,7 +31,7 @@ pub mod sources;
 pub mod state;
 pub mod title_bar;
 
-pub use airing::AiringCalendar;
+pub use airing::{AiringCalendar, AiringDay, AiringMonth};
 pub use button::{Button, ButtonSize, ButtonVariant, IconButton, IconButtonSize, IconButtonVariant, SplitButton};
 pub use chips::{Banner, Chip, ChipKind, InfoChip, Kbd, Pill, Tone};
 pub use dialog::ConfirmDialog;
