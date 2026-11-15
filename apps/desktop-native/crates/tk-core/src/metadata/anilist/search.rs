@@ -548,30 +548,12 @@ impl AniList {
 
     /// POST without the card fragment (queries that select no `...mediaCard` would fail validation with it).
     async fn post_plain(&self, query: &str, variables: Value) -> Result<Value, ProviderError> {
-        let resp = self
-            .client
-            .post(&self.endpoint)
-            .header("Accept", "application/json")
-            .json(&json!({ "query": query, "variables": variables }))
-            .send()
-            .await?;
-        let status = resp.status().as_u16();
-        if status == 429 {
-            return Err(ProviderError::RateLimited { provider: "anilist".into() });
-        }
-        let body: Value = resp.json().await.map_err(|e| ProviderError::Parse(e.without_url().to_string()))?;
-        if body["errors"].as_array().is_some_and(|e| e.iter().any(|x| x["status"] == 429)) {
-            return Err(ProviderError::RateLimited { provider: "anilist".into() });
-        }
-        if !(200..300).contains(&status) && status != 404 {
-            return Err(ProviderError::Http(status));
-        }
-        Ok(body)
+        self.post_bare(query, variables).await
     }
 
     /// Filtered search with the page total and the 18+ flags.
     pub async fn search_filtered_page(&self, v: &SearchVars) -> Result<SearchResultPage, ProviderError> {
-        map_search_page(&self.post(SEARCH_QUERY, Self::search_vars(v)).await?)
+        map_search_page(&self.post_lite(SEARCH_QUERY, Self::search_vars(v)).await?)
     }
 
     pub async fn search_filtered(&self, v: &SearchVars) -> Result<FeedPage, ProviderError> {
@@ -585,7 +567,7 @@ impl AniList {
             return Ok(SearchResultPage::default());
         }
         let vars = json!({ "search": name, "page": page.max(1), "perPage": 30 });
-        map_studio_page(&self.post(STUDIO_QUERY, vars).await?, adult)
+        map_studio_page(&self.post_lite(STUDIO_QUERY, vars).await?, adult)
     }
 
     /// Titles of a studio / producer by name, popularity first.
@@ -598,13 +580,13 @@ impl AniList {
         if id == 0 {
             return Ok(None);
         }
-        map_character(&self.post(&character_query(), json!({ "id": id })).await?)
+        map_character(&self.post_lite(&character_query(), json!({ "id": id })).await?)
     }
 
     /// Anime trending since `since_unix` (AniList `mediaTrends`, highest first).
     pub async fn trending_since(&self, since_unix: i64, page: u32, adult: bool) -> Result<SearchResultPage, ProviderError> {
         let vars = json!({ "page": page.max(1), "perPage": 50, "date_greater": since_unix.max(0) });
-        map_trends_page(&self.post(TRENDS_QUERY, vars).await?, adult)
+        map_trends_page(&self.post_lite(TRENDS_QUERY, vars).await?, adult)
     }
 
     /// Titles by AniList id, in the order of `ids` (unknown ids are skipped).
@@ -613,7 +595,7 @@ impl AniList {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let page = map_anilist_page(&self.post(IDS_QUERY, json!({ "ids": ids, "perPage": ids.len() })).await?)?;
+        let page = map_anilist_page(&self.post_lite(IDS_QUERY, json!({ "ids": ids, "perPage": ids.len() })).await?)?;
         let mut items = page.items;
         items.sort_by_key(|m| m.media_ref.anilist_id.and_then(|id| ids.iter().position(|x| *x == id)).unwrap_or(usize::MAX));
         Ok(items)

@@ -245,6 +245,11 @@ impl MonthGrid {
     }
 }
 
+/// Weeks (starts, 7 days each) not wholly covered by an answer complete up to `complete_until` (0.3.1).
+pub fn missing_weeks(weeks: &[i64], complete_until: i64) -> usize {
+    weeks.iter().filter(|w| **w + 7 * DAY - 1 > complete_until).count()
+}
+
 /// Merge the answers of several weeks: duplicates (same title, episode and time) once, sorted by time. An error only
 /// when every week failed (then the first one); a partial answer shows what arrived.
 pub fn merge_weeks(results: Vec<UiResult<Vec<AiringSlotVm>>>) -> UiResult<Vec<AiringSlotVm>> {
@@ -401,11 +406,18 @@ pub fn AiringCalendar(
     let services = use_context::<Services>();
     let clock = use_local_clock();
     let layout = if compact { "compact" } else if agenda { "agenda" } else { "week" };
-    let mut schedule = use_resource(use_reactive((&week_start_unix,), {
+    let mut schedule = use_resource(use_reactive((&week_start_unix, &compact), {
         let backend = services.backend.clone();
-        move |(week,)| {
+        move |(week, compact)| {
             let backend = backend.clone();
-            async move { backend.airing_schedule(week).await }
+            async move {
+                if compact {
+                    // 0.3.1 QA: Home shows today and tomorrow only; asking the whole week cost up to 8 AniList pages.
+                    backend.airing_range(week, week + 2 * DAY - 1).await.map(|r| r.slots)
+                } else {
+                    backend.airing_schedule(week).await
+                }
+            }
         }
     }));
     // Follow / unfollow done here, so a toggle does not reload the whole week.
@@ -599,8 +611,8 @@ fn day_title(day: i64) -> String {
 }
 
 /// Month view: a Monday-first grid with up to three posters per day, "+N" and a dot when one of the user's shows
-/// airs; a click opens that day's list under the grid (beside it on wide windows). One `airing_schedule` call per
-/// week row, all at once. `data-calendar-month="YYYY-MM"`.
+/// airs; a click opens that day's list under the grid (beside it on wide windows). One `airing_range` call for the
+/// whole grid (0.3.1). `data-calendar-month="YYYY-MM"`.
 #[component]
 pub fn AiringMonth(year: i64, month: u32, #[props(default)] tracked_only: bool) -> Element {
     let clock = use_local_clock();
@@ -622,15 +634,16 @@ fn MonthBody(year: i64, month: u32, tracked_only: bool, offset_min: i64, today: 
         move |(y, m, off)| {
             let backend = backend.clone();
             async move {
-                // QA 0.3: one week after the other. Six calls at once tripped AniList's rate limit and the failed
-                // weeks showed up as empty days; now a partial answer also says how many weeks are missing.
+                // 0.3.1: the whole grid as ONE range (AniList pages of 50 instead of one range per week); a partial
+                // answer still says how many weeks are missing (QA 0.3).
                 let weeks = MonthGrid::new(y, m).weeks(off);
-                let mut results = Vec::with_capacity(weeks.len());
-                for w in &weeks {
-                    results.push(backend.airing_schedule(*w).await);
-                }
-                let failed = results.iter().filter(|r| r.is_err()).count();
-                merge_weeks(results).map(|list| (list, failed))
+                let (Some(&from), Some(&last)) = (weeks.first(), weeks.last()) else {
+                    return Ok((Vec::new(), 0));
+                };
+                let to = last + 7 * DAY - 1;
+                let r = backend.airing_range(from, to).await?;
+                let failed = missing_weeks(&weeks, r.complete_until);
+                merge_weeks(vec![Ok(r.slots)]).map(|list| (list, failed))
             }
         }
     }));
@@ -1017,6 +1030,15 @@ mod tests {
             let (y, m, dd) = civil_from_days(d);
             assert_eq!(days_from_civil(y, m, dd), d);
         }
+    }
+
+    #[test]
+    fn missing_weeks_follow_the_complete_point() {
+        let weeks = [0, 7 * DAY, 14 * DAY];
+        assert_eq!(missing_weeks(&weeks, 21 * DAY - 1), 0);
+        // Stopped inside the second week: it and the third are missing.
+        assert_eq!(missing_weeks(&weeks, 9 * DAY), 2);
+        assert_eq!(missing_weeks(&weeks, -1), 3);
     }
 
     #[test]

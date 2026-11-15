@@ -80,11 +80,24 @@ query (${'$'}id: Int, ${'$'}idMal: Int, ${'$'}type: MediaType) {
 }
 $CARD"""
 
-    /** One hop of the watch order walk: only the relations. */
+    /**
+     * 0.3.1: only the recommendations of one title (the "Because you watched" / For you seeds, background): light enough for all
+     * the seeds to share one aliased request. Same shape as [DETAILS] for `DiscoverMappers.recommendations`.
+     */
+    const val RECOMMENDATIONS = """
+query (${'$'}id: Int, ${'$'}idMal: Int, ${'$'}type: MediaType) {
+  Media(id: ${'$'}id, idMal: ${'$'}idMal, type: ${'$'}type) {
+    id
+    recommendations(sort: [RATING_DESC], perPage: 15) { nodes { rating mediaRecommendation { ...mediaCard } } }
+  }
+}
+$CARD"""
+
+    /** One hop of the watch order walk: the title's card (0.3.1: the start needs no separate `Media` request) and its relations. */
     const val RELATIONS = """
 query (${'$'}id: Int) {
   Media(id: ${'$'}id, type: ANIME) {
-    id
+    ...mediaCard
     relations { edges { relationType(version: 2) node { ...mediaCard format startDate { year month day } } } }
   }
 }

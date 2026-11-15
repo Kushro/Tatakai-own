@@ -13,7 +13,7 @@ use std::time::Duration;
 use serde_json::Value;
 use tk_core::metadata::AniList;
 use tk_core::metadata::anilist::details::{
-    ChainNode, MAX_CHAIN_HOPS, MediaExtra, chain_next, format_fuzzy_date, map_chain_node, map_media_extra, media_ids,
+    ChainNode, MAX_CHAIN_HOPS, MediaExtra, chain_children, chain_next, format_fuzzy_date, map_chain_node, map_media_extra, media_ids,
     media_titles, pick_title, watch_order_steps,
 };
 use tk_core::metadata::anilist::search::Person;
@@ -189,7 +189,23 @@ pub async fn details_extra(b: &LiveBackend, id: &str) -> UiResult<DetailsExtraVm
 
 async fn chain_node(b: &LiveBackend, r: &MediaRef) -> UiResult<Option<ChainNode>> {
     let Some(key) = ref_key(r) else { return Ok(None) };
-    let raw = cached(b, &format!("anilist.chain.{key}"), || anilist().chain_node_raw(r)).await?;
+    // 0.3.1: the two-level query; its PREQUEL / SEQUEL children are complete nodes, cached under their own key, so
+    // the walk's next hop costs no request.
+    let raw = cached(b, &format!("anilist.chain.{key}"), || async {
+        let raw = anilist().chain_node_deep_raw(r).await?;
+        if let Some(m) = &raw {
+            for (id, child) in chain_children(m) {
+                let k = format!("anilist.chain.a{id}");
+                if matches!(b.store.cache_get::<Value>(&k), Ok(None))
+                    && let Err(e) = b.store.cache_put(&k, &child, super::system::metadata_ttl_secs(b))
+                {
+                    tracing::debug!(%e, key = k, "caching a chain node failed");
+                }
+            }
+        }
+        Ok(raw)
+    })
+    .await?;
     Ok(raw.as_ref().and_then(map_chain_node))
 }
 

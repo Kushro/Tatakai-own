@@ -52,6 +52,22 @@ pub struct EntryInput {
 const ENTRY_FIELDS: &str = "id status progress score(format: POINT_100) repeat notes updatedAt \
 startedAt { year month day } completedAt { year month day } media { ...mediaCard }";
 
+/// How long [`AniList::viewer`] reuses an answer for the same token.
+const VIEWER_MEMO: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+static VIEWER_CACHE: std::sync::Mutex<Option<(String, std::time::Instant, Viewer)>> = std::sync::Mutex::new(None);
+
+fn viewer_memo_get(token: &str) -> Option<Viewer> {
+    let g = VIEWER_CACHE.lock().ok()?;
+    g.as_ref().filter(|(t, at, _)| t == token && at.elapsed() < VIEWER_MEMO).map(|(_, _, v)| v.clone())
+}
+
+fn viewer_memo_put(token: &str, v: &Viewer) {
+    if let Ok(mut g) = VIEWER_CACHE.lock() {
+        *g = Some((token.to_owned(), std::time::Instant::now(), v.clone()));
+    }
+}
+
 const VIEWER_QUERY: &str = "query { Viewer { id name avatar { large medium } siteUrl } }";
 
 const FAVOURITE_MEDIA_QUERY: &str = "query ($id: Int) { Media(id: $id, type: ANIME) { id isFavourite } }";
@@ -176,31 +192,14 @@ impl AniList {
         query: &str,
         variables: Value,
     ) -> Result<Value, ListError> {
-        let mut req = self
-            .client
-            .post(&self.endpoint)
-            .header("Accept", "application/json")
-            .json(&json!({ "query": query, "variables": variables }));
-        if let Some(t) = token {
-            req = req.bearer_auth(t);
-        }
-        let resp = req.send().await?;
-        let status = resp.status().as_u16();
-        if status == 429 {
-            return Err(ListError::RateLimited);
-        }
-        let body: Value = resp
-            .json()
-            .await
-            .map_err(|e| ListError::Parse(e.without_url().to_string()))?;
+        let r = self.send(query, variables, token).await.map_err(|e| match e {
+            super::gateway::GatewayError::RateLimited { .. } => ListError::RateLimited,
+            super::gateway::GatewayError::Network(m) => ListError::Network(m),
+            super::gateway::GatewayError::Parse(m) => ListError::Parse(m),
+        })?;
+        let (status, body) = (r.status, r.body);
         if status == 401 || is_auth_error(&body) {
             return Err(ListError::Unauthorized);
-        }
-        if body["errors"]
-            .as_array()
-            .is_some_and(|e| e.iter().any(|x| x["status"] == 429))
-        {
-            return Err(ListError::RateLimited);
         }
         if !(200..300).contains(&status) {
             return Err(ListError::Http(status));
@@ -213,6 +212,17 @@ impl AniList {
     }
 
     pub async fn viewer(&self, token: &str) -> Result<Viewer, ListError> {
+        // 0.3.1 QA: lists, social and manga each asked for the viewer (start-up, every Details page); it changes only
+        // with the account, so one answer per token is kept in memory for a while.
+        if let Some(v) = viewer_memo_get(token) {
+            return Ok(v);
+        }
+        let v = self.viewer_uncached(token).await?;
+        viewer_memo_put(token, &v);
+        Ok(v)
+    }
+
+    async fn viewer_uncached(&self, token: &str) -> Result<Viewer, ListError> {
         let body = self.post_auth(Some(token), VIEWER_QUERY, json!({})).await?;
         let v = &body["data"]["Viewer"];
         let id = v["id"]

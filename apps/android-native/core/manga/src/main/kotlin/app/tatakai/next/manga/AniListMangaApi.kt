@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.manga
 
+import app.tatakai.next.model.RateLimitHeaders
+import app.tatakai.next.model.RequestPriority
+import app.tatakai.next.model.currentRequestPriority
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.CharacterEdge
@@ -142,7 +145,13 @@ class AniListMangaApi(
         post(DELETE_ENTRY, buildJsonObject { put("id", entryId) }, token)
     }
 
-    private suspend fun post(query: String, variables: JsonObject, token: String? = null): JsonElement = withContext(Dispatchers.IO) {
+    private suspend fun post(query: String, variables: JsonObject, token: String? = null): JsonElement {
+        // 0.3.1: priority tag for the shared AniList gateway (`:core:network`).
+        val priority = currentRequestPriority()
+        return withContext(Dispatchers.IO) { send(query, variables, token, priority) }
+    }
+
+    private fun send(query: String, variables: JsonObject, token: String?, priority: RequestPriority): JsonElement {
         val body = buildJsonObject {
             put("query", query)
             put("variables", variables)
@@ -151,11 +160,15 @@ class AniListMangaApi(
             .url(endpoint)
             .header("Accept", "application/json")
             .apply { if (token != null) header("Authorization", "Bearer $token") }
+            .tag(RequestPriority::class.java, priority)
             .post(body)
             .build()
         val text = try {
             client.newCall(request).execute().use { response ->
-                if (response.code == 429) throw AppException(AppError.RateLimited("AniList"))
+                if (response.code == 429) {
+                    val wait = RateLimitHeaders.retryAfterMs(response.header(RateLimitHeaders.RETRY_AFTER), System.currentTimeMillis())
+                    throw AppException(AppError.RateLimited("AniList", wait))
+                }
                 val raw = response.body.string()
                 if (!response.isSuccessful && raw.isBlank()) throw AppException(AppError.Http(response.code))
                 if (response.code == 404) throw AppException(AppError.Http(404))
@@ -171,7 +184,7 @@ class AniListMangaApi(
             val status = errors.firstNotNullOfOrNull { it.int("status") }
             throw AppException(if (status != null) AppError.Http(status) else AppError.Unknown(errors.first().str("message") ?: "AniList"))
         }
-        doc
+        return doc
     }
 
     companion object {

@@ -9,4 +9,5 @@ dependencies {
     implementation(platform(libs.koin.bom))
     implementation(libs.koin.core)
     implementation(libs.koin.android)
+    testImplementation(libs.mockwebserver3)
 }

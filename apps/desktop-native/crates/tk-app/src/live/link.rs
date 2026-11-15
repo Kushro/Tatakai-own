@@ -705,6 +705,16 @@ async fn stop_handle(mut h: Arc<LinkHandle>) {
     tokio::time::sleep(Duration::from_millis(150)).await;
 }
 
+/// `<data>/link` -> `<data>/ui-settings.json` (`AppPaths::ui_settings_file`).
+fn settings_file_of(link_dir: &Path) -> PathBuf {
+    link_dir.parent().map_or_else(|| link_dir.join("ui-settings.json"), |root| root.join("ui-settings.json"))
+}
+
+/// `Settings::server.link_announce` as saved (the default, on, without a settings file).
+fn saved_announce(link_dir: &Path) -> bool {
+    crate::settings_store::load(&settings_file_of(link_dir)).server.link_announce
+}
+
 impl LinkService {
     pub fn new(
         dir: PathBuf,
@@ -716,6 +726,7 @@ impl LinkService {
         remote: tokio::sync::mpsc::UnboundedSender<RemoteCommandVm>,
     ) -> Self {
         let port = load_port(&dir);
+        let announce = saved_announce(&dir);
         Self {
             dir,
             ext,
@@ -726,7 +737,9 @@ impl LinkService {
             state: tokio::sync::Mutex::new(LinkState { handle: None, port }),
             remote,
             player: SharedPlayer::default(),
-            announce: AtomicBool::new(true),
+            // 0.3.1: the saved switch from the start (it used to be `true` until `server::on_start` ran, so a server
+            // started earlier announced over mDNS although the user had turned it off).
+            announce: AtomicBool::new(announce),
             announcer: Mutex::new(None),
             backend: BackendSlot::default(),
         }
@@ -768,7 +781,7 @@ impl LinkService {
             player: self.player.clone(),
             // `<data>/link` -> `<data>/ui-settings.json` (`AppPaths::ui_settings_file`)
             backend: self.backend.clone(),
-            settings_file: self.dir.parent().map_or_else(|| self.dir.join("ui-settings.json"), |root| root.join("ui-settings.json")),
+            settings_file: settings_file_of(&self.dir),
         });
         match tk_link::start(cfg, host).await {
             Ok(h) => {
@@ -997,6 +1010,21 @@ mod tests {
         // not cancelled: the step's value comes through
         let q = SendProgress::new();
         assert_eq!(unless_cancelled(&q, async { 3 }).await.ok(), Some(3));
+    }
+
+    #[test]
+    fn the_announce_switch_starts_from_the_saved_settings() {
+        // 0.3.1: Link must not announce over mDNS at start when the user switched it off.
+        let root = tempfile::tempdir().unwrap();
+        let link_dir = root.path().join("link");
+        assert!(saved_announce(&link_dir), "no settings file: the default (on)");
+        let mut s = tk_ui::model::Settings::default();
+        s.server.link_announce = false;
+        crate::settings_store::save(&root.path().join("ui-settings.json"), &s).unwrap();
+        assert!(!saved_announce(&link_dir));
+        s.server.link_announce = true;
+        crate::settings_store::save(&root.path().join("ui-settings.json"), &s).unwrap();
+        assert!(saved_announce(&link_dir));
     }
 
     #[test]

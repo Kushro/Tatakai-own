@@ -6,6 +6,7 @@
 
 use serde_json::{Value, json};
 
+use crate::metadata::anilist::gateway::{self, Gateway};
 use crate::error::ProviderError;
 use crate::metadata::mapping::map_anilist_media;
 use crate::model::Media;
@@ -106,6 +107,8 @@ pub struct NovelSearch {
 pub struct AniListNovels {
     client: reqwest::Client,
     endpoint: String,
+    /// 0.3.1: the shared AniList gateway (limiter, 429 policy, de-duplication).
+    gateway: std::sync::Arc<Gateway>,
 }
 
 fn u32_of(v: &Value) -> Option<u32> {
@@ -268,45 +271,24 @@ impl AniListNovels {
         Self {
             client,
             endpoint: ENDPOINT.to_owned(),
+            gateway: gateway::global(),
         }
     }
 
-    /// Point at another GraphQL endpoint (tests).
+    /// Point at another GraphQL endpoint (tests), with a gateway of its own.
     pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.endpoint = endpoint.into();
+        self.gateway = std::sync::Arc::new(Gateway::new());
         self
     }
 
     async fn post(&self, query: &str, variables: Value) -> Result<Value, ProviderError> {
-        let resp = self
-            .client
-            .post(&self.endpoint)
-            .header("Accept", "application/json")
-            .json(&json!({ "query": format!("{query} {NOVEL_FRAGMENT}"), "variables": variables }))
-            .send()
-            .await?;
-        let status = resp.status().as_u16();
-        if status == 429 {
-            return Err(ProviderError::RateLimited {
-                provider: "anilist".into(),
-            });
+        let query = format!("{query} {NOVEL_FRAGMENT}");
+        let r = self.gateway.execute(&self.client, &self.endpoint, &query, variables, None).await?;
+        if !(200..300).contains(&r.status) && r.status != 404 {
+            return Err(ProviderError::Http(r.status));
         }
-        let body: Value = resp
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.without_url().to_string()))?;
-        if body["errors"]
-            .as_array()
-            .is_some_and(|e| e.iter().any(|x| x["status"] == 429))
-        {
-            return Err(ProviderError::RateLimited {
-                provider: "anilist".into(),
-            });
-        }
-        if !(200..300).contains(&status) && status != 404 {
-            return Err(ProviderError::Http(status));
-        }
-        Ok(body)
+        Ok(r.body)
     }
 
     pub async fn feed(&self, feed: NovelFeed, page: u32) -> Result<NovelPage, ProviderError> {

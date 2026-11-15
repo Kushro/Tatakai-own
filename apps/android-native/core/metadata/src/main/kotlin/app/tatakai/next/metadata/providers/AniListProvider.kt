@@ -32,6 +32,8 @@ import app.tatakai.next.model.MediaTag
 import app.tatakai.next.model.PER_PAGE_CHARACTERS
 import app.tatakai.next.model.Recommendation
 import app.tatakai.next.model.StaffEdge
+import app.tatakai.next.model.RequestPriority
+import app.tatakai.next.model.currentRequestPriority
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -50,6 +52,8 @@ class AniListProvider(
     private val client: OkHttpClient,
     private val endpoint: String = "https://graphql.anilist.co",
     private val today: () -> LocalDate = { LocalDate.now() },
+    /** 0.3.1: coalesce concurrent queries into aliased requests ([AniListBatcher]); off = one request per query. */
+    batching: Boolean = true,
 ) : MetadataProvider, DiscoverProvider, AiringProvider {
     override val id = ID
     override val kinds = setOf(MediaKind.ANIME, MediaKind.MANGA)
@@ -57,6 +61,11 @@ class AniListProvider(
 
     /** Wall clock in unix seconds (trend windows); injectable for tests. */
     internal var nowEpochSec: () -> Long = { System.currentTimeMillis() / 1000 }
+
+    private val batcher: AniListBatcher? = if (batching) AniListBatcher(send = { q, v -> raw(q, v) }) else null
+
+    /** Requests this provider made through its batcher (tests). */
+    internal val batchedRequests: Int get() = batcher?.requestsSent ?: 0
 
     /** The last few details documents: details(), relations() and recommendations() of one title share one request. */
     private val detailsDocs = object : LinkedHashMap<String, Pair<Long, JsonElement>>(16, 0.75f, true) {
@@ -95,7 +104,9 @@ class AniListProvider(
                 sort("POPULARITY_DESC")
             }
         }
-        return Mappers.aniListPage(post(PAGE_QUERY, JsonObject(vars)))
+        // 0.3.1: only the Trending feed feeds the Home spotlight / hero, which shows the synopsis; the other rows go without it.
+        val query = if (feed == FeedKind.TRENDING) PAGE_QUERY else PAGE_QUERY_LITE
+        return Mappers.aniListPage(batched(query, JsonObject(vars), COST_PAGE))
     }
 
     override suspend fun search(kind: MediaKind, query: String, page: Int): FeedPage {
@@ -109,7 +120,7 @@ class AniListProvider(
         )
         if (q.isNotEmpty()) vars["search"] = JsonPrimitive(q)
         if (kind == MediaKind.MANGA) vars["format_not_in"] = JsonArray(listOf(JsonPrimitive("NOVEL")))
-        return Mappers.aniListPage(post(PAGE_QUERY, JsonObject(vars)))
+        return Mappers.aniListPage(post(PAGE_QUERY_LITE, JsonObject(vars)))
     }
 
     override suspend fun media(kind: MediaKind, ref: MediaRef): Media? {
@@ -119,7 +130,7 @@ class AniListProvider(
             put("type", kind.name)
         }
         val doc = try {
-            post(MEDIA_QUERY, vars)
+            batched(MEDIA_QUERY, vars, COST_MEDIA)
         } catch (e: ProviderException) {
             if (e.status == 404) return null else throw e
         }
@@ -141,7 +152,7 @@ class AniListProvider(
             return DiscoverMappers.studioPage(post(AniListQueries.STUDIO_MEDIA, vars), page, query.adult)
         }
         val vars = AniListQueries.advancedVariables(kind, query, page, PER_PAGE, today().year)
-        return Mappers.aniListPage(post(AniListQueries.ADVANCED_SEARCH, vars))
+        return Mappers.aniListPage(batched(AniListQueries.ADVANCED_SEARCH, vars, COST_PAGE))
     }
 
     private fun refVars(ref: MediaRef, type: String? = "ANIME"): JsonObject? {
@@ -158,7 +169,7 @@ class AniListProvider(
         val now = System.currentTimeMillis()
         synchronized(detailsDocs) { detailsDocs[key] }?.let { (at, doc) -> if (now - at < DETAILS_MEMO_MS) return doc }
         val doc = try {
-            post(AniListQueries.DETAILS, vars)
+            batched(AniListQueries.DETAILS, vars, COST_DETAILS)
         } catch (e: ProviderException) {
             if (e.status == 404) return null else throw e
         }
@@ -170,24 +181,51 @@ class AniListProvider(
 
     override suspend fun relations(ref: MediaRef): List<MediaRelation> = detailsDoc(ref)?.let(DiscoverMappers::relations).orEmpty()
 
-    override suspend fun recommendations(ref: MediaRef): List<Recommendation> =
-        detailsDoc(ref)?.let(DiscoverMappers::recommendations).orEmpty()
-
-    /** Anime relations of one AniList id (watch order walk), null when the title does not exist. */
-    private suspend fun relationHop(id: Int): List<MediaRelation>? {
+    /**
+     * Interactive (Details): from the shared details document. 0.3.1, background (recommendation seeds): the light
+     * [AniListQueries.RECOMMENDATIONS] query unless the details document is already memoised, so the seeds batch into one request.
+     */
+    override suspend fun recommendations(ref: MediaRef): List<Recommendation> {
+        if (currentRequestPriority() == RequestPriority.INTERACTIVE || memoisedDetails(ref) != null) {
+            return detailsDoc(ref)?.let(DiscoverMappers::recommendations).orEmpty()
+        }
+        val vars = refVars(ref) ?: return emptyList()
         val doc = try {
-            post(AniListQueries.RELATIONS, buildJsonObject { put("id", id) })
+            batched(AniListQueries.RECOMMENDATIONS, vars, COST_RELATIONS)
+        } catch (e: ProviderException) {
+            if (e.status == 404) return emptyList() else throw e
+        }
+        return DiscoverMappers.recommendations(doc)
+    }
+
+    private fun memoisedDetails(ref: MediaRef): JsonElement? {
+        val key = refVars(ref)?.toString() ?: return null
+        val now = System.currentTimeMillis()
+        return synchronized(detailsDocs) { detailsDocs[key] }?.takeIf { now - it.first < DETAILS_MEMO_MS }?.second
+    }
+
+    /** One watch order hop: the title itself (card) and its relations; null when the title does not exist. */
+    private suspend fun relationHop(id: Int): Pair<Media?, List<MediaRelation>>? {
+        val doc = try {
+            batched(AniListQueries.RELATIONS, buildJsonObject { put("id", id) }, COST_RELATIONS)
         } catch (e: ProviderException) {
             if (e.status == 404) return null else throw e
         }
-        return DiscoverMappers.relations(doc)
+        val m = doc.obj()?.sub("data")?.sub("Media") ?: return null
+        val self = if ((m.int("id") ?: 0) == 0 || m["title"] == null) null else Mappers.aniListMedia(m)
+        return self to DiscoverMappers.relations(doc)
     }
 
+    /**
+     * 0.3.1: the start hop carries the title's own card (no separate `Media` request), and the PREQUEL and SEQUEL walks run side by
+     * side so their hops of the same depth share one aliased request: 1 + max(prequels, sequels) requests instead of
+     * 2 + prequels + sequels.
+     */
     override suspend fun seasons(ref: MediaRef): List<Media> {
         val startId = ref.anilistId ?: details(ref)?.ref?.anilistId ?: return emptyList()
-        val first = relationHop(startId) ?: return emptyList()
-        val self = media(MediaKind.ANIME, MediaRef(anilistId = startId)) ?: return emptyList()
-        return WatchOrder.walk(self, first) { id -> relationHop(id).orEmpty() }
+        val (card, first) = relationHop(startId) ?: return emptyList()
+        val self = card ?: media(MediaKind.ANIME, MediaRef(anilistId = startId)) ?: return emptyList()
+        return WatchOrder.walkConcurrently(self, first) { id -> relationHop(id)?.second.orEmpty() }
     }
 
     override suspend fun characters(ref: MediaRef, page: Int): CharactersPage {
@@ -197,7 +235,7 @@ class AniListProvider(
             put("page", page.coerceAtLeast(1))
             put("perPage", CHARACTERS_PER_PAGE)
         }
-        return DiscoverMappers.charactersPage(post(AniListQueries.CHARACTERS, vars), page)
+        return DiscoverMappers.charactersPage(batched(AniListQueries.CHARACTERS, vars, COST_PAGE), page)
     }
 
     override suspend fun staff(ref: MediaRef): List<StaffEdge> {
@@ -206,7 +244,7 @@ class AniListProvider(
             put("id", id)
             put("perPage", CHARACTERS_PER_PAGE)
         }
-        return DiscoverMappers.staff(post(AniListQueries.STAFF, vars))
+        return DiscoverMappers.staff(batched(AniListQueries.STAFF, vars, COST_PAGE))
     }
 
     override suspend fun character(id: Int): Character? {
@@ -230,10 +268,10 @@ class AniListProvider(
     }
 
     override suspend fun genres(kind: MediaKind): List<String> =
-        DiscoverMappers.genres(post(AniListQueries.GENRES, JsonObject(emptyMap())))
+        DiscoverMappers.genres(batched(AniListQueries.GENRES, JsonObject(emptyMap()), COST_MEDIA))
 
     override suspend fun tags(kind: MediaKind): List<MediaTag> =
-        DiscoverMappers.tags(post(AniListQueries.TAGS, JsonObject(emptyMap())))
+        DiscoverMappers.tags(batched(AniListQueries.TAGS, JsonObject(emptyMap()), COST_MEDIA))
 
     override suspend fun trending(kind: MediaKind, window: TrendWindow, page: Int, adult: Boolean): FeedPage = when (window) {
         TrendWindow.TODAY -> searchAdvanced(kind, MediaSearchQuery(sort = MediaSort.TRENDING, adult = adult), page)
@@ -244,7 +282,7 @@ class AniListProvider(
                 put("perPage", TRENDS_PER_PAGE)
                 put("date_greater", nowEpochSec() - window.days * 86_400L)
             }
-            DiscoverMappers.trendsPage(post(AniListQueries.TRENDS, vars), page, adult)
+            DiscoverMappers.trendsPage(batched(AniListQueries.TRENDS, vars, COST_LARGE_PAGE), page, adult)
         }
     }
 
@@ -259,17 +297,27 @@ class AniListProvider(
             put("from", (fromEpochSec - 1).coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
             put("to", toEpochSec.coerceIn(0, Int.MAX_VALUE.toLong()).toInt())
         }
-        val doc = post(AIRING_QUERY, vars)
+        val doc = batched(AIRING_QUERY, vars, COST_LARGE_PAGE)
         return ExtraMappers.airingSchedules(doc).filter { it.airingAtEpochSec in fromEpochSec until toEpochSec } to ExtraMappers.airingHasNext(doc)
     }
 
-    private suspend fun post(query: String, variables: JsonObject): JsonElement {
+    /** One HTTP request; GraphQL errors are left in the document (see [checked]). */
+    private suspend fun raw(query: String, variables: JsonObject): JsonElement {
         val body = buildJsonObject {
             put("query", query)
             put("variables", variables)
         }.toString().toRequestBody(JSON)
         val req = Request.Builder().url(endpoint).post(body).header("Accept", "application/json").build()
-        val doc = client.fetchJson(ID, req)
+        return client.fetchJson(ID, req)
+    }
+
+    private suspend fun post(query: String, variables: JsonObject): JsonElement = checked(raw(query, variables))
+
+    /** 0.3.1: like [post], coalesced with the queries issued at the same moment ([AniListBatcher]); [cost] bounds a batch. */
+    private suspend fun batched(query: String, variables: JsonObject, cost: Int): JsonElement =
+        checked(batcher?.run(query, variables, cost) ?: raw(query, variables))
+
+    private fun checked(doc: JsonElement): JsonElement {
         val errors = (doc as? JsonObject)?.get("errors") as? JsonArray
         val data = (doc as? JsonObject)?.get("data")
         if (!errors.isNullOrEmpty() && (data == null || data is JsonNull)) {
@@ -286,15 +334,31 @@ class AniListProvider(
         private const val TRENDS_PER_PAGE = 50
         private const val DETAILS_MEMO = 8
         private const val DETAILS_MEMO_MS = 5L * 60_000
+        // 0.3.1: batch weights (AniListBatcher.MAX_COST = 16 per request): Home's 5 feeds + upcoming + favourites + top 10 fit one.
+        private const val COST_MEDIA = 1
+        private const val COST_PAGE = 2
+        private const val COST_RELATIONS = 2
+        private const val COST_LARGE_PAGE = 3
+        private const val COST_DETAILS = 5
         private val JSON = "application/json".toMediaType()
 
+        // Named apart from AniListQueries' `mediaCard` (which also has `format`) so both can share one aliased request.
         private const val CARD = """
-fragment mediaCard on Media {
+fragment pageCard on Media {
   id idMal type status season seasonYear episodes
   title { romaji english native }
   coverImage { extraLarge large color } bannerImage
   averageScore isAdult genres
   description(asHtml: false)
+}"""
+
+        /** 0.3.1: [CARD] without `description`, for rows that never show the synopsis. */
+        private const val CARD_LITE = """
+fragment pageCardLite on Media {
+  id idMal type status season seasonYear episodes
+  title { romaji english native }
+  coverImage { extraLarge large color } bannerImage
+  averageScore isAdult genres
 }"""
 
         internal const val PAGE_QUERY = """
@@ -306,11 +370,14 @@ query (${'$'}page: Int, ${'$'}perPage: Int, ${'$'}type: MediaType, ${'$'}sort: [
     media(type: ${'$'}type, sort: ${'$'}sort, search: ${'$'}search, format_not_in: ${'$'}format_not_in, status_in: ${'$'}status_in,
       season: ${'$'}season, seasonYear: ${'$'}seasonYear, isAdult: ${'$'}isAdult,
       startDate_greater: ${'$'}startDate_greater, startDate_lesser: ${'$'}startDate_lesser) {
-      ...mediaCard
+      ...pageCard
     }
   }
 }
 $CARD"""
+
+        /** [PAGE_QUERY] with the light card (no `description`). */
+        internal val PAGE_QUERY_LITE = PAGE_QUERY.replace("...pageCard", "...pageCardLite").replace(CARD, CARD_LITE)
 
         internal const val AIRING_QUERY = """
 query (${'$'}page: Int, ${'$'}perPage: Int, ${'$'}from: Int, ${'$'}to: Int) {
@@ -318,15 +385,15 @@ query (${'$'}page: Int, ${'$'}perPage: Int, ${'$'}from: Int, ${'$'}to: Int) {
     pageInfo { currentPage hasNextPage }
     airingSchedules(airingAt_greater: ${'$'}from, airingAt_lesser: ${'$'}to, sort: [TIME]) {
       episode airingAt
-      media { ...mediaCard }
+      media { ...pageCardLite }
     }
   }
 }
-$CARD"""
+$CARD_LITE"""
 
         internal const val MEDIA_QUERY = """
 query (${'$'}id: Int, ${'$'}idMal: Int, ${'$'}type: MediaType) {
-  Media(id: ${'$'}id, idMal: ${'$'}idMal, type: ${'$'}type) { ...mediaCard }
+  Media(id: ${'$'}id, idMal: ${'$'}idMal, type: ${'$'}type) { ...pageCard }
 }
 $CARD"""
     }

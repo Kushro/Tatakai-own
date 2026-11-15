@@ -1,5 +1,8 @@
 package app.tatakai.next.metadata
 
+import app.tatakai.next.model.RateLimitHeaders
+import app.tatakai.next.model.RequestPriority
+import app.tatakai.next.model.currentRequestPriority
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -23,7 +26,10 @@ internal suspend fun OkHttpClient.fetchText(provider: String, request: Request):
         } catch (e: IOException) {
             throw ProviderException(provider, 0, "read failed: ${e.message}", e)
         }
-        if (!r.isSuccessful) throw ProviderException(provider, r.code, "HTTP ${r.code}")
+        if (!r.isSuccessful) {
+            val retryAfter = if (r.code == 429) RateLimitHeaders.retryAfterMs(r.header(RateLimitHeaders.RETRY_AFTER), System.currentTimeMillis()) else null
+            throw ProviderException(provider, r.code, "HTTP ${r.code}", retryAfterMs = retryAfter)
+        }
         return body
     }
 }
@@ -37,9 +43,12 @@ internal suspend fun OkHttpClient.fetchJson(provider: String, request: Request):
     }
 }
 
-private suspend fun OkHttpClient.awaitResponse(provider: String, request: Request): Response =
-    suspendCancellableCoroutine { cont ->
-        val call = newCall(request)
+private suspend fun OkHttpClient.awaitResponse(provider: String, request: Request): Response {
+    // 0.3.1: the AniList gateway orders requests by this tag (interactive before background).
+    val tagged = if (request.tag(RequestPriority::class.java) != null) request
+    else request.newBuilder().tag(RequestPriority::class.java, currentRequestPriority()).build()
+    return suspendCancellableCoroutine { cont ->
+        val call = newCall(tagged)
         cont.invokeOnCancellation { call.cancel() }
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
@@ -51,6 +60,7 @@ private suspend fun OkHttpClient.awaitResponse(provider: String, request: Reques
             }
         })
     }
+}
 
 private val CONNECT_STATUS = Regex("""Unexpected response code for CONNECT: (\d{3})""")
 

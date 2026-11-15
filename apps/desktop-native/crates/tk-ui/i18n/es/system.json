@@ -120,5 +120,9 @@
   "update.notes_title": "Novedades de {version}",
   "update.open": "Abrir",
   "update.skip": "Omitir esta versión",
-  "update.skipped": "No se volverá a avisar de esta versión"
+  "update.skipped": "No se volverá a avisar de esta versión",
+  "settings.system.anilist_requests": "Peticiones a AniList",
+  "settings.system.anilist_requests_hint": "Todas las peticiones a AniList pasan por un limitador compartido que respeta el límite de AniList.",
+  "settings.system.anilist_requests_line": "{total} enviadas · {minute} en el último minuto (límite {limit}/min) · {limited} con límite excedido · {shared} compartidas",
+  "settings.system.anilist_requests_wait": "Esperando {secs} s antes de la siguiente petición"
 }

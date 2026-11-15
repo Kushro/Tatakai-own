@@ -59,6 +59,8 @@ val dataModule: Module = module {
             get(),
             ttlHours = { settings.settings.value.metadataCacheTtlHours },
             historyTitle = { ref -> historyDao.newestTitle(ref) },
+            // 0.3.1: Home rows are stale-while-revalidate; refreshes outlive the screen that asked.
+            refreshScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO),
         )
     }
 

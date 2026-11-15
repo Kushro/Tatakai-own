@@ -37,6 +37,8 @@ class ProviderException(
     val status: Int,
     message: String,
     cause: Throwable? = null,
+    /** 0.3.1: on a 429, how long the provider (or the AniList gateway's budget) asked to wait; the router cools down that long. */
+    val retryAfterMs: Long? = null,
 ) : Exception("$provider: $message", cause) {
     /** Only transport/HTTP failures take a provider out of rotation; a bad payload for one title must not. */
     val tripsCooldown: Boolean
@@ -53,6 +55,10 @@ class NoMetadataProviderException(
     /** The provider that answered 429, if any (maps to AppError.RateLimited). */
     val rateLimitedProvider: String?
         get() = errors.firstNotNullOfOrNull { (id, e) -> id.takeIf { (e as? ProviderException)?.status == 429 } }
+
+    /** 0.3.1: the wait of the rate-limited provider's 429, when it said. */
+    val rateLimitedWaitMs: Long?
+        get() = errors.firstNotNullOfOrNull { (_, e) -> (e as? ProviderException)?.takeIf { it.status == 429 }?.retryAfterMs }
 
     val allOffline: Boolean
         get() = errors.isNotEmpty() && errors.all { (it.second as? ProviderException)?.status == 0 }

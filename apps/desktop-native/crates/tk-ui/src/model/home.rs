@@ -328,6 +328,14 @@ pub struct AiringSlotVm {
     pub tracked: bool,
 }
 
+/// 0.3.1: the answer of `Backend::airing_range` (the calendar month in one AniList range).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct AiringRangeVm {
+    pub slots: Vec<AiringSlotVm>,
+    /// Unix seconds up to which the answer is complete (`to_unix` when nothing is missing).
+    pub complete_until: i64,
+}
+
 /// A "For you" recommendation (classic `RecommendationsPage`): `score` 0.0..=1.0, `reasons` are tokens
 /// `<kind>:<value>` (`genre:Action`, `studio:MAPPA`, `era:2010s`, `tag:Time Skip`, `score:86`; `tk_core::recs::Reason`)
 /// that the UI renders with `recs.reason.<kind>` (i18n stays in the UI), `atlas` = 2-D position on the Anime Atlas map.
