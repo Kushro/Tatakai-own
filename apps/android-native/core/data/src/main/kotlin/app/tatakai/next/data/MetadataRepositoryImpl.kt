@@ -7,6 +7,7 @@ import app.tatakai.next.metadata.NoMetadataProviderException
 import app.tatakai.next.metadata.ProviderException
 import app.tatakai.next.model.AiringEpisode
 import app.tatakai.next.model.AppError
+import app.tatakai.next.model.AppLog
 import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.AppException
 import app.tatakai.next.model.Character
@@ -28,6 +29,8 @@ import app.tatakai.next.model.MetadataRepository
 import app.tatakai.next.model.ProviderStatus
 import app.tatakai.next.model.Recommendation
 import app.tatakai.next.model.StaffEdge
+import app.tatakai.next.model.searchTitles
+import app.tatakai.next.model.withAltTitles
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -77,16 +80,55 @@ class MetadataRepositoryImpl(
         }
     }
 
+    /**
+     * One cached `media:` row. [degraded] (BUG-143): a fallback provider answered because the primary (AniList) did not; such a row
+     * is fresh for [FALLBACK_TTL_MS] only, so the next open asks the primary again. Rows written before BUG-143 are a bare [Media].
+     */
+    @Serializable
+    private data class CachedMedia(val media: Media, val degraded: Boolean = false)
+
     override suspend fun media(kind: MediaKind, ref: MediaRef): Media? {
         val key = "media:$kind:${ref.anilistId}:${ref.malId}:${ref.kitsuId}"
-        cache.getFresh(key, detailTtlMs())?.let { raw -> decodeMedia(raw)?.let { return it } }
+        cache.getFresh(key, detailTtlMs())?.let { raw ->
+            decodeMediaRow(raw, kind)?.let { row -> if (!row.degraded) return row.media }
+        }
+        cache.getFresh(key, FALLBACK_TTL_MS)?.let { raw -> decodeMediaRow(raw, kind)?.let { return it.media } }
         return try {
-            router.media(kind, ref).value?.also { cache.put(key, json.encodeToString(Media.serializer(), it)) }
+            val routed = router.media(kind, ref)
+            val value = routed.value ?: return null
+            val fallbackFrom = routed.fallbackFrom
+            if (fallbackFrom == null) {
+                value.also { cache.put(key, encodeMediaRow(CachedMedia(it))) }
+            } else {
+                fallbackMedia(key, kind, ref, value, routed.provider, fallbackFrom)
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            cache.getStale(key)?.let { decodeMedia(it) } ?: throw e.toAppException()
+            cache.getStale(key)?.let { decodeMediaRow(it, kind)?.media } ?: throw e.toAppException()
         }
+    }
+
+    /**
+     * BUG-143: a fallback answer ([fallbackFrom] = why the primary did not answer) never replaces a complete row: that one is served
+     * (same title, cover and title order) with the fallback's titles appended as [Media.altTitles], and left untouched so it is
+     * retried once stale. Without a complete row the fallback is cached as degraded ([FALLBACK_TTL_MS]) with every title known
+     * before (an older degraded row, AniList's synonyms from a cached `details:` row) kept as alt titles.
+     */
+    private suspend fun fallbackMedia(key: String, kind: MediaKind, ref: MediaRef, value: Media, provider: String, fallbackFrom: String): Media {
+        val label = MetadataRouter.refLabel(ref)
+        val previous = cache.getStale(key)?.let { decodeMediaRow(it, kind) }
+        if (previous != null && !previous.degraded) {
+            AppLog.i(TAG, "media $label: $fallbackFrom, $provider answered; kept the complete ${previous.media.sourceProvider} entry")
+            return previous.media.withAltTitles(value.searchTitles())
+        }
+        val synonyms = cache.getStale(refKey("details", ref))
+            ?.let { raw -> runCatching { json.decodeFromString(MediaDetails.serializer(), raw) }.getOrNull() }
+            ?.synonyms.orEmpty()
+        val merged = value.withAltTitles(previous?.media?.searchTitles().orEmpty() + synonyms)
+        cache.put(key, encodeMediaRow(CachedMedia(merged, degraded = true)))
+        AppLog.i(TAG, "media $label: $fallbackFrom, $provider answered; cached ${FALLBACK_TTL_MS / 60_000} min (degraded)")
+        return merged
     }
 
     override suspend fun episodes(ref: MediaRef): List<Episode> {
@@ -272,8 +314,18 @@ class MetadataRepositoryImpl(
         runCatching { json.decodeFromString(CachedPage.serializer(), s) }.getOrNull()
             ?.let { FeedPage(it.items, it.page, it.hasNext) }
 
-    private fun decodeMedia(s: String): Media? =
-        runCatching { json.decodeFromString(Media.serializer(), s) }.getOrNull()
+    private fun encodeMediaRow(row: CachedMedia): String = json.encodeToString(CachedMedia.serializer(), row)
+
+    /**
+     * A `media:` row. A bare [Media] (written before BUG-143) counts as degraded when it did not come from the primary provider
+     * (e.g. the Kitsu row a 429 left on the phone in r12), so it is retried instead of served for a day.
+     */
+    private fun decodeMediaRow(s: String, kind: MediaKind): CachedMedia? {
+        runCatching { json.decodeFromString(CachedMedia.serializer(), s) }.getOrNull()?.let { return it }
+        val media = runCatching { json.decodeFromString(Media.serializer(), s) }.getOrNull() ?: return null
+        val primary = router.primaryId(kind)
+        return CachedMedia(media, degraded = primary != null && media.sourceProvider != primary)
+    }
 
     private fun Exception.toAppException(): AppException = when (this) {
         is AppException -> this
@@ -295,6 +347,9 @@ class MetadataRepositoryImpl(
 
     private companion object {
         const val FEED_TTL_MS = 15L * 60_000
+        /** BUG-143: a fallback `media:` row (the primary did not answer) is fresh this long, like the feeds. */
+        const val FALLBACK_TTL_MS = 15L * 60_000
+        const val TAG = "metadata"
         const val DEFAULT_TTL_HOURS = 24
         const val CATALOGUE_TTL_MS = 7L * 24 * 60 * 60_000
         const val STATUS_TICK_MS = 2_000L

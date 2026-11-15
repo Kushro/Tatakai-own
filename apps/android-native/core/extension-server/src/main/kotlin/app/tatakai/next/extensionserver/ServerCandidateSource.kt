@@ -4,6 +4,7 @@ package app.tatakai.next.extensionserver
 import app.tatakai.next.extensions.ExternalCandidateSource
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.SourceCandidate
+import app.tatakai.next.model.searchTitles
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -155,7 +156,7 @@ class ServerCandidateSource(
             media.ref.anilistId?.let { put("anilistId", it) }
             media.ref.malId?.let { put("malId", it) }
             put("title", media.title)
-            val titles = (listOf(media.title) + media.titles.values).filter { it.isNotBlank() }.distinct()
+            val titles = media.searchTitles()
             put("titles", JsonArray(titles.map { JsonPrimitive(it) }))
             put("episode", episode)
         }

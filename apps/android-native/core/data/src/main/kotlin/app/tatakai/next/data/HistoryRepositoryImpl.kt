@@ -81,13 +81,25 @@ class HistoryRepositoryImpl(
         if (existing != null && entry.progressSec == 0 && existing.progressSec > 0) return
         // BUG-096: a row without a poster (a Link session before its metadata arrives) keeps the one already known: this
         // episode's, else the series' newest, so "Continuar viendo" does not lose the cover
+        // BUG-143: a Kitsu poster (what a metadata fallback brings while AniList is rate limited) does not replace a known one
+        // from another provider either
         val row = entry.toRow().let { r ->
-            if (!r.poster.isNullOrEmpty()) r else r.copy(poster = existing?.poster?.takeIf { it.isNotEmpty() } ?: seriesPoster(r))
+            when {
+                r.poster.isNullOrEmpty() -> r.copy(poster = existing?.poster?.takeIf { it.isNotEmpty() } ?: seriesPoster(r))
+                isFallbackPoster(r.poster) -> {
+                    val known = existing?.poster?.takeIf { it.isNotEmpty() } ?: seriesPoster(r)
+                    if (known != null && !isFallbackPoster(known)) r.copy(poster = known) else r
+                }
+                else -> r
+            }
         }
         dao.upsert(row)
         scheduler.requestSync(immediate = false)
         listHooks(entry, newlyCompleted = row.completed && existing?.completed != true, firstPlay = existing == null)
     }
+
+    private fun isFallbackPoster(url: String?): Boolean =
+        url != null && FALLBACK_POSTER_HOSTS.any { url.contains(it, ignoreCase = true) }
 
     private suspend fun seriesPoster(row: HistoryRow): String? =
         dao.observeForAnime(row.anilistId ?: -1, row.animeId).first()
@@ -169,6 +181,8 @@ class HistoryRepositoryImpl(
 
     private companion object {
         const val RECENT_WINDOW = 200
+        /** BUG-143: poster hosts of the metadata fallback (Kitsu); `media.kitsu.app` today, `media.kitsu.io` before. */
+        val FALLBACK_POSTER_HOSTS = listOf("media.kitsu.app", "media.kitsu.io")
         val EXPORT_JSON = Json {
             prettyPrint = true
             encodeDefaults = true

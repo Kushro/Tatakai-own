@@ -105,4 +105,36 @@ class MetadataRouterTest {
         val e = assertFailsWith<NoMetadataProviderException> { r.feed(MediaKind.ANIME, FeedKind.TRENDING, 1) }
         assertEquals("a", e.rateLimitedProvider)
     }
+
+    // BUG-143: the router says when a fallback answered because the primary did not
+    private class MediaFake(override val id: String, var answer: () -> Media?) : MetadataProvider {
+        override val kinds = setOf(MediaKind.ANIME)
+        override val capabilities = setOf(Capability.MEDIA)
+        override suspend fun media(kind: MediaKind, ref: MediaRef): Media? = answer()
+    }
+
+    @Test
+    fun mediaMarksAFallbackAnswer() = runBlocking<Unit> {
+        var now = 1_000L
+        val a = MediaFake("anilist") { throw ProviderException("anilist", 429, "HTTP 429") }
+        val k = MediaFake("kitsu") { media(1, "kitsu") }
+        val r = MetadataRouter(listOf(a, k), { listOf("anilist", "kitsu") }, clock = { now })
+        val first = r.media(MediaKind.ANIME, MediaRef(anilistId = 1))
+        assertEquals("kitsu", first.provider)
+        assertEquals("anilist HTTP 429", first.fallbackFrom)
+        assertEquals("anilist cooling down", r.media(MediaKind.ANIME, MediaRef(anilistId = 1)).fallbackFrom)
+        assertEquals("anilist", r.primaryId(MediaKind.ANIME))
+
+        now += 61_000
+        a.answer = { media(1, "anilist") }
+        val ok = r.media(MediaKind.ANIME, MediaRef(anilistId = 1))
+        assertEquals("anilist", ok.provider)
+        assertEquals(null, ok.fallbackFrom)
+
+        // the primary answering "unknown title" is not a failure: the next provider's answer is not a fallback
+        a.answer = { null }
+        val unknown = r.media(MediaKind.ANIME, MediaRef(anilistId = 1))
+        assertEquals("kitsu", unknown.provider)
+        assertEquals(null, unknown.fallbackFrom)
+    }
 }

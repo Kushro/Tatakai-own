@@ -11,6 +11,7 @@ import app.tatakai.next.model.StremioAddon
 import app.tatakai.next.model.StremioAddonRepository
 import app.tatakai.next.model.TorrentInfo
 import app.tatakai.next.model.WebInfo
+import app.tatakai.next.model.searchTitles
 import app.tatakai.next.release.parseRelease
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -461,7 +462,7 @@ class StremioCandidateSource(
 
     /** IMDb episode id through Cinemeta (exact title, cached per addon). */
     private suspend fun imdbTarget(addon: StremioAddon, media: Media, episode: Int): Pair<String, String>? {
-        val titles = (listOf(media.title) + media.titles.values).filter { it.isNotBlank() }.distinct()
+        val titles = media.searchTitles()
         if (titles.isEmpty()) return null
         val key = (media.ref.anilistId?.let { "al:$it" } ?: StremioWire.normalizeTitle(titles.first())) + ":$episode"
         repository.cachedMatch(addon.id, key)?.let { return "series" to it }

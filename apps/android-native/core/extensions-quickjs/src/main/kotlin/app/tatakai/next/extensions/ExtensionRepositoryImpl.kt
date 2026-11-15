@@ -37,6 +37,7 @@ import app.tatakai.next.model.SourcePrefs
 import app.tatakai.next.model.SourceStatsStore
 import app.tatakai.next.model.StreamSource
 import app.tatakai.next.model.parseSourceKey
+import app.tatakai.next.model.searchTitles
 import app.tatakai.next.model.sourceKey
 import app.tatakai.next.release.rank
 import kotlinx.coroutines.CancellationException
@@ -1153,17 +1154,6 @@ class ExtensionRepositoryImpl(
 
     // ---- plumbing ---------------------------------------------------------------------------------------------------------------
 
-    private fun streamParams(media: Media, episode: Int): JsonObject {
-        val titles = (listOf(media.title) + media.titles.values).filter { it.isNotBlank() }.distinct()
-        return buildJsonObject {
-            put("anilistId", media.ref.anilistId ?: 0)
-            put("titles", JsonArray(titles.map { JsonPrimitive(it) }))
-            put("episode", episode)
-            media.episodes?.let { put("episodeCount", it) }
-            put("stream", "0")
-        }
-    }
-
     /** A call of an extension that may open the hidden browser can take [BrowserPolicy.CALL_BUDGET_WITH_BROWSER_MS]. */
     private fun budgetMs(m: ExtensionManifest): Long =
         if (BrowserPolicy.browserDomains(m).isNotEmpty()) BrowserPolicy.CALL_BUDGET_WITH_BROWSER_MS + 5_000 else EXTENSION_BUDGET_MS
@@ -1282,6 +1272,21 @@ class ExtensionRepositoryImpl(
 
         internal fun sha256Hex(bytes: ByteArray): String =
             MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { String.format(Locale.ROOT, "%02x", it.toInt() and 0xff) }
+
+        /**
+         * Query of a `/streams` call. `titles` is [searchTitles]: the app's usual order, plus the titles kept from another provider
+         * when a metadata fallback answered (BUG-143: Kitsu alone gave "Temppal: Item no Chikara" and no torrent matched).
+         */
+        internal fun streamParams(media: Media, episode: Int): JsonObject {
+            val titles = media.searchTitles()
+            return buildJsonObject {
+                put("anilistId", media.ref.anilistId ?: 0)
+                put("titles", JsonArray(titles.map { JsonPrimitive(it) }))
+                put("episode", episode)
+                media.episodes?.let { put("episodeCount", it) }
+                put("stream", "0")
+            }
+        }
 
         /** `9f2c…b71e` (ExtensionDetail.hash display form). */
         internal fun displayHash(hex: String): String = if (hex.length <= 8) hex else "${hex.take(4)}…${hex.takeLast(4)}"

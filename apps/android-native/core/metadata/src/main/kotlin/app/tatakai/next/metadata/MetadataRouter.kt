@@ -1,6 +1,7 @@
 package app.tatakai.next.metadata
 
 import app.tatakai.next.model.AiringEpisode
+import app.tatakai.next.model.AppLog
 import app.tatakai.next.model.Episode
 import app.tatakai.next.model.FeedKind
 import app.tatakai.next.model.FeedPage
@@ -33,7 +34,12 @@ class MetadataRouter(
 ) {
     private val downUntil = ConcurrentHashMap<String, Long>()
 
-    data class Routed<T>(val value: T, val provider: String)
+    /**
+     * @param fallbackFrom BUG-143: set when the first enabled provider for the call (the user's primary, normally AniList) did not
+     * answer (error or cool-down) and [provider] is a fallback: `"anilist HTTP 429"`, `"anilist cooling down"`, ... Null when the
+     * primary answered (even with nothing) or is the one in [provider].
+     */
+    data class Routed<T>(val value: T, val provider: String, val fallbackFrom: String? = null)
 
     /**
      * Parity wave B (16 §3.1, worker r, checklist settings.metadata.provider-status): last outcome of every provider called in this
@@ -56,6 +62,9 @@ class MetadataRouter(
         }
     }
 
+    /** BUG-143: the provider a MEDIA call asks first (cool-downs ignored); null when none is enabled. */
+    fun primaryId(kind: MediaKind): String? = candidates(Capability.MEDIA, kind, includeCoolingDown = true).firstOrNull()?.id
+
     fun isCoolingDown(id: String): Boolean = (downUntil[id] ?: 0L) > clock()
 
     fun resetHealth() {
@@ -72,10 +81,7 @@ class MetadataRouter(
     private fun recordError(id: String, e: Exception) {
         val until = if (e is ProviderException && e.tripsCooldown) clock() + cooldownMs else null
         if (until != null) downUntil[id] = until
-        val msg = when (e) {
-            is ProviderException -> if (e.status == 0) "offline" else "HTTP ${e.status}"
-            else -> e.message?.take(120) ?: e::class.simpleName.orEmpty()
-        }
+        val msg = errorLabel(e)
         _status.update { m -> m + (id to (m[id] ?: ProviderStatus(id, true)).copy(lastError = msg, cooldownUntilMs = until)) }
     }
 
@@ -93,6 +99,9 @@ class MetadataRouter(
      */
     suspend fun media(kind: MediaKind, ref: MediaRef): Routed<Media?> {
         val first = route(Capability.MEDIA, kind, { it == null }) { it.media(kind, ref) }
+        if (first.fallbackFrom != null && first.value != null) {
+            AppLog.i(TAG, "media ${refLabel(ref)}: ${first.fallbackFrom} \u2192 ${first.provider} (fallback answer)")
+        }
         var value = first.value ?: return first
         if (!value.hasGaps()) return first
         val malRef = ref.copy(malId = value.ref.malId ?: ref.malId, anilistId = value.ref.anilistId ?: ref.anilistId)
@@ -110,7 +119,7 @@ class MetadataRouter(
             }
             if (!value.hasGaps()) break
         }
-        return Routed(value, first.provider)
+        return Routed(value, first.provider, first.fallbackFrom)
     }
 
     suspend fun episodes(ref: MediaRef): Routed<List<Episode>> =
@@ -150,24 +159,30 @@ class MetadataRouter(
         isEmpty: (T) -> Boolean,
         call: suspend (MetadataProvider) -> T,
     ): Routed<T> {
-        var list = candidates(cap, kind, includeCoolingDown = false)
+        val all = candidates(cap, kind, includeCoolingDown = true)
+        var list = all.filter { !isCoolingDown(it.id) }
         // Last resort: when everything is cooling down, retry anyway rather than failing instantly.
-        if (list.isEmpty()) list = candidates(cap, kind, includeCoolingDown = true)
+        if (list.isEmpty()) list = all
+        // BUG-143: why the primary (first enabled provider) did not answer, when it did not
+        val primary = all.firstOrNull()?.id
+        var primaryFailure: String? = if (primary != null && list.none { it.id == primary }) "$primary cooling down" else null
         val errors = mutableListOf<Pair<String, Throwable>>()
         var empty: Routed<T>? = null
         for (p in list) {
             try {
                 val value = call(p)
                 recordOk(p.id)
+                val routed = Routed(value, p.id, primaryFailure.takeIf { p.id != primary })
                 if (isEmpty(value)) {
-                    if (empty == null) empty = Routed(value, p.id)
+                    if (empty == null) empty = routed
                     continue
                 }
-                return Routed(value, p.id)
+                return routed
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 recordError(p.id, e)
+                if (p.id == primary) primaryFailure = "$primary ${errorLabel(e)}"
                 errors += p.id to e
             }
         }
@@ -178,6 +193,19 @@ class MetadataRouter(
     companion object {
         const val DEFAULT_COOLDOWN_MS = 60_000L
         private const val MAX_FILLERS = 3
+        private const val TAG = "metadata"
+
+        private fun errorLabel(e: Exception): String = when (e) {
+            is ProviderException -> if (e.status == 0) "offline" else "HTTP ${e.status}"
+            else -> e.message?.take(120) ?: e::class.simpleName.orEmpty()
+        }
+
+        /** `anilist:212888` / `mal:…` / `kitsu:…` for the log (BUG-143). */
+        fun refLabel(ref: MediaRef): String = listOfNotNull(
+            ref.anilistId?.let { "anilist:$it" },
+            ref.malId?.let { "mal:$it" },
+            ref.kitsuId?.let { "kitsu:$it" },
+        ).joinToString(" ").ifEmpty { "?" }
 
         internal fun Media.hasGaps(): Boolean =
             score == null || synopsis.isNullOrBlank() || cover == null || episodes == null || genres.isEmpty()
