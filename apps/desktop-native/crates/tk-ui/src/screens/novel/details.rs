@@ -97,6 +97,36 @@ pub fn NovelDetailsPage(id: String) -> Element {
     }
 }
 
+/// BUG-133: "Rifujin na Magonote (Guion)", "Ana (Guion, Ilustración)", or the bare name.
+fn credit_label(name: &str, keys: &[&str]) -> String {
+    if keys.is_empty() {
+        return name.to_owned();
+    }
+    let roles: Vec<String> = keys.iter().map(|k| t(k)).collect();
+    format!("{name} ({})", roles.join(", "))
+}
+
+/// BUG-133: "Traducción al inglés" / "Traducción" (AniList does not say the language, or one the app does not name).
+fn translation_label(lang: Option<&str>) -> String {
+    match lang {
+        Some(code) => t(&format!("novel.translation.{code}")),
+        None => t("novel.translation.any"),
+    }
+}
+
+/// BUG-133: "Kevin Frane, Paul Cuneo, Alyssa Orton-Niioka y 3 más" / "A y B" / "A".
+fn names_label(names: &[String]) -> String {
+    let (shown, more) = crate::model::novel::names_shown(names);
+    if more > 0 {
+        return format!("{} {}", shown.join(", "), tf("novel.translation.more", &[("n", &more.to_string())]));
+    }
+    match shown {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} {} {last}", rest.join(", "), t("novel.translation.and")),
+    }
+}
+
 #[component]
 fn DetailsBody(vm: NovelDetailsVm) -> Element {
     let navigator = use_navigator();
@@ -144,6 +174,10 @@ fn DetailsBody(vm: NovelDetailsVm) -> Element {
         None => t("novel.details.start"),
     };
     let synopsis = vm.synopsis.clone().unwrap_or_default();
+    let credits = crate::model::novel::novel_credits(&vm.authors);
+    // (label, shown names, every name for the tooltip)
+    let translations: Vec<(String, String, String)> =
+        credits.translations.iter().map(|(lang, names)| (translation_label(*lang), names_label(names), names.join(", "))).collect();
     let meta: Vec<(String, String)> = [
         vm.status.as_ref().map(|s| {
             (
@@ -155,11 +189,9 @@ fn DetailsBody(vm: NovelDetailsVm) -> Element {
             .map(|n| (t("novel.details.chapters"), n.to_string())),
         vm.volumes_total
             .map(|n| (t("novel.details.volumes"), n.to_string())),
-        // BUG-118: roles in the app's language ("Guion y dibujo"), like the manga page.
-        (!vm.authors.is_empty()).then(|| {
-            let names: Vec<String> = vm.authors.iter().map(|a| crate::screens::manga::details::author_label(a)).collect();
-            (t("novel.details.authors"), names.join(", "))
-        }),
+        // BUG-118 / BUG-133: who wrote / drew it, roles in the app's language and without AniList's notes; the
+        // translators go to "Información", grouped by language.
+        (!credits.authors.is_empty()).then(|| (t("novel.details.authors"), credits.authors.iter().map(|(n, k)| credit_label(n, k)).collect::<Vec<_>>().join(", "))),
     ]
     .into_iter()
     .flatten()
@@ -230,6 +262,19 @@ fn DetailsBody(vm: NovelDetailsVm) -> Element {
                         variant: ButtonVariant::Text,
                         size: ButtonSize::Sm,
                         onclick: move |_| expanded.toggle(),
+                    }
+                }
+            }
+        }
+        if !translations.is_empty() {
+            section { class: "tk-section tk-novel-details__credits",
+                h2 { class: "tk-section__title", {t("details.info")} }
+                dl { class: "tk-novel-details__meta",
+                    for (k , v , all) in translations {
+                        div { key: "{k}",
+                            dt { "{k}" }
+                            dd { title: "{all}", "{v}" }
+                        }
                     }
                 }
             }
@@ -652,6 +697,31 @@ fn ChapterRow(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-133: the header names the authors with their roles (no notes), translators get one row per language.
+    #[test]
+    fn novel_staff_is_worded_without_anilist_notes() {
+        use crate::i18n::{Lang, lookup};
+        assert_eq!(credit_label("Rifujin na Magonote", &["manga.role.story"]), format!("Rifujin na Magonote ({})", t("manga.role.story")));
+        assert_eq!(
+            credit_label("Ana", &["manga.role.story", "manga.role.illustration"]),
+            format!("Ana ({}, {})", t("manga.role.story"), t("manga.role.illustration"))
+        );
+        assert_eq!(credit_label("Bea", &[]), "Bea");
+        assert_eq!(translation_label(Some("en")), t("novel.translation.en"));
+        assert_eq!(translation_label(None), t("novel.translation.any"));
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let six = names(&["Kevin Frane", "Paul Cuneo", "Alyssa Orton-Niioka", "Sylvia Gallagher", "airco", "X"]);
+        assert_eq!(names_label(&six), format!("Kevin Frane, Paul Cuneo, Alyssa Orton-Niioka {}", tf("novel.translation.more", &[("n", "3")])));
+        assert_eq!(names_label(&names(&["A", "B"])), format!("A {} B", t("novel.translation.and")));
+        assert_eq!(names_label(&names(&["A"])), "A");
+        // the Spanish words of the shared text (Android uses the same)
+        assert_eq!(lookup(Lang::Es, "novel.translation.en"), "Traducción al inglés");
+        assert_eq!(lookup(Lang::Es, "novel.translation.th"), "Traducción al tailandés");
+        assert_eq!(lookup(Lang::Es, "novel.translation.any"), "Traducción");
+        assert_eq!(lookup(Lang::Es, "novel.translation.more"), "y {n} más");
+        assert_eq!(lookup(Lang::Es, "manga.role.illustration"), "Ilustración");
+    }
 
     #[test]
     fn dates_and_status_ids() {

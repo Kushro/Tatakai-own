@@ -448,6 +448,120 @@ pub fn chapter_label(number: f32) -> String {
     }
 }
 
+// ---- BUG-133: novel staff (authors in the header, translators grouped by language in "Información") ----------------
+
+/// An AniList staff role of a novel: its base as an i18n key (`staff_role_key`; `None` = no translation, not shown)
+/// and, for a translator, the language of its note as an ISO code ("Translator (English: vols 1, 3)" ->
+/// `translator`, `en`). The rest of the note (volumes, chapters) is dropped. Pure; same rules as Android.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StaffRole {
+    pub key: Option<&'static str>,
+    pub language: Option<&'static str>,
+}
+
+/// i18n key of a translator role (`manga.role.translator`).
+pub const TRANSLATOR_KEY: &str = "manga.role.translator";
+
+pub fn parse_staff_role(role: &str) -> StaffRole {
+    let role = role.trim();
+    let key = crate::model::manga::staff_role_key(role);
+    let note = role.find('(').map(|i| role[i + 1..].trim_end_matches(')').trim()).unwrap_or("");
+    let language = if key == Some(TRANSLATOR_KEY) {
+        // "English: vols 1, 3" / "Thai" / "Portuguese, Brazilian"
+        note.split([':', ',', '(']).next().and_then(language_code)
+    } else {
+        None
+    };
+    StaffRole { key, language }
+}
+
+/// AniList's (English) name of a language -> ISO code with a `novel.translation.<code>` key. `None` = unknown.
+pub fn language_code(name: &str) -> Option<&'static str> {
+    Some(match name.trim().to_ascii_lowercase().as_str() {
+        "english" => "en",
+        "spanish" => "es",
+        "portuguese" | "brazilian portuguese" => "pt",
+        "french" => "fr",
+        "german" => "de",
+        "italian" => "it",
+        "japanese" => "ja",
+        "korean" => "ko",
+        "chinese" => "zh",
+        "russian" => "ru",
+        "thai" => "th",
+        "indonesian" => "id",
+        "vietnamese" => "vi",
+        "polish" => "pl",
+        "turkish" => "tr",
+        "arabic" => "ar",
+        "filipino" | "tagalog" => "tl",
+        "malay" => "ms",
+        "hungarian" => "hu",
+        "czech" => "cs",
+        "hebrew" => "he",
+        "dutch" => "nl",
+        "swedish" => "sv",
+        "ukrainian" => "uk",
+        _ => return None,
+    })
+}
+
+/// The novel page's staff: who wrote / drew it (header), and the translators grouped by language (in AniList order).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NovelCredits {
+    /// `(name, role keys)`: every role but translation, each once; empty = shown as the bare name.
+    pub authors: Vec<(String, Vec<&'static str>)>,
+    /// `(language code, names)`; `None` = AniList does not say the language.
+    pub translations: Vec<(Option<&'static str>, Vec<String>)>,
+}
+
+/// `"Name (Role / Role)"` entries (tk-core `staff_authors`) -> [`NovelCredits`]. Roles without a translation are
+/// left out (no English AniList text on the page); a person who only translates is not an author. Pure.
+pub fn novel_credits(staff: &[String]) -> NovelCredits {
+    let mut out = NovelCredits::default();
+    for entry in staff {
+        let (name, roles) = crate::model::manga::split_author(entry);
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let mut keys: Vec<&'static str> = Vec::new();
+        let mut translates = false;
+        for r in roles.into_iter().flat_map(|r| r.split(" / ")).map(parse_staff_role) {
+            match r.key {
+                Some(TRANSLATOR_KEY) => {
+                    translates = true;
+                    let i = match out.translations.iter().position(|(l, _)| *l == r.language) {
+                        Some(i) => i,
+                        None => {
+                            out.translations.push((r.language, Vec::new()));
+                            out.translations.len() - 1
+                        }
+                    };
+                    if !out.translations[i].1.iter().any(|n| n == name) {
+                        out.translations[i].1.push(name.to_owned());
+                    }
+                }
+                Some(k) if !keys.contains(&k) => keys.push(k),
+                _ => {}
+            }
+        }
+        if !keys.is_empty() || !translates {
+            out.authors.push((name.to_owned(), keys));
+        }
+    }
+    out
+}
+
+/// How many names a translation row shows before "y N más".
+pub const NAMES_SHOWN: usize = 3;
+
+/// The names a row shows and how many more there are (`names` beyond [`NAMES_SHOWN`]). Pure.
+pub fn names_shown(names: &[String]) -> (&[String], usize) {
+    let n = names.len().min(NAMES_SHOWN);
+    (&names[..n], names.len() - n)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,5 +729,53 @@ mod tests {
         assert_eq!(p.flow, NovelFlowPrefs::default());
         assert_eq!(p.tts, TtsPrefs::default());
         assert_eq!(p.font_size, 20);
+    }
+
+    /// BUG-133: the role's base is translated, the translator's language read, the volume note dropped.
+    #[test]
+    fn staff_roles_keep_their_base_and_the_translators_language() {
+        assert_eq!(parse_staff_role("Translator (English: vols 1, 3)"), StaffRole { key: Some(TRANSLATOR_KEY), language: Some("en") });
+        assert_eq!(parse_staff_role("Translator (Thai)"), StaffRole { key: Some(TRANSLATOR_KEY), language: Some("th") });
+        assert_eq!(parse_staff_role("Translator"), StaffRole { key: Some(TRANSLATOR_KEY), language: None });
+        assert_eq!(parse_staff_role("Translator (Klingon: vol 2)").language, None);
+        assert_eq!(parse_staff_role("Story (ch 1-20)"), StaffRole { key: Some("manga.role.story"), language: None });
+        assert_eq!(parse_staff_role("Touch-up Art").key, None);
+    }
+
+    /// BUG-133: Mushoku Tensei as AniList sends it -> two authors in the header, the translators by language.
+    #[test]
+    fn novel_credits_split_authors_and_translators_by_language() {
+        let staff: Vec<String> = [
+            "Rifujin na Magonote (Story)",
+            "Sirotaka (Illustration)",
+            "Kevin Frane (Translator (English: vol 1))",
+            "Paul Cuneo (Translator (English: vols 1, 3, 5, 7, 9, 11, 13, 15, 17, 19))",
+            "Alyssa Orton-Niioka (Translator (English: vols 2, 4, 6-8, 10, 12, 14, 16, 18, 19, 23))",
+            "Sylvia Gallagher (Translator (English: vols 9, 11))",
+            "airco (Translator (English))",
+            "Soraphong Kitbunchaporn (Translator (Thai))",
+            "Ana (Story / Illustration / Translator (Spanish))",
+            "Bea (Touch-up Art)",
+            "Cid (Translator)",
+        ]
+        .map(String::from)
+        .to_vec();
+        let c = novel_credits(&staff);
+        assert_eq!(
+            c.authors,
+            vec![
+                ("Rifujin na Magonote".to_owned(), vec!["manga.role.story"]),
+                ("Sirotaka".to_owned(), vec!["manga.role.illustration"]),
+                ("Ana".to_owned(), vec!["manga.role.story", "manga.role.illustration"]),
+                ("Bea".to_owned(), vec![]),
+            ]
+        );
+        let langs: Vec<Option<&str>> = c.translations.iter().map(|(l, _)| *l).collect();
+        assert_eq!(langs, [Some("en"), Some("th"), Some("es"), None]);
+        assert_eq!(c.translations[0].1.len(), 5);
+        let (shown, more) = names_shown(&c.translations[0].1);
+        assert_eq!(shown, ["Kevin Frane", "Paul Cuneo", "Alyssa Orton-Niioka"]);
+        assert_eq!(more, 2);
+        assert_eq!(names_shown(&c.translations[1].1), (&c.translations[1].1[..], 0));
     }
 }
