@@ -8,5 +8,10 @@
   "hero.action.info": "Más información",
   "hero.row.more": "Ver más",
   "hero.row.prev": "Desplazar hacia atrás",
-  "hero.row.next": "Desplazar hacia adelante"
+  "hero.row.next": "Desplazar hacia adelante",
+  "hero.ago.now": "recién",
+  "hero.ago.min": "hace {n} min",
+  "hero.ago.h": "hace {n} h",
+  "hero.ago.d": "hace {n} d",
+  "hero.logo.alt": "Logo de {title}"
 }

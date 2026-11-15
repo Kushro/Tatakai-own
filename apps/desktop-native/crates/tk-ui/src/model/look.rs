@@ -1,7 +1,8 @@
 //! `Settings::look`: layout and style choices of the UI (2026-11 UI refresh), grouped in presets.
 //!
 //! Every choice is a small enum persisted by id. The shell writes the global ones as attributes on `<html>`
-//! ([`LookPrefs::html_attrs`]: `data-density`, `data-rail`, `data-cards`, `data-motion`, `data-effects`) so CSS
+//! ([`LookPrefs::html_attrs`]: `data-density`, `data-rail`, `data-cards`, `data-card-size`, `data-motion`,
+//! `data-effects`) so CSS
 //! applies them without re-rendering; the screens read the rest (home layout, episode view, relations view,
 //! calendar view, hero autoplay) from `Settings::look`.
 //!
@@ -90,6 +91,45 @@ choice!(
     },
     default = Detailed
 );
+
+choice!(
+    /// 0.3.2: size of the cards in rows and grids (`data-card-size`). `Small` / `Medium` are posters; `Large` / `Xl`
+    /// are horizontal "detailed" cards (poster on the left; title, facts, score, genres, the episode line and the
+    /// synopsis when known on the right), about 3 to 5 per row.
+    CardSize, "card_size", {
+        /// ~118 px posters.
+        Small => "small",
+        /// 150 px posters (the compact density still shrinks them).
+        Medium => "medium",
+        /// Horizontal detailed cards, ~300 px.
+        Large => "large",
+        /// Horizontal detailed cards, ~400 px.
+        Xl => "xl",
+    },
+    default = Medium
+);
+
+impl CardSize {
+    /// Horizontal detailed layout.
+    pub fn is_detailed(self) -> bool {
+        matches!(self, Self::Large | Self::Xl)
+    }
+
+    /// Nominal card width in px (media.css `--tk-card-w`; the grids use it as the column minimum).
+    pub fn card_width_px(self) -> u32 {
+        match self {
+            Self::Small => 118,
+            Self::Medium => 150,
+            Self::Large => 300,
+            Self::Xl => 400,
+        }
+    }
+
+    /// Cards that fit side by side in a row `row_px` wide with `gap_px` between them (at least one).
+    pub fn per_row(self, row_px: u32, gap_px: u32) -> u32 {
+        ((row_px + gap_px) / (self.card_width_px() + gap_px)).max(1)
+    }
+}
 
 choice!(
     /// Navigation rail.
@@ -188,6 +228,8 @@ pub struct LookPrefs {
     pub preset: LookPreset,
     pub home_layout: HomeLayout,
     pub card_style: CardStyle,
+    /// 0.3.2.
+    pub card_size: CardSize,
     pub rail_style: RailStyle,
     pub density: Density,
     pub motion: Motion,
@@ -217,6 +259,7 @@ impl LookPrefs {
             preset: p,
             home_layout: HomeLayout::Spotlight,
             card_style: CardStyle::Detailed,
+            card_size: CardSize::Medium,
             rail_style: RailStyle::Labeled,
             density: Density::Comfortable,
             motion: Motion::Expressive,
@@ -231,6 +274,7 @@ impl LookPrefs {
         match p {
             LookPreset::Cinema => Self {
                 card_style: CardStyle::Minimal,
+                card_size: CardSize::Large,
                 rail_style: RailStyle::Slim,
                 glass: true,
                 hero_interval_secs: 12,
@@ -239,6 +283,7 @@ impl LookPrefs {
             LookPreset::Dense => Self {
                 home_layout: HomeLayout::Rows,
                 card_style: CardStyle::Classic,
+                card_size: CardSize::Small,
                 rail_style: RailStyle::Slim,
                 density: Density::Compact,
                 motion: Motion::Subtle,
@@ -284,11 +329,12 @@ impl LookPrefs {
     }
 
     /// Attributes the shell sets on `<html>` (CSS hooks in app.css / the area stylesheets).
-    pub fn html_attrs(&self) -> [(&'static str, &'static str); 5] {
+    pub fn html_attrs(&self) -> [(&'static str, &'static str); 6] {
         [
             ("data-density", self.density.id()),
             ("data-rail", self.rail_style.id()),
             ("data-cards", self.card_style.id()),
+            ("data-card-size", self.card_size.id()),
             ("data-motion", self.motion.id()),
             ("data-effects", if self.glass { "glass" } else { "flat" }),
         ]
@@ -346,5 +392,36 @@ mod tests {
         assert!(a.contains(&("data-density", "compact")));
         assert!(a.contains(&("data-rail", "slim")));
         assert!(a.contains(&("data-effects", "flat")));
+        assert!(a.contains(&("data-card-size", "small")));
+        assert!(LookPrefs::default().html_attrs().contains(&("data-card-size", "medium")));
+    }
+
+    #[test]
+    fn card_sizes_follow_the_presets_and_read_leniently() {
+        let size = |p| LookPrefs::preset(p).card_size;
+        assert_eq!(size(LookPreset::Tatakai), CardSize::Medium);
+        assert_eq!(size(LookPreset::Cinema), CardSize::Large);
+        assert_eq!(size(LookPreset::Dense), CardSize::Small);
+        assert_eq!(size(LookPreset::Calm), CardSize::Medium);
+        let s: LookPrefs = serde_json::from_str(r#"{"card_size":"huge"}"#).unwrap();
+        assert_eq!(s.card_size, CardSize::Medium);
+        let s: LookPrefs = serde_json::from_str(r#"{"card_size":"xl"}"#).unwrap();
+        assert_eq!(s.card_size, CardSize::Xl);
+        assert_eq!(CardSize::Large.label_key(), "look.card_size.large");
+        for v in CardSize::ALL {
+            assert_eq!(CardSize::from_id(v.id()), Some(*v));
+        }
+    }
+
+    #[test]
+    fn card_size_math() {
+        assert!(CardSize::Large.is_detailed() && CardSize::Xl.is_detailed() && !CardSize::Medium.is_detailed());
+        // Rows of 1400 / 1700 px with 16 px gaps: 8 medium posters; 4-5 large and 3-4 xl cards ("3-5 per row").
+        assert_eq!(CardSize::Medium.per_row(1400, 16), 8);
+        assert_eq!(CardSize::Large.per_row(1400, 16), 4);
+        assert_eq!(CardSize::Large.per_row(1700, 16), 5);
+        assert_eq!(CardSize::Xl.per_row(1400, 16), 3);
+        assert_eq!(CardSize::Xl.per_row(1700, 16), 4);
+        assert_eq!(CardSize::Xl.per_row(300, 16), 1);
     }
 }
