@@ -2,11 +2,12 @@
 package app.tatakai.next.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** BUG-132: which Link profiles the phone's AVC decoder plays, and what replaces one it does not. */
+/** BUG-132 / BUG-135: which Link profiles the phone's AVC decoder plays, and what replaces one it does not. */
 class LinkProfileSupportTest {
     /** The moto g51's `c2.qti.avc.decoder` as seen in r7: up to 1920x1088, at most [maxFps] at 1080p. */
     private class FakeAvc(val maxW: Int = 1920, val maxH: Int = 1088, val maxFps: Double = 120.0) : VideoDecodeLimits {
@@ -42,14 +43,38 @@ class LinkProfileSupportTest {
     }
 
     @Test
-    fun frameGenerationCountsTheOutputFrameRate() {
-        // x5 of a 24 fps source = 120 fps; a decoder that stops at 60 fps at 1080p cannot keep up
-        val bad = unsupportedLinkProfiles(pcProfiles, FakeAvc(maxFps = 60.0))
-        assertEquals(ProfileSupport.TooFast(1080, 120), bad["p-lsfg-1080-x5"])
-        assertEquals(ProfileSupport.TooFast(1080, 120), bad["p-lsfg-1080-auto120"])
-        assertEquals(ProfileSupport.TooFast(1080, 72), bad["p-anime4k-lsfg-1080-x3"])
-        assertNull(bad["p-lsfg-1080-x2"]) // 48 fps
-        assertNull(bad["p-none"])
+    fun aFrameRateAboveTheDeclaredOneNeverBlocks() {
+        // BUG-135: the g51 declares about 1080p60 but plays LSFG auto120 (state=3 in r4-r7); x5 / auto120 = 120 fps, x3 = 72 fps
+        val g51 = FakeAvc(maxFps = 60.0)
+        val bad = unsupportedLinkProfiles(pcProfiles, g51)
+        assertEquals(mapOf("p-anime4k-1440" to ProfileSupport.TooLarge(1440), "p-anime4k-2160" to ProfileSupport.TooLarge(2160)), bad)
+        // only a note on the row
+        assertEquals(
+            setOf("p-lsfg-1080-x5", "p-lsfg-1080-auto120", "p-anime4k-lsfg-1080-x3"),
+            linkProfilesMayDropFrames(pcProfiles, g51),
+        )
+        // 48 fps fits; a size the decoder refuses gets its own reason, not the note
+        assertFalse(linkProfileMayDropFrames(pcProfiles[4], g51))
+        assertFalse(linkProfileMayDropFrames(pcProfiles[2], g51))
+        assertTrue(linkProfilesMayDropFrames(pcProfiles, null).isEmpty())
+    }
+
+    @Test
+    fun theSizeCheckAloneDecides1080pAt120Fps() {
+        val auto120 = p("p-anime4k-lsfg-1080-auto120", 1920, 1080, upscale = true, fg = true, target = 120)
+        val g51 = FakeAvc(maxFps = 60.0)
+        assertEquals(ProfileSupport.Supported, linkProfileSupport(auto120, g51))
+        assertTrue(g51.asked.all { it.third == null }) // never asked about the rate
+        assertTrue(linkProfileMayDropFrames(auto120, g51))
+    }
+
+    @Test
+    fun aPreferredProfileIsNeverReplacedForItsFrameRate() {
+        // BUG-135: r8 replaced p-anime4k-lsfg-1080-auto120 with ...-x2 on the g51
+        val g51 = FakeAvc(maxFps = 60.0)
+        assertEquals("p-lsfg-1080-x5", playableLinkProfile("p-lsfg-1080-x5", pcProfiles, g51))
+        assertEquals("p-lsfg-1080-auto120", playableLinkProfile("p-lsfg-1080-auto120", pcProfiles, g51))
+        assertEquals("p-anime4k-lsfg-1080-x3", playableLinkProfile("p-anime4k-lsfg-1080-x3", pcProfiles, g51))
     }
 
     @Test
@@ -80,10 +105,13 @@ class LinkProfileSupportTest {
         assertEquals("p-anime4k-1080", playableLinkProfile("p-anime4k-1440", pcProfiles, g51))
         assertEquals("p-anime4k-1080", playableLinkProfile("p-anime4k-2160", pcProfiles, g51))
         assertEquals("p-anime4k-1080", playableLinkProfile("p-anime4k-1080", pcProfiles, g51))
-        // same kind at a lower frame rate: LSFG x5 -> x2 on a 60 fps decoder
-        assertEquals("p-lsfg-1080-x2", playableLinkProfile("p-lsfg-1080-x5", pcProfiles, FakeAvc(maxFps = 60.0)))
+        // a rejected profile goes to the same kind at a lower size or frame rate (x5 and auto120 rejected -> x2)
+        assertEquals(
+            "p-lsfg-1080-x2",
+            playableLinkProfile("p-lsfg-1080-x5", pcProfiles, g51, rejected = setOf("p-lsfg-1080-x5", "p-lsfg-1080-auto120")),
+        )
         // nothing of that kind: the original video
-        assertEquals("p-none", playableLinkProfile("p-anime4k-lsfg-1080-x3", pcProfiles, FakeAvc(maxFps = 60.0)))
+        assertEquals("p-none", playableLinkProfile("p-anime4k-lsfg-1080-x3", pcProfiles, g51, rejected = setOf("p-anime4k-lsfg-1080-x3")))
     }
 
     @Test

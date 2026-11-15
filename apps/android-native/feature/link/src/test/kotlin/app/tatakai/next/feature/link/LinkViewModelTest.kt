@@ -28,6 +28,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LinkViewModelTest {
@@ -240,5 +241,34 @@ class LinkViewModelTest {
         // choosing another profile clears the notice
         vm.selectProfile("p-none")
         assertNull(vm.state.value.profileFallback)
+    }
+
+    @Test
+    fun `a profile above the declared frame rate stays selectable and the preferred one is kept`() = runTest {
+        // BUG-135: the g51 declares about 1080p60 but plays LSFG auto120; r8 replaced the preferred auto120 with x2
+        val g51At60 = object : app.tatakai.next.model.VideoDecodeLimits {
+            override fun sizeSupported(width: Int, height: Int) = width <= 1920 && height <= 1088
+            override fun sizeAndRateSupported(width: Int, height: Int, fps: Double) = sizeSupported(width, height) && fps <= 60.0
+        }
+        val fgCaps = caps.copy(
+            profiles = caps.profiles + listOf(
+                LinkProfile("p-anime4k-lsfg-1080-x2", "x2", true, true, 1920, 1080, "unknown", fgMultiplier = 2),
+                LinkProfile("p-anime4k-lsfg-1080-auto120", "auto120", true, true, 1920, 1080, "unknown", fgTargetFps = 120),
+            ),
+        )
+        val repo = FakeLink({ Result.success(pc) }, { Result.success(fgCaps) })
+        repo.device.value = LinkedDevice("dev1", "Desktop", "192.168.1.9", 47321, "7A3F 91C2", 1L, 2L, "p-anime4k-lsfg-1080-auto120", "Pixel")
+        repo.state.value = LinkState.Paired(pc, reachable = true)
+
+        val vm = LinkViewModel(repo, "Pixel", decodeLimits = { g51At60 })
+
+        assertTrue(vm.state.value.unsupportedProfiles.isEmpty())
+        assertEquals(setOf("p-anime4k-lsfg-1080-auto120"), vm.state.value.mayDropFramesProfiles)
+        assertEquals("p-anime4k-lsfg-1080-auto120", vm.state.value.selectedProfile)
+        assertEquals("unset", repo.preferred) // never rewritten
+        assertNull(vm.state.value.profileFallback)
+        // and it can be chosen again
+        vm.selectProfile("p-anime4k-lsfg-1080-auto120")
+        assertEquals("p-anime4k-lsfg-1080-auto120", repo.preferred)
     }
 }

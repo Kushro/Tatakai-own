@@ -5,10 +5,13 @@ package app.tatakai.next.model
 // (`output.width` x `output.height`) and frame rate (source fps x the frame-generation multiplier). A profile whose size the phone's
 // AVC decoder rejects (the moto g51's `c2.qti.avc.decoder` refuses 2560x1440) makes Media3 fail at decoder init, so the phone hides
 // nothing but marks those profiles as unavailable, with the reason. Pure, unit tested; the Android detection is in :core:link.
+// BUG-135: only the frame size blocks a profile. The frame rate the decoder declares (its "performance points") is conservative:
+// the g51 declares about 1080p60 yet plays LSFG auto120 fine, so a rate above it is only a note on the row ("may drop frames").
 
 /** What the phone's H.264 decoder accepts (MediaCodecInfo.VideoCapabilities on the device; fakes in tests). */
 interface VideoDecodeLimits {
     fun sizeSupported(width: Int, height: Int): Boolean
+    /** Only for the "may drop frames" note (BUG-135): never blocks a profile. */
     fun sizeAndRateSupported(width: Int, height: Int, fps: Double): Boolean
 }
 
@@ -18,9 +21,6 @@ sealed interface ProfileSupport {
 
     /** The decoder does not take this frame size ("Tu teléfono no reproduce [height]p"). */
     data class TooLarge(val height: Int) : ProfileSupport
-
-    /** The size is fine but not at this frame rate ("Tu teléfono no reproduce [height]p a [fps] fps"). */
-    data class TooFast(val height: Int, val fps: Int) : ProfileSupport
 
     /** The decoder already failed with this profile in this player ("Tu teléfono no pudo reproducir este perfil"). */
     data object Rejected : ProfileSupport
@@ -46,8 +46,8 @@ private val MULTIPLIER_ID = Regex("""-x(\d)$|-fg(\d)x$""")
 
 /**
  * Whether this phone plays [profile]: [ProfileSupport.Rejected] when its id is in [rejected] (the decoder failed with it already),
- * then the decoder's size and size-at-rate checks. Without [limits] (detection failed, previews) or without an output size,
- * everything counts as supported.
+ * then the decoder's size check (BUG-135: never the frame rate, see [linkProfileMayDropFrames]). Without [limits] (detection
+ * failed, previews) or without an output size, everything counts as supported.
  */
 fun linkProfileSupport(profile: LinkProfile, limits: VideoDecodeLimits?, rejected: Set<String> = emptySet()): ProfileSupport {
     if (profile.id in rejected) return ProfileSupport.Rejected
@@ -55,10 +55,25 @@ fun linkProfileSupport(profile: LinkProfile, limits: VideoDecodeLimits?, rejecte
     val w = profile.outputWidth
     val h = profile.outputHeight
     if (!limits.sizeSupported(w, h)) return ProfileSupport.TooLarge(h)
-    val fps = linkProfileFps(profile)
-    if (!limits.sizeAndRateSupported(w, h, fps.toDouble())) return ProfileSupport.TooFast(h, fps)
     return ProfileSupport.Supported
 }
+
+/**
+ * BUG-135: whether [profile]'s output frame rate is above what the phone's decoder declares for its size (the row shows "Puede
+ * perder cuadros en este teléfono"; the profile stays selectable). false when the size itself is not supported (that row is
+ * disabled with its own reason) or without [limits] / output size.
+ */
+fun linkProfileMayDropFrames(profile: LinkProfile, limits: VideoDecodeLimits?): Boolean {
+    if (limits == null || profile.outputWidth <= 0 || profile.outputHeight <= 0) return false
+    val w = profile.outputWidth
+    val h = profile.outputHeight
+    if (!limits.sizeSupported(w, h)) return false
+    return !limits.sizeAndRateSupported(w, h, linkProfileFps(profile).toDouble())
+}
+
+/** BUG-135: the ids of [profiles] that this phone plays but may drop frames with ([linkProfileMayDropFrames]). */
+fun linkProfilesMayDropFrames(profiles: List<LinkProfile>, limits: VideoDecodeLimits?): Set<String> =
+    profiles.filter { linkProfileMayDropFrames(it, limits) }.mapTo(LinkedHashSet()) { it.id }
 
 /** The ids of [profiles] this phone cannot play, with why (missing = supported). */
 fun unsupportedLinkProfiles(
@@ -70,7 +85,8 @@ fun unsupportedLinkProfiles(
 }.toMap()
 
 /**
- * The profile to use instead of [wanted] (null = [defaultProfile]) when this phone cannot play it (BUG-132): [wanted] itself when it is playable (or unknown
+ * The profile to use instead of [wanted] (null = [defaultProfile]) when this phone cannot play it (BUG-132; BUG-135: only by
+ * size, a frame rate above the declared one never replaces it): [wanted] itself when it is playable (or unknown
  * to the PC's list: the PC decides); otherwise the closest playable one, i.e. the same kind (upscale / frame generation) with the
  * largest size and frame rate not above [wanted]'s; otherwise `p-none` (the PC's original video); otherwise [defaultProfile] or the
  * first playable profile. null = nothing in the list is playable.

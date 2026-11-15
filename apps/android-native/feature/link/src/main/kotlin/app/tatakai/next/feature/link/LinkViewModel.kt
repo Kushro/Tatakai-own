@@ -25,6 +25,7 @@ import app.tatakai.next.model.LinkProfileFallback
 import app.tatakai.next.model.ProfileSupport
 import app.tatakai.next.model.VideoDecodeLimits
 import app.tatakai.next.model.playableLinkProfile
+import app.tatakai.next.model.linkProfilesMayDropFrames
 import app.tatakai.next.model.unsupportedLinkProfiles
 import app.tatakai.next.ui.state.runCatchingApp
 import app.tatakai.next.ui.state.toAppError
@@ -49,6 +50,8 @@ data class LinkUiState(
     val selectedProfile: String? = null,
     /** BUG-132: the PC's profiles this phone's video decoder cannot play (shown disabled, with the reason). */
     val unsupportedProfiles: Map<String, ProfileSupport> = emptyMap(),
+    /** BUG-135: the PC's profiles above the frame rate this phone's decoder declares (selectable, with a "may drop frames" note). */
+    val mayDropFramesProfiles: Set<String> = emptySet(),
     /** BUG-132: the saved preferred profile ([LinkProfileFallback.from]) is not playable here and was replaced by [LinkProfileFallback.to]. */
     val profileFallback: LinkProfileFallback? = null,
     val pairing: Boolean = false,
@@ -246,6 +249,7 @@ class LinkViewModel(
                 capabilities = caps,
                 selectedProfile = keep,
                 unsupportedProfiles = unsupported,
+                mayDropFramesProfiles = linkProfilesMayDropFrames(profiles, limits),
                 profileFallback = replaced ?: s.profileFallback,
             )
         }

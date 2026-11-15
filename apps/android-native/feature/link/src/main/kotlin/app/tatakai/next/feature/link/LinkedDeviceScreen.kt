@@ -484,7 +484,14 @@ private fun CapabilitiesPanel(state: LinkUiState, onRetry: () -> Unit, onSelectP
                 onRetry = onRetry,
                 compact = true,
             )
-            is LoadState.Ok -> CapabilitiesBody(caps.value, state.selectedProfile, state.unsupportedProfiles, state.profileFallback, onSelectProfile)
+            is LoadState.Ok -> CapabilitiesBody(
+                caps.value,
+                state.selectedProfile,
+                state.unsupportedProfiles,
+                state.mayDropFramesProfiles,
+                state.profileFallback,
+                onSelectProfile,
+            )
         }
     }
 }
@@ -494,6 +501,7 @@ private fun CapabilitiesBody(
     caps: LinkCapabilities,
     selected: String?,
     unsupported: Map<String, ProfileSupport>,
+    mayDropFrames: Set<String>,
     fallback: LinkProfileFallback?,
     onSelect: (String?) -> Unit,
 ) {
@@ -515,7 +523,7 @@ private fun CapabilitiesBody(
         ?: caps.defaultProfile.takeIf { id -> playable.any { it.id == id } }
         ?: (playable.firstOrNull() ?: usable.first()).id
     // A vertical list: with LSFG and Anime4K + LSFG a PC offers ~15 profiles, too many for a segmented row.
-    ProfileList(profiles = usable, selected = current, unavailable = unsupported, onSelect = { onSelect(it) })
+    ProfileList(profiles = usable, selected = current, unavailable = unsupported, mayDropFrames = mayDropFrames, onSelect = { onSelect(it) })
     if (fallback != null) {
         val from = caps.profiles.firstOrNull { it.id == fallback.from }
         val to = caps.profiles.firstOrNull { it.id == fallback.to }

@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import app.tatakai.next.model.LinkProfile
@@ -71,19 +72,20 @@ fun profileLabel(profile: LinkProfile): String {
 fun profileSupportText(support: ProfileSupport): String? = when (support) {
     ProfileSupport.Supported -> null
     is ProfileSupport.TooLarge -> stringResource(R.string.linked_profile_too_large, support.height)
-    is ProfileSupport.TooFast -> stringResource(R.string.linked_profile_too_fast, support.height, support.fps)
     ProfileSupport.Rejected -> stringResource(R.string.linked_profile_rejected)
 }
 
 /**
  * Radio list of the PC's profiles: one row each with its full name, so a dozen options stay readable. BUG-132: the profiles in
- * [unavailable] (this phone's decoder cannot play them) are shown disabled, with the reason under the name.
+ * [unavailable] (this phone's decoder cannot play them) are shown disabled, with the reason under the name. BUG-135: the ones in
+ * [mayDropFrames] (frame rate above what the decoder declares) stay selectable, with a one-line note.
  */
 @Composable
 fun ProfileList(
     profiles: List<LinkProfile>,
     selected: String,
     unavailable: Map<String, ProfileSupport> = emptyMap(),
+    mayDropFrames: Set<String> = emptySet(),
     onSelect: (String) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().selectableGroup()) {
@@ -91,6 +93,7 @@ fun ProfileList(
             val on = profile.id == selected
             val reason = unavailable[profile.id]?.let { profileSupportText(it) }
             val enabled = reason == null
+            val note = if (enabled && profile.id in mayDropFrames) stringResource(R.string.linked_profile_may_drop_frames) else null
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -107,6 +110,15 @@ fun ProfileList(
                     )
                     if (reason != null) {
                         Text(reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (note != null) {
+                        Text(
+                            note,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }

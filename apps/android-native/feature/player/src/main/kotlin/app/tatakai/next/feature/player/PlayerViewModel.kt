@@ -13,6 +13,7 @@ import app.tatakai.next.link.RemotePlaybackAccess
 import app.tatakai.next.model.LinkProfile
 import app.tatakai.next.model.ProfileSupport
 import app.tatakai.next.model.VideoDecodeLimits
+import app.tatakai.next.model.linkProfilesMayDropFrames
 import app.tatakai.next.model.unsupportedLinkProfiles
 import app.tatakai.next.link.linkErrorOrNull
 import app.tatakai.next.model.AppError
@@ -300,6 +301,8 @@ data class PlayerUiState(
     val linkProfileChanging: Boolean = false,
     /** BUG-132: the profiles of [linkProfiles] this phone cannot play (disabled in the sheet, with the reason). */
     val linkUnsupported: Map<String, ProfileSupport> = emptyMap(),
+    /** BUG-135: the profiles of [linkProfiles] above the decoder's declared frame rate (selectable, with a note). */
+    val linkMayDropFrames: Set<String> = emptySet(),
     // --- parity wave A (worker p) ---
     val hasPrevEpisode: Boolean = false,
     val sleep: SleepUi? = null,
@@ -1223,6 +1226,7 @@ class PlayerViewModel(
                     linkProfiles = caps.profiles,
                     linkProfile = it.linkProfile ?: current,
                     linkUnsupported = unsupportedLinkProfiles(caps.profiles, linkLimits, rejectedProfiles),
+                    linkMayDropFrames = linkProfilesMayDropFrames(caps.profiles, linkLimits),
                 )
             }
             // BUG-132: the session started with the closest playable profile instead of the saved preferred one: say it once
