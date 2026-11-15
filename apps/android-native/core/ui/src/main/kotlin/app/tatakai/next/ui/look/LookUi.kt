@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.ui.look
 
-import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
@@ -40,7 +40,7 @@ fun spatialMotion(): Boolean = lookMotion() == Motion.EXPRESSIVE
 
 /** Opacity / color animation spec of the current level (instant when off). */
 @Composable
-fun <T> lookFadeSpec(durationMs: Int = 180): AnimationSpec<T> = if (lookMotion() == Motion.OFF) snap() else tween(durationMs)
+fun <T> lookFadeSpec(durationMs: Int = 180): FiniteAnimationSpec<T> = if (lookMotion() == Motion.OFF) snap() else tween(durationMs)
 
 /** Horizontal gap between cards in rows (compact density packs them tighter). */
 @Composable

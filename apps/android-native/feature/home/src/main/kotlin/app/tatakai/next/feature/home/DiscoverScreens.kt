@@ -118,7 +118,7 @@ internal fun rememberNotificationPermission(): () -> Unit {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DiscoverTopBar(title: String, onBack: (() -> Unit)?, actions: @Composable () -> Unit = {}) {
+internal fun DiscoverTopBar(title: String, onBack: (() -> Unit)?, actions: @Composable () -> Unit = {}) {
     TopAppBar(
         title = { Text(title) },
         navigationIcon = {
@@ -131,100 +131,8 @@ private fun DiscoverTopBar(title: String, onBack: (() -> Unit)?, actions: @Compo
     )
 }
 
-/**
- * `Route.Calendar` (checklist home.calendar.schedule / .my-shows; plan §7 D6: the calendar lives inside Inicio): week view grouped by
- * day (`AiringRepository.schedule`), local time, followed shows highlighted with "Dejar de seguir" / reminder toggle, "Solo las que sigo"
- * filter. Reached from the Home row header "Calendario".
- */
 @Composable
-fun CalendarScreen(onBack: (() -> Unit)?, onMediaClick: (Media) -> Unit, modifier: Modifier = Modifier) {
-    val vm: CalendarViewModel = koinViewModel()
-    val state by vm.state.collectAsStateWithLifecycle()
-    val askPermission = rememberNotificationPermission()
-    val zone = remember { ZoneId.systemDefault() }
-    val time = remember { DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT) }
-    val dayFmt = remember { DateTimeFormatter.ofPattern("EEEE d MMM") }
-    Scaffold(modifier = modifier, topBar = { DiscoverTopBar(stringResource(R.string.home_calendar_title), onBack) }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
-            item(key = "week") {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { vm.shiftWeek(-1) }) { Text(stringResource(R.string.home_calendar_prev_week)) }
-                    Text(
-                        stringResource(R.string.home_calendar_week_of, state.weekStart.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM))),
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                    )
-                    TextButton(onClick = { vm.shiftWeek(1) }) { Text(stringResource(R.string.home_calendar_next_week)) }
-                }
-            }
-            item(key = "filter") {
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = state.onlyFollowed,
-                        onClick = { vm.setOnlyFollowed(!state.onlyFollowed) },
-                        label = { Text(stringResource(R.string.home_calendar_only_followed)) },
-                    )
-                }
-            }
-            if (state.followed.isNotEmpty()) {
-                item(key = "followed-header") { ListGroupHeader(stringResource(R.string.home_calendar_my_shows)) }
-                items(state.followed, key = { "f:" + (it.ref.anilistId ?: it.ref.malId) }) { show ->
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        MediaCover(url = show.poster, modifier = Modifier.width(40.dp))
-                        Text(show.title, Modifier.weight(1f).padding(horizontal = 12.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        IconToggleButton(checked = show.remind, onCheckedChange = { on ->
-                            if (on) askPermission()
-                            vm.setReminder(show.ref, on)
-                        }) {
-                            Icon(
-                                if (show.remind) Icons.Outlined.NotificationsActive else Icons.Outlined.Notifications,
-                                contentDescription = stringResource(R.string.home_follow_reminder),
-                            )
-                        }
-                        TextButton(onClick = { vm.unfollow(show.ref) }) { Text(stringResource(R.string.home_unfollow)) }
-                    }
-                }
-            }
-            when (val days = state.visibleDays) {
-                LoadState.Loading -> item(key = "loading") { if (rememberAfterDelay()) LoadingState(Modifier.padding(32.dp)) }
-                is LoadState.Err -> item(key = "error") {
-                    ErrorState(message = days.cause.userMessage(), retryLabel = stringResource(UiR.string.ui_retry), onRetry = vm::load)
-                }
-                is LoadState.Ok -> {
-                    if (days.value.all { it.episodes.isEmpty() }) {
-                        item(key = "empty") {
-                            EmptyState(
-                                icon = Icons.Outlined.Schedule,
-                                title = stringResource(R.string.home_calendar_empty),
-                                message = stringResource(if (state.onlyFollowed) R.string.home_calendar_empty_followed else R.string.home_calendar_empty_body),
-                            )
-                        }
-                    }
-                    days.value.filter { it.episodes.isNotEmpty() }.forEach { day ->
-                        item(key = "d:${day.date}") { ListGroupHeader(day.date.format(dayFmt).replaceFirstChar { it.titlecase() }) }
-                        items(day.episodes, key = { "e:${day.date}:${it.media.ref.anilistId}:${it.episode}" }) { ep ->
-                            CalendarRow(
-                                ep = ep,
-                                time = Instant.ofEpochSecond(ep.airingAtEpochSec).atZone(zone).format(time),
-                                tracked = state.isTracked(ep.media.ref),
-                                followed = state.isFollowed(ep.media.ref),
-                                onClick = { onMediaClick(ep.media) },
-                                onToggleFollow = {
-                                    if (!state.isFollowed(ep.media.ref)) askPermission()
-                                    vm.toggleFollow(ep)
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CalendarRow(ep: AiringEpisode, time: String, tracked: Boolean, followed: Boolean, onClick: () -> Unit, onToggleFollow: () -> Unit) {
+internal fun CalendarRow(ep: AiringEpisode, time: String, tracked: Boolean, followed: Boolean, onClick: () -> Unit, onToggleFollow: () -> Unit) {
     Surface(
         onClick = onClick,
         color = if (tracked) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,

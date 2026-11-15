@@ -68,4 +68,5 @@
     <string name="ui_nav_calendar">Calendario</string>
     <string name="ui_nav_for_you">Para ti</string>
     <string name="ui_for_you_summary">Recomendaciones según lo que ves</string>
+    <string name="ui_hero_go_to">Título %1$d de %2$d</string>
 </resources>

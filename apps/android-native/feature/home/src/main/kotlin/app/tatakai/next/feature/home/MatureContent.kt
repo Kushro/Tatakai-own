@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.feature.home
 
+import app.tatakai.next.model.CardStyle
+import app.tatakai.next.model.Density
+import app.tatakai.next.ui.look.LocalLook
+import app.tatakai.next.ui.media.classicFactsLine
+import app.tatakai.next.ui.media.detailedFactsLine
+import app.tatakai.next.ui.media.dotColor
+import app.tatakai.next.ui.media.mediaStatusKind
+import app.tatakai.next.ui.media.mediaSubtitle
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -95,13 +103,22 @@ fun GatedMediaCard(
     subtitle: String? = null,
 ) {
     val hidden = gate.isHidden(media) && gate.mode == MatureContentMode.BLUR
-    Box(modifier.width(width)) {
+    // 2026-11 UI refresh: card style and density of Diseño y estilo (compact cards are ~13 % narrower).
+    val look = LocalLook.current
+    val style = look.cardStyle
+    Box(modifier.width(if (look.density == Density.COMPACT) width * 0.87f else width)) {
         MediaCard(
             title = media.displayTitle(LocalTitleLanguage.current),
             coverUrl = media.cover,
             onClick = { gate.open(media, onClick) },
             modifier = Modifier.fillMaxWidth().then(if (hidden) Modifier.blur(18.dp) else Modifier),
-            subtitle = subtitle,
+            subtitle = if (style == CardStyle.MINIMAL) {
+                null
+            } else {
+                subtitle ?: if (style == CardStyle.CLASSIC) classicFactsLine(media) ?: mediaSubtitle(media) else detailedFactsLine(media) ?: mediaSubtitle(media)
+            },
+            style = style,
+            statusDot = mediaStatusKind(media.status)?.dotColor(),
         )
         if (hidden) {
             Column(Modifier.align(Alignment.Center).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {

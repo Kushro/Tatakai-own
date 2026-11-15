@@ -59,4 +59,5 @@
     <string name="ui_nav_calendar">Calendar</string>
     <string name="ui_nav_for_you">For you</string>
     <string name="ui_for_you_summary">Recommendations from what you watch</string>
+    <string name="ui_hero_go_to">Title %1$d of %2$d</string>
 </resources>
