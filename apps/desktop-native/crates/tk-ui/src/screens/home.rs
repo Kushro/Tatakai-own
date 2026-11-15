@@ -12,6 +12,10 @@
 //! each time the end of the page is reached (`data-row="genre:<name>"`). While Home is open, `reminders_due` is
 //! polled every minute (`home.calendar.reminders`): a snackbar, a system notification when the web view allows it,
 //! and a card per reminder (`data-reminder`).
+//!
+//! 2026-11 UI refresh (`Settings::look`): `home_layout` picks the full-bleed [`Spotlight`] (default), the
+//! multi-browse [`HeroCarousel`] or no hero (`rows`); the greeting shows only with `show_greeting`. Every card row
+//! is a [`ScrollRow`] (hover arrows, faded edge) and sections far below the fold use `content-visibility: auto`.
 
 use std::time::Duration;
 
@@ -22,9 +26,11 @@ use crate::backend::{AiringSlotVm, HomeVm, LatestEpisodeVm, MediaVm, SectionVm, 
 use crate::components::airing::{hhmm, use_local_clock};
 use crate::components::{
     AiringCalendar, Button, ButtonSize, ButtonVariant, Chip, ChipKind, ContinueCard, EmptyState, ErrorState,
-    HeroCarousel, IconButton, IconButtonSize, MediaCard, Segmented, SkeletonRow, use_snackbar,
+    HeroCarousel, IconButton, IconButtonSize, MediaCard, RowScroller, ScrollRow, Segmented, SkeletonRow, Spotlight,
+    hero_slides, use_row_id, use_snackbar,
 };
 use crate::i18n::{t, tf, tn};
+use crate::model::look::HomeLayout;
 use crate::model::{ErrorKind, UiError};
 use crate::player_state::format_bytes;
 use crate::screens::recs::RecsRow;
@@ -32,8 +38,8 @@ use crate::screens::search::genre_label;
 
 /// `title_key` prefix of an extension row; the rest is the extension's display name.
 pub const EXT_ROW_PREFIX: &str = "ext:";
-/// Hero slides taken from the first section.
-const HERO_ITEMS: usize = 5;
+/// Hero slides (from `HomeVm::hero`, else from the first section).
+const HERO_ITEMS: usize = 6;
 /// Rows rendered right away; the rest wait until visible.
 const EAGER_ROWS: usize = 3;
 /// A lazy row mounts anyway after this long (in case the visibility event never arrives).
@@ -104,21 +110,33 @@ pub fn HomePage() -> Element {
         async move { backend.home().await }
     });
 
+    let ui = use_context::<Ui>();
+    let (layout, greet) = {
+        let s = ui.settings.read();
+        (s.look.home_layout, s.look.show_greeting)
+    };
+
     let body = match &*home.read() {
         None => rsx! {
-            HomeSkeleton {}
+            HomeSkeleton { layout, greet }
         },
         Some(Err(e)) => rsx! {
-            ErrorState { error: e.clone(), on_retry: move |_| home.restart() }
+            div { class: "tk-home__rows",
+                if greet {
+                    HomeHead {}
+                }
+                ErrorState { error: e.clone(), on_retry: move |_| home.restart() }
+            }
         },
         Some(Ok(vm)) => rsx! {
-            HomeContent { vm: vm.clone(), on_retry: move |_| home.restart() }
+            HomeContent { vm: vm.clone(), layout, greet, on_retry: move |_| home.restart() }
         },
     };
 
+    // 2026-11 UI refresh: the page itself is full-bleed (the spotlight reaches the edges of `.tk-main`);
+    // `.tk-home__rows` carries the page width and padding.
     rsx! {
-        div { class: "tk-page tk-page--home",
-            HomeHead {}
+        div { class: "tk-page tk-page--home", "data-layout": layout.id(),
             ReminderPoller {}
             {body}
         }
@@ -153,11 +171,28 @@ fn HomeHead() -> Element {
 }
 
 #[component]
-fn HomeSkeleton() -> Element {
+fn HomeSkeleton(layout: HomeLayout, greet: bool) -> Element {
     rsx! {
-        section { class: "tk-section", "aria-busy": "true",
-            div { class: "tk-skel tk-skel--hero", "aria-hidden": "true" }
+        if layout == HomeLayout::Spotlight {
+            div { class: "tk-skel tk-skel--spot", "aria-hidden": "true" }
         }
+        div { class: "tk-home__rows", "aria-busy": "true",
+            if greet {
+                HomeHead {}
+            }
+            if layout == HomeLayout::Carousel {
+                section { class: "tk-section",
+                    div { class: "tk-skel tk-skel--hero", "aria-hidden": "true" }
+                }
+            }
+            HomeSkeletonRows {}
+        }
+    }
+}
+
+#[component]
+fn HomeSkeletonRows() -> Element {
+    rsx! {
         section { class: "tk-section", "aria-busy": "true",
             div { class: "tk-skel tk-skel--line tk-home__skel-title", "aria-hidden": "true" }
             SkeletonRow { count: 8 }
@@ -170,119 +205,142 @@ fn HomeSkeleton() -> Element {
 }
 
 #[component]
-fn HomeContent(vm: HomeVm, on_retry: EventHandler<()>) -> Element {
+fn HomeContent(vm: HomeVm, layout: HomeLayout, greet: bool, on_retry: EventHandler<()>) -> Element {
     let navigator = use_navigator();
     // Before any early return: hooks keep their order.
     let ui = use_context::<Ui>();
-    let hero: Vec<MediaVm> = vm
+    let first: Vec<MediaVm> = vm
         .sections
         .first()
         .and_then(|s| s.items.as_ref().ok())
-        .map(|items| items.iter().take(HERO_ITEMS).cloned().collect())
-        .unwrap_or_default();
-    let hero_key = hero.iter().map(|m| m.id.as_str()).collect::<Vec<_>>().join(",");
-    // The first section feeds the hero (as in the prototype); it is still listed if the hero is empty.
-    let rows: Vec<SectionVm> = vm
-        .sections
-        .iter()
-        .skip(usize::from(!hero.is_empty()))
         .cloned()
-        .collect();
+        .unwrap_or_default();
+    let slides = if layout == HomeLayout::Rows {
+        Vec::new()
+    } else {
+        hero_slides(&vm.hero, &first, HERO_ITEMS)
+    };
+    let hero_key = slides.iter().map(|h| h.media.id.as_str()).collect::<Vec<_>>().join(",");
+    // A hero built from the first section's cards replaces that row (as before the refresh); with `HomeVm::hero`
+    // the row stays and lists every trending title.
+    let skip_first = !slides.is_empty() && vm.hero.is_empty();
+    let rows: Vec<SectionVm> = vm.sections.iter().skip(usize::from(skip_first)).cloned().collect();
     // A failed row still counts: it shows its own error.
     let has_rows = rows
         .iter()
         .any(|s| !matches!(&s.items, Ok(items) if items.is_empty()));
 
-    if hero.is_empty() && vm.continue_watching.is_empty() && !has_rows {
+    if slides.is_empty() && vm.continue_watching.is_empty() && !has_rows {
         return rsx! {
-            EmptyState {
-                icon: "film".to_string(),
-                title: t("home.empty.title"),
-                body: t("home.empty.body"),
-                action_label: t("common.retry"),
-                on_action: move |_| on_retry.call(()),
+            div { class: "tk-home__rows",
+                if greet {
+                    HomeHead {}
+                }
+                EmptyState {
+                    icon: "film".to_string(),
+                    title: t("home.empty.title"),
+                    body: t("home.empty.body"),
+                    action_label: t("common.retry"),
+                    on_action: move |_| on_retry.call(()),
+                }
             }
         };
     }
 
+    let resume: Vec<(String, u32)> = vm
+        .continue_watching
+        .iter()
+        .map(|c| (c.media.id.clone(), c.episode.max(1)))
+        .collect();
+    let carousel_items: Vec<MediaVm> = slides.iter().map(|h| h.media.clone()).collect();
+    let carousel_art: Vec<Option<String>> = slides.iter().map(|h| h.banner.clone()).collect();
     let p = ui.settings.read().home.clone();
 
     rsx! {
-        if !hero.is_empty() {
-            section { class: "tk-section",
-                HeroCarousel {
-                    key: "{hero_key}",
-                    items: hero.clone(),
-                    kicker: t("feed.trending"),
-                    on_open: move |id: String| {
-                        navigator.push(Route::DetailsPage { id });
-                    },
-                }
-            }
+        if layout == HomeLayout::Spotlight && !slides.is_empty() {
+            Spotlight { key: "{hero_key}", slides: slides.clone(), resume, label: t("hero.spot.label") }
         }
-        if !vm.continue_watching.is_empty() {
-            section { class: "tk-section",
-                div { class: "tk-section__head",
-                    h2 { class: "tk-section__title", {t("home.continue")} }
-                    Button {
-                        label: t("common.see_all"),
-                        variant: ButtonVariant::Text,
-                        size: ButtonSize::Sm,
-                        onclick: move |_| {
-                            navigator.push(Route::LibraryPage {});
+        div { class: "tk-home__rows",
+            if greet {
+                HomeHead {}
+            }
+            if layout == HomeLayout::Carousel && !slides.is_empty() {
+                section { class: "tk-section tk-home__carousel",
+                    HeroCarousel {
+                        key: "{hero_key}",
+                        items: carousel_items,
+                        art: carousel_art,
+                        kicker: t("feed.trending"),
+                        on_open: move |id: String| {
+                            navigator.push(Route::DetailsPage { id });
                         },
                     }
                 }
-                div { class: "tk-row",
-                    for c in vm.continue_watching.clone() {
-                        {
-                            let (id, episode) = (c.media.id.clone(), c.episode);
-                            rsx! {
-                                ContinueCard {
-                                    key: "{c.media.id}",
-                                    item: c.clone(),
-                                    onclick: move |_| {
-                                        navigator.push(Route::PlayerPage { id: id.clone(), episode });
-                                    },
+            }
+            if !vm.continue_watching.is_empty() {
+                section { class: "tk-section", "data-row": "continue",
+                    div { class: "tk-section__head",
+                        h2 { class: "tk-section__title", {t("home.continue")} }
+                        Button {
+                            label: t("hero.row.more"),
+                            variant: ButtonVariant::Text,
+                            size: ButtonSize::Sm,
+                            onclick: move |_| {
+                                navigator.push(Route::LibraryPage {});
+                            },
+                        }
+                    }
+                    ScrollRow {
+                        for c in vm.continue_watching.clone() {
+                            {
+                                let (id, episode) = (c.media.id.clone(), c.episode);
+                                rsx! {
+                                    ContinueCard {
+                                        key: "{c.media.id}",
+                                        item: c.clone(),
+                                        onclick: move |_| {
+                                            navigator.push(Route::PlayerPage { id: id.clone(), episode });
+                                        },
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        }
-        if p.show_torrent_activity {
-            TorrentBanner {}
-        }
-        if p.show_latest_episodes {
-            FollowedRow {}
-            LatestRow {}
-        }
-        if p.show_top10 {
-            Top10Block {}
-        }
-        for (i , s) in rows.into_iter().enumerate() {
-            {
-                let lazy = i >= EAGER_ROWS || s.title_key.starts_with(EXT_ROW_PREFIX);
-                rsx! {
-                    SectionRow { key: "{s.title_key}", section: s.clone(), lazy }
+            if p.show_torrent_activity {
+                TorrentBanner {}
+            }
+            if p.show_latest_episodes {
+                FollowedRow {}
+                LatestRow {}
+            }
+            if p.show_top10 {
+                Top10Block {}
+            }
+            for (i , s) in rows.into_iter().enumerate() {
+                {
+                    let lazy = i >= EAGER_ROWS || s.title_key.starts_with(EXT_ROW_PREFIX);
+                    rsx! {
+                        SectionRow { key: "{s.title_key}", section: s.clone(), lazy }
+                    }
                 }
             }
-        }
-        if p.show_because_you_watched {
-            BecauseRows {}
-        }
-        if p.show_calendar {
-            CalendarBlock {}
-        }
-        if p.show_recommendations {
-            RecsRow {}
-        }
-        if p.show_genre_cloud {
-            GenreCloud {}
-        }
-        if p.infinite_genre_rows {
-            InfiniteGenreRows {}
+            if p.show_because_you_watched {
+                BecauseRows {}
+            }
+            if p.show_calendar {
+                CalendarBlock {}
+            }
+            if p.show_recommendations {
+                RecsRow {}
+            }
+            if p.show_genre_cloud {
+                GenreCloud {}
+            }
+            if p.infinite_genre_rows {
+                InfiniteGenreRows {}
+            }
         }
     }
 }
@@ -349,7 +407,7 @@ fn SectionRow(section: SectionVm, #[props(default)] lazy: bool) -> Element {
                 p { class: "tk-section__empty tk-muted", {t("home.empty.title")} }
             },
             Ok(list) => rsx! {
-                div { class: "tk-row",
+                ScrollRow {
                     for m in list {
                         {
                             let id = m.id.clone();
@@ -405,7 +463,7 @@ fn SectionRow(section: SectionVm, #[props(default)] lazy: bool) -> Element {
                 }
                 if let Some(feed) = feed.filter(|_| !is_ext) {
                     Button {
-                        label: t("common.see_all"),
+                        label: t("hero.row.more"),
                         variant: ButtonVariant::Text,
                         size: ButtonSize::Sm,
                         onclick: move |_| {
@@ -556,7 +614,7 @@ fn TorrentBanner() -> Element {
 fn EpisodeCards(items: Vec<LatestEpisodeVm>, play: bool) -> Element {
     let navigator = use_navigator();
     rsx! {
-        div { class: "tk-row",
+        ScrollRow {
             for e in items.into_iter().take(EPISODE_ROW_ITEMS) {
                 {
                     let (id, episode) = (e.media.id.clone(), e.episode);
@@ -656,6 +714,7 @@ fn Top10Block() -> Element {
     let services = use_context::<Services>();
     let navigator = use_navigator();
     let mut range = use_signal(TopRangeVm::default);
+    let row_id = use_row_id();
     let mut top = use_resource({
         let backend = services.backend.clone();
         move || {
@@ -680,20 +739,22 @@ fn Top10Block() -> Element {
             p { class: "tk-section__empty tk-muted", {t("home.row.empty")} }
         },
         Some(Ok(list)) => rsx! {
-            ol { class: "tk-top10", "data-range": "{current.id()}",
-                for (i , m) in list.iter().take(10).enumerate() {
-                    {
-                        let id = m.id.clone();
-                        let rank = i + 1;
-                        let label = tf("home.top.rank", &[("n", &rank.to_string()), ("title", &m.title)]);
-                        rsx! {
-                            li { key: "{m.id}", class: "tk-top10__item", "data-rank": "{rank}", "aria-label": "{label}",
-                                span { class: "tk-top10__rank", "aria-hidden": "true", "{rank}" }
-                                MediaCard {
-                                    media: m.clone(),
-                                    onclick: move |_| {
-                                        navigator.push(Route::DetailsPage { id: id.clone() });
-                                    },
+            RowScroller { track: row_id.clone(),
+                ol { class: "tk-top10", id: "{row_id}", "data-range": "{current.id()}",
+                    for (i , m) in list.iter().take(10).enumerate() {
+                        {
+                            let id = m.id.clone();
+                            let rank = i + 1;
+                            let label = tf("home.top.rank", &[("n", &rank.to_string()), ("title", &m.title)]);
+                            rsx! {
+                                li { key: "{m.id}", class: "tk-top10__item", "data-rank": "{rank}", "aria-label": "{label}",
+                                    span { class: "tk-top10__rank", "aria-hidden": "true", "{rank}" }
+                                    MediaCard {
+                                        media: m.clone(),
+                                        onclick: move |_| {
+                                            navigator.push(Route::DetailsPage { id: id.clone() });
+                                        },
+                                    }
                                 }
                             }
                         }
@@ -750,7 +811,7 @@ fn BecauseRows() -> Element {
                     div { class: "tk-section__head",
                         h2 { class: "tk-section__title", {tf("home.row.because", &[("title", &b.seed.title)])} }
                     }
-                    div { class: "tk-row",
+                    ScrollRow {
                         for m in b.items.clone() {
                             {
                                 let id = m.id.clone();
@@ -910,7 +971,7 @@ fn GenreRow(genre: String) -> Element {
             p { class: "tk-section__empty tk-muted", {t("home.row.empty")} }
         },
         Some(Ok(p)) => rsx! {
-            div { class: "tk-row",
+            ScrollRow {
                 for m in p.items.clone() {
                     {
                         let id = m.id.clone();
@@ -933,7 +994,7 @@ fn GenreRow(genre: String) -> Element {
             div { class: "tk-section__head",
                 h2 { class: "tk-section__title", {genre_label(&genre)} }
                 Button {
-                    label: t("common.see_all"),
+                    label: t("hero.row.more"),
                     variant: ButtonVariant::Text,
                     size: ButtonSize::Sm,
                     onclick: move |_| {

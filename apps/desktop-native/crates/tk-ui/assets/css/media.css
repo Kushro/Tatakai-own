@@ -1,25 +1,24 @@
 /* Media: covers, cards, continue tiles, episode rows - owner: wave 1 A (media.rs). Colors/type/shape/motion only from tokens.css; layout literals only.
    Overlays on artwork use the *fixed* roles (same tone in light and dark): primary-fixed as the light ink, scrim as the dark one. */
 
-/* cover art placeholder: poster color (`--tk-cover-c`, set inline from MediaVm::color) + monogram */
-:where(.tk-cover, .tk-ep__thumb, .tk-hero__slide) { --tk-cover-c: var(--md-sys-color-secondary-container); }
+/* cover art placeholder: poster color (`--tk-cover-c`, set inline from MediaVm::color) + monogram.
+   2026-11 perf pass: no mix-blend-mode, no per-cover container query (fixed monogram sizes per context), no
+   backdrop-filter outside `data-effects="glass"`. */
+:where(.tk-cover, .tk-ep__thumb, .tk-hero__slide, .tk-hero__peek, .tk-spot__slide) { --tk-cover-c: var(--md-sys-color-secondary-container); }
 .tk-cover {
   position: relative; aspect-ratio: 13 / 18; width: 100%; max-width: 100%; overflow: hidden; isolation: isolate;
-  border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-high); container-type: inline-size;
+  border-radius: var(--md-sys-shape-corner-large); background: var(--md-sys-color-surface-container-high);
 }
 .tk-cover__art {
-  position: absolute; inset: 0; z-index: 0;
+  position: absolute; inset: 0; z-index: 0; overflow: hidden;
   background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary-fixed) 5%, transparent) 0 2px, transparent 2px 14px),
     radial-gradient(120% 80% at 80% 0%, color-mix(in oklab, var(--tk-cover-c) 70%, var(--md-sys-color-primary-fixed)) 0%, transparent 55%),
     linear-gradient(160deg, var(--tk-cover-c), color-mix(in oklab, var(--tk-cover-c) 55%, var(--md-sys-color-scrim)));
 }
-.tk-cover__art::before {
-  content: ""; position: absolute; inset: 0; mix-blend-mode: overlay;
-  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary-fixed) 6%, transparent) 0 2px, transparent 2px 14px);
-}
 .tk-cover__art::after {
   content: attr(data-mono); position: absolute; right: 8%; bottom: -6%; letter-spacing: -.04em;
-  font: 700 clamp(48px, 60cqw, 180px)/1 var(--tk-font-display); color: color-mix(in srgb, var(--md-sys-color-primary-fixed) 16%, transparent);
+  font: 700 72px/1 var(--tk-font-display); color: color-mix(in srgb, var(--md-sys-color-primary-fixed) 16%, transparent);
 }
 .tk-cover > img { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; }
 .tk-cover__fog {
@@ -28,12 +27,16 @@
 }
 .tk-cover__badge, .tk-cover__score {
   position: absolute; top: var(--tk-space-8); z-index: 2; height: 24px; padding: 0 var(--tk-space-8); display: flex; align-items: center; gap: 3px;
-  border-radius: var(--md-sys-shape-corner-small); backdrop-filter: blur(6px);
-  background: color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent); color: var(--md-sys-color-primary-fixed);
+  border-radius: var(--md-sys-shape-corner-small);
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 72%, transparent); color: var(--md-sys-color-primary-fixed);
   font: 600 11px/24px var(--tk-font-text); letter-spacing: .5px;
+  transition: transform var(--tk-mo-spatial-fast), opacity var(--tk-mo-fx-fast);
 }
-.tk-cover__badge { left: var(--tk-space-8); }
-.tk-cover__score { right: var(--tk-space-8); }
+:root[data-effects="glass"] :is(.tk-cover__badge, .tk-cover__score) {
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 55%, transparent); backdrop-filter: blur(6px);
+}
+.tk-cover__badge { left: var(--tk-space-8); transform-origin: left center; }
+.tk-cover__score { right: var(--tk-space-8); transform-origin: right center; }
 .tk-cover__score .tk-icon { color: var(--md-sys-color-tertiary-fixed-dim); }
 .tk-cover__ep {
   position: absolute; left: 10px; bottom: 20px; z-index: 2; color: var(--md-sys-color-primary-fixed);
@@ -45,32 +48,104 @@
 }
 .tk-cover__progress > i { display: block; height: 100%; background: var(--md-sys-color-primary-fixed-dim); border-radius: var(--md-sys-shape-corner-full); }
 
-/* card */
+/* ---- card (MediaCard) -------------------------------------------------------------------------
+   One DOM for the three styles of `:root[data-cards]`: classic (title + sub), detailed (status dot + title + year /
+   format meta, the default), minimal (poster only; the title slides up over it on hover / focus). */
 .tk-card {
-  width: 150px; flex: none; display: flex; flex-direction: column; gap: var(--tk-space-8);
+  --tk-card-w: 150px;
+  width: var(--tk-card-w); flex: none; display: flex; flex-direction: column; gap: var(--tk-space-8);
   text-align: start; color: inherit; border-radius: var(--md-sys-shape-corner-large);
 }
-.tk-card .tk-cover { transition: transform var(--tk-mo-spatial), box-shadow var(--tk-mo-fx), border-radius var(--tk-mo-spatial); }
-.tk-card:hover .tk-cover, .tk-card:focus-visible .tk-cover { transform: translateY(-4px) scale(1.02); box-shadow: var(--tk-shadow-3); border-radius: var(--md-sys-shape-corner-large-increased); }
-.tk-card:focus-visible { outline-offset: 4px; }
-.tk-card[data-selected="true"] .tk-cover { outline: 3px solid var(--md-sys-color-primary); outline-offset: 2px; }
+.tk-card__poster { position: relative; isolation: isolate; border-radius: var(--md-sys-shape-corner-large); transition: transform var(--tk-mo-spatial); }
+/* the hover shadow is a pseudo-element whose opacity fades (no animated box-shadow) */
+.tk-card__poster::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; box-shadow: var(--tk-shadow-3);
+  opacity: 0; transition: opacity var(--tk-mo-fx); pointer-events: none;
+}
+.tk-card .tk-cover > img { transition: transform var(--tk-mo-spatial-slow); }
+.tk-card:hover .tk-card__poster, .tk-card:focus-visible .tk-card__poster { transform: translateY(-4px); }
+.tk-card:hover .tk-card__poster::before, .tk-card:focus-visible .tk-card__poster::before { opacity: 1; }
+.tk-card:hover .tk-cover > img, .tk-card:focus-visible .tk-cover > img { transform: scale(1.06); }
+.tk-card:hover .tk-cover__score, .tk-card:focus-visible .tk-cover__score { transform: scale(1.06); }
+.tk-card:active .tk-card__poster { transform: translateY(-2px) scale(.98); transition-duration: var(--md-sys-motion-spatial-fast-duration); }
+.tk-card:focus-visible { outline: none; }
+.tk-card:focus-visible .tk-card__poster { outline: 3px solid var(--md-sys-color-secondary); outline-offset: 3px; }
+.tk-card[data-selected="true"] .tk-cover { outline: 3px solid var(--md-sys-color-primary); outline-offset: -3px; }
 .tk-card__title {
   font-family: var(--tk-font-text); font-size: var(--md-sys-typescale-label-large-size); line-height: 18px; font-weight: 600;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  transition: color var(--tk-mo-fx-fast);
 }
+.tk-card:hover .tk-card__title { color: var(--md-sys-color-primary); }
 .tk-card__sub { font-size: var(--md-sys-typescale-body-small-size); line-height: 16px; letter-spacing: .3px; color: var(--md-sys-color-on-surface-variant); }
-.tk-card[data-wide="true"] { width: 260px; }
+.tk-card__dot {
+  display: none; width: 8px; height: 8px; margin: 0 6px 1px 1px; vertical-align: middle; border-radius: var(--md-sys-shape-corner-full);
+  background: var(--md-sys-color-outline);
+}
+.tk-card__dot[data-status="releasing"] { background: var(--md-sys-color-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent); }
+.tk-card__dot[data-status="finished"] { background: var(--md-sys-color-tertiary); }
+.tk-card__dot[data-status="upcoming"] { background: var(--md-sys-color-secondary); }
+.tk-card__dot[data-status="other"] { background: var(--md-sys-color-error); }
+.tk-card__meta {
+  display: none; align-items: center; justify-content: space-between; gap: var(--tk-space-8);
+  font: 500 12px/16px var(--tk-font-text); color: var(--md-sys-color-on-surface-variant);
+}
+.tk-card__meta > span { display: inline-flex; align-items: center; gap: var(--tk-space-4); min-width: 0; white-space: nowrap; }
+.tk-card__meta .tk-icon { opacity: .8; }
+.tk-card__over {
+  position: absolute; inset: auto 0 0; z-index: 3; padding: var(--tk-space-24) var(--tk-space-12) var(--tk-space-12);
+  border-radius: 0 0 var(--md-sys-shape-corner-large) var(--md-sys-shape-corner-large);
+  background: linear-gradient(to top, color-mix(in srgb, var(--md-sys-color-scrim) 82%, transparent), transparent);
+  color: var(--md-sys-color-primary-fixed); font: 600 13px/17px var(--tk-font-text);
+  display: none; opacity: 0; transform: translateY(12px); pointer-events: none;
+  transition: opacity var(--tk-mo-fx), transform var(--tk-mo-spatial);
+}
+.tk-card__over > span { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* detailed (default) */
+:root:not([data-cards="classic"]):not([data-cards="minimal"]) .tk-card__dot { display: inline-block; }
+:root:not([data-cards="classic"]):not([data-cards="minimal"]) .tk-card__meta { display: flex; }
+:root:not([data-cards="classic"]):not([data-cards="minimal"]) .tk-card[data-meta="true"][data-sub="default"] .tk-card__sub { display: none; }
+/* minimal */
+:root[data-cards="minimal"] .tk-card { gap: 0; }
+:root[data-cards="minimal"] :is(.tk-card__title, .tk-card__sub, .tk-card__meta) { display: none; }
+:root[data-cards="minimal"] .tk-card__over { display: block; }
+:root[data-cards="minimal"] .tk-card:is(:hover, :focus-visible) .tk-card__over { opacity: 1; transform: none; }
+
+.tk-card[data-wide="true"] { --tk-card-w: 260px; }
 .tk-card[data-wide="true"] .tk-cover { aspect-ratio: 16 / 9; }
+.tk-card[data-wide="true"] .tk-cover__art::after { font-size: 96px; }
 .tk-grid .tk-card { width: auto; }
+
+/* subtle motion: color / opacity only; reduce motion: nothing moves */
+:root[data-motion="subtle"] .tk-card :is(.tk-card__poster, .tk-cover > img, .tk-cover__score, .tk-card__over) { transform: none !important; }
+:root[data-reduce-motion="true"] .tk-card :is(.tk-card__poster, .tk-cover > img, .tk-cover__score, .tk-card__over) { transform: none !important; transition: none; }
+
+/* compact density: smaller cards, tighter rows */
+:root[data-density="compact"] .tk-card { --tk-card-w: 118px; gap: var(--tk-space-4); }
+:root[data-density="compact"] .tk-card[data-wide="true"] { --tk-card-w: 220px; }
+:root[data-density="compact"] .tk-card .tk-cover__art::after { font-size: 56px; }
+:root[data-density="compact"] .tk-card__title { font-size: 13px; line-height: 17px; }
+:root[data-density="compact"] .tk-row { gap: var(--tk-space-12); }
+:root[data-density="compact"] .tk-grid:has(> .tk-card) { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: var(--tk-space-12); }
 
 /* continue watching tile */
 .tk-cont {
+  position: relative; isolation: isolate;
   display: flex; gap: var(--tk-space-12); align-items: stretch; width: 320px; padding: var(--tk-space-8); text-align: start; color: inherit;
   border-radius: var(--md-sys-shape-corner-large-increased); background: var(--md-sys-color-surface-container);
   transition: background-color var(--tk-mo-fx), transform var(--tk-mo-spatial-fast);
 }
-.tk-cont:hover { background: var(--md-sys-color-surface-container-high); transform: translateY(-2px); }
+.tk-cont::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; box-shadow: var(--tk-shadow-3);
+  opacity: 0; transition: opacity var(--tk-mo-fx); pointer-events: none;
+}
+.tk-cont:hover, .tk-cont:focus-visible { background: var(--md-sys-color-surface-container-high); transform: translateY(-2px); }
+.tk-cont:hover::before, .tk-cont:focus-visible::before { opacity: 1; }
+.tk-cont:active { transform: scale(.98); }
 .tk-cont .tk-cover { width: 72px; flex: none; border-radius: var(--md-sys-shape-corner-medium); }
+.tk-cont .tk-cover > img { transition: transform var(--tk-mo-spatial-slow); }
+.tk-cont:hover .tk-cover > img { transform: scale(1.08); }
 .tk-cont .tk-cover__art::after { font-size: 44px; }
 .tk-cont .tk-cover__progress { left: 6px; right: 6px; bottom: 6px; height: 3px; }
 .tk-cont__body { display: flex; flex-direction: column; justify-content: center; gap: var(--tk-space-4); min-width: 0; flex: 1; }
@@ -81,9 +156,12 @@
 .tk-cont__play {
   align-self: center; flex: none; width: 40px; height: 40px; display: grid; place-items: center;
   border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);
-  transition: border-radius var(--tk-mo-spatial-fast);
+  transition: border-radius var(--tk-mo-spatial-fast), transform var(--tk-mo-spatial-fast);
 }
-.tk-cont:hover .tk-cont__play { border-radius: var(--md-sys-shape-corner-medium); }
+.tk-cont:hover .tk-cont__play, .tk-cont:focus-visible .tk-cont__play { border-radius: var(--md-sys-shape-corner-medium); transform: scale(1.08); }
+:root[data-motion="subtle"] .tk-cont, :root[data-motion="subtle"] .tk-cont :is(.tk-cover > img, .tk-cont__play) { transform: none !important; }
+:root[data-reduce-motion="true"] .tk-cont, :root[data-reduce-motion="true"] .tk-cont :is(.tk-cover > img, .tk-cont__play) { transform: none !important; }
+:root[data-density="compact"] .tk-cont { width: 280px; padding: var(--tk-space-4); }
 
 /* episode row */
 .tk-eps { display: flex; flex-direction: column; gap: var(--tk-space-4); }
@@ -94,7 +172,7 @@
 .tk-ep:hover { background: var(--md-sys-color-surface-container-high); }
 .tk-ep[data-current="true"] { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container); }
 .tk-ep__thumb {
-  position: relative; flex: none; width: 96px; aspect-ratio: 16 / 9; overflow: hidden; isolation: isolate; container-type: inline-size;
+  position: relative; flex: none; width: 96px; aspect-ratio: 16 / 9; overflow: hidden; isolation: isolate;
   border-radius: var(--md-sys-shape-corner-small); background: var(--md-sys-color-surface-container-highest);
 }
 .tk-ep__thumb > img { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -110,9 +188,33 @@
 .tk-ep__end { flex: none; display: flex; color: var(--md-sys-color-on-surface-variant); }
 
 @media (max-width: 480px) {
-  .tk-card { width: 118px; }
-  .tk-card[data-wide="true"] { width: 220px; }
+  .tk-card { --tk-card-w: 118px; }
+  .tk-card[data-wide="true"] { --tk-card-w: 220px; }
   .tk-cont { width: 280px; }
   .tk-ep__thumb { width: 72px; }
   .tk-grid:has(> .tk-card) { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: var(--tk-space-12); }
 }
+
+/* ---- hero progress segments (HeroSegments: spotlight + carousel) --------------------------------
+   The active fill runs `tk-seg-fill` over --tk-seg-dur; its animationend advances the hero. Hovering / focusing the
+   hero or a hidden window pause it (animation-play-state). Without autoplay the active segment is simply full. */
+.tk-segs { display: flex; justify-content: center; gap: 6px; }
+.tk-segs__seg { position: relative; width: 36px; height: 16px; display: grid; align-items: center; }
+.tk-segs__seg::before {
+  content: ""; grid-area: 1 / 1; height: 4px; border-radius: var(--md-sys-shape-corner-full);
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 22%, transparent); transition: background-color var(--tk-mo-fx-fast);
+}
+.tk-segs__seg:hover::before { background: color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent); }
+.tk-segs__fill {
+  grid-area: 1 / 1; height: 4px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-primary);
+  transform: scaleX(0); transform-origin: left center; opacity: 0;
+}
+.tk-segs__seg[aria-current="true"] .tk-segs__fill { opacity: 1; transform: scaleX(1); }
+.tk-segs[data-run="true"] .tk-segs__seg[aria-current="true"] .tk-segs__fill {
+  transform: scaleX(0); animation: tk-seg-fill var(--tk-seg-dur, 9s) linear forwards; animation-play-state: var(--tk-seg-play, running);
+}
+.tk-segs[data-paused="true"] { --tk-seg-play: paused; }
+.tk-segs__seg:focus-visible { outline: 2px solid var(--md-sys-color-secondary); outline-offset: 2px; border-radius: var(--md-sys-shape-corner-small); }
+@keyframes tk-seg-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+:root[data-reduce-motion="true"] .tk-segs .tk-segs__fill { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .tk-segs .tk-segs__fill { animation: none !important; } }
