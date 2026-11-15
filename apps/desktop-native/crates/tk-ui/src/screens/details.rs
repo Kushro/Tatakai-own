@@ -373,6 +373,10 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
     let mut download_open = use_signal(|| false);
     let mut picker_ep = use_signal(|| 1_u32);
     let mut picker_list = use_signal(|| None::<Result<Vec<SourceVm>, UiError>>);
+    // BUG-142 parity: the sheet shows the last known list (maybe partial) until `Backend::sources` answers, and says
+    // nothing of a missing pick meanwhile. Each open bumps the generation, so an older refresh does not end the wait.
+    let mut picker_refresh_gen = use_signal(|| 0_u64);
+    let mut picker_refreshing = use_signal(|| false);
     let mut send_target = use_signal(|| None::<DeviceVm>);
     let mut send_error = use_signal(|| None::<UiError>);
     // plan §9.1 / §11.4: "Se envió X porque…" when another source than the chosen one went to the phone
@@ -395,13 +399,17 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
         move |ep: u32| {
             picker_ep.set(ep);
             picker_list.set(picker_seed(backend.known_sources(&id, ep)));
+            let refresh = *picker_refresh_gen.peek() + 1;
+            picker_refresh_gen.set(refresh);
+            picker_refreshing.set(true);
             picker_open.set(true);
             let (backend, id) = (backend.clone(), id.clone());
             spawn(async move {
                 let result = backend.sources(&id, ep).await;
-                if *picker_ep.peek() == ep {
+                if *picker_refresh_gen.peek() == refresh {
                     let next = picker_refresh(picker_list.peek().clone(), result);
                     picker_list.set(next);
+                    picker_refreshing.set(false);
                 }
             });
         }
@@ -589,7 +597,11 @@ pub fn DetailsView(id: String, #[props(default)] embedded: bool) -> Element {
             Some(Ok(list)) => rsx! {
                 SourcePicker {
                     open: true,
-                    missing_pick: missing_pick_label(&list, backend.picked_source_key(&id, *picker_ep.peek()).as_deref()),
+                    missing_pick: missing_pick_label(
+                        &list,
+                        backend.picked_source_key(&id, *picker_ep.peek()).as_deref(),
+                        picker_refreshing(),
+                    ),
                     sources: list,
                     prefs: ui.settings.read().sources.clone(),
                     on_pick: move |sid: String| play_source.call((*picker_ep.peek(), sid)),

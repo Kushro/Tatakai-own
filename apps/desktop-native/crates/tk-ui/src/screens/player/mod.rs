@@ -1155,9 +1155,11 @@ fn PlayerScreen(id: String, episode: u32) -> Element {
     // The picker checks the source being played, or the remembered pick before anything plays (BUG-052).
     let picker_sources: Vec<SourceVm> = fs.picker_sources();
     // BUG-140: with no row checked, say that the remembered pick did not come back in this list (the store is only
-    // read while the sheet is open and nothing is picked or playing).
+    // read while the sheet is open and nothing is picked or playing). The player's list is complete when the sheet can
+    // show it (BUG-142 parity): it waits for `Backend::sources`, or starts on the known list only with the confirmed
+    // pick in it and checked, and the refresh behind it (`revalidate_sources`) keeps that row.
     let missing_pick = (picker_open() && !fs.legacy && !picker_sources.iter().any(|s| s.picked))
-        .then(|| missing_pick_label(&picker_sources, backend.picked_source_key(&id, episode).as_deref()))
+        .then(|| missing_pick_label(&picker_sources, backend.picked_source_key(&id, episode).as_deref(), false))
         .flatten();
     let prefs = ui.settings.read().sources.clone();
 

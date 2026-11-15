@@ -498,9 +498,13 @@ pub fn SourcesError(
 
 /// BUG-140: the name of the user's remembered pick (`Backend::picked_source_key`, a `SourceVm::id`
 /// `"<ext_id>|<kind>|<label>"`) when this list does not have it, so the picker says so instead of checking the
-/// recommended row in silence. `None` when nothing is picked, a row is the pick, or the name would only be a raw id
-/// (a 40-hex info hash). Pure.
-pub fn missing_pick_label(sources: &[SourceVm], picked_key: Option<&str>) -> Option<String> {
+/// recommended row in silence. `None` when nothing is picked, the list is still arriving (`loading`: the Details sheet
+/// shows the last known list, maybe partial, while `Backend::sources` refreshes it; BUG-142 parity, the pick can be in
+/// the fresh list), a row is the pick, or the name would only be a raw id (a 40-hex info hash). Pure.
+pub fn missing_pick_label(sources: &[SourceVm], picked_key: Option<&str>, loading: bool) -> Option<String> {
+    if loading {
+        return None;
+    }
     let key = picked_key.filter(|k| !k.is_empty())?;
     if sources.is_empty() || sources.iter().any(|s| s.picked || s.id == key) {
         return None;
@@ -940,17 +944,31 @@ mod tests {
         let mut toons = vm("ToonsHub", SourceKindVm::Torrent, "1080p", 0.8, ReleaseTagsVm::default());
         toons.recommended = true;
         let list = vec![toons.clone()];
-        assert_eq!(missing_pick_label(&list, Some("io.github.toko|torrent|ASW")), Some("ASW".to_owned()));
+        assert_eq!(missing_pick_label(&list, Some("io.github.toko|torrent|ASW"), false), Some("ASW".to_owned()));
         assert!(tf("src.pick_missing", &[("name", "ASW")]).contains("(ASW)"));
         // In the list (or another row already picked): nothing to say.
-        assert_eq!(missing_pick_label(&list, Some(&toons.id)), None);
+        assert_eq!(missing_pick_label(&list, Some(&toons.id), false), None);
         let mut picked = toons.clone();
         picked.picked = true;
-        assert_eq!(missing_pick_label(&[picked], Some("io.github.toko|torrent|ASW")), None);
+        assert_eq!(missing_pick_label(&[picked], Some("io.github.toko|torrent|ASW"), false), None);
         // Nothing picked, an empty list (still listing / no sources) or a raw info hash as the name.
-        assert_eq!(missing_pick_label(&list, None), None);
-        assert_eq!(missing_pick_label(&[], Some("io.github.toko|torrent|ASW")), None);
-        assert_eq!(missing_pick_label(&list, Some(&format!("manual|torrent|{}", "ab".repeat(20)))), None);
+        assert_eq!(missing_pick_label(&list, None, false), None);
+        assert_eq!(missing_pick_label(&[], Some("io.github.toko|torrent|ASW"), false), None);
+        assert_eq!(missing_pick_label(&list, Some(&format!("manual|torrent|{}", "ab".repeat(20))), false), None);
+    }
+
+    #[test]
+    fn a_list_still_arriving_does_not_say_the_pick_is_missing() {
+        // BUG-142 parity: the Details sheet shows the last known list (28 of 34) while it refreshes; ASW may be in
+        // the fresh one, so nothing is said until it answers.
+        let toons = vm("ToonsHub", SourceKindVm::Torrent, "1080p", 0.8, ReleaseTagsVm::default());
+        let asw = vm("ASW", SourceKindVm::Torrent, "1080p", 0.9, ReleaseTagsVm::default());
+        let key = asw.id.clone();
+        assert_eq!(missing_pick_label(std::slice::from_ref(&toons), Some(&key), true), None);
+        // The refresh brought it: still nothing to say.
+        assert_eq!(missing_pick_label(&[toons.clone(), asw], Some(&key), false), None);
+        // The refresh ended without it: now it is said.
+        assert_eq!(missing_pick_label(&[toons], Some(&key), false), Some("ASW".to_owned()));
     }
 
     #[test]
