@@ -89,7 +89,13 @@ val dataModule: Module = module {
             autoListAdd = { settings.settings.value.autoListAdd },
         ).also {
             // parity wave A (worker q): sync at app open and when a PC gets paired (the player's HistoryFlush covers episode ends)
-            HistorySyncTriggers(get(), getOrNull<LinkRepository>(), syncer).start()
+            HistorySyncTriggers(
+                get(),
+                getOrNull<LinkRepository>(),
+                syncer,
+                // 2026-11 history per device: "Use this device as the source" on the PC reaches the syncer through these events
+                resyncs = getOrNull<app.tatakai.next.link.LinkHistoryRemote>()?.resyncRequests,
+            ).start()
         }
     }
 

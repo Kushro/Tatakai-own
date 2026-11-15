@@ -436,6 +436,22 @@ private fun StatusCard(state: LinkUiState, paired: LinkState.Paired, onRetry: ()
             if (!online) {
                 Text(stringResource(R.string.linked_unreachable_hint), style = MaterialTheme.typography.bodySmall)
             }
+            // 2026-11 history per device: how the PC treats this phone's history, and a running resync
+            LinkLogic.historyNotices(state.historyMode, state.historyResyncing).forEach { notice ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (notice == HistoryNotice.RESYNCING) LoadingIndicator(Modifier.size(16.dp))
+                    Text(
+                        stringResource(
+                            when (notice) {
+                                HistoryNotice.RECEIVE_ONLY -> R.string.linked_history_receive_only
+                                HistoryNotice.PAUSED -> R.string.linked_history_paused
+                                HistoryNotice.RESYNCING -> R.string.linked_history_resyncing
+                            },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 if (online) {
                     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {

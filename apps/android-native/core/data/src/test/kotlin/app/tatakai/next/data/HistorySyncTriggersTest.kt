@@ -138,4 +138,26 @@ class HistorySyncTriggersTest {
         cursor.set(-5L)
         assertEquals(0L, cursor.value(), "negative cursors are clamped")
     }
+
+    @Test
+    fun resyncEventsOfThePcReachTheSyncerInOrder() = runTest {
+        // 2026-11 history per device: `history_resync` events arrive through LinkHistoryRemote.resyncRequests
+        val scheduler = RecordingScheduler()
+        val done = mutableListOf<String>()
+        val remote = object : LinkHistoryRemote {
+            override var available: Boolean = true
+            override suspend fun push(rows: List<LinkHistoryRow>): LinkHistoryPushResultDto = LinkHistoryPushResultDto(rows.size)
+            override suspend fun since(sinceUnix: Long, limit: Int): LinkHistoryPageDto = LinkHistoryPageDto(emptyList(), sinceUnix).also { done += "since:$sinceUnix" }
+            override suspend fun clear() {}
+            override suspend fun resyncDone() {
+                done += "done"
+            }
+        }
+        val syncer = HistorySyncer(NoDao(), remote, cursor = { 5L })
+        val scope = CoroutineScope(backgroundScope.coroutineContext + UnconfinedTestDispatcher(testScheduler))
+        val events = flowOf(app.tatakai.next.link.HistoryResyncMode.PUSH_ALL, app.tatakai.next.link.HistoryResyncMode.PULL_REPLACE)
+        HistorySyncTriggers(scheduler, link = null, syncer = syncer, scope = scope, resyncs = events).start()
+        testScheduler.advanceUntilIdle()
+        assertEquals(listOf("done", "since:5", "since:0"), done)
+    }
 }

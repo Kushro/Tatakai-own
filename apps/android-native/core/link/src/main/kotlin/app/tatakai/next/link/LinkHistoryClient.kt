@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.link
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -39,6 +44,8 @@ data class LinkHistoryPageDto(
     val items: List<LinkHistoryRow>,
     @SerialName("next_since_unix") val nextSinceUnix: Long,
     val truncated: Boolean = false,
+    /** 2026-11: this phone's history mode on the PC (`full` / `receive_only` / `paused`); absent from older PCs. */
+    val mode: String? = null,
 )
 
 /** `POST /v1/history` body: the phone's dirty rows (<= 500, <= 256 KiB). The PC merges them (newest `watchedAt` wins, tie -> higher progress). */
@@ -47,7 +54,61 @@ data class LinkHistoryPushDto(val items: List<LinkHistoryRow>)
 
 /** `POST /v1/history` answer: how many rows entered the PC's store. */
 @Serializable
-data class LinkHistoryPushResultDto(val merged: Int)
+data class LinkHistoryPushResultDto(
+    val merged: Int,
+    /** 2026-11: the PC does not store this phone's pushes (`receive_only` / `paused`); the rows still count as synced. */
+    val ignored: Boolean = false,
+    val mode: String? = null,
+)
+
+/** `GET /v1/history/mode` (2026-11): this phone's history mode and whether the PC waits for its full push. */
+@Serializable
+data class LinkHistoryModeDto(val mode: String, val resync: Boolean = false)
+
+/** `POST /v1/history/resync-done` answer: how many other devices the PC asked to replace their history. */
+@Serializable
+data class LinkResyncDoneDto(val notified: Int = 0)
+
+/** How the paired PC treats this phone's history (tk-link `devices::HistoryMode`). */
+enum class LinkHistoryMode(val wire: String) {
+    /** Pushes merge and pulls are served (the behaviour before modes existed). */
+    FULL("full"),
+    /** The phone pulls; what it plays here is not saved on the PC. */
+    RECEIVE_ONLY("receive_only"),
+    /** Nothing in either direction. */
+    PAUSED("paused"),
+    ;
+
+    companion object {
+        /** null for an absent or unknown value (an older or newer PC). */
+        fun fromWire(value: String?): LinkHistoryMode? = entries.firstOrNull { it.wire == value }
+    }
+}
+
+/** What a `history_resync` event of `GET /v1/events` asks for ("Use this device as the source" on the PC). */
+enum class HistoryResyncMode(val wire: String) {
+    /** Push every local row, then `POST /v1/history/resync-done`. */
+    PUSH_ALL("push_all"),
+    /** Push the dirty rows (when the mode is `full`), drop the local history and pull everything from the PC. */
+    PULL_REPLACE("pull_replace"),
+    ;
+
+    companion object {
+        fun fromWire(value: String?): HistoryResyncMode? = entries.firstOrNull { it.wire == value }
+    }
+}
+
+/** Read side for :feature:link: this phone's history mode as the PC last said it, and whether a resync runs here. */
+interface LinkHistoryStatus {
+    /** null = unknown (not asked yet, older PC, unpaired). */
+    val mode: StateFlow<LinkHistoryMode?>
+
+    /** A `history_resync` is being carried out on this phone. */
+    val resyncing: StateFlow<Boolean>
+
+    /** Ask the PC (`GET /v1/history/mode`); failures keep the last value. */
+    suspend fun refreshMode()
+}
 
 /**
  * Raised by [LinkHistoryRemote] when there is no paired PC (or the pairing is revoked / expired): the history sync treats it as
@@ -71,6 +132,20 @@ interface LinkHistoryRemote {
 
     /** `DELETE /v1/history` (204): the PC drops its whole history. Call only after the user confirmed "also on the PC". @throws LinkHistoryUnavailableException, LinkException. */
     suspend fun clear()
+
+    // --- 2026-11 history per device (defaults: a peer without the feature) ---
+
+    /** `history_resync` events from the PC, buffered until collected (`HistorySyncTriggers`). */
+    val resyncRequests: Flow<HistoryResyncMode> get() = emptyFlow()
+
+    /** `GET /v1/history/mode`; null when the PC cannot say (older PC, offline). Never throws. */
+    suspend fun mode(): LinkHistoryMode? = null
+
+    /** `POST /v1/history/resync-done` after a `push_all`. @throws LinkHistoryUnavailableException, LinkException. */
+    suspend fun resyncDone() {}
+
+    /** The syncer starts / ends carrying out a resync (for [LinkHistoryStatus.resyncing]). */
+    fun noteResync(running: Boolean) {}
 }
 
 /**
@@ -79,20 +154,58 @@ interface LinkHistoryRemote {
  * or a PC without the history route (404, Link older than wave A) -> [LinkHistoryUnavailableException] ("nothing to do"); any other
  * [LinkError] -> [LinkException] ("retry later"). Nothing is logged (rows carry titles).
  */
-class LinkHistoryRemoteImpl(private val repository: LinkRepositoryImpl) : LinkHistoryRemote {
+class LinkHistoryRemoteImpl(private val repository: LinkRepositoryImpl) : LinkHistoryRemote, LinkHistoryStatus {
     override val available: Boolean get() = repository.linkedDevice.value != null
+
+    private val _mode = MutableStateFlow<LinkHistoryMode?>(null)
+    override val mode: StateFlow<LinkHistoryMode?> = _mode.asStateFlow()
+    private val _resyncing = MutableStateFlow(false)
+    override val resyncing: StateFlow<Boolean> = _resyncing.asStateFlow()
 
     override suspend fun push(rows: List<LinkHistoryRow>): LinkHistoryPushResultDto {
         if (rows.isEmpty()) return LinkHistoryPushResultDto(0)
         var merged = 0
-        for (chunk in rows.chunked(LinkClient.MAX_HISTORY_ROWS)) merged += unwrap(client().historyPush(chunk)).merged
-        return LinkHistoryPushResultDto(merged)
+        var ignored = false
+        var mode: String? = null
+        for (chunk in rows.chunked(LinkClient.MAX_HISTORY_ROWS)) {
+            val r = unwrap(client().historyPush(chunk))
+            merged += r.merged
+            ignored = ignored || r.ignored
+            mode = r.mode ?: mode
+        }
+        noteWireMode(mode)
+        return LinkHistoryPushResultDto(merged, ignored, mode)
     }
 
-    override suspend fun since(sinceUnix: Long, limit: Int): LinkHistoryPageDto = unwrap(client().historySince(sinceUnix, limit))
+    override suspend fun since(sinceUnix: Long, limit: Int): LinkHistoryPageDto =
+        unwrap(client().historySince(sinceUnix, limit)).also { noteWireMode(it.mode) }
 
     override suspend fun clear() {
         unwrap(client().historyClear())
+    }
+
+    override val resyncRequests: Flow<HistoryResyncMode> get() = repository.historyResyncRequests
+
+    override suspend fun mode(): LinkHistoryMode? {
+        val c = runCatching { client() }.getOrNull() ?: return null
+        val dto = (c.historyMode() as? LinkResult.Ok)?.value ?: return null
+        return LinkHistoryMode.fromWire(dto.mode)?.also { _mode.value = it }
+    }
+
+    override suspend fun refreshMode() {
+        if (available) mode() else _mode.value = null
+    }
+
+    override suspend fun resyncDone() {
+        unwrap(client().historyResyncDone())
+    }
+
+    override fun noteResync(running: Boolean) {
+        _resyncing.value = running
+    }
+
+    private fun noteWireMode(wire: String?) {
+        LinkHistoryMode.fromWire(wire)?.let { _mode.value = it }
     }
 
     private fun client(): LinkClient {

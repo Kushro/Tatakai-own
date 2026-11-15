@@ -28,5 +28,8 @@ val linkModule: Module = module {
     single<LinkRepository> { get<LinkRepositoryImpl>() }
     single<RemotePlaybackAccess> { get<LinkRepositoryImpl>() }
     single<LinkDiscoveryAccess> { get<LinkRepositoryImpl>() }
-    single<LinkHistoryRemote> { LinkHistoryRemoteImpl(get<LinkRepositoryImpl>()) }
+    single { LinkHistoryRemoteImpl(get<LinkRepositoryImpl>()) }
+    single<LinkHistoryRemote> { get<LinkHistoryRemoteImpl>() }
+    // 2026-11 history per device: this phone's mode on the PC + "resync running", read by :feature:link
+    single<LinkHistoryStatus> { get<LinkHistoryRemoteImpl>() }
 }

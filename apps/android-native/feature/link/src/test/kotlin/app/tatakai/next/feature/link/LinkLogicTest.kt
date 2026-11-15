@@ -79,4 +79,12 @@ class LinkLogicTest {
         val b = DiscoveredPc("B", "192.168.1.3", 47321, "id-b")
         assertEquals(listOf(b), LinkLogic.others(listOf(a, b, b), "192.168.1.2", 47321))
     }
+
+    @Test fun historyNoticesFollowThePcMode() {
+        // 2026-11 history per device
+        assertEquals(emptyList(), LinkLogic.historyNotices(app.tatakai.next.link.LinkHistoryMode.FULL, resyncing = false))
+        assertEquals(emptyList(), LinkLogic.historyNotices(null, resyncing = false), "an older PC says nothing")
+        assertEquals(listOf(HistoryNotice.RECEIVE_ONLY), LinkLogic.historyNotices(app.tatakai.next.link.LinkHistoryMode.RECEIVE_ONLY, false))
+        assertEquals(listOf(HistoryNotice.RESYNCING, HistoryNotice.PAUSED), LinkLogic.historyNotices(app.tatakai.next.link.LinkHistoryMode.PAUSED, true))
+    }
 }
