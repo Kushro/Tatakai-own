@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.DownloadSettings
+import app.tatakai.next.model.LookPrefs
 import app.tatakai.next.model.NovelReaderSettings
 import app.tatakai.next.model.ReaderSettings
 import app.tatakai.next.model.SettingsRepository
@@ -113,6 +114,8 @@ internal object SettingsCodec {
     private val MANGA_TITLE_LANGUAGE = stringPreferencesKey("manga_title_language")
     private val SOCIAL_NOTIFICATIONS = booleanPreferencesKey("social_notifications")
     private val MATURE_CONTENT = stringPreferencesKey("mature_content")
+    // --- 2026-11 UI refresh: Diseño y estilo (LookPrefs, lenient ids) ---
+    private val LOOK = stringPreferencesKey("look_json")
     private val KEYMAP_SERIALIZER = MapSerializer(String.serializer(), String.serializer())
     const val COUNTDOWN_MIN_SECS = 3
     const val COUNTDOWN_MAX_SECS = 30
@@ -164,6 +167,7 @@ internal object SettingsCodec {
             mangaTitleLanguage = enumOr(p[MANGA_TITLE_LANGUAGE], d.mangaTitleLanguage),
             socialNotifications = p[SOCIAL_NOTIFICATIONS] ?: d.socialNotifications,
             matureContent = enumOr(p[MATURE_CONTENT], d.matureContent),
+            look = decode(p[LOOK], LookPrefs.serializer())?.sanitized() ?: d.look,
         )
     }
 
@@ -213,6 +217,7 @@ internal object SettingsCodec {
         p[MANGA_TITLE_LANGUAGE] = s.mangaTitleLanguage.name
         p[SOCIAL_NOTIFICATIONS] = s.socialNotifications
         p[MATURE_CONTENT] = s.matureContent.name
+        p[LOOK] = json.encodeToString(LookPrefs.serializer(), s.look.sanitized())
     }
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =

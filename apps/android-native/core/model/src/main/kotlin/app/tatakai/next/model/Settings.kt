@@ -89,6 +89,9 @@ data class AppSettings(
      * Details and the manga home (s) all read it.
      */
     val matureContent: MatureContentMode = MatureContentMode.WARN,
+    // --- 2026-11 UI refresh (desktop `Settings::look`); persisted by SettingsCodec as `look_json` ---
+    /** Settings › Apariencia › Diseño y estilo: Home layout, card style, density, motion, episode / relations / calendar views, hero. */
+    val look: LookPrefs = LookPrefs(),
 ) {
     companion object {
         const val DEFAULT_PALETTE_ID = "tatakai-violet"
