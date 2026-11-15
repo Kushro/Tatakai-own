@@ -400,6 +400,17 @@ fn row_to_entry(r: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryEntry> {
     })
 }
 
+/// 2026-11 Link history per device: `history.origin` = the Tatakai Link device id whose push stored the row; NULL =
+/// this PC (local playback), an import or a row merged before this column existed. Added in place (existing rows keep
+/// their data and get NULL).
+fn migrate_history_origin(conn: &Connection) -> rusqlite::Result<()> {
+    let has: bool = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('history') WHERE name = 'origin'", [], |r| r.get::<_, i64>(0))? > 0;
+    if !has {
+        conn.execute_batch("ALTER TABLE history ADD COLUMN origin TEXT;")?;
+    }
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_history_origin ON history (origin);")
+}
+
 impl LocalStore {
     /// Open (creating parent directories and the schema) the database at `path`.
     pub fn open(path: &Path) -> Result<Self, StoreError> {
@@ -415,6 +426,7 @@ impl LocalStore {
 
     fn init(conn: Connection) -> Result<Self, StoreError> {
         conn.execute_batch(SCHEMA)?;
+        migrate_history_origin(&conn)?;
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -436,40 +448,72 @@ impl LocalStore {
     /// Local write. Newest `watched_at` wins over the stored row. The `dirty` flag survives from the removed cloud
     /// sync and is unused (Tatakai Link syncs by `watched_at`, see [`LocalStore::history_since`]).
     pub fn record_history(&self, e: &HistoryEntry) -> Result<(), StoreError> {
-        self.put_history(e, true)
+        self.put_history(e, true, None, false).map(|_| ())
     }
 
-    fn put_history(&self, e: &HistoryEntry, dirty: bool) -> Result<(), StoreError> {
+    /// `origin`: the Link device that pushed the row (`None` = this PC / import). `force`: store it even when the
+    /// stored row is newer (the authoritative window of "Use this device as the source").
+    fn put_history(&self, e: &HistoryEntry, dirty: bool, origin: Option<&str>, force: bool) -> Result<bool, StoreError> {
         self.with(|c| {
             let existing: Option<HistoryEntry> =
                 c.query_row("SELECT * FROM history WHERE episode_id = ?1", [&e.episode_id], row_to_entry).optional()?;
             if let Some(old) = &existing {
                 // keep the stored row when it is strictly newer (or equal with more progress), except for local writes
-                if dirty { /* a local write is by definition the newest */ } else if !e.wins_over(old) {
-                    return Ok(());
+                // and forced (authoritative) merges
+                if dirty || force { /* a local write is by definition the newest */ } else if !e.wins_over(old) {
+                    return Ok(false);
                 }
             }
             c.execute(
-                "INSERT INTO history (episode_id, anime_id, title, poster, episode, progress_sec, duration_sec, completed, watched_at, anilist_id, mal_id, dirty)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
+                "INSERT INTO history (episode_id, anime_id, title, poster, episode, progress_sec, duration_sec, completed, watched_at, anilist_id, mal_id, dirty, origin)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)
                  ON CONFLICT(episode_id) DO UPDATE SET anime_id=?2, title=?3, poster=?4, episode=?5, progress_sec=?6, duration_sec=?7,
-                   completed=?8, watched_at=?9, anilist_id=COALESCE(?10, anilist_id), mal_id=COALESCE(?11, mal_id), dirty=?12",
+                   completed=?8, watched_at=?9, anilist_id=COALESCE(?10, anilist_id), mal_id=COALESCE(?11, mal_id), dirty=?12, origin=?13",
                 params![
                     e.episode_id, e.anime_id, e.title, e.poster, e.episode, e.progress_sec, e.duration_sec,
-                    i64::from(e.completed), ts(&e.watched_at), e.anilist_id, e.mal_id, i64::from(dirty)
+                    i64::from(e.completed), ts(&e.watched_at), e.anilist_id, e.mal_id, i64::from(dirty), origin
                 ],
             )?;
-            Ok(())
+            Ok(true)
         })
     }
 
     /// Merge rows received from another of the user's devices over Tatakai Link (`POST /v1/history`, wave A worker
-    /// f) or from an import: newest wins, tie -> higher progress. Merged rows are not dirty.
+    /// f) or from an import: newest wins, tie -> higher progress. Merged rows are not dirty and have no origin (see
+    /// [`LocalStore::merge_remote_from`] for Link pushes).
     pub fn merge_remote(&self, remote: &[HistoryEntry]) -> Result<(), StoreError> {
         for e in remote {
-            self.put_history(e, false)?;
+            self.put_history(e, false, None, false)?;
         }
         Ok(())
+    }
+
+    /// Merge rows pushed by the Link device `origin` (2026-11 history per device): same rule as
+    /// [`LocalStore::merge_remote`], and the rows that enter remember `origin`. With `authoritative` (the device is the
+    /// chosen source, "Use this device as the source") every row enters regardless of timestamps. Returns how many
+    /// rows were stored.
+    pub fn merge_remote_from(&self, remote: &[HistoryEntry], origin: &str, authoritative: bool) -> Result<usize, StoreError> {
+        let mut stored = 0;
+        for e in remote {
+            if self.put_history(e, false, Some(origin), authoritative)? {
+                stored += 1;
+            }
+        }
+        Ok(stored)
+    }
+
+    /// Rows per origin device (rows with no origin are not counted): "contributed N episodes".
+    pub fn history_origin_counts(&self) -> Result<std::collections::HashMap<String, u64>, StoreError> {
+        self.with(|c| {
+            let mut st = c.prepare("SELECT origin, COUNT(*) FROM history WHERE origin IS NOT NULL GROUP BY origin")?;
+            st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?.max(0) as u64)))?.collect()
+        })
+    }
+
+    /// Delete the rows whose origin is `origin` ("Delete what this device contributed"). Rows without an origin
+    /// (local, imported, merged before origins existed) are never touched. Returns the rows removed.
+    pub fn delete_history_by_origin(&self, origin: &str) -> Result<usize, StoreError> {
+        self.with(|c| c.execute("DELETE FROM history WHERE origin = ?1", [origin]))
     }
 
     pub fn history(&self, limit: u32) -> Result<Vec<HistoryEntry>, StoreError> {
@@ -807,5 +851,74 @@ mod tests {
         s.clear_picked_source("154587", 7).unwrap(); // clearing twice is fine
         assert_eq!(s.picked_source("154587", 7).unwrap(), None);
         assert_eq!(s.picked_source("154587", 8).unwrap().as_deref(), Some("io.github.nyaa-own|torrent|SubsPlease"));
+    }
+
+    // ---- 2026-11 Link history per device (origin) ----
+
+    #[test]
+    fn link_merges_remember_the_origin_and_local_writes_clear_it() {
+        let s = LocalStore::open_in_memory().unwrap();
+        assert_eq!(s.merge_remote_from(&[entry(1, 1, 100, 10), entry(1, 2, 100, 20)], "tab", false).unwrap(), 2);
+        assert_eq!(s.merge_remote_from(&[entry(2, 1, 100, 30)], "moto", false).unwrap(), 1);
+        s.merge_remote(&[entry(3, 1, 100, 40)]).unwrap(); // import: no origin
+        s.record_history(&entry(4, 1, 100, 50)).unwrap(); // local playback: no origin
+        let counts = s.history_origin_counts().unwrap();
+        assert_eq!((counts.get("tab"), counts.get("moto"), counts.len()), (Some(&2), Some(&1), 2));
+        // the PC re-watches an episode the tablet brought: it is the PC's row now
+        s.record_history(&entry(1, 2, 500, 60)).unwrap();
+        assert_eq!(s.history_origin_counts().unwrap().get("tab"), Some(&1));
+        // an older push loses and does not take the row over
+        assert_eq!(s.merge_remote_from(&[entry(4, 1, 999, 1)], "moto", false).unwrap(), 0);
+        assert_eq!(s.history_origin_counts().unwrap().get("moto"), Some(&1));
+    }
+
+    #[test]
+    fn delete_by_origin_only_touches_that_device() {
+        let s = LocalStore::open_in_memory().unwrap();
+        s.merge_remote_from(&[entry(1, 1, 100, 10), entry(1, 2, 100, 20)], "moto", false).unwrap();
+        s.merge_remote_from(&[entry(2, 1, 100, 30)], "tab", false).unwrap();
+        s.record_history(&entry(3, 1, 100, 40)).unwrap();
+        assert_eq!(s.delete_history_by_origin("moto").unwrap(), 2);
+        assert_eq!(s.delete_history_by_origin("moto").unwrap(), 0);
+        let left: Vec<String> = s.history(10).unwrap().into_iter().map(|e| e.episode_id).collect();
+        assert_eq!(left, ["3?ep=1", "2?ep=1"]);
+        assert!(s.history_origin_counts().unwrap().get("moto").is_none());
+    }
+
+    #[test]
+    fn an_authoritative_merge_lets_an_older_row_win() {
+        let s = LocalStore::open_in_memory().unwrap();
+        s.merge_remote_from(&[entry(1, 1, 1200, 100)], "moto", false).unwrap();
+        assert_eq!(s.merge_remote_from(&[entry(1, 1, 300, 50)], "tab", false).unwrap(), 0, "older loses normally");
+        assert_eq!(s.merge_remote_from(&[entry(1, 1, 300, 50)], "tab", true).unwrap(), 1, "the source wins");
+        let row = &s.history(1).unwrap()[0];
+        assert_eq!((row.progress_sec, row.watched_at.unix_timestamp()), (300, 50));
+        assert_eq!(s.history_origin_counts().unwrap().get("tab"), Some(&1));
+    }
+
+    #[test]
+    fn a_database_from_before_origins_upgrades_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.db");
+        {
+            // the history table as it was before the origin column
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(
+                "CREATE TABLE history (episode_id TEXT PRIMARY KEY NOT NULL, anime_id TEXT NOT NULL, title TEXT NOT NULL, poster TEXT,
+                   episode INTEGER NOT NULL, progress_sec INTEGER NOT NULL DEFAULT 0, duration_sec INTEGER, completed INTEGER NOT NULL DEFAULT 0,
+                   watched_at TEXT NOT NULL, anilist_id INTEGER, mal_id INTEGER, dirty INTEGER NOT NULL DEFAULT 1);
+                 INSERT INTO history (episode_id, anime_id, title, episode, progress_sec, watched_at, anilist_id)
+                   VALUES ('1?ep=1', '1', 'x', 1, 120, '1970-01-01T00:00:10Z', 1);",
+            )
+            .unwrap();
+        }
+        let s = LocalStore::open(&path).unwrap();
+        assert_eq!(s.history(5).unwrap()[0].progress_sec, 120, "existing rows are kept");
+        assert!(s.history_origin_counts().unwrap().is_empty(), "legacy rows have no origin");
+        assert_eq!(s.delete_history_by_origin("tab").unwrap(), 0);
+        drop(s);
+        let again = LocalStore::open(&path).unwrap(); // the migration is idempotent
+        again.merge_remote_from(&[entry(2, 1, 100, 20)], "tab", false).unwrap();
+        assert_eq!(again.history_origin_counts().unwrap().get("tab"), Some(&1));
     }
 }
