@@ -15,7 +15,7 @@
   "sync.history.use_source_hint": "Only with full sync",
   "sync.history.source.title": "Use {name} as the source?",
   "sync.history.source.body": "{name} sends its whole watch history to this PC and its progress wins over what the PC has, even when it is older. Then every other paired device that is not paused replaces its history with this PC's. A device that does not open Tatakai in the next 10 minutes keeps its own.",
-  "sync.history.source.started": "Asked {name} to send its history",
+  "sync.history.source.started": "{name} was asked to send its history. If Tatakai is closed on {name}, open it within 10 minutes.",
   "sync.history.delete_contributed": "Delete what it contributed ({n})",
   "sync.history.delete.title": "Delete what {name} contributed?",
   "sync.history.delete.body": "Removes the {n} episodes of this PC's history that came from {name}. Episodes that arrived before this version of Tatakai have no recorded origin and are not affected. Other devices keep their own copy.",
