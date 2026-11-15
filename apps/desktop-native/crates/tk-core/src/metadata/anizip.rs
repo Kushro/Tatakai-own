@@ -1,14 +1,45 @@
-//! ani.zip: episode lists and id mappings (anime only, not a catalogue).
+//! ani.zip: episode lists, id mappings and series artwork (anime only, not a catalogue).
+//!
+//! 0.3.2: answers are kept in a process-wide cache ([`RAW_TTL`], at most [`RAW_MAX`] titles, 404s included) shared by
+//! every `AniZip` value, so the episode merge, the spotlight artwork and Details ask ani.zip once per title.
+
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde_json::Value;
 
 use super::MetadataProvider;
-use super::mapping::{map_anizip_episodes, map_anizip_ids};
+use super::mapping::{map_anizip_episodes, map_anizip_ids, map_anizip_images};
 use crate::error::ProviderError;
-use crate::model::{Episode, MediaKind, MediaRef};
+use crate::model::{Episode, MediaKind, MediaRef, SeriesArt};
 
 const BASE: &str = "https://api.ani.zip/mappings";
+/// How long one ani.zip answer is reused.
+pub const RAW_TTL: Duration = Duration::from_secs(30 * 60);
+/// Titles kept in the raw cache (the oldest goes first).
+const RAW_MAX: usize = 96;
+
+type RawCache = HashMap<String, (Instant, Option<Value>)>;
+static RAW: Mutex<Option<RawCache>> = Mutex::new(None);
+
+fn cached(url: &str) -> Option<Option<Value>> {
+    let g = RAW.lock().ok()?;
+    let (at, v) = g.as_ref()?.get(url)?;
+    (at.elapsed() < RAW_TTL).then(|| v.clone())
+}
+
+fn remember(url: String, v: Option<Value>) {
+    let Ok(mut g) = RAW.lock() else { return };
+    let m = g.get_or_insert_with(HashMap::new);
+    m.retain(|_, (at, _)| at.elapsed() < RAW_TTL);
+    while m.len() >= RAW_MAX {
+        let Some(oldest) = m.iter().min_by_key(|(_, (at, _))| *at).map(|(k, _)| k.clone()) else { break };
+        m.remove(&oldest);
+    }
+    m.insert(url, (Instant::now(), v));
+}
 
 pub struct AniZip {
     client: reqwest::Client,
@@ -37,8 +68,12 @@ impl AniZip {
 
     async fn raw(&self, r: &MediaRef) -> Result<Option<Value>, ProviderError> {
         let Some(q) = Self::query_for(r) else { return Ok(None) };
-        let resp = self.client.get(format!("{}?{q}", self.base)).send().await?;
-        match resp.status().as_u16() {
+        let url = format!("{}?{q}", self.base);
+        if let Some(hit) = cached(&url) {
+            return Ok(hit);
+        }
+        let resp = self.client.get(&url).send().await?;
+        let out = match resp.status().as_u16() {
             404 => Ok(None),
             429 => Err(ProviderError::RateLimited { provider: "anizip".into() }),
             s if !(200..300).contains(&s) => Err(ProviderError::Http(s)),
@@ -47,7 +82,16 @@ impl AniZip {
                 .await
                 .map(Some)
                 .map_err(|e| ProviderError::Parse(e.without_url().to_string())),
+        };
+        if let Ok(v) = &out {
+            remember(url, v.clone());
         }
+        out
+    }
+
+    /// Series artwork (fanart, banner, poster, clear logo); `None` when ani.zip does not know the title.
+    pub async fn art(&self, r: &MediaRef) -> Result<Option<SeriesArt>, ProviderError> {
+        Ok(self.raw(r).await?.map(|raw| map_anizip_images(&raw)))
     }
 
     /// Cross-provider id mapping (AniList / MAL / Kitsu) for a reference with at least one id.

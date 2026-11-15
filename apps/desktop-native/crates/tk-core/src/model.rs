@@ -98,6 +98,25 @@ pub struct Episode {
     pub rating: Option<f64>,
 }
 
+/// Series artwork beyond AniList's cover / banner (ani.zip `images`, from TVDB), 0.3.2. Every field optional.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SeriesArt {
+    /// Full-size background (1920x1080 class): the spotlight / details backdrop.
+    pub fanart: Option<String>,
+    /// Wide strip (758x140 class).
+    pub banner: Option<String>,
+    pub poster: Option<String>,
+    /// Transparent title logo, shown instead of the text title.
+    pub clearlogo: Option<String>,
+}
+
+impl SeriesArt {
+    pub fn is_empty(&self) -> bool {
+        self.fanart.is_none() && self.banner.is_none() && self.poster.is_none() && self.clearlogo.is_none()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FeedPage {

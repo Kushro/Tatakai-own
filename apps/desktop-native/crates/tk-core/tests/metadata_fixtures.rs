@@ -61,6 +61,17 @@ fn anizip_ids_and_episodes_match_expected() {
     assert_eq!(strip(got), expected("anizip-frieren.json"));
 }
 
+/// 0.3.2: artwork is app-only (not in `expected.json`): checked on the same fixture without touching the oracle.
+#[test]
+fn anizip_images_pick_one_url_per_type() {
+    let art = tk_core::metadata::mapping::map_anizip_images(&read("anizip-frieren.json"));
+    assert!(art.fanart.as_deref().is_some_and(|u| u.contains("/backgrounds/")));
+    assert!(art.banner.as_deref().is_some_and(|u| u.contains("/banners/")));
+    assert!(art.poster.as_deref().is_some_and(|u| u.contains("/posters/")));
+    assert!(art.clearlogo.as_deref().is_some_and(|u| u.ends_with(".png")));
+    assert!(tk_core::metadata::mapping::map_anizip_images(&serde_json::json!({})).is_empty());
+}
+
 #[test]
 fn kitsu_list_and_episodes_match_expected() {
     let doc = read("kitsu-anime-list.json");
