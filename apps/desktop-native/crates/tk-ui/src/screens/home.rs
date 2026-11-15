@@ -24,6 +24,7 @@ use dioxus::prelude::*;
 use crate::app::{Route, Services, Ui};
 use crate::backend::{AiringSlotVm, HomeVm, LatestEpisodeVm, MediaVm, SectionVm, TopRangeVm};
 use crate::components::airing::{hhmm, use_local_clock};
+use crate::components::media::aired_ago;
 use crate::components::{
     AiringCalendar, Button, ButtonSize, ButtonVariant, Chip, ChipKind, ContinueCard, EmptyState, ErrorState,
     HeroCarousel, IconButton, IconButtonSize, MediaCard, RowScroller, ScrollRow, Segmented, SkeletonRow, Spotlight,
@@ -613,18 +614,28 @@ fn TorrentBanner() -> Element {
 #[component]
 fn EpisodeCards(items: Vec<LatestEpisodeVm>, play: bool) -> Element {
     let navigator = use_navigator();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
     rsx! {
         ScrollRow {
             for e in items.into_iter().take(EPISODE_ROW_ITEMS) {
                 {
                     let (id, episode) = (e.media.id.clone(), e.episode);
                     let ep = tf("home.row.latest.ep", &[("n", &episode.to_string())]);
+                    // 0.3.2: the large / xl cards lead with "Episode 5 · 2 h ago".
+                    let episode_line = if e.aired_unix > 0 {
+                        format!("{ep} · {}", aired_ago(e.aired_unix, now))
+                    } else {
+                        ep.clone()
+                    };
                     rsx! {
                         div { key: "{e.media.id}-{e.episode}", class: "tk-home__ep", "data-episode": "{e.episode}",
                             MediaCard {
                                 media: e.media.clone(),
                                 badge: tf("calendar.ep", &[("n", &episode.to_string())]),
                                 sub: ep,
+                                episode_line,
                                 onclick: move |_| {
                                     if play {
                                         navigator.push(Route::PlayerPage { id: id.clone(), episode });

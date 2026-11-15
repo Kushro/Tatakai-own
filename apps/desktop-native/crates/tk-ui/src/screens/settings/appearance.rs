@@ -14,7 +14,7 @@ use crate::i18n::{LangChoice, t, tf};
 use crate::model::home::ALL_PALETTES;
 use crate::model::look::{HERO_INTERVAL_MAX, HERO_INTERVAL_MIN};
 use crate::model::{
-    CalendarView, CardStyle, Contrast, Density, EpisodeView, HomeLayout, LookPrefs, LookPreset, Motion, RailStyle,
+    CalendarView, CardSize, CardStyle, Contrast, Density, EpisodeView, HomeLayout, LookPrefs, LookPreset, Motion, RailStyle,
     RelationsView, SettingsAction, TITLE_LANGUAGES, ThemeMode,
 };
 
@@ -180,6 +180,14 @@ fn LookSection(commit: Callback<SettingsAction>) -> Element {
                 selected: look.card_style.id().to_owned(),
                 label: t("look.cards"),
                 on_select: move |id: String| if let Some(v) = CardStyle::from_id(&id) { with(&|l| l.card_style = v) },
+            }
+        }
+        SettingRow { label: t("look.card_size"), hint: t("look.card_size.hint"),
+            Segmented {
+                options: look_seg(CardSize::ALL, CardSize::id, CardSize::label_key),
+                selected: look.card_size.id().to_owned(),
+                label: t("look.card_size"),
+                on_select: move |id: String| if let Some(v) = CardSize::from_id(&id) { with(&|l| l.card_size = v) },
             }
         }
         SettingRow { label: t("look.rail"), hint: t("look.rail.hint"),

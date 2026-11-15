@@ -20,6 +20,7 @@ pub mod anilist;
 pub mod anizip;
 pub mod kitsu;
 pub mod mapping;
+pub mod merge;
 // wave B (docs/redesign/16 section 3.5): MAL, Shikimori, Tenrai (worker b; plan 14 section 0.1 #13) and the manga-only
 // MangaDex / MangaUpdates (worker l). Each file is its owner's; this file only registers them.
 pub mod mal;
@@ -239,10 +240,70 @@ impl MetadataRouter {
             .await
     }
 
+    /// 0.3.2: the first provider with episodes gives the list; while some episode still lacks a title, thumbnail,
+    /// date or synopsis, ani.zip (then the remaining providers, in priority order) fills it by number and adds the
+    /// aired episodes the base does not list ([`merge::merge_episodes`]). A failing filler is skipped, never fatal.
     pub async fn episodes(&self, r: &MediaRef) -> Result<Vec<Episode>, ProviderError> {
-        let r = *r;
-        self.route(None, |e: &Vec<Episode>| e.is_empty(), |p| async move { p.episodes(&r).await })
-            .await
+        let today = time::OffsetDateTime::now_utc().date().to_string();
+        self.episodes_on(r, &today).await
+    }
+
+    async fn episodes_on(&self, r: &MediaRef, today: &str) -> Result<Vec<Episode>, ProviderError> {
+        let mut candidates = self.ordered(None, false);
+        if candidates.is_empty() {
+            candidates = self.ordered(None, true);
+        }
+        let mut last_err: Option<ProviderError> = None;
+        let mut empty = false;
+        let mut base: Option<(usize, Vec<Episode>)> = None;
+        for (i, p) in candidates.iter().enumerate() {
+            match p.episodes(r).await {
+                Ok(v) => {
+                    self.mark_ok(p.id());
+                    if v.is_empty() {
+                        empty = true;
+                        continue;
+                    }
+                    base = Some((i, v));
+                    break;
+                }
+                Err(ProviderError::Unsupported) => {}
+                Err(e) => {
+                    self.mark_failure(p.as_ref(), &e);
+                    tracing::info!(provider = p.id(), error = %e, "metadata provider failed, falling back");
+                    last_err = Some(e);
+                }
+            }
+        }
+        let Some((at, mut eps)) = base else {
+            return match (empty, last_err) {
+                (true, _) => Ok(Vec::new()),
+                (false, Some(e)) => Err(e),
+                (false, None) => Err(ProviderError::Unsupported),
+            };
+        };
+        // Fillers: the providers after the base, ani.zip first (richest per-episode data, no AniList budget).
+        let mut fillers: Vec<&Arc<dyn MetadataProvider>> = candidates[at + 1..].iter().collect();
+        fillers.sort_by_key(|p| p.id() != "anizip");
+        for p in fillers {
+            if !merge::needs_fill(&eps) {
+                break;
+            }
+            match p.episodes(r).await {
+                Ok(extra) => {
+                    self.mark_ok(p.id());
+                    if !extra.is_empty() {
+                        eps = merge::merge_episodes(eps, &extra, today);
+                    }
+                }
+                Err(ProviderError::Unsupported) => {}
+                Err(e) => {
+                    self.mark_failure(p.as_ref(), &e);
+                    tracing::info!(provider = p.id(), error = %e, "episode filler failed, keeping what we have");
+                }
+            }
+        }
+        Ok(eps)
     }
 }
 
@@ -429,5 +490,93 @@ mod tests {
         assert_eq!(r.cooling_down(), vec!["h"]);
         r.advance(Duration::from_secs(2));
         assert!(r.cooling_down().is_empty());
+    }
+
+    /// Episode lists per provider id, for the merge routing tests.
+    struct Eps {
+        id: &'static str,
+        list: Result<Vec<Episode>, ProviderError>,
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl MetadataProvider for Eps {
+        fn id(&self) -> &'static str {
+            self.id
+        }
+        fn kinds(&self) -> &[MediaKind] {
+            &[]
+        }
+        async fn episodes(&self, _r: &MediaRef) -> Result<Vec<Episode>, ProviderError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.list.clone()
+        }
+    }
+
+    fn ep(n: u32, title: Option<&str>, image: Option<&str>, date: Option<&str>) -> Episode {
+        Episode {
+            number: n,
+            title: title.map(Into::into),
+            image: image.map(Into::into),
+            air_date: date.map(Into::into),
+            is_filler: false,
+            summary: title.map(|t| format!("about {t}")),
+            runtime_min: None,
+            rating: None,
+        }
+    }
+
+    fn eps(id: &'static str, list: Result<Vec<Episode>, ProviderError>) -> Arc<Eps> {
+        Arc::new(Eps { id, list, calls: AtomicUsize::new(0) })
+    }
+
+    #[tokio::test]
+    async fn episodes_fill_from_anizip_before_the_next_providers() {
+        let kitsu = eps("kitsu", Ok(vec![ep(1, None, None, Some("2026-10-01")), ep(2, None, None, Some("2026-10-08"))]));
+        let broken = eps("tenrai", Err(ProviderError::Http(500)));
+        let anizip = eps(
+            "anizip",
+            Ok(vec![
+                ep(1, Some("One"), Some("i1"), Some("2026-10-01")),
+                ep(2, Some("Two"), Some("i2"), Some("2026-10-08")),
+                ep(3, Some("Three"), Some("i3"), Some("2026-10-15")),
+            ]),
+        );
+        let r = MetadataRouter::new(
+            vec![kitsu.clone(), broken.clone(), anizip.clone()],
+            vec!["kitsu".into(), "tenrai".into(), "anizip".into()],
+        );
+        let out = r.episodes_on(&MediaRef::anilist(1), "2026-11-15").await.unwrap();
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[1].title.as_deref(), Some("Two"));
+        assert_eq!(out[1].image.as_deref(), Some("i2"));
+        // ani.zip filled everything: the broken provider after it was never asked.
+        assert_eq!((kitsu.calls.load(Ordering::SeqCst), anizip.calls.load(Ordering::SeqCst)), (1, 1));
+        assert_eq!(broken.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn complete_base_asks_nobody_else_and_a_failing_filler_is_not_fatal() {
+        let full = eps("kitsu", Ok(vec![ep(1, Some("A"), Some("i"), Some("2026-01-01"))]));
+        let anizip = eps("anizip", Ok(vec![]));
+        let r = MetadataRouter::new(vec![full.clone(), anizip.clone()], vec!["kitsu".into(), "anizip".into()]);
+        assert_eq!(r.episodes_on(&MediaRef::anilist(1), "2026-11-15").await.unwrap().len(), 1);
+        assert_eq!(anizip.calls.load(Ordering::SeqCst), 0);
+
+        let bare = eps("kitsu", Ok(vec![ep(1, None, None, None)]));
+        let down = eps("anizip", Err(ProviderError::Http(503)));
+        let r = MetadataRouter::new(vec![bare, down], vec!["kitsu".into(), "anizip".into()]);
+        assert_eq!(r.episodes_on(&MediaRef::anilist(1), "2026-11-15").await.unwrap().len(), 1);
+        assert_eq!(r.cooling_down(), vec!["anizip"]);
+    }
+
+    #[tokio::test]
+    async fn no_episodes_anywhere_keeps_the_old_answers() {
+        let a = eps("kitsu", Ok(vec![]));
+        let r = MetadataRouter::new(vec![a], vec!["kitsu".into()]);
+        assert!(r.episodes_on(&MediaRef::anilist(1), "2026-11-15").await.unwrap().is_empty());
+        let a = eps("kitsu", Err(ProviderError::Http(500)));
+        let r = MetadataRouter::new(vec![a], vec!["kitsu".into()]);
+        assert_eq!(r.episodes_on(&MediaRef::anilist(1), "2026-11-15").await.unwrap_err(), ProviderError::Http(500));
     }
 }

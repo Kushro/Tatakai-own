@@ -8,5 +8,10 @@
   "hero.action.info": "More info",
   "hero.row.more": "See more",
   "hero.row.prev": "Scroll back",
-  "hero.row.next": "Scroll forward"
+  "hero.row.next": "Scroll forward",
+  "hero.ago.now": "just now",
+  "hero.ago.min": "{n} min ago",
+  "hero.ago.h": "{n} h ago",
+  "hero.ago.d": "{n} d ago",
+  "hero.logo.alt": "{title} logo"
 }

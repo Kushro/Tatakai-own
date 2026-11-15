@@ -197,6 +197,24 @@ pub fn map_anizip_episodes(raw: &Value) -> Vec<Episode> {
     out
 }
 
+/// ani.zip series artwork (TVDB through ani.zip): the first `Fanart` (1920x1080 background), `Banner` (758x140 class
+/// strip), `Poster` and `Clearlogo` (transparent title logo) of `images`. 0.3.2.
+pub fn map_anizip_images(raw: &Value) -> crate::model::SeriesArt {
+    let mut art = crate::model::SeriesArt::default();
+    for img in raw["images"].as_array().into_iter().flatten() {
+        let Some(url) = s(&img["url"]).filter(|u| u.starts_with("https://") || u.starts_with("http://")) else { continue };
+        let slot = match img["coverType"].as_str().map(str::to_ascii_lowercase).as_deref() {
+            Some("fanart") => &mut art.fanart,
+            Some("banner") => &mut art.banner,
+            Some("poster") => &mut art.poster,
+            Some("clearlogo") => &mut art.clearlogo,
+            _ => continue,
+        };
+        slot.get_or_insert(url);
+    }
+    art
+}
+
 pub fn map_anizip_ids(raw: &Value) -> MediaRef {
     let m = &raw["mappings"];
     MediaRef { anilist_id: u(&m["anilist_id"]), mal_id: u(&m["mal_id"]), kitsu_id: u(&m["kitsu_id"]) }

@@ -285,7 +285,7 @@ fn media_vm(row: &ListEntryRow) -> MediaVm {
         cover: row.poster.clone(),
         color: None,
         subtitle,
-        score: None,
+        score: None, episodes: None, genres: Vec::new(), synopsis: None,
     }
 }
 
@@ -329,7 +329,7 @@ fn favorite_vm(f: &FavoriteRow) -> MediaVm {
         cover: f.poster.clone(),
         color: None,
         subtitle: String::new(),
-        score: None,
+        score: None, episodes: None, genres: Vec::new(), synopsis: None,
     }
 }
 

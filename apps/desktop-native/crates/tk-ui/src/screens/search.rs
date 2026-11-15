@@ -1440,7 +1440,7 @@ mod tests {
     use super::*;
 
     fn m(id: &str) -> MediaVm {
-        MediaVm { format: None, status: None, year: None, id: id.into(), title: id.into(), cover: None, color: None, subtitle: String::new(), score: None }
+        MediaVm { format: None, status: None, year: None, id: id.into(), title: id.into(), cover: None, color: None, subtitle: String::new(), score: None, episodes: None, genres: Vec::new(), synopsis: None }
     }
 
     #[test]

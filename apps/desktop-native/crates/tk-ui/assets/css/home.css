@@ -75,6 +75,12 @@
 .tk-spot__art .tk-cover__art::after { font-size: 260px; right: 6%; bottom: -10%; }
 .tk-spot__img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 30%; transform-origin: 70% 40%; }
 .tk-spot__slide[data-art="cover"] .tk-spot__img { object-position: center 18%; }
+/* 0.3.2 low-res guard: AniList's banner is a 1900x400 strip; blown up to the hero height it gets soft, so it is
+   anchored at the bottom (the subject usually sits low), softened a little and covered by a stronger scrim. The
+   ani.zip fanart (1920x1080) shows as is. */
+.tk-spot__slide[data-art="banner"] .tk-spot__img { object-position: center bottom; filter: blur(1.5px) saturate(1.1); transform-origin: 50% 100%; }
+.tk-spot__slide[data-art="banner"] .tk-spot__scrim { background-color: color-mix(in srgb, var(--md-sys-color-scrim) 22%, transparent); }
+.tk-spot__slide[data-art="fanart"] .tk-spot__img { object-position: center 25%; }
 /* slow Ken Burns on the visible slide only */
 .tk-spot__slide[data-active="true"] .tk-spot__img { animation: tk-kenburns 26s linear forwards; }
 @keyframes tk-kenburns { from { transform: scale(1); } to { transform: scale(1.08); } }
@@ -105,6 +111,11 @@
   display: block; width: 100%; font: 700 1em/1.02 var(--tk-font-display); letter-spacing: -.02em; text-align: start;
   text-shadow: 0 2px 18px color-mix(in srgb, var(--md-sys-color-scrim) 45%, transparent);
   transition: opacity var(--tk-mo-fx-fast);
+}
+/* clear logo (ani.zip / TVDB, transparent PNG) instead of the text title; the alt keeps the name */
+.tk-spot__logo {
+  display: block; max-width: min(100%, 480px); max-height: clamp(72px, 14vh, 150px); width: auto; height: auto;
+  object-fit: contain; object-position: left bottom; filter: drop-shadow(0 2px 14px color-mix(in srgb, var(--md-sys-color-scrim) 55%, transparent));
 }
 .tk-spot__title-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-wrap: balance; }
 .tk-spot__title > button:hover { opacity: .9; }

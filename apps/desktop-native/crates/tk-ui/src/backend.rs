@@ -59,6 +59,13 @@ pub struct MediaVm {
     pub format: Option<String>,
     /// Season year, when known.
     pub year: Option<i32>,
+    /// 0.3.2 (large / xl cards): genres from the row fragment (no extra request).
+    pub genres: Vec<String>,
+    /// 0.3.2: synopsis when the source already had it. Rows deliberately skip `description` (0.3.1 AniList cost), so
+    /// it is usually `None` there; never add it back to row queries for this.
+    pub synopsis: Option<String>,
+    /// Episode count when known (large / xl card facts).
+    pub episodes: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -111,12 +118,26 @@ pub struct HeroVm {
     pub episodes: Option<u32>,
     /// `TV`, `MOVIE`, `ONA`, ... when the provider gives it.
     pub format: Option<String>,
+    /// 0.3.2: ani.zip / TVDB full-size background (1920x1080 class); preferred over `banner`.
+    pub fanart: Option<String>,
+    /// 0.3.2: transparent title logo (ani.zip `Clearlogo`), drawn instead of the text title when it loads.
+    pub logo: Option<String>,
+}
+
+/// 0.3.2: artwork of one title for the spotlight (`Backend::hero_art`).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct HeroArtVm {
+    pub id: String,
+    pub fanart: Option<String>,
+    pub logo: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DetailsVm {
     pub media: MediaVm,
     pub banner: Option<String>,
+    /// 0.3.2: ani.zip / TVDB fanart for the header backdrop, preferred over `banner`.
+    pub fanart: Option<String>,
     pub synopsis: Option<String>,
     pub genres: Vec<String>,
     pub status: Option<String>,
@@ -1620,6 +1641,11 @@ pub trait Backend: Send + Sync + 'static {
     /// Relations, characters, staff, recommendations, trailer, next airing episode and the technical facts.
     async fn details_extra(&self, _id: &str) -> UiResult<DetailsExtraVm> {
         Err(UiError::not_wired("details_extra"))
+    }
+    /// 0.3.2: ani.zip artwork (fanart, clear logo) of the spotlight titles `ids`, cached per title; titles without
+    /// artwork are left out. Asked after Home rendered: the slides swap to it when it arrives.
+    async fn hero_art(&self, _ids: Vec<String>) -> UiResult<Vec<HeroArtVm>> {
+        Ok(Vec::new())
     }
     /// Season chain / watch order of a title (prequels first), the open title marked `current`.
     async fn watch_order(&self, _id: &str) -> UiResult<Vec<WatchOrderEntryVm>> {

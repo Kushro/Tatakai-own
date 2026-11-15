@@ -151,7 +151,7 @@ fn characters_vm(p: CharacterPage) -> SearchPageVm {
                 cover: c.image,
                 color: None,
                 subtitle: c.native_name.unwrap_or_default(),
-                score: None,
+                score: None, episodes: None, genres: Vec::new(), synopsis: None,
             })
             .collect(),
         page: p.page.max(1),
@@ -168,7 +168,7 @@ fn tags_vm(tags: Vec<MediaTag>) -> SearchPageVm {
             .into_iter()
             .map(|t| {
                 let flags = (if t.spoiler { TAG_SPOILER } else { 0 }) | (if t.adult { TAG_ADULT } else { 0 });
-                MediaVm { format: None, status: None, year: None, id: t.name.clone(), title: t.name, cover: None, color: None, subtitle: t.category, score: Some(flags) }
+                MediaVm { format: None, status: None, year: None, id: t.name.clone(), title: t.name, cover: None, color: None, subtitle: t.category, score: Some(flags), episodes: None, genres: Vec::new(), synopsis: None }
             })
             .collect(),
         page: 1,
@@ -201,7 +201,7 @@ pub(crate) fn map_custom_results(ext_id: &str, source_id: &str, body: &Value) ->
                 cover: text(&c["image"]).filter(|u| u.starts_with("https://") || u.starts_with("http://")),
                 color: None,
                 subtitle: text(&c["subtitle"]).unwrap_or_default(),
-                score: None,
+                score: None, episodes: None, genres: Vec::new(), synopsis: None,
             })
         })
         .collect()
@@ -286,7 +286,7 @@ fn image_matches(matches: Vec<Match>, titles: &[Media]) -> Vec<ImageMatchVm> {
                     cover: None,
                     color: None,
                     subtitle: String::new(),
-                    score: None,
+                    score: None, episodes: None, genres: Vec::new(), synopsis: None,
                 });
             ImageMatchVm {
                 media,

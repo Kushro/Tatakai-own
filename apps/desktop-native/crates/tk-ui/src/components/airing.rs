@@ -956,7 +956,7 @@ mod tests {
                 cover: None,
                 color: None,
                 subtitle: String::new(),
-                score: None,
+                score: None, episodes: None, genres: Vec::new(), synopsis: None,
             },
             episode: 1,
             at_unix: at,
