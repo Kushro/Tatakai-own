@@ -82,6 +82,9 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/library", get(library))
         // wave A (worker f): watch-history sync between the user's devices (`crate::history`)
         .route("/v1/history", get(history_page).post(history_push).delete(history_clear))
+        // 2026-11 history per device (`crate::history` module docs)
+        .route("/v1/history/mode", get(history_mode))
+        .route("/v1/history/resync-done", post(history_resync_done))
         .route("/v1/devices/self", delete(forget_self))
         // wave B (worker k): remote control, player state and the PC -> phone event long-poll (`crate::control`)
         .route("/v1/control", post(control))
@@ -192,29 +195,58 @@ struct HistoryQuery {
 
 /// `GET /v1/history?since=&limit=`: rows watched after `since` (unix s), oldest first (`crate::history::HistoryPage`).
 /// A malformed query is `400 request_invalid` like every other bad input (never axum's plain-text rejection).
-async fn history_page(State(st): State<AppState>, q: Result<Query<HistoryQuery>, QueryRejection>) -> ApiResult<Json<crate::history::HistoryPage>> {
+async fn history_page(
+    State(st): State<AppState>,
+    axum::Extension(Authed(device)): axum::Extension<Authed>,
+    q: Result<Query<HistoryQuery>, QueryRejection>,
+) -> ApiResult<Json<crate::history::HistoryPage>> {
     let Query(q) = q.map_err(|_| ApiError(ErrorCode::RequestInvalid))?;
     let since = q.since.unwrap_or(0);
     if since < 0 {
         return Err(ErrorCode::RequestInvalid.into());
     }
+    let mode = st.devices.history_mode(&device);
+    if !mode.serves_pulls() {
+        return Ok(Json(crate::history::paused_page(since)));
+    }
     let limit = crate::history::clamp_limit(q.limit);
     let host = st.host.clone();
     let rows = tokio::task::spawn_blocking(move || host.history_since(since, limit + 1)).await.map_err(|_| ApiError(ErrorCode::Internal))?;
-    Ok(Json(crate::history::page(rows, limit, since)))
+    Ok(Json(crate::history::HistoryPage { mode: Some(mode), ..crate::history::page(rows, limit, since) }))
 }
 
 /// `POST /v1/history`: merge the phone's rows into the PC history (`crate::history::HistoryPush`). Rows that do not
-/// parse (bad date, no AniList / MAL id) are dropped, not an error: the rest still merges.
-async fn history_push(State(st): State<AppState>, body: Body) -> ApiResult<Json<crate::history::HistoryPushResult>> {
+/// parse (bad date, no AniList / MAL id) are dropped, not an error: the rest still merges. A device whose mode does
+/// not take pushes gets `200 {"merged":0,"ignored":true}`; the pushing device is the rows' origin, and inside its
+/// resync window its rows win regardless of timestamps.
+async fn history_push(State(st): State<AppState>, axum::Extension(Authed(device)): axum::Extension<Authed>, body: Body) -> ApiResult<Json<crate::history::HistoryPushResult>> {
     let push: crate::history::HistoryPush = read_json(body, crate::history::MAX_BODY).await?;
     if push.items.is_empty() || push.items.len() > crate::history::MAX_ROWS {
         return Err(ErrorCode::RequestInvalid.into());
     }
+    let mode = st.devices.history_mode(&device);
+    if !mode.accepts_pushes() {
+        return Ok(Json(crate::history::ignored_push(mode)));
+    }
+    let authoritative = st.devices.resync_open(&device, OffsetDateTime::now_utc().unix_timestamp());
     let rows: Vec<tk_core::HistoryEntry> = push.items.into_iter().filter_map(crate::history::HistoryRow::into_entry).collect();
     let host = st.host.clone();
-    let merged = tokio::task::spawn_blocking(move || host.history_merge(rows)).await.map_err(|_| ApiError(ErrorCode::Internal))?;
-    Ok(Json(crate::history::HistoryPushResult { merged }))
+    let merged = tokio::task::spawn_blocking(move || host.history_merge_from(&device, rows, authoritative)).await.map_err(|_| ApiError(ErrorCode::Internal))?;
+    Ok(Json(crate::history::HistoryPushResult { merged, ignored: false, mode: Some(mode) }))
+}
+
+/// `GET /v1/history/mode`: the calling device's history mode and whether the PC waits for its full push.
+async fn history_mode(State(st): State<AppState>, axum::Extension(Authed(device)): axum::Extension<Authed>) -> Json<crate::history::HistoryModeAnswer> {
+    let now = OffsetDateTime::now_utc().unix_timestamp();
+    Json(crate::history::HistoryModeAnswer { mode: st.devices.history_mode(&device), resync: st.devices.resync_open(&device, now) })
+}
+
+/// `POST /v1/history/resync-done` (no body): the source finished pushing; close its window and ask the other devices
+/// to replace their history.
+async fn history_resync_done(State(st): State<AppState>, axum::Extension(Authed(device)): axum::Extension<Authed>) -> Json<crate::history::ResyncDoneAnswer> {
+    let notified = st.devices.finish_resync(&device, OffsetDateTime::now_utc().unix_timestamp());
+    tracing::info!(%device, notified, "history resync finished");
+    Json(crate::history::ResyncDoneAnswer { notified })
 }
 
 /// `DELETE /v1/history`: the PC drops its whole history (the phone asks after the user confirmed).

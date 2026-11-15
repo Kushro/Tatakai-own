@@ -18,6 +18,8 @@ use tk_link::{LibraryItem, LinkConfig, LinkHandle, LinkHost};
 #[derive(Default)]
 struct MemHistory {
     rows: Mutex<Vec<HistoryEntry>>,
+    /// 2026-11: `(device id, authoritative, rows)` of every `history_merge_from`.
+    pushes: Mutex<Vec<(String, bool, usize)>>,
 }
 
 impl LinkHost for MemHistory {
@@ -58,6 +60,19 @@ impl LinkHost for MemHistory {
     fn history_clear(&self) -> bool {
         self.rows.lock().unwrap().clear();
         true
+    }
+    fn history_merge_from(&self, device_id: &str, rows: Vec<HistoryEntry>, authoritative: bool) -> usize {
+        self.pushes.lock().unwrap().push((device_id.to_owned(), authoritative, rows.len()));
+        if !authoritative {
+            return self.history_merge(rows);
+        }
+        let mut store = self.rows.lock().unwrap();
+        let n = rows.len();
+        for r in rows {
+            store.retain(|e| e.episode_id != r.episode_id);
+            store.push(r);
+        }
+        n
     }
 }
 
@@ -148,7 +163,7 @@ async fn pull_pages_follow_the_cursor_oldest_first() {
 
     // nothing newer: empty page keeps the cursor
     let page = body(phone.get(format!("{}/v1/history?since=3000", s.base)).send().await.unwrap()).await;
-    assert_eq!(page, json!({ "items": [], "next_since_unix": 3000, "truncated": false }));
+    assert_eq!(page, json!({ "items": [], "next_since_unix": 3000, "truncated": false, "mode": "full" }));
 
     // bad queries are `request_invalid`, not axum's plain-text rejection
     for q in ["since=-1", "since=abc", "limit=x"] {
@@ -178,7 +193,8 @@ async fn push_merges_by_newest_and_moves_the_exact_position() {
     ]});
     let r = phone.post(format!("{}/v1/history", s.base)).json(&push).send().await.unwrap();
     assert_eq!(r.status(), 200);
-    assert_eq!(body(r).await, json!({ "merged": 2 }));
+    // 2026-11: the device's mode travels too (older phones ignore the extra key)
+    assert_eq!(body(r).await, json!({ "merged": 2, "mode": "full" }));
 
     let rows = s.host.rows.lock().unwrap().clone();
     let ep = |n: u32| rows.iter().find(|e| e.episode == n).cloned().unwrap();
@@ -245,4 +261,88 @@ async fn history_needs_a_client_certificate_and_an_active_device() {
         }
     }
     assert_eq!(s.host.rows.lock().unwrap().len(), 1, "a revoked device reads and clears nothing");
+}
+
+// ---- 2026-11 history per device (modes, "use this device as the source") ----
+
+fn row_json(ep: u32, progress: u32, at: &str) -> Value {
+    json!({ "animeId": "21", "title": "One Piece", "episodeId": format!("21?ep={ep}"), "episode": ep, "progressSec": progress, "watchedAt": at, "anilistId": 21 })
+}
+
+#[tokio::test]
+async fn receive_only_and_paused_devices_are_ignored_on_push_and_paused_pulls_nothing() {
+    let s = server().await;
+    s.host.history_merge(vec![entry(1, 100, 1_000)]);
+    let (moto, moto_id) = pair(&s, "moto g51").await;
+    let (tab, tab_id) = pair(&s, "Tab").await;
+
+    // default: full
+    let r = body(moto.get(format!("{}/v1/history/mode", s.base)).send().await.unwrap()).await;
+    assert_eq!(r, json!({ "mode": "full", "resync": false }));
+
+    assert!(s.link.set_history_mode(&moto_id, tk_link::devices::HistoryMode::ReceiveOnly));
+    let push = json!({ "items": [row_json(1, 5, "2026-11-01T00:00:00Z")] });
+    let r = moto.post(format!("{}/v1/history", s.base)).json(&push).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    assert_eq!(body(r).await, json!({ "merged": 0, "ignored": true, "mode": "receive_only" }));
+    assert_eq!(s.host.rows.lock().unwrap()[0].progress_sec, 100, "nothing stored");
+    // a receive-only phone still pulls
+    let page = body(moto.get(format!("{}/v1/history", s.base)).send().await.unwrap()).await;
+    assert_eq!((page["items"].as_array().unwrap().len(), page["mode"].as_str()), (1, Some("receive_only")));
+
+    assert!(s.link.set_history_mode(&moto_id, tk_link::devices::HistoryMode::Paused));
+    let r = body(moto.post(format!("{}/v1/history", s.base)).json(&push).send().await.unwrap()).await;
+    assert_eq!((r["merged"].as_u64(), r["ignored"].as_bool()), (Some(0), Some(true)));
+    let page = body(moto.get(format!("{}/v1/history?since=7", s.base)).send().await.unwrap()).await;
+    assert_eq!(page, json!({ "items": [], "next_since_unix": 7, "truncated": false, "mode": "paused" }));
+
+    // the tablet (full) merges normally and is the rows' origin
+    let r = body(tab.post(format!("{}/v1/history", s.base)).json(&push).send().await.unwrap()).await;
+    assert_eq!(r, json!({ "merged": 1, "mode": "full" }));
+    assert_eq!(s.host.pushes.lock().unwrap().as_slice(), [(tab_id, false, 1)]);
+}
+
+#[tokio::test]
+async fn a_source_device_wins_in_its_window_and_done_fans_out_to_unpaused_others() {
+    let s = server().await;
+    let (tab, tab_id) = pair(&s, "Tab").await;
+    let (moto, moto_id) = pair(&s, "moto g51").await;
+    let (quiet, quiet_id) = pair(&s, "Old phone").await;
+    s.link.set_history_mode(&quiet_id, tk_link::devices::HistoryMode::Paused);
+    // the moto overwrote the tablet's progress with a newer, shorter row
+    s.host.history_merge(vec![entry(1, 30, 5_000)]);
+
+    assert!(!s.link.start_resync_from(&quiet_id), "a paused device cannot be the source");
+    assert!(s.link.start_resync_from(&tab_id));
+    assert!(s.link.resync_running(&tab_id));
+    let ev = body(tab.get(format!("{}/v1/events?wait=1", s.base)).send().await.unwrap()).await;
+    assert_eq!(ev, json!({ "events": [{ "type": "history_resync", "mode": "push_all" }] }));
+    let m = body(tab.get(format!("{}/v1/history/mode", s.base)).send().await.unwrap()).await;
+    assert_eq!(m["resync"], true);
+
+    // the tablet's older but longer row wins inside the window
+    let push = json!({ "items": [row_json(1, 1200, "1970-01-01T00:16:40Z")] });
+    let r = body(tab.post(format!("{}/v1/history", s.base)).json(&push).send().await.unwrap()).await;
+    assert_eq!(r["merged"], 1);
+    assert_eq!(s.host.rows.lock().unwrap()[0].progress_sec, 1200);
+    assert_eq!(s.host.pushes.lock().unwrap().last().cloned(), Some((tab_id.clone(), true, 1)));
+
+    // a done from a device without a window fans out nothing
+    let r = body(moto.post(format!("{}/v1/history/resync-done", s.base)).send().await.unwrap()).await;
+    assert_eq!(r, json!({ "notified": 0 }));
+    let r = body(tab.post(format!("{}/v1/history/resync-done", s.base)).send().await.unwrap()).await;
+    assert_eq!(r, json!({ "notified": 1 }));
+    assert!(!s.link.resync_running(&tab_id));
+    let ev = body(moto.get(format!("{}/v1/events?wait=1", s.base)).send().await.unwrap()).await;
+    assert_eq!(ev, json!({ "events": [{ "type": "history_resync", "mode": "pull_replace" }] }));
+    let r = quiet.get(format!("{}/v1/events?wait=1", s.base)).send().await.unwrap();
+    assert_eq!(r.status(), 204, "the paused device is left alone");
+    let r = tab.get(format!("{}/v1/events?wait=1", s.base)).send().await.unwrap();
+    assert_eq!(r.status(), 204, "and so is the source");
+
+    // after the window an older row loses again
+    let older = json!({ "items": [row_json(1, 10, "1970-01-01T00:00:01Z")] });
+    let r = body(tab.post(format!("{}/v1/history", s.base)).json(&older).send().await.unwrap()).await;
+    assert_eq!(r["merged"], 0);
+    let _ = moto_id;
 }

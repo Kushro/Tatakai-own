@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, broadcast};
 
-use crate::control::{EVENTS_QUEUE_MAX, PhoneEvent};
+use crate::control::{EVENTS_QUEUE_MAX, PhoneEvent, ResyncMode};
 
 /// Queued events older than this are dropped (contract 16 section 3.8: 10 minutes).
 pub const EVENT_TTL_SECS: i64 = 10 * 60;
@@ -32,6 +32,44 @@ pub fn platform_from_user_agent(ua: &str) -> Option<&'static str> {
     }
 }
 
+/// How the PC treats one paired device's watch history (2026-11 history per device; `devices.json`, default `full`
+/// so files written before this field load unchanged).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryMode {
+    /// Pushes merge and pulls serve the PC history (the behaviour before modes existed).
+    #[default]
+    Full,
+    /// The device may pull, but what it pushes is accepted and ignored (a QA phone that must not overwrite the rest).
+    ReceiveOnly,
+    /// Pushes are ignored and pulls answer an empty page.
+    Paused,
+}
+
+impl HistoryMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::ReceiveOnly => "receive_only",
+            Self::Paused => "paused",
+        }
+    }
+
+    /// Pushes of this device enter the PC history.
+    pub fn accepts_pushes(self) -> bool {
+        self == Self::Full
+    }
+
+    /// Pulls of this device are served.
+    pub fn serves_pulls(self) -> bool {
+        self != Self::Paused
+    }
+}
+
+/// "Use this device as the source": how long the PC lets the source's pushes win regardless of timestamps while it
+/// pushes its whole history (closed earlier by `POST /v1/history/resync-done`).
+pub const RESYNC_WINDOW_SECS: i64 = 10 * 60;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Device {
     pub id: String,
@@ -48,6 +86,9 @@ pub struct Device {
     /// Unix seconds of the last authenticated request (`None` = never seen after pairing).
     #[serde(default)]
     pub last_seen_at: Option<i64>,
+    /// 2026-11 history per device (default `full`).
+    #[serde(default)]
+    pub history_mode: HistoryMode,
 }
 
 impl Device {
@@ -66,6 +107,8 @@ pub struct DeviceRegistry {
     events_ready: Arc<Notify>,
     /// Last time `last_seen_at` was persisted per device.
     seen_persisted: Mutex<HashMap<String, i64>>,
+    /// `device id -> window end (unix s)` of "Use this device as the source" (memory only: a restart closes it).
+    resync: Mutex<HashMap<String, i64>>,
 }
 
 impl DeviceRegistry {
@@ -91,6 +134,7 @@ impl DeviceRegistry {
             events: Mutex::new(HashMap::new()),
             events_ready: Arc::new(Notify::new()),
             seen_persisted: Mutex::new(HashMap::new()),
+            resync: Mutex::new(HashMap::new()),
         }
     }
 
@@ -159,6 +203,58 @@ impl DeviceRegistry {
             tracing::error!(error = %e, "could not persist device name");
         }
         true
+    }
+
+    /// History mode of `id` (`full` for an unknown device: the route never gets there without an active device).
+    pub fn history_mode(&self, id: &str) -> HistoryMode {
+        self.lock().iter().find(|d| d.id == id).map(|d| d.history_mode).unwrap_or_default()
+    }
+
+    /// Set the history mode of `id` (persisted). `false` for unknown or revoked devices.
+    pub fn set_history_mode(&self, id: &str, mode: HistoryMode) -> bool {
+        let mut g = self.lock();
+        let Some(d) = g.iter_mut().find(|d| d.id == id && d.revoked_at.is_none()) else { return false };
+        d.history_mode = mode;
+        if let Err(e) = self.persist(&g) {
+            tracing::error!(error = %e, "could not persist the history mode");
+        }
+        true
+    }
+
+    /// Open (or renew) the authoritative window of `id` until `now + RESYNC_WINDOW_SECS`.
+    pub fn open_resync(&self, id: &str, now: i64) {
+        self.resync.lock().unwrap_or_else(PoisonError::into_inner).insert(id.to_owned(), now + RESYNC_WINDOW_SECS);
+    }
+
+    /// Whether `id` is inside its authoritative window at `now`.
+    pub fn resync_open(&self, id: &str, now: i64) -> bool {
+        self.resync.lock().unwrap_or_else(PoisonError::into_inner).get(id).is_some_and(|until| now < *until)
+    }
+
+    /// Close the window of `id`; `true` when it was open at `now` (an expired one is dropped and answers `false`).
+    pub fn close_resync(&self, id: &str, now: i64) -> bool {
+        self.resync.lock().unwrap_or_else(PoisonError::into_inner).remove(id).is_some_and(|until| now < until)
+    }
+
+    /// "Use this device as the source": `id` must be active and in `full` mode (a device whose pushes are ignored
+    /// cannot be the source). Opens its authoritative window and queues `history_resync` / `push_all` for it.
+    pub fn start_resync(&self, id: &str, now: i64) -> bool {
+        let ok = self.lock().iter().any(|d| d.id == id && d.is_active(now) && d.history_mode.accepts_pushes());
+        if !ok {
+            return false;
+        }
+        self.open_resync(id, now);
+        self.push_event(id, PhoneEvent::HistoryResync { mode: ResyncMode::PushAll }, now)
+    }
+
+    /// `POST /v1/history/resync-done` from `source`: close its window and, when it was open, queue `pull_replace` for
+    /// every other active device that is not `paused`. Returns how many were notified.
+    pub fn finish_resync(&self, source: &str, now: i64) -> usize {
+        if !self.close_resync(source, now) {
+            return 0;
+        }
+        let targets = crate::history::resync_targets(&self.list(), source, now);
+        targets.iter().filter(|t| self.push_event(t, PhoneEvent::HistoryResync { mode: ResyncMode::PullReplace }, now)).count()
     }
 
     /// Subscribe to revocation events (device ids).
@@ -236,7 +332,82 @@ mod tests {
             revoked_at: None,
             platform: String::new(),
             last_seen_at: None,
+            history_mode: HistoryMode::Full,
         }
+    }
+
+    #[test]
+    fn history_mode_defaults_to_full_and_round_trips() {
+        // a devices.json written before modes existed
+        let old: Vec<Device> = serde_json::from_str(
+            r#"[{"id":"a","name":"Tab","fingerprint":"f","created_at":0,"not_after":10,"platform":"android","last_seen_at":5}]"#,
+        )
+        .unwrap();
+        assert_eq!(old[0].history_mode, HistoryMode::Full);
+        for (m, wire) in [(HistoryMode::Full, "full"), (HistoryMode::ReceiveOnly, "receive_only"), (HistoryMode::Paused, "paused")] {
+            assert_eq!(serde_json::to_value(m).unwrap(), serde_json::json!(wire));
+            assert_eq!(m.as_str(), wire);
+            let d = Device { history_mode: m, ..dev("x") };
+            assert_eq!(serde_json::from_str::<Device>(&serde_json::to_string(&d).unwrap()).unwrap(), d);
+        }
+        assert!(HistoryMode::Full.accepts_pushes() && HistoryMode::Full.serves_pulls());
+        assert!(!HistoryMode::ReceiveOnly.accepts_pushes() && HistoryMode::ReceiveOnly.serves_pulls());
+        assert!(!HistoryMode::Paused.accepts_pushes() && !HistoryMode::Paused.serves_pulls());
+    }
+
+    #[test]
+    fn set_history_mode_persists_and_refuses_revoked() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        let reg = DeviceRegistry::open(path.clone()).unwrap();
+        reg.add(dev("moto")).unwrap();
+        reg.add(dev("old")).unwrap();
+        assert!(reg.set_history_mode("moto", HistoryMode::ReceiveOnly));
+        assert!(!reg.set_history_mode("zzz", HistoryMode::Paused));
+        reg.revoke("old", 1);
+        assert!(!reg.set_history_mode("old", HistoryMode::Paused));
+        let again = DeviceRegistry::open(path).unwrap();
+        assert_eq!(again.history_mode("moto"), HistoryMode::ReceiveOnly);
+        assert_eq!(again.history_mode("old"), HistoryMode::Full);
+    }
+
+    #[test]
+    fn a_resync_asks_the_source_to_push_then_fans_out_to_unpaused_others() {
+        let reg = DeviceRegistry::in_memory();
+        for id in ["tab", "moto", "quiet", "gone"] {
+            reg.add(dev(id)).unwrap();
+        }
+        reg.set_history_mode("quiet", HistoryMode::Paused);
+        reg.set_history_mode("moto", HistoryMode::ReceiveOnly);
+        reg.revoke("gone", 1);
+        assert!(!reg.start_resync("moto", 10), "a receive-only device cannot be the source");
+        assert!(!reg.start_resync("gone", 10), "nor a revoked one");
+        assert!(reg.start_resync("tab", 10));
+        assert!(reg.resync_open("tab", 11));
+        assert_eq!(reg.take_events("tab", 11), [PhoneEvent::HistoryResync { mode: ResyncMode::PushAll }]);
+        assert_eq!(reg.finish_resync("moto", 12), 0, "no window for that device");
+        assert!(reg.take_events("tab", 12).is_empty());
+        assert_eq!(reg.finish_resync("tab", 12), 1);
+        assert!(!reg.resync_open("tab", 13), "closed");
+        let replace = [PhoneEvent::HistoryResync { mode: ResyncMode::PullReplace }];
+        assert_eq!(reg.take_events("moto", 13), replace);
+        assert!(reg.take_events("quiet", 13).is_empty(), "paused devices are left alone");
+        assert!(reg.take_events("tab", 13).is_empty(), "not the source itself");
+        assert_eq!(reg.finish_resync("tab", 14), 0, "a second done fans out nothing");
+    }
+
+    #[test]
+    fn the_resync_window_opens_expires_and_closes_once() {
+        let reg = DeviceRegistry::in_memory();
+        assert!(!reg.resync_open("tab", 0));
+        reg.open_resync("tab", 100);
+        assert!(reg.resync_open("tab", 100 + RESYNC_WINDOW_SECS - 1));
+        assert!(!reg.resync_open("tab", 100 + RESYNC_WINDOW_SECS), "expired");
+        assert!(!reg.resync_open("moto", 101), "per device");
+        assert!(reg.close_resync("tab", 200));
+        assert!(!reg.close_resync("tab", 201), "closed once");
+        reg.open_resync("tab", 0);
+        assert!(!reg.close_resync("tab", RESYNC_WINDOW_SECS + 1), "an expired window does not count");
     }
 
     #[test]
