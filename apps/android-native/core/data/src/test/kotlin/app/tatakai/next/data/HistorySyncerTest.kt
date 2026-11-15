@@ -3,7 +3,9 @@ package app.tatakai.next.data
 
 import app.tatakai.next.database.HistoryDao
 import app.tatakai.next.database.HistoryRow
+import app.tatakai.next.link.HistoryResyncMode
 import app.tatakai.next.link.LinkError
+import app.tatakai.next.link.LinkHistoryMode
 import app.tatakai.next.link.LinkHistoryPageDto
 import app.tatakai.next.link.LinkHistoryPushResultDto
 import app.tatakai.next.link.LinkHistoryRemote
@@ -50,13 +52,29 @@ class HistorySyncerTest {
         override suspend fun push(rows: List<LinkHistoryRow>): LinkHistoryPushResultDto {
             if (unavailable) throw LinkHistoryUnavailableException(LinkError.Transport.Tls.Revoked)
             pushed += rows
+            calls += "push"
             return LinkHistoryPushResultDto(rows.size)
         }
         override suspend fun since(sinceUnix: Long, limit: Int): LinkHistoryPageDto {
             sinceAsked += sinceUnix
+            calls += "since"
             return if (pages.isEmpty()) LinkHistoryPageDto(emptyList(), sinceUnix) else pages.removeAt(0)
         }
         override suspend fun clear() {}
+
+        // 2026-11 history per device
+        var pcMode: LinkHistoryMode? = LinkHistoryMode.FULL
+        var resyncDoneCalls = 0
+        val resyncNotes = mutableListOf<Boolean>()
+        val calls = mutableListOf<String>()
+        override suspend fun mode(): LinkHistoryMode? = pcMode.also { calls += "mode" }
+        override suspend fun resyncDone() {
+            resyncDoneCalls++
+            calls += "done"
+        }
+        override fun noteResync(running: Boolean) {
+            resyncNotes += running
+        }
     }
 
     private fun row(i: Int, watched: Long, synced: Long? = null, progress: Int = 60) = HistoryRow(
@@ -170,5 +188,65 @@ class HistorySyncerTest {
         runBlocking { dao.upsert(row(1, watched = 1)) }
         val remote = FakeRemote().apply { unavailable = true }
         assertFailsWith<LinkHistoryUnavailableException> { runBlocking { HistorySyncer(dao, remote).syncOnce() } }
+    }
+
+    // ---- 2026-11 history per device ----
+
+    @Test
+    fun pushAllSendsEveryRowThenSaysDone() = runBlocking {
+        val dao = FakeDao()
+        repeat(120) { dao.upsert(row(it, watched = 1_000L + it, synced = 1_000L + it)) }
+        dao.upsert(row(500, watched = 9_000)) // one dirty row
+        val remote = FakeRemote()
+        var saved = -1L
+        val syncer = HistorySyncer(dao, remote, cursor = { 77L }, saveCursor = { saved = it })
+        assertEquals(HistorySyncer.Outcome.SYNCED, syncer.resync(HistoryResyncMode.PUSH_ALL))
+        assertEquals(121, remote.pushed.flatten().size, "clean rows go too")
+        assertEquals(1, remote.resyncDoneCalls)
+        assertEquals(listOf("push", "push", "done", "since"), remote.calls, "done only after every push")
+        assertEquals(listOf(77L), remote.sinceAsked, "then a normal pull")
+        assertEquals(77L, saved)
+        assertEquals(0, dao.dirtyCount())
+        assertEquals(listOf(true, false), remote.resyncNotes)
+    }
+
+    @Test
+    fun pullReplacePushesDirtyRowsFirstThenReplacesEverything() = runBlocking {
+        val dao = FakeDao()
+        dao.upsert(row(1, watched = 1_000)) // dirty: the PC should get it before the drop
+        dao.upsert(row(2, watched = 2_000, synced = 2_000)) // clean, not on the PC page: gone afterwards
+        val remote = FakeRemote(mutableListOf(LinkHistoryPageDto(listOf(remoteRow(1, "2026-11-01T10:00:00.000Z", 180)), nextSinceUnix = 300)))
+        var saved = mutableListOf<Long>()
+        val syncer = HistorySyncer(dao, remote, cursor = { 999L }, saveCursor = { saved += it })
+        syncer.resync(HistoryResyncMode.PULL_REPLACE)
+        assertEquals(listOf("mode", "push", "since"), remote.calls)
+        assertEquals(listOf("1:1"), remote.pushed.flatten().map { it.episodeId })
+        assertEquals(listOf(0L), remote.sinceAsked, "everything is pulled again")
+        assertEquals(listOf(0L, 300L), saved)
+        assertEquals(setOf("1:1"), dao.rows.value.keys, "the local history is the PC's now")
+        assertEquals(180, dao.get("1:1")!!.progressSec)
+        assertEquals(0, remote.resyncDoneCalls)
+    }
+
+    @Test
+    fun pullReplaceOfAReceiveOnlyPhoneDoesNotPushFirst() = runBlocking {
+        val dao = FakeDao()
+        dao.upsert(row(1, watched = 1_000))
+        val remote = FakeRemote().apply { pcMode = LinkHistoryMode.RECEIVE_ONLY }
+        HistorySyncer(dao, remote).resync(HistoryResyncMode.PULL_REPLACE)
+        assertTrue(remote.pushed.isEmpty())
+        assertTrue(dao.rows.value.isEmpty())
+        assertEquals(listOf(true, false), remote.resyncNotes)
+    }
+
+    @Test
+    fun aFailedResyncStillEndsTheNotice() {
+        val dao = FakeDao()
+        runBlocking { dao.upsert(row(1, watched = 1)) }
+        val remote = FakeRemote().apply { unavailable = true }
+        assertFailsWith<LinkHistoryUnavailableException> { runBlocking { HistorySyncer(dao, remote).resync(HistoryResyncMode.PUSH_ALL) } }
+        assertEquals(listOf(true, false), remote.resyncNotes)
+        assertEquals(0, remote.resyncDoneCalls, "no done without the pushes")
+        assertEquals(HistorySyncer.Outcome.SKIPPED_DISABLED, runBlocking { HistorySyncer(dao, FakeRemote(), enabled = { false }).resync(HistoryResyncMode.PULL_REPLACE) })
     }
 }

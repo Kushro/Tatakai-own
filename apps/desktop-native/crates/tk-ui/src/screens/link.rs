@@ -7,13 +7,13 @@ use std::time::Duration;
 use dioxus::prelude::*;
 
 use crate::app::{Route, Services};
-use crate::backend::{Anime4kNoteVm, DeviceVm, LinkCapsVm, LinkStatusVm};
+use crate::backend::{Anime4kNoteVm, DeviceVm, HistoryModeVm, LinkCapsVm, LinkStatusVm};
 use crate::components::title_bar::ShellStatus;
 use crate::components::{
     Banner, Button, ButtonSize, ButtonVariant, ConfirmDialog, DisclosureSummary, EmptyState, ErrorState, IconButton, IconButtonSize, InfoChip,
-    Pill, SkeletonLines, TextField, Tone, WavyProgress, use_snackbar,
+    Menu, MenuItem, MenuSeparator, Pill, SkeletonLines, TextField, Tone, WavyProgress, use_snackbar,
 };
-use crate::i18n::{t, tf};
+use crate::i18n::{t, tf, tn};
 use crate::icons::Icon;
 use crate::model::{ErrorKind, Pairing, PlatformVm, UiError, format_code, format_countdown, format_unix_utc};
 use crate::platform::now_unix;
@@ -83,6 +83,9 @@ pub fn LinkPage() -> Element {
     let mut rename_value = use_signal(String::new);
     let mut revoke_target = use_signal(|| None::<DeviceVm>);
     let mut device_error = use_signal(|| None::<UiError>);
+    // 2026-11 history per device: "Use as source" and "Delete what it contributed" wait for their confirm dialog
+    let mut source_target = use_signal(|| None::<DeviceVm>);
+    let mut delete_target = use_signal(|| None::<DeviceVm>);
 
     // One-second clock for the countdown (only runs while this page is open). While a pairing window is open the
     // status (and its device list) is reloaded every 2 s, so a phone that just paired shows up without leaving the
@@ -94,6 +97,11 @@ pub fn LinkPage() -> Element {
             now.set(now_unix());
             tick = tick.wrapping_add(1);
             let open = pairing.peek().as_ref().is_some_and(|p| !p.is_expired(now_unix()));
+            // while a device sends its whole history ("Use as source") its row says so: refresh every 5 s until it ends
+            let resyncing = matches!(&*status.peek(), Some(Ok(s)) if s.devices.iter().any(|d| d.resyncing));
+            if resyncing && !open && tick % 5 == 0 {
+                status.restart();
+            }
             if open && tick % 2 == 0 {
                 let before = match &*status.peek() {
                     Some(Ok(s)) => s.devices.len(),
@@ -252,6 +260,64 @@ pub fn LinkPage() -> Element {
         }
     });
 
+    let set_mode = use_callback({
+        let backend = backend.clone();
+        move |(d, mode): (DeviceVm, HistoryModeVm)| {
+            if d.history_mode == mode {
+                return;
+            }
+            device_error.set(None);
+            let backend = backend.clone();
+            spawn(async move {
+                match backend.link_set_history_mode(&d.id, mode).await {
+                    Ok(()) => {
+                        snack.show(tf("sync.history.mode_set", &[("name", &d.name), ("mode", &t(history_mode_key(mode)))]));
+                        status.restart();
+                    }
+                    Err(e) => device_error.set(Some(e)),
+                }
+            });
+        }
+    });
+
+    let do_use_source = use_callback({
+        let backend = backend.clone();
+        move |_: ()| {
+            let Some(d) = source_target() else { return };
+            source_target.set(None);
+            device_error.set(None);
+            let backend = backend.clone();
+            spawn(async move {
+                match backend.link_use_as_source(&d.id).await {
+                    Ok(()) => {
+                        snack.show(tf("sync.history.source.started", &[("name", &d.name)]));
+                        status.restart();
+                    }
+                    Err(e) => device_error.set(Some(e)),
+                }
+            });
+        }
+    });
+
+    let do_delete_contributed = use_callback({
+        let backend = backend.clone();
+        move |_: ()| {
+            let Some(d) = delete_target() else { return };
+            delete_target.set(None);
+            device_error.set(None);
+            let backend = backend.clone();
+            spawn(async move {
+                match backend.link_delete_contributed(&d.id).await {
+                    Ok(n) => {
+                        snack.show(tn("sync.history.deleted", n as usize));
+                        status.restart();
+                    }
+                    Err(e) => device_error.set(Some(e)),
+                }
+            });
+        }
+    });
+
     let current: Option<LinkStatusVm> = status.read().as_ref().and_then(|r| r.as_ref().ok()).cloned();
     let caps_ok: Option<LinkCapsVm> = caps.read().as_ref().and_then(|r| r.as_ref().ok()).cloned();
     let running = current.as_ref().is_some_and(|s| s.running);
@@ -304,6 +370,9 @@ pub fn LinkPage() -> Element {
                             rename_target.set(Some(d));
                         },
                         on_revoke: move |d: DeviceVm| revoke_target.set(Some(d)),
+                        on_mode: move |v: (DeviceVm, HistoryModeVm)| set_mode.call(v),
+                        on_use_source: move |d: DeviceVm| source_target.set(Some(d)),
+                        on_delete_contributed: move |d: DeviceVm| delete_target.set(Some(d)),
                     }
                 }
             }
@@ -463,6 +532,8 @@ pub fn LinkPage() -> Element {
     };
 
     let revoke_name = revoke_target().map(|d| d.name).unwrap_or_default();
+    let source_name = source_target().map(|d| d.name).unwrap_or_default();
+    let (delete_name, delete_n) = delete_target().map(|d| (d.name, d.contributed.to_string())).unwrap_or_default();
 
     rsx! {
         div { class: "tk-page tk-page--link",
@@ -596,6 +667,28 @@ pub fn LinkPage() -> Element {
                 icon: "shield".to_string(),
                 on_cancel: move |_| revoke_target.set(None),
                 on_confirm: move |_| do_revoke.call(()),
+            }
+        }
+
+        if source_target().is_some() {
+            ConfirmDialog {
+                title: tf("sync.history.source.title", &[("name", &source_name)]),
+                body: tf("sync.history.source.body", &[("name", &source_name)]),
+                confirm_label: t("sync.history.use_source"),
+                icon: "sync".to_string(),
+                on_cancel: move |_| source_target.set(None),
+                on_confirm: move |_| do_use_source.call(()),
+            }
+        }
+
+        if delete_target().is_some() {
+            ConfirmDialog {
+                title: tf("sync.history.delete.title", &[("name", &delete_name)]),
+                body: tf("sync.history.delete.body", &[("name", &delete_name), ("n", &delete_n)]),
+                confirm_label: t("sync.history.delete.confirm"),
+                icon: "trash".to_string(),
+                on_cancel: move |_| delete_target.set(None),
+                on_confirm: move |_| do_delete_contributed.call(()),
             }
         }
     }
@@ -794,7 +887,11 @@ fn DeviceRow(
     now: i64,
     #[props(default)] on_rename: EventHandler<DeviceVm>,
     #[props(default)] on_revoke: EventHandler<DeviceVm>,
+    #[props(default)] on_mode: EventHandler<(DeviceVm, HistoryModeVm)>,
+    #[props(default)] on_use_source: EventHandler<DeviceVm>,
+    #[props(default)] on_delete_contributed: EventHandler<DeviceVm>,
 ) -> Element {
+    let mut menu_open = use_signal(|| false);
     let platform_key = platform_key(&device.platform);
     let last_seen = last_seen_attr(device.last_seen_unix, now);
     let seen = match device.last_seen_unix {
@@ -805,8 +902,14 @@ fn DeviceRow(
     let icon = if device.name.to_lowercase().contains("tab") { "tablet" } else { "phone" };
     let revoke_label = tf("link.revoke_named", &[("name", &device.name)]);
     let (for_rename, for_revoke) = (device.clone(), device.clone());
+    let (for_source, for_delete) = (device.clone(), device.clone());
+    let mode = device.history_mode;
+    let mode_attr = history_mode_attr(mode);
+    let contributed = tn("sync.history.contributed", device.contributed as usize);
+    let can_source = can_use_as_source(&device);
     rsx! {
         li { class: "tk-device", "data-online": "{device.online}", "data-last-seen": "{last_seen}", "data-platform": "{device.platform}",
+            "data-history-mode": "{mode_attr}", "data-resyncing": "{device.resyncing}",
             span { class: "tk-device__ico", Icon { name: icon.to_string(), size: 22 } }
             div { class: "tk-device__text",
                 div { class: "tk-device__name",
@@ -814,10 +917,65 @@ fn DeviceRow(
                     if device.online {
                         Pill { text: t("link.online"), tone: Tone::Ok }
                     }
+                    Pill { text: t(history_mode_key(mode)), tone: history_mode_tone(mode) }
+                    if device.resyncing {
+                        Pill { text: t("sync.history.resyncing"), tone: Tone::Primary }
+                    }
                 }
                 div { class: "tk-device__sub", {t(platform_key)} " · " "{seen}" " · " "{device.id}" }
+                div { class: "tk-device__history", "{contributed}" }
             }
             div { class: "tk-device__ctl",
+                Menu {
+                    open: menu_open(),
+                    label: tf("sync.history.menu_label", &[("name", &device.name)]),
+                    title: t("sync.history.menu"),
+                    on_close: move |_| menu_open.set(false),
+                    trigger: rsx! {
+                        Button {
+                            label: t("sync.history.menu"),
+                            icon: "history".to_string(),
+                            variant: ButtonVariant::Text,
+                            size: ButtonSize::Xs,
+                            onclick: move |_| menu_open.toggle(),
+                        }
+                    },
+                    for m in [HistoryModeVm::Full, HistoryModeVm::ReceiveOnly, HistoryModeVm::Paused] {
+                        MenuItem {
+                            key: "{history_mode_attr(m)}",
+                            label: t(history_mode_key(m)),
+                            hint: t(history_mode_hint_key(m)),
+                            checked: Some(m == mode),
+                            on_select: {
+                                let d = device.clone();
+                                move |_| {
+                                    menu_open.set(false);
+                                    on_mode.call((d.clone(), m));
+                                }
+                            },
+                        }
+                    }
+                    MenuSeparator {}
+                    MenuItem {
+                        label: t("sync.history.use_source"),
+                        icon: "sync".to_string(),
+                        hint: if mode == HistoryModeVm::Full { String::new() } else { t("sync.history.use_source_hint") },
+                        disabled: !can_source,
+                        on_select: move |_| {
+                            menu_open.set(false);
+                            on_use_source.call(for_source.clone());
+                        },
+                    }
+                    MenuItem {
+                        label: tf("sync.history.delete_contributed", &[("n", &device.contributed.to_string())]),
+                        icon: "trash".to_string(),
+                        disabled: device.contributed == 0,
+                        on_select: move |_| {
+                            menu_open.set(false);
+                            on_delete_contributed.call(for_delete.clone());
+                        },
+                    }
+                }
                 IconButton {
                     icon: "edit".to_string(),
                     label: t("common.rename"),
@@ -834,6 +992,46 @@ fn DeviceRow(
             }
         }
     }
+}
+
+/// i18n key of a history mode's name (pill, menu radio). Pure.
+pub fn history_mode_key(mode: HistoryModeVm) -> &'static str {
+    match mode {
+        HistoryModeVm::Full => "sync.history.mode.full",
+        HistoryModeVm::ReceiveOnly => "sync.history.mode.receive_only",
+        HistoryModeVm::Paused => "sync.history.mode.paused",
+    }
+}
+
+/// i18n key of the menu hint of a history mode. Pure.
+pub fn history_mode_hint_key(mode: HistoryModeVm) -> &'static str {
+    match mode {
+        HistoryModeVm::Full => "sync.history.mode.full_hint",
+        HistoryModeVm::ReceiveOnly => "sync.history.mode.receive_only_hint",
+        HistoryModeVm::Paused => "sync.history.mode.paused_hint",
+    }
+}
+
+/// `data-history-mode` (= the tk-link wire name). Pure.
+pub fn history_mode_attr(mode: HistoryModeVm) -> &'static str {
+    match mode {
+        HistoryModeVm::Full => "full",
+        HistoryModeVm::ReceiveOnly => "receive_only",
+        HistoryModeVm::Paused => "paused",
+    }
+}
+
+fn history_mode_tone(mode: HistoryModeVm) -> Tone {
+    match mode {
+        HistoryModeVm::Full => Tone::Neutral,
+        HistoryModeVm::ReceiveOnly => Tone::Warn,
+        HistoryModeVm::Paused => Tone::Err,
+    }
+}
+
+/// "Use as source" needs a device whose pushes the PC takes (full sync) and no resync from it running. Pure.
+pub fn can_use_as_source(d: &DeviceVm) -> bool {
+    d.history_mode == HistoryModeVm::Full && !d.resyncing
 }
 
 /// i18n key of a device platform (`link.last-seen`: tk-link records it at pairing and from the phone's agent).
@@ -877,6 +1075,22 @@ mod tests {
         assert_eq!(platform_key("Android"), "link.platform.android");
         assert_eq!(platform_key("ios"), "link.platform.ios");
         assert_eq!(platform_key(""), "link.platform.unknown");
+    }
+
+    #[test]
+    fn history_modes_have_keys_attrs_and_gate_the_source_action() {
+        use super::{can_use_as_source, history_mode_attr, history_mode_hint_key, history_mode_key};
+        use crate::backend::{DeviceVm, HistoryModeVm};
+        for (m, attr) in [(HistoryModeVm::Full, "full"), (HistoryModeVm::ReceiveOnly, "receive_only"), (HistoryModeVm::Paused, "paused")] {
+            assert_eq!(history_mode_attr(m), attr);
+            assert_eq!(history_mode_key(m), format!("sync.history.mode.{attr}"));
+            assert_eq!(history_mode_hint_key(m), format!("sync.history.mode.{attr}_hint"));
+        }
+        let d = DeviceVm::default();
+        assert!(can_use_as_source(&d));
+        assert!(!can_use_as_source(&DeviceVm { resyncing: true, ..d.clone() }));
+        assert!(!can_use_as_source(&DeviceVm { history_mode: HistoryModeVm::ReceiveOnly, ..d.clone() }));
+        assert!(!can_use_as_source(&DeviceVm { history_mode: HistoryModeVm::Paused, ..d }));
     }
 
     #[test]

@@ -14,6 +14,8 @@ val linkFeatureModule = module {
             discovery = getOrNull(),
             // BUG-132: profiles the phone's AVC decoder cannot play are shown disabled
             decodeLimits = { app.tatakai.next.link.AvcDecodeLimits.device() },
+            // 2026-11 history per device: "Esta PC no guarda lo que reproduces aquí" / "Sincronización pausada por la PC"
+            historyStatus = getOrNull(),
         )
     }
     // docs/redesign/13 §3.10: PC extension server connect screen

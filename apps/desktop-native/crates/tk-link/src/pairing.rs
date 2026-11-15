@@ -224,6 +224,7 @@ impl PairingWindow {
                 // `POST /v1/pairing` only accepts `platform: "android"` (server.rs); `touch` refines it later.
                 platform: "android".to_owned(),
                 last_seen_at: Some(now.unix_timestamp()),
+                history_mode: crate::devices::HistoryMode::Full,
             })
             .map_err(|_| PairingError::Internal("device registration failed"))?;
         tracing::info!(device = %cert.device_id, "device paired");

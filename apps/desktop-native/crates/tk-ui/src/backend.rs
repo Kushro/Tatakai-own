@@ -180,7 +180,7 @@ pub struct ExtensionVm {
     pub permissions: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct DeviceVm {
     pub id: String,
     pub name: String,
@@ -189,6 +189,24 @@ pub struct DeviceVm {
     pub last_seen_unix: Option<i64>,
     /// Has a live session with this PC right now ("Connected now" pill).
     pub online: bool,
+    /// 2026-11 history per device: how this PC treats the device's watch history.
+    pub history_mode: HistoryModeVm,
+    /// History rows on this PC whose origin is this device ("contributed N episodes").
+    pub contributed: u64,
+    /// "Use as source" is running for this device (its authoritative window is open).
+    pub resyncing: bool,
+}
+
+/// How the PC treats one paired device's watch history (tk-link `devices::HistoryMode`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HistoryModeVm {
+    /// Its pushes merge and it pulls the PC history.
+    #[default]
+    Full,
+    /// It pulls, but what it pushes is ignored.
+    ReceiveOnly,
+    /// Nothing in either direction.
+    Paused,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -1429,6 +1447,20 @@ pub trait Backend: Send + Sync + 'static {
     }
     async fn link_capabilities(&self) -> UiResult<LinkCapsVm> {
         Err(UiError::not_wired("link_capabilities"))
+    }
+    /// 2026-11 history per device: set the device's history mode.
+    async fn link_set_history_mode(&self, _device_id: &str, _mode: HistoryModeVm) -> UiResult<()> {
+        Err(UiError::not_wired("link_set_history_mode"))
+    }
+    /// "Use as source": the device pushes its whole history (its rows win), then the other non-paused devices replace
+    /// theirs with the PC's.
+    async fn link_use_as_source(&self, _device_id: &str) -> UiResult<()> {
+        Err(UiError::not_wired("link_use_as_source"))
+    }
+    /// Delete the history rows this device contributed (rows merged before origins existed are not touched).
+    /// Returns the rows removed.
+    async fn link_delete_contributed(&self, _device_id: &str) -> UiResult<u64> {
+        Err(UiError::not_wired("link_delete_contributed"))
     }
 
     // --- wave 2 (docs/redesign/09). Same rule: defaults keep every implementation compiling. ---

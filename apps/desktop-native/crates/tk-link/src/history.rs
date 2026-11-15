@@ -15,6 +15,19 @@
 //! * `DELETE /v1/history` -> 204: the PC drops its whole history (`LinkHost::history_clear`; the phone calls it
 //!   only after the user confirmed "also on the PC").
 //!
+//! 2026-11 history per device (additive, both directions stay compatible: old phones ignore unknown keys and event
+//! types, a new phone treats a 404 on the new routes as "old PC"):
+//! * Every row a phone pushes remembers it as its origin on the PC (`tk_core::LocalStore::merge_remote_from`).
+//! * Per-device [`HistoryMode`](crate::devices::HistoryMode) (`devices.json`): `receive_only` / `paused` pushes answer
+//!   `200 {"merged":0,"ignored":true}` (the phone marks them synced and does not retry); `paused` pulls answer an
+//!   empty, not truncated page. Pages and push results carry `mode`.
+//! * `GET /v1/history/mode` -> [`HistoryModeAnswer`] (the phone's Link screen).
+//! * "Use this device as the source" (PC action): the PC queues `{"type":"history_resync","mode":"push_all"}` for the
+//!   source and opens its authoritative window (its pushes win regardless of timestamps, at most
+//!   `RESYNC_WINDOW_SECS`); the source then calls `POST /v1/history/resync-done` -> [`ResyncDoneAnswer`], which
+//!   closes the window and queues `pull_replace` for every other active device that is not `paused`
+//!   ([`resync_targets`]).
+//!
 //! Known limit (documented, accepted): the cursor is `watchedAt`, so a row a phone pushes with an old `watchedAt`
 //! is not re-served to a second phone's incremental pull (its first full pull gets it). Worker f may move the
 //! cursor to a PC-side modification time later without changing the wire.
@@ -26,6 +39,8 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 use tk_core::HistoryEntry;
+
+use crate::devices::{Device, HistoryMode};
 
 /// Most rows per page / per push (= the Android client's `LinkClient.MAX_HISTORY_ROWS`).
 pub const MAX_ROWS: usize = 500;
@@ -109,6 +124,9 @@ pub struct HistoryPage {
     /// More rows matched than `limit`: ask again from `next_since_unix`.
     #[serde(default)]
     pub truncated: bool,
+    /// The calling device's history mode (2026-11; absent from older PCs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<HistoryMode>,
 }
 
 /// `POST /v1/history` body (= Android `LinkHistoryPushDto`).
@@ -123,6 +141,48 @@ pub struct HistoryPush {
 pub struct HistoryPushResult {
     /// Rows the PC stored (newer than what it had, or new). Rows it already had newer are not counted.
     pub merged: usize,
+    /// The device's mode does not take pushes (`receive_only` / `paused`): nothing was stored, and the phone must
+    /// treat the rows as synced (no retry).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ignored: bool,
+    /// The calling device's history mode (absent from older PCs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<HistoryMode>,
+}
+
+/// `GET /v1/history/mode` answer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoryModeAnswer {
+    pub mode: HistoryMode,
+    /// The PC's authoritative window for this device is open (it asked this device to push everything).
+    pub resync: bool,
+}
+
+/// `POST /v1/history/resync-done` answer: how many other devices were asked to replace their history (0 when the
+/// caller had no open window).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResyncDoneAnswer {
+    pub notified: usize,
+}
+
+/// The devices a finished resync from `source` fans out to: active ones other than `source` whose mode is not
+/// `paused`. Pure.
+pub fn resync_targets(devices: &[Device], source: &str, now: i64) -> Vec<String> {
+    devices
+        .iter()
+        .filter(|d| d.id != source && d.is_active(now) && d.history_mode != HistoryMode::Paused)
+        .map(|d| d.id.clone())
+        .collect()
+}
+
+/// What a push answers when the device's mode does not take pushes.
+pub fn ignored_push(mode: HistoryMode) -> HistoryPushResult {
+    HistoryPushResult { merged: 0, ignored: true, mode: Some(mode) }
+}
+
+/// What a pull answers for a `paused` device: nothing, not truncated, the cursor unchanged.
+pub fn paused_page(since_unix: i64) -> HistoryPage {
+    HistoryPage { items: Vec::new(), next_since_unix: since_unix, truncated: false, mode: Some(HistoryMode::Paused) }
 }
 
 /// Build the page from `rows` already filtered to `watchedAt > since` and ordered oldest first (what
@@ -132,7 +192,7 @@ pub fn page(rows: Vec<HistoryEntry>, limit: usize, since_unix: i64) -> HistoryPa
     let truncated = rows.len() > limit;
     let items: Vec<HistoryRow> = rows.iter().take(limit).map(HistoryRow::from).collect();
     let next_since_unix = rows.iter().take(limit).last().map(|e| e.watched_at.unix_timestamp()).unwrap_or(since_unix);
-    HistoryPage { items, next_since_unix, truncated }
+    HistoryPage { items, next_since_unix, truncated, mode: None }
 }
 
 /// Clamp the `limit` query parameter (absent = `MAX_ROWS`).
@@ -185,7 +245,7 @@ mod tests {
         assert_eq!((e.anime_id.as_str(), e.episode, e.progress_sec, e.mal_id), ("mal:52991", 1, 90, Some(52991)));
         assert_eq!(e.watched_at.unix_timestamp(), 1_793_135_051);
         assert!(serde_json::from_str::<HistoryPush>(r#"{"items":[],"user_id":"x"}"#).is_err());
-        assert_eq!(serde_json::to_value(HistoryPushResult { merged: 2 }).unwrap(), serde_json::json!({ "merged": 2 }));
+        assert_eq!(serde_json::to_value(HistoryPushResult { merged: 2, ignored: false, mode: None }).unwrap(), serde_json::json!({ "merged": 2 }));
         // rows without any id are refused (E9)
         let r = HistoryRow { anilist_id: None, mal_id: None, ..HistoryRow::from(&row(1, 1)) };
         assert!(r.into_entry().is_none());
@@ -242,6 +302,50 @@ mod tests {
     #[test]
     fn page_wire_defaults_truncated() {
         let p: HistoryPage = serde_json::from_str(r#"{"items":[],"next_since_unix":5}"#).unwrap();
-        assert_eq!(p, HistoryPage { items: Vec::new(), next_since_unix: 5, truncated: false });
+        assert_eq!(p, HistoryPage { items: Vec::new(), next_since_unix: 5, truncated: false, mode: None });
+    }
+
+    // ---- 2026-11 history per device ----
+
+    fn dev(id: &str, mode: HistoryMode, revoked: bool) -> Device {
+        Device {
+            id: id.into(),
+            name: id.into(),
+            fingerprint: format!("fp-{id}"),
+            created_at: 0,
+            not_after: 1_000,
+            revoked_at: revoked.then_some(1),
+            platform: "android".into(),
+            last_seen_at: None,
+            history_mode: mode,
+        }
+    }
+
+    #[test]
+    fn resync_fans_out_only_to_other_active_unpaused_devices() {
+        let devices = vec![
+            dev("tab", HistoryMode::Full, false),
+            dev("moto", HistoryMode::ReceiveOnly, false),
+            dev("old", HistoryMode::Full, true),
+            dev("quiet", HistoryMode::Paused, false),
+            dev("pixel", HistoryMode::Full, false),
+        ];
+        assert_eq!(resync_targets(&devices, "tab", 10), ["moto", "pixel"]);
+        assert_eq!(resync_targets(&devices, "moto", 10), ["tab", "pixel"]);
+        assert!(resync_targets(&devices, "tab", 5_000).is_empty(), "expired certificates are not active");
+    }
+
+    #[test]
+    fn ignored_pushes_and_paused_pages_on_the_wire() {
+        assert_eq!(serde_json::to_value(ignored_push(HistoryMode::ReceiveOnly)).unwrap(), serde_json::json!({ "merged": 0, "ignored": true, "mode": "receive_only" }));
+        let p = paused_page(42);
+        assert_eq!(serde_json::to_value(&p).unwrap(), serde_json::json!({ "items": [], "next_since_unix": 42, "truncated": false, "mode": "paused" }));
+        // an older phone's DTO only needs `merged` / `items` / `next_since_unix`: still there
+        let back: HistoryPushResult = serde_json::from_str(r#"{"merged":3}"#).unwrap();
+        assert_eq!(back, HistoryPushResult { merged: 3, ignored: false, mode: None });
+        assert_eq!(
+            serde_json::to_value(HistoryModeAnswer { mode: HistoryMode::Full, resync: true }).unwrap(),
+            serde_json::json!({ "mode": "full", "resync": true })
+        );
     }
 }

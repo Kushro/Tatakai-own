@@ -51,6 +51,17 @@ abstract class HistoryDao {
     @Query("DELETE FROM history")
     abstract suspend fun clear()
 
+    /**
+     * 2026-11 history per device (`push_all` from the PC): every row becomes dirty (`syncedAtMs = null`) so the next push sends the
+     * whole history. Returns the rows marked. Built on [all] / [upsert] so test fakes need nothing new.
+     */
+    @Transaction
+    open suspend fun markAllDirty(): Int {
+        val rows = all()
+        rows.forEach { upsert(it.copy(syncedAtMs = null)) }
+        return rows.size
+    }
+
     /** parity wave A (worker q): Settings › Datos › Exportar historial, newest first. */
     @Query("SELECT * FROM history ORDER BY watchedAtMs DESC")
     abstract suspend fun all(): List<HistoryRow>

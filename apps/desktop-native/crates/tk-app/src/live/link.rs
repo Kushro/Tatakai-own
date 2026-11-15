@@ -5,6 +5,7 @@
 //! another port (`restart`). A failed start (port taken: os error 10048 / 98) is not an `Err` of
 //! `status` / `restart`: it is reported in `LinkStatusVm::error` so the screen can offer the fixes.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -16,8 +17,9 @@ use tk_link::control::{PhoneEvent, PlayerState};
 use tk_link::discovery::Announcer;
 use tk_link::media::capabilities::Sustain;
 use tk_link::sessions::{CreateRequest, SourceRequest};
+use tk_link::devices::HistoryMode;
 use tk_link::{Device, LinkConfig, LinkError, LinkHandle, LinkHost, Vendor};
-use tk_ui::backend::{Anime4kNoteVm, Backend, DeviceVm, LinkCapsVm, LinkStatusVm, PresenceVm, RemoteCommandVm, SendOutcomeVm, SendProgress, SendToDeviceVm, UiResult};
+use tk_ui::backend::{Anime4kNoteVm, Backend, DeviceVm, HistoryModeVm, LinkCapsVm, LinkStatusVm, PresenceVm, RemoteCommandVm, SendOutcomeVm, SendProgress, SendToDeviceVm, UiResult};
 use tk_ui::model::{ErrorKind, Pairing, UiError};
 
 use super::LiveBackend;
@@ -138,6 +140,9 @@ impl LinkHost for AppLinkHost {
     }
     fn history_merge(&self, rows: Vec<tk_core::HistoryEntry>) -> usize {
         super::history_sync::merge(&self.store, rows)
+    }
+    fn history_merge_from(&self, device_id: &str, rows: Vec<tk_core::HistoryEntry>, authoritative: bool) -> usize {
+        super::history_sync::merge_from(&self.store, device_id, rows, authoritative)
     }
     fn history_clear(&self) -> bool {
         super::history_sync::clear(&self.store)
@@ -619,22 +624,51 @@ fn start_err(e: &LinkError, port: u16) -> UiError {
     }
 }
 
-/// The active paired devices of `<dir>/devices.json` with the server down: none online, no error.
-fn paired_vm(dir: &Path, port: u16) -> LinkStatusVm {
+/// The active paired devices of `<dir>/devices.json` with the server down: none online, no error. `counts` = history
+/// rows per origin device.
+fn paired_vm(dir: &Path, port: u16, counts: &HashMap<String, u64>) -> LinkStatusVm {
     let devices = tk_link::devices::DeviceRegistry::open(dir.join("devices.json"))
         .map(|r| r.list())
         .unwrap_or_default()
         .into_iter()
         .filter(|d| d.is_active(now_unix()))
-        .map(|d| device_vm(d, &[]))
+        .map(|d| device_vm(d, &[], counts, false))
         .collect();
     LinkStatusVm { running: false, port, devices, error: None }
 }
 
-fn device_vm(d: Device, online: &[String]) -> DeviceVm {
+fn device_vm(d: Device, online: &[String], counts: &HashMap<String, u64>, resyncing: bool) -> DeviceVm {
     // Wave B (k, `link.last-seen`): tk-link refreshes both on every authenticated request of the phone.
     let online = online.iter().any(|id| *id == d.id);
-    DeviceVm { id: d.id, name: d.name, platform: d.platform, last_seen_unix: d.last_seen_at, online }
+    let contributed = counts.get(&d.id).copied().unwrap_or(0);
+    DeviceVm {
+        history_mode: mode_vm(d.history_mode),
+        contributed,
+        resyncing,
+        id: d.id,
+        name: d.name,
+        platform: d.platform,
+        last_seen_unix: d.last_seen_at,
+        online,
+    }
+}
+
+/// tk-link history mode -> view model. Pure.
+fn mode_vm(m: HistoryMode) -> HistoryModeVm {
+    match m {
+        HistoryMode::Full => HistoryModeVm::Full,
+        HistoryMode::ReceiveOnly => HistoryModeVm::ReceiveOnly,
+        HistoryMode::Paused => HistoryModeVm::Paused,
+    }
+}
+
+/// View model -> tk-link history mode. Pure.
+fn mode_link(m: HistoryModeVm) -> HistoryMode {
+    match m {
+        HistoryModeVm::Full => HistoryMode::Full,
+        HistoryModeVm::ReceiveOnly => HistoryMode::ReceiveOnly,
+        HistoryModeVm::Paused => HistoryMode::Paused,
+    }
 }
 
 /// `7A3F 91C2 0E5D B8A4`: the first 16 hex digits of the CA fingerprint, upper case, in groups of 4.
@@ -760,19 +794,28 @@ impl LinkService {
         self.start_locked(&mut st).await
     }
 
-    fn running_vm(h: &LinkHandle) -> LinkStatusVm {
+    fn running_vm(&self, h: &LinkHandle) -> LinkStatusVm {
         let online = h.online_device_ids();
+        let counts = super::history_sync::origin_counts(&self.store);
         LinkStatusVm {
             running: true,
             port: h.port(),
-            devices: h.devices().into_iter().filter(|d| d.is_active(now_unix())).map(|d| device_vm(d, &online)).collect(),
+            devices: h
+                .devices()
+                .into_iter()
+                .filter(|d| d.is_active(now_unix()))
+                .map(|d| {
+                    let resyncing = h.resync_running(&d.id);
+                    device_vm(d, &online, &counts, resyncing)
+                })
+                .collect(),
             error: None,
         }
     }
 
     /// Server down: the paired devices still come from `devices.json`, none of them online.
     fn stopped_vm(&self, port: u16, error: UiError) -> LinkStatusVm {
-        LinkStatusVm { error: Some(error), ..paired_vm(&self.dir, port) }
+        LinkStatusVm { error: Some(error), ..paired_vm(&self.dir, port, &super::history_sync::origin_counts(&self.store)) }
     }
 
     /// BUG-130: the status without starting the server (no firewall prompt): the running server's devices, or the
@@ -781,8 +824,8 @@ impl LinkService {
     pub async fn peek(&self) -> LinkStatusVm {
         let st = self.state.lock().await;
         match st.handle.as_ref() {
-            Some(h) => Self::running_vm(h),
-            None => paired_vm(&self.dir, st.port),
+            Some(h) => self.running_vm(h),
+            None => paired_vm(&self.dir, st.port, &super::history_sync::origin_counts(&self.store)),
         }
     }
 
@@ -801,10 +844,10 @@ impl LinkService {
     pub async fn status(&self) -> Result<LinkStatusVm, UiError> {
         let mut st = self.state.lock().await;
         if let Some(h) = st.handle.clone() {
-            return Ok(Self::running_vm(&h));
+            return Ok(self.running_vm(&h));
         }
         match self.start_locked(&mut st).await {
-            Ok(h) => Ok(Self::running_vm(&h)),
+            Ok(h) => Ok(self.running_vm(&h)),
             Err(e) => Ok(self.stopped_vm(st.port, e)),
         }
     }
@@ -823,7 +866,7 @@ impl LinkService {
         match self.start_locked(&mut st).await {
             Ok(h) => {
                 save_port(&self.dir, h.port());
-                Ok(Self::running_vm(&h))
+                Ok(self.running_vm(&h))
             }
             Err(e) => Ok(self.stopped_vm(port, e)),
         }
@@ -852,6 +895,32 @@ impl LinkService {
         } else {
             Err(err(format!("device {id} could not be renamed (unknown, revoked or empty name)")))
         }
+    }
+
+    /// 2026-11 history per device: persisted in tk-link `devices.json`.
+    pub async fn set_history_mode(&self, id: &str, mode: HistoryModeVm) -> Result<(), UiError> {
+        if self.ensure().await?.set_history_mode(id, mode_link(mode)) {
+            Ok(())
+        } else {
+            Err(err(format!("device {id} is unknown or revoked")))
+        }
+    }
+
+    /// "Use as source": the device pushes everything (winning for the window), then the others replace theirs.
+    pub async fn use_as_source(&self, id: &str) -> Result<(), UiError> {
+        if self.ensure().await?.start_resync_from(id) {
+            Ok(())
+        } else {
+            Err(err(format!("device {id} cannot be the history source (unknown, revoked or not in full mode)")))
+        }
+    }
+
+    /// Delete the PC history rows whose origin is `id` (no server needed: the rows are in the store).
+    pub async fn delete_contributed(&self, id: &str) -> Result<u64, UiError> {
+        let store = self.store.clone();
+        let id = id.to_owned();
+        let n = tokio::task::spawn_blocking(move || store.delete_history_by_origin(&id)).await.map_err(err)?.map_err(err)?;
+        Ok(n as u64)
     }
 
     /// What `GET /v1/capabilities` answers, read from the running server (no network round trip).
@@ -934,7 +1003,7 @@ mod tests {
     fn the_paired_devices_are_read_without_the_server() {
         // BUG-130: Details lists the paired phones right after launch, without starting Link
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(paired_vm(dir.path(), 47321), LinkStatusVm { running: false, port: 47321, devices: Vec::new(), error: None });
+        assert_eq!(paired_vm(dir.path(), 47321, &HashMap::new()), LinkStatusVm { running: false, port: 47321, devices: Vec::new(), error: None });
         let reg = tk_link::devices::DeviceRegistry::open(dir.path().join("devices.json")).unwrap();
         let now = now_unix();
         let dev = |id: &str, revoked_at: Option<i64>| Device {
@@ -946,16 +1015,22 @@ mod tests {
             revoked_at,
             platform: "android".into(),
             last_seen_at: Some(now - 5),
+            history_mode: HistoryMode::ReceiveOnly,
         };
         reg.add(dev("a", None)).unwrap();
         reg.add(dev("b", Some(now - 1))).unwrap();
         drop(reg);
-        let vm = paired_vm(dir.path(), 47321);
+        let vm = paired_vm(dir.path(), 47321, &HashMap::from([("a".to_owned(), 7)]));
         assert!(!vm.running && vm.error.is_none());
         assert_eq!(vm.devices.len(), 1);
         assert_eq!(vm.devices[0].id, "a");
         assert!(!vm.devices[0].online);
         assert_eq!(vm.devices[0].last_seen_unix, Some(now - 5));
+        // 2026-11 history per device: the mode and the contributed rows travel to the row
+        assert_eq!((vm.devices[0].history_mode, vm.devices[0].contributed, vm.devices[0].resyncing), (HistoryModeVm::ReceiveOnly, 7, false));
+        for m in [HistoryModeVm::Full, HistoryModeVm::ReceiveOnly, HistoryModeVm::Paused] {
+            assert_eq!(mode_vm(mode_link(m)), m);
+        }
     }
 
     #[test]
