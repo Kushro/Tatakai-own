@@ -462,17 +462,6 @@ private fun InfoPanel() {
                 R.string.extserver_extra_viewer_password,
             ),
         )
-        Surface(
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(stringResource(R.string.extserver_coming_soon_title), style = MaterialTheme.typography.labelLarge)
-                Text(stringResource(R.string.extserver_coming_soon_desktop_next), style = MaterialTheme.typography.bodySmall)
-            }
-        }
     }
 }
 

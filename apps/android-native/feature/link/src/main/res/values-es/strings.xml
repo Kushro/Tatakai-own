@@ -163,6 +163,4 @@
     <string name="extserver_extra_revocable">Tokens de dispositivo que puedes revocar desde la PC cuando quieras.</string>
     <string name="extserver_extra_fallback">Si la PC no responde, la app sigue usando sus extensiones locales.</string>
     <string name="extserver_extra_viewer_password">Contraseña de visor opcional.</string>
-    <string name="extserver_coming_soon_title">Próximamente</string>
-    <string name="extserver_coming_soon_desktop_next">Modo servidor para Tatakai Next de escritorio, opcional y configurable.</string>
 </resources>

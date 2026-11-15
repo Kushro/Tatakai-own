@@ -164,6 +164,4 @@
     <string name="extserver_extra_revocable">Device tokens you can revoke from the PC at any time.</string>
     <string name="extserver_extra_fallback">If the PC does not answer, the app keeps using its local extensions.</string>
     <string name="extserver_extra_viewer_password">Optional viewer password.</string>
-    <string name="extserver_coming_soon_title">Coming soon</string>
-    <string name="extserver_coming_soon_desktop_next">Server mode for the Tatakai Next desktop app, optional and configurable.</string>
 </resources>
