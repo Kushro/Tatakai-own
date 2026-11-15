@@ -3,7 +3,11 @@ package app.tatakai.next.feature.home
 
 import app.tatakai.next.model.CardStyle
 import app.tatakai.next.model.Density
+import app.tatakai.next.ui.look.CardSizing
 import app.tatakai.next.ui.look.LocalLook
+import app.tatakai.next.ui.media.COVER_ASPECT_RATIO
+import app.tatakai.next.ui.media.MediaWideCard
+import androidx.compose.ui.platform.LocalConfiguration
 import app.tatakai.next.ui.media.classicFactsLine
 import app.tatakai.next.ui.media.detailedFactsLine
 import app.tatakai.next.ui.media.dotColor
@@ -92,7 +96,11 @@ fun rememberMatureGate(mode: MatureContentMode): MatureGate {
     return gate
 }
 
-/** [MediaCard] that honours [gate]: blurred poster + label while hidden in BLUR mode. */
+/**
+ * [MediaCard] that honours [gate]: blurred poster + label while hidden in BLUR mode. 0.3.2: follows Tamaño de tarjetas — small /
+ * medium poster cards scale [width] (the medium width), large / XL draw the horizontal [MediaWideCard] sized for the window
+ * ([episodeLine] = "Episodio 5 · hace 3 horas" on episode rows).
+ */
 @Composable
 fun GatedMediaCard(
     media: Media,
@@ -101,25 +109,42 @@ fun GatedMediaCard(
     modifier: Modifier = Modifier,
     width: Dp = 120.dp,
     subtitle: String? = null,
+    episodeLine: String? = null,
 ) {
     val hidden = gate.isHidden(media) && gate.mode == MatureContentMode.BLUR
     // 2026-11 UI refresh: card style and density of Diseño y estilo (compact cards are ~13 % narrower).
     val look = LocalLook.current
     val style = look.cardStyle
-    Box(modifier.width(if (look.density == Density.COMPACT) width * 0.87f else width)) {
-        MediaCard(
-            title = media.displayTitle(LocalTitleLanguage.current),
-            coverUrl = media.cover,
-            onClick = { gate.open(media, onClick) },
-            modifier = Modifier.fillMaxWidth().then(if (hidden) Modifier.blur(18.dp) else Modifier),
-            subtitle = if (style == CardStyle.MINIMAL) {
-                null
-            } else {
-                subtitle ?: if (style == CardStyle.CLASSIC) classicFactsLine(media) ?: mediaSubtitle(media) else detailedFactsLine(media) ?: mediaSubtitle(media)
-            },
-            style = style,
-            statusDot = mediaStatusKind(media.status)?.dotColor(),
-        )
+    val size = look.cardSize
+    val title = media.displayTitle(LocalTitleLanguage.current)
+    val blur = if (hidden) Modifier.blur(18.dp) else Modifier
+    Box(modifier.width(homeCardWidth(width))) {
+        if (size.isWide) {
+            MediaWideCard(
+                media = media,
+                title = title,
+                onClick = { gate.open(media, onClick) },
+                size = size,
+                width = homeCardWidth(width),
+                modifier = blur,
+                episodeLine = episodeLine,
+                subtitle = subtitle,
+            )
+        } else {
+            MediaCard(
+                title = title,
+                coverUrl = media.cover,
+                onClick = { gate.open(media, onClick) },
+                modifier = Modifier.fillMaxWidth().then(blur),
+                subtitle = if (style == CardStyle.MINIMAL) {
+                    null
+                } else {
+                    subtitle ?: if (style == CardStyle.CLASSIC) classicFactsLine(media) ?: mediaSubtitle(media) else detailedFactsLine(media) ?: mediaSubtitle(media)
+                },
+                style = style,
+                statusDot = mediaStatusKind(media.status)?.dotColor(),
+            )
+        }
         if (hidden) {
             Column(Modifier.align(Alignment.Center).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Outlined.NoAdultContent, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
@@ -127,4 +152,20 @@ fun GatedMediaCard(
             }
         }
     }
+}
+
+/** Width of a Home row card: [mediumWidth] scaled by the poster size, or the wide card width for the window (0.3.2). */
+@Composable
+internal fun homeCardWidth(mediumWidth: Dp = 120.dp): Dp {
+    val look = LocalLook.current
+    val size = look.cardSize
+    if (size.isWide) return CardSizing.wideCardDp(size, LocalConfiguration.current.screenWidthDp.toFloat()).dp
+    return mediumWidth * (CardSizing.posterDp(size, look.density == Density.COMPACT) / CardSizing.MEDIUM_DP)
+}
+
+/** Height of a Home row card's image block (skeletons): the poster of a poster card, the whole wide card. */
+@Composable
+internal fun homeCardHeight(mediumWidth: Dp = 120.dp): Dp {
+    val size = LocalLook.current.cardSize
+    return if (size.isWide) CardSizing.widePosterDp(size).dp / COVER_ASPECT_RATIO else homeCardWidth(mediumWidth) / COVER_ASPECT_RATIO
 }

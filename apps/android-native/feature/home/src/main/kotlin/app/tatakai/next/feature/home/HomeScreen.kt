@@ -234,6 +234,7 @@ internal fun HomeContent(
                             actions = actions,
                             topPadding = padding.calculateTopPadding(),
                             unread = unreadNotifications,
+                            art = state.heroArt,
                         )
                     }
                 }
@@ -509,11 +510,13 @@ private fun SpotlightSection(
     actions: HomeActions,
     topPadding: androidx.compose.ui.unit.Dp,
     unread: Int,
+    art: Map<String, app.tatakai.next.model.MediaArtwork> = emptyMap(),
 ) {
     when (hero) {
         is LoadState.Ok -> if (hero.value.isNotEmpty()) {
             Spotlight(
                 items = hero.value,
+                art = art,
                 continueWatching = continueWatching,
                 autoplayMs = autoplayMs,
                 onOpen = actions.onMediaClick,
@@ -657,7 +660,7 @@ private fun FeedRowSection(row: FeedRow, gate: MatureGate, onMediaClick: (Media)
 @Composable
 internal fun SkeletonRow() {
     if (!rememberAfterDelay()) {
-        Box(Modifier.fillMaxWidth().posterHeight())
+        Box(Modifier.fillMaxWidth().height(homeCardHeight()))
         return
     }
     LazyRow(
@@ -666,7 +669,7 @@ internal fun SkeletonRow() {
         userScrollEnabled = false,
     ) {
         items(SKELETON_COUNT, key = { it }, contentType = { "skeleton" }) {
-            SkeletonBox(Modifier.width(CARD_WIDTH).posterHeight())
+            SkeletonBox(Modifier.width(homeCardWidth()).height(homeCardHeight()))
         }
     }
 }

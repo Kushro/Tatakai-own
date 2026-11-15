@@ -43,7 +43,7 @@ enum class CardStyle(override val id: String) : LookChoice {
     /** Poster, a status dot before the title, year and format under it. */
     DETAILED("detailed"),
 
-    /** Poster only; the title is read by TalkBack and shown on long press. */
+    /** Poster only, with the title over a bottom gradient (0.3.2: always visible). */
     MINIMAL("minimal"),
     ;
 

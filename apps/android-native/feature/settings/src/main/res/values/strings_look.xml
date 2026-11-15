@@ -8,7 +8,7 @@
     <string name="settings_look_preset_tatakai">Tatakai</string>
     <string name="settings_look_preset_tatakai_hint">Spotlight banner, detailed cards and lively animations.</string>
     <string name="settings_look_preset_cinema">Cinema</string>
-    <string name="settings_look_preset_cinema_hint">Big banner, posters only and an icons-only rail.</string>
+    <string name="settings_look_preset_cinema_hint">Big banner, large cards in rows, poster-only grids and an icons-only rail.</string>
     <string name="settings_look_preset_dense">Dense</string>
     <string name="settings_look_preset_dense_hint">Rows first, compact cards and lists, subtle motion.</string>
     <string name="settings_look_preset_calm">Calm</string>
@@ -22,6 +22,12 @@
     <string name="settings_look_cards_classic">Classic</string>
     <string name="settings_look_cards_detailed">Detailed</string>
     <string name="settings_look_cards_minimal">Poster only</string>
+    <string name="settings_look_card_size">Card size</string>
+    <string name="settings_look_card_size_hint">Large and Extra large show the poster beside the title, facts, score and genres.</string>
+    <string name="settings_look_card_size_small">Small</string>
+    <string name="settings_look_card_size_medium">Medium</string>
+    <string name="settings_look_card_size_large">Large</string>
+    <string name="settings_look_card_size_xl">Extra large</string>
     <string name="settings_look_density">Density</string>
     <string name="settings_look_density_comfortable">Comfortable</string>
     <string name="settings_look_density_compact">Compact</string>

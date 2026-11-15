@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import app.tatakai.next.model.CardStyle
@@ -35,7 +37,7 @@ import java.util.Locale
 /**
  * Poster + title (+ subtitle, + optional watch progress). Primitive overload so history entries can reuse it.
  * 2026-11 UI refresh: [style] follows Diseño y estilo ([LocalLook]); [CardStyle.MINIMAL] shows the poster only (the title stays
- * for TalkBack), the other two the title and [subtitle] ([CardStyle.DETAILED] adds the [statusDot] before the title).
+ * for TalkBack; 0.3.2: drawn over a bottom gradient on the poster), the other two the title and [subtitle] ([CardStyle.DETAILED] adds the [statusDot] before the title).
  */
 @Composable
 fun MediaCard(
@@ -60,6 +62,27 @@ fun MediaCard(
     ) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomStart) {
             MediaCover(url = coverUrl, modifier = Modifier.fillMaxWidth())
+            if (style == CardStyle.MINIMAL) {
+                // 0.3.2: "Solo póster" always shows the title over a bottom gradient (no long press / hover needed). TalkBack reads
+                // the card's description once, not this text again.
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(Brush.verticalGradient(0.45f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.82f))),
+                )
+                Text(
+                    title,
+                    style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge,
+                    color = Color.White,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 8.dp, end = 8.dp, bottom = if (progress != null) 20.dp else 8.dp)
+                        .clearAndSetSemantics { },
+                )
+            }
             if (progress != null) {
                 LinearProgressIndicator(
                     progress = { progress.coerceIn(0f, 1f) },

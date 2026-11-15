@@ -23,6 +23,7 @@ import app.tatakai.next.model.ListsRepository
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MatureContentMode
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.MediaArtwork
 import app.tatakai.next.model.MediaDetails
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
@@ -113,6 +114,8 @@ data class DetailsUiState(
     val listEntry: ListEntry? = null,
     /** BUG-039: "Volver a comprobar" of the send dialog is asking the PC. */
     val pcChecking: Boolean = false,
+    /** 0.3.2: ani.zip artwork (the header backdrop prefers its 1920x1080 fanart over AniList's 1900x400 banner); null = none / not yet. */
+    val artwork: MediaArtwork? = null,
 ) {
     private val total: Int? get() = listEntry?.totalEpisodes?.takeIf { it > 0 } ?: (media as? LoadState.Ok)?.value?.episodes
 
@@ -346,6 +349,13 @@ class DetailsViewModel(
             updateAdultGate()
         }
         loadDetails()
+        if (kind == MediaKind.ANIME) {
+            // 0.3.2: ani.zip artwork, cached 7 days; the header swaps to the fanart when it arrives, nothing changes on failure.
+            viewModelScope.launch {
+                val art = runCatchingApp { metadata.artwork(ref) }.getOrNull()
+                if (art != null) _state.update { it.copy(artwork = art) }
+            }
+        }
         viewModelScope.launch {
             val result = runCatchingApp { metadata.episodes(ref).sortedBy { it.number } }
             _state.update {

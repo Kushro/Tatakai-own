@@ -212,14 +212,24 @@ private fun Header(media: Media, state: DetailsUiState, actions: DetailsActions)
         // matureContent BLUR: banner and cover stay blurred until the first tap on either.
         val blurred = state.coverBlurred
         val blurModifier = if (blurred) Modifier.blur(24.dp).clickable(onClick = actions.onRevealCover) else Modifier
+        // 0.3.2: ani.zip fanart (1920x1080) first; AniList's 1900x400 banner / the cover are cropped from the bottom / center under a
+        // stronger scrim instead of looking stretched.
+        val backdrop = headerBackdrop(media, state.artwork)
         Box(Modifier.fillMaxWidth().height(220.dp)) {
             AsyncImage(
-                model = media.banner ?: media.cover,
+                model = backdrop.url,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                alignment = if (backdrop.lowRes && media.banner != null) Alignment.BottomCenter else Alignment.Center,
                 modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHighest).then(blurModifier),
             )
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(background.copy(alpha = 0f), background))))
+            Box(
+                Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        listOf(background.copy(alpha = if (backdrop.lowRes) 0.35f else 0f), background.copy(alpha = if (backdrop.lowRes) 0.7f else 0.5f), background),
+                    ),
+                ),
+            )
             if (blurred) {
                 Row(
                     Modifier.align(Alignment.Center).clickable(onClick = actions.onRevealCover).padding(12.dp),
@@ -597,7 +607,7 @@ private fun LazyListScope.episodeItems(
     onRange: (Int) -> Unit,
     cardColumns: Int = 1,
 ) {
-    val fallbackArt = media.banner ?: media.cover
+    val fallbackArt = state.artwork?.fanart ?: media.banner ?: media.cover
     when (val eps = state.episodes) {
         LoadState.Loading -> item(key = "episodes-loading", contentType = "loading") { DelayedLoading() }
         is LoadState.Err -> item(key = "episodes-error", contentType = "error") {

@@ -60,4 +60,17 @@
     <string name="ui_nav_for_you">For you</string>
     <string name="ui_for_you_summary">Recommendations from what you watch</string>
     <string name="ui_hero_go_to">Title %1$d of %2$d</string>
+    <!-- 0.3.2: "Episodio 5 · hace 3 horas" on the large / XL cards of episode rows -->
+    <string name="ui_ago_now">just now</string>
+    <plurals name="ui_minutes_ago">
+        <item quantity="one">%1$d minute ago</item>
+        <item quantity="other">%1$d minutes ago</item>
+    </plurals>
+    <plurals name="ui_hours_ago">
+        <item quantity="one">%1$d hour ago</item>
+        <item quantity="other">%1$d hours ago</item>
+    </plurals>
+    <string name="ui_episode_ago">Episode %1$d · %2$s</string>
+    <string name="ui_episode_n">Episode %1$d</string>
+    <string name="ui_card_score">Score %1$s</string>
 </resources>
