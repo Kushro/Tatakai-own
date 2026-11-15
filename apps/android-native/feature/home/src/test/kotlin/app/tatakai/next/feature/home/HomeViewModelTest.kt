@@ -13,6 +13,7 @@ import app.tatakai.next.model.HistoryRepository
 import app.tatakai.next.model.InstalledExtension
 import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.MediaArtwork
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.MetadataRepository
@@ -61,6 +62,12 @@ class HomeViewModelTest {
         override suspend fun search(kind: MediaKind, query: String, page: Int) = FeedPage(emptyList(), page, false)
         override suspend fun media(kind: MediaKind, ref: MediaRef): Media? = null
         override suspend fun episodes(ref: MediaRef): List<Episode> = emptyList()
+        var art: (MediaRef) -> MediaArtwork? = { null }
+        val artAsked = mutableListOf<Int?>()
+        override suspend fun artwork(ref: MediaRef): MediaArtwork? {
+            artAsked += ref.anilistId
+            return art(ref)
+        }
     }
 
     private class FakeHistory(initial: List<HistoryEntry> = emptyList()) : HistoryRepository {
@@ -106,6 +113,20 @@ class HomeViewModelTest {
         assertEquals(HERO_SIZE, hero.value.size)
         assertTrue(state.rows.none { it.kind == HERO_FEED })
         assertTrue(state.rows.all { it.state is LoadState.Ok })
+    }
+
+    @Test
+    fun `hero artwork is looked up for the five hero titles and failures are ignored`() = runTest {
+        val metadata = FakeMetadata(
+            HOME_FEEDS.associateWith { kind -> { FeedPage((1..8).map { media(it + kind.ordinal * 100) }, 1, true) } }.toMutableMap(),
+        )
+        metadata.art = { ref -> if (ref.anilistId == 2) throw IOException("ani.zip down") else MediaArtwork(fanart = "f${ref.anilistId}") }
+        val vm = HomeViewModel(metadata, FakeHistory())
+        val state = vm.state.first { it.heroArt.size == 4 }
+        assertEquals(listOf(1, 2, 3, 4, 5), metadata.artAsked.sortedBy { it })
+        assertEquals("f1", state.heroArt["a1"]?.fanart)
+        assertNull(state.heroArt["a2"])
+        assertTrue(state.feeds.all { it.state is LoadState.Ok })
     }
 
     @Test

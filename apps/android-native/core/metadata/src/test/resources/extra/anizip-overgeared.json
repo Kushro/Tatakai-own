@@ -1,0 +1,202 @@
+{
+ "titles": {
+  "en": "Overgeared"
+ },
+ "episodes": {
+  "1": {
+   "episodeNumber": 1,
+   "absoluteEpisodeNumber": 1,
+   "title": {
+    "en": "Grid Part 1",
+    "x-jat": "Guriddo 1"
+   },
+   "airDate": "2026-07-03",
+   "airDateUtc": "2026-07-03T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 1.",
+   "image": "https://artworks.thetvdb.com/banners/v4/episode/1001/screencap/a.jpg",
+   "rating": 7.6
+  },
+  "2": {
+   "episodeNumber": 2,
+   "absoluteEpisodeNumber": 2,
+   "title": {
+    "en": "Grid Part 2",
+    "x-jat": "Guriddo 2"
+   },
+   "airDate": "2026-07-10",
+   "airDateUtc": "2026-07-10T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 2.",
+   "image": "https://artworks.thetvdb.com/banners/v4/episode/1002/screencap/a.jpg",
+   "rating": 7.7
+  },
+  "3": {
+   "episodeNumber": 3,
+   "absoluteEpisodeNumber": 3,
+   "title": {
+    "en": "Grid Part 3",
+    "x-jat": "Guriddo 3"
+   },
+   "airDate": "2026-07-17",
+   "airDateUtc": "2026-07-17T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 3.",
+   "image": "https://artworks.thetvdb.com/banners/v4/episode/1003/screencap/a.jpg",
+   "rating": 7.8
+  },
+  "4": {
+   "episodeNumber": 4,
+   "absoluteEpisodeNumber": 4,
+   "title": {
+    "en": "Grid Part 4",
+    "x-jat": "Guriddo 4"
+   },
+   "airDate": "2026-07-24",
+   "airDateUtc": "2026-07-24T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 4.",
+   "image": "https://artworks.thetvdb.com/banners/v4/episode/1004/screencap/a.jpg",
+   "rating": 7.9
+  },
+  "5": {
+   "episodeNumber": 5,
+   "absoluteEpisodeNumber": 5,
+   "title": {
+    "en": "Grid Part 5",
+    "x-jat": "Guriddo 5"
+   },
+   "airDate": "2026-08-03",
+   "airDateUtc": "2026-08-03T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 5.",
+   "image": "https://artworks.thetvdb.com/banners/v4/episode/1005/screencap/a.jpg",
+   "rating": 8.0
+  },
+  "6": {
+   "episodeNumber": 6,
+   "absoluteEpisodeNumber": 6,
+   "title": {
+    "en": "Grid Part 6",
+    "x-jat": "Guriddo 6"
+   },
+   "airDate": "2026-08-10",
+   "airDateUtc": "2026-08-10T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 6.",
+   "image": "https://artworks.thetvdb.com/banners/v4/episode/1006/screencap/a.jpg",
+   "rating": 8.1
+  },
+  "7": {
+   "episodeNumber": 7,
+   "absoluteEpisodeNumber": 7,
+   "title": {
+    "en": "Grid Part 7",
+    "x-jat": "Guriddo 7"
+   },
+   "airDate": "2026-08-17",
+   "airDateUtc": "2026-08-17T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 7.",
+   "image": "https://artworks.thetvdb.com/banners/v4/episode/1007/screencap/a.jpg",
+   "rating": 8.2
+  },
+  "8": {
+   "episodeNumber": 8,
+   "absoluteEpisodeNumber": 8,
+   "title": {
+    "en": "Grid Part 8",
+    "x-jat": "Guriddo 8"
+   },
+   "airDate": "2026-08-24",
+   "airDateUtc": "2026-08-24T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 8.",
+   "image": "https://artworks.thetvdb.com/banners/v4/episode/1008/screencap/a.jpg",
+   "rating": 8.3
+  },
+  "9": {
+   "episodeNumber": 9,
+   "absoluteEpisodeNumber": 9,
+   "title": {
+    "en": "Grid Part 9",
+    "x-jat": "Guriddo 9"
+   },
+   "airDate": "2026-09-03",
+   "airDateUtc": "2026-09-03T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 9."
+  },
+  "10": {
+   "episodeNumber": 10,
+   "absoluteEpisodeNumber": 10,
+   "title": {
+    "en": "Grid Part 10",
+    "x-jat": "Guriddo 10"
+   },
+   "airDate": "2026-09-10",
+   "airDateUtc": "2026-09-10T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 10."
+  },
+  "11": {
+   "episodeNumber": 11,
+   "absoluteEpisodeNumber": 11,
+   "title": {
+    "en": "Grid Part 11",
+    "x-jat": "Guriddo 11"
+   },
+   "airDate": "2026-09-17",
+   "airDateUtc": "2026-09-17T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 11."
+  },
+  "12": {
+   "episodeNumber": 12,
+   "absoluteEpisodeNumber": 12,
+   "title": {
+    "en": "Grid Part 12",
+    "x-jat": "Guriddo 12"
+   },
+   "airDate": "2026-09-24",
+   "airDateUtc": "2026-09-24T15:00:00Z",
+   "runtime": 24,
+   "overview": "Shin Youngwoo, episode 12."
+  },
+  "S1": {
+   "episodeNumber": 1,
+   "title": {
+    "en": "Special"
+   }
+  }
+ },
+ "episodeCount": 12,
+ "specialCount": 1,
+ "images": [
+  {
+   "coverType": "Banner",
+   "url": "https://artworks.thetvdb.com/banners/v4/series/1/banners/b.jpg"
+  },
+  {
+   "coverType": "Poster",
+   "url": "https://artworks.thetvdb.com/banners/v4/series/1/posters/p.jpg"
+  },
+  {
+   "coverType": "Fanart",
+   "url": "https://artworks.thetvdb.com/banners/v4/series/1/backgrounds/f.jpg"
+  },
+  {
+   "coverType": "Fanart",
+   "url": "https://artworks.thetvdb.com/banners/v4/series/1/backgrounds/f2.jpg"
+  },
+  {
+   "coverType": "Clearlogo",
+   "url": "https://artworks.thetvdb.com/banners/v4/series/1/clearlogo/l.png"
+  }
+ ],
+ "mappings": {
+  "anilist_id": 212888,
+  "mal_id": null,
+  "kitsu_id": null
+ }
+}

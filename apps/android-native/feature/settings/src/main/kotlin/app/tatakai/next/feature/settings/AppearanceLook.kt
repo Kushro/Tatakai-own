@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import app.tatakai.next.designsystem.components.Segmented
 import app.tatakai.next.designsystem.components.SegmentedOption
 import app.tatakai.next.model.CalendarView
+import app.tatakai.next.model.CardSize
 import app.tatakai.next.model.CardStyle
 import app.tatakai.next.model.Density
 import app.tatakai.next.model.EpisodeView
@@ -93,6 +94,14 @@ internal fun LookGroup(look: LookPrefs, onChange: ((LookPrefs) -> LookPrefs) -> 
         hint = stringResource(R.string.settings_look_home_hint),
     ) { v -> onChange { it.copy(homeLayout = v) } }
     LookSegmented(R.string.settings_look_cards, CardStyle.entries, look.cardStyle, { it.labelRes() }) { v -> onChange { it.copy(cardStyle = v) } }
+    LookSegmented(
+        R.string.settings_look_card_size,
+        CardSize.entries,
+        look.cardSize,
+        { it.labelRes() },
+        hint = stringResource(R.string.settings_look_card_size_hint),
+        small = true,
+    ) { v -> onChange { it.copy(cardSize = v) } }
     LookSegmented(R.string.settings_look_density, Density.entries, look.density, { it.labelRes() }) { v -> onChange { it.copy(density = v) } }
     LookSegmented(
         R.string.settings_look_motion,
@@ -222,6 +231,13 @@ private fun CardStyle.labelRes(): Int = when (this) {
     CardStyle.CLASSIC -> R.string.settings_look_cards_classic
     CardStyle.DETAILED -> R.string.settings_look_cards_detailed
     CardStyle.MINIMAL -> R.string.settings_look_cards_minimal
+}
+
+private fun CardSize.labelRes(): Int = when (this) {
+    CardSize.SMALL -> R.string.settings_look_card_size_small
+    CardSize.MEDIUM -> R.string.settings_look_card_size_medium
+    CardSize.LARGE -> R.string.settings_look_card_size_large
+    CardSize.XL -> R.string.settings_look_card_size_xl
 }
 
 private fun Density.labelRes(): Int = when (this) {

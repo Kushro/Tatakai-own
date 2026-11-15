@@ -43,11 +43,30 @@ enum class CardStyle(override val id: String) : LookChoice {
     /** Poster, a status dot before the title, year and format under it. */
     DETAILED("detailed"),
 
-    /** Poster only; the title is read by TalkBack and shown on long press. */
+    /** Poster only, with the title over a bottom gradient (0.3.2: always visible). */
     MINIMAL("minimal"),
     ;
 
     internal object Serializer : LookChoiceSerializer<CardStyle>("CardStyle", entries, DETAILED)
+}
+
+/**
+ * 0.3.2: size of the cards in Home rows (desktop `CardSize`). [SMALL] / [MEDIUM] are poster cards (MEDIUM = the previous width);
+ * [LARGE] / [XL] are horizontal "detailed" cards: poster on the left, title, status / format / year / episodes, score, genres and, on
+ * episode rows, "Episodio N · hace X" (phones: about 1.3 large cards or 1 XL card per screen width).
+ */
+@Serializable(with = CardSize.Serializer::class)
+enum class CardSize(override val id: String) : LookChoice {
+    SMALL("small"),
+    MEDIUM("medium"),
+    LARGE("large"),
+    XL("xl"),
+    ;
+
+    /** Horizontal detailed card (poster + facts beside it). */
+    val isWide: Boolean get() = this == LARGE || this == XL
+
+    internal object Serializer : LookChoiceSerializer<CardSize>("CardSize", entries, MEDIUM)
 }
 
 /** Navigation rail (tablets / wide windows only: phones keep the bottom bar). */
@@ -164,6 +183,8 @@ data class LookPrefs(
     val preset: LookPreset = LookPreset.TATAKAI,
     val homeLayout: HomeLayout = HomeLayout.SPOTLIGHT,
     val cardStyle: CardStyle = CardStyle.DETAILED,
+    /** 0.3.2: card size of Home rows (desktop `card_size`). */
+    val cardSize: CardSize = CardSize.MEDIUM,
     val railStyle: RailStyle = RailStyle.LABELED,
     val density: Density = Density.COMFORTABLE,
     val motion: Motion = Motion.EXPRESSIVE,
@@ -198,6 +219,7 @@ data class LookPrefs(
                 LookPreset.TATAKAI -> base
                 LookPreset.CINEMA -> base.copy(
                     cardStyle = CardStyle.MINIMAL,
+                    cardSize = CardSize.LARGE,
                     railStyle = RailStyle.SLIM,
                     glass = true,
                     heroIntervalSecs = 12,
@@ -205,6 +227,7 @@ data class LookPrefs(
                 LookPreset.DENSE -> base.copy(
                     homeLayout = HomeLayout.ROWS,
                     cardStyle = CardStyle.CLASSIC,
+                    cardSize = CardSize.SMALL,
                     railStyle = RailStyle.SLIM,
                     density = Density.COMPACT,
                     motion = Motion.SUBTLE,

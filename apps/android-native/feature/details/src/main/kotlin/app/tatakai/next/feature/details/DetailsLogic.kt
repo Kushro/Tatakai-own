@@ -4,12 +4,21 @@ package app.tatakai.next.feature.details
 import app.tatakai.next.model.CharacterEdge
 import app.tatakai.next.model.Episode
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.MediaArtwork
 import app.tatakai.next.model.MediaRelation
 import app.tatakai.next.model.NextAiring
 import app.tatakai.next.model.StaffRef
 import java.time.Instant
 
 // Parity wave A (15 §5 o.2): pure helpers of the Details extras, unit-tested in DetailsLogicTest.
+
+/** 0.3.2: the header backdrop: ani.zip fanart, else AniList banner, else cover; [lowRes] when it is not the fanart. */
+data class HeaderBackdrop(val url: String?, val lowRes: Boolean)
+
+fun headerBackdrop(media: Media, art: MediaArtwork?): HeaderBackdrop {
+    art?.fanart?.takeIf { it.isNotBlank() }?.let { return HeaderBackdrop(it, lowRes = false) }
+    return HeaderBackdrop(media.banner?.takeIf { it.isNotBlank() } ?: media.cover, lowRes = true)
+}
 
 /** One row of the episode list: a provider episode, or a placeholder for an announced one; [unaired] = not out yet. */
 data class EpisodeItem(val episode: Episode, val unaired: Boolean)

@@ -8,7 +8,7 @@
     <string name="settings_look_preset_tatakai">Tatakai</string>
     <string name="settings_look_preset_tatakai_hint">Banner destacado, tarjetas con detalle y animaciones vivas.</string>
     <string name="settings_look_preset_cinema">Cine</string>
-    <string name="settings_look_preset_cinema_hint">Banner grande, solo pósters y menú angosto.</string>
+    <string name="settings_look_preset_cinema_hint">Banner grande, tarjetas grandes en las filas, pósters solos en las cuadrículas y menú angosto.</string>
     <string name="settings_look_preset_dense">Denso</string>
     <string name="settings_look_preset_dense_hint">Primero las filas, tarjetas y listas compactas, animaciones sutiles.</string>
     <string name="settings_look_preset_calm">Tranquilo</string>
@@ -22,6 +22,12 @@
     <string name="settings_look_cards_classic">Clásica</string>
     <string name="settings_look_cards_detailed">Con detalle</string>
     <string name="settings_look_cards_minimal">Solo póster</string>
+    <string name="settings_look_card_size">Tamaño de tarjetas</string>
+    <string name="settings_look_card_size_hint">Grande y Extra grande muestran el póster junto al título, datos, puntuación y géneros.</string>
+    <string name="settings_look_card_size_small">Pequeño</string>
+    <string name="settings_look_card_size_medium">Mediano</string>
+    <string name="settings_look_card_size_large">Grande</string>
+    <string name="settings_look_card_size_xl">Extra grande</string>
     <string name="settings_look_density">Densidad</string>
     <string name="settings_look_density_comfortable">Cómoda</string>
     <string name="settings_look_density_compact">Compacta</string>

@@ -18,6 +18,7 @@ import app.tatakai.next.model.FeedKind
 import app.tatakai.next.model.FeedPage
 import app.tatakai.next.model.ImageMatch
 import app.tatakai.next.model.Media
+import app.tatakai.next.model.MediaArtwork
 import app.tatakai.next.model.MediaDetails
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
@@ -253,7 +254,9 @@ class MetadataRepositoryImpl(
     }
 
     override suspend fun episodes(ref: MediaRef): List<Episode> {
-        val key = "eps:${ref.anilistId}:${ref.malId}:${ref.kitsuId}"
+        // 0.3.2: `eps2:` = lists merged across providers (EpisodeMerge); the older `eps:` rows (Kitsu number-only lists) are left to
+        // the cache purge instead of being served for another day.
+        val key = "eps2:${ref.anilistId}:${ref.malId}:${ref.kitsuId}"
         val ser = ListSerializer(Episode.serializer())
         cache.getFresh(key, detailTtlMs())?.let { raw ->
             runCatching { json.decodeFromString(ser, raw) }.getOrNull()?.let { return it }
@@ -273,6 +276,31 @@ class MetadataRepositoryImpl(
         } catch (e: Exception) {
             cache.getStale(key)?.let { raw -> runCatching { json.decodeFromString(ser, raw) }.getOrNull() }
                 ?: throw e.toAppException()
+        }
+    }
+
+    @Serializable
+    private data class CachedArtwork(val art: MediaArtwork? = null)
+
+    /**
+     * 0.3.2: ani.zip artwork, cached [ARTWORK_TTL_MS] (7 days, also when ani.zip has none, so Home does not ask again on every open).
+     * Background priority (Home's spotlight asks for several titles). On failure the stale copy, else null: artwork is never an error.
+     */
+    override suspend fun artwork(ref: MediaRef): MediaArtwork? {
+        if (ref.anilistId == null && ref.malId == null && ref.kitsuId == null) return null
+        val key = refKey("art", ref)
+        fun decode(raw: String): CachedArtwork? = runCatching { json.decodeFromString(CachedArtwork.serializer(), raw) }.getOrNull()
+        cache.getFresh(key, ARTWORK_TTL_MS)?.let { raw -> decode(raw)?.let { return it.art } }
+        return shared(key) {
+            try {
+                inBackground { router.artwork(ref) }.also { art ->
+                    cache.put(key, json.encodeToString(CachedArtwork.serializer(), CachedArtwork(art)))
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                cache.getStale(key)?.let { decode(it)?.art }
+            }
         }
     }
 
@@ -500,6 +528,8 @@ class MetadataRepositoryImpl(
         const val TAG = "metadata"
         const val DEFAULT_TTL_HOURS = 24
         const val CATALOGUE_TTL_MS = 7L * 24 * 60 * 60_000
+        /** 0.3.2: ani.zip artwork changes rarely (the [FeedCache.purge] horizon). */
+        const val ARTWORK_TTL_MS = 7L * 24 * 60 * 60_000
         const val STATUS_TICK_MS = 2_000L
         /** 0.3.1: how old a cached Home row may be and still be shown while it refreshes (older = fetched first). */
         const val SWR_MAX_AGE_MS = 24L * 60 * 60_000

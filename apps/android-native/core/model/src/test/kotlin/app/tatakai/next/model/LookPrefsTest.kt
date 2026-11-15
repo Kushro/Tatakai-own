@@ -71,4 +71,18 @@ class LookPrefsTest {
         assertEquals(LookPrefs.of(LookPreset.DENSE), round)
         assert(json.encodeToString(LookPrefs.serializer(), LookPrefs()).contains("\"cardStyle\":\"detailed\""))
     }
+
+    @Test
+    fun `card size ids presets and lenient reading`() {
+        assertEquals(listOf("small", "medium", "large", "xl"), CardSize.entries.map { it.id })
+        assertEquals(CardSize.MEDIUM, LookPrefs().cardSize)
+        assertEquals(CardSize.MEDIUM, LookPrefs.of(LookPreset.TATAKAI).cardSize)
+        assertEquals(CardSize.LARGE, LookPrefs.of(LookPreset.CINEMA).cardSize)
+        assertEquals(CardSize.SMALL, LookPrefs.of(LookPreset.DENSE).cardSize)
+        assertEquals(CardSize.MEDIUM, LookPrefs.of(LookPreset.CALM).cardSize)
+        assertEquals(listOf(false, false, true, true), CardSize.entries.map { it.isWide })
+        assertEquals(CardSize.MEDIUM, json.decodeFromString(LookPrefs.serializer(), """{"cardSize":"huge"}""").cardSize)
+        assertEquals(CardSize.XL, json.decodeFromString(LookPrefs.serializer(), """{"cardSize":"xl"}""").cardSize)
+        assertNull(LookPrefs.of(LookPreset.CINEMA).copy(cardSize = CardSize.MEDIUM).matchingPreset())
+    }
 }
