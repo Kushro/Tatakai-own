@@ -9,10 +9,12 @@ internal const val MISSING_PICK_MAX_CHARS: Int = 16
 /**
  * BUG-140 (parity with desktop `missing_pick_label`): the name of the user's remembered pick ([rememberedKey], a [RankedSource.key]
  * `"<extId>|<kind>|<label>"`) when this list does not have it, so the picker says so instead of showing the recommended row in silence.
- * null when nothing is remembered, the list is empty (still listing / no sources), a row is the pick or another row is already picked,
- * or the name would only be a raw id (a 32+ hex info hash). Pure.
+ * null when nothing is remembered, the list is still arriving ([loading]: Details' `loadingMore`, the player's `candidatesLoading`;
+ * BUG-142: the pick can come in a later batch, so "no apareció" is only said of the complete list), the list is empty, a row is the
+ * pick or another row is already picked, or the name would only be a raw id (a 32+ hex info hash). Pure.
  */
-fun missingPickLabel(sources: List<RankedSource>, rememberedKey: String?): String? {
+fun missingPickLabel(sources: List<RankedSource>, rememberedKey: String?, loading: Boolean): String? {
+    if (loading) return null
     val key = rememberedKey?.takeIf { it.isNotEmpty() } ?: return null
     if (sources.isEmpty() || sources.any { it.picked || it.key == key }) return null
     val label = key.split('|', limit = 3).getOrNull(2)?.trim() ?: return null

@@ -33,40 +33,53 @@ class MissingPickTest {
     @Test
     fun aRememberedPickMissingFromTheListIsNamed() {
         val toons = row("ToonsHub", recommended = true)
-        assertEquals("ASW", missingPickLabel(listOf(toons), asw))
+        assertEquals("ASW", missingPickLabel(listOf(toons), asw, loading = false))
     }
 
     @Test
     fun nothingToSayWhenTheListHasThePickOrAnotherRowIsPicked() {
         val toons = row("ToonsHub", recommended = true)
-        assertNull(missingPickLabel(listOf(toons, row("ASW")), asw))
-        assertNull(missingPickLabel(listOf(toons), toons.key))
-        assertNull(missingPickLabel(listOf(toons.copy(picked = true)), asw))
+        assertNull(missingPickLabel(listOf(toons, row("ASW")), asw, loading = false))
+        assertNull(missingPickLabel(listOf(toons), toons.key, loading = false))
+        assertNull(missingPickLabel(listOf(toons.copy(picked = true)), asw, loading = false))
     }
 
     @Test
     fun nothingRememberedOrAnEmptyListSaysNothing() {
         val list = listOf(row("ToonsHub", recommended = true))
-        assertNull(missingPickLabel(list, null))
-        assertNull(missingPickLabel(list, ""))
-        assertNull(missingPickLabel(emptyList(), asw))
-        assertNull(missingPickLabel(list, "malformed"))
+        assertNull(missingPickLabel(list, null, loading = false))
+        assertNull(missingPickLabel(list, "", loading = false))
+        assertNull(missingPickLabel(emptyList(), asw, loading = false))
+        assertNull(missingPickLabel(list, "malformed", loading = false))
     }
 
     @Test
     fun aRawInfoHashIsNeverShown() {
         val list = listOf(row("ToonsHub", recommended = true))
-        assertNull(missingPickLabel(list, "manual|torrent|${"ab".repeat(20)}"))
-        assertNull(missingPickLabel(list, "manual|torrent|${"AB12".repeat(8)}"))
+        assertNull(missingPickLabel(list, "manual|torrent|${"ab".repeat(20)}", loading = false))
+        assertNull(missingPickLabel(list, "manual|torrent|${"AB12".repeat(8)}", loading = false))
     }
 
     @Test
     fun aLongNameIsShortenedSoTheNoticeStaysOneLine() {
         val list = listOf(row("ToonsHub", recommended = true))
-        val name = missingPickLabel(list, "io.github.toko|torrent|[Erai-raws] Magical Explorer - 05 [1080p]")!!
+        val name = missingPickLabel(list, "io.github.toko|torrent|[Erai-raws] Magical Explorer - 05 [1080p]", loading = false)!!
         assertTrue(name.length <= MISSING_PICK_MAX_CHARS, name)
         assertTrue(name.endsWith("…"), name)
         // A label with more "|" keeps them (the key splits on the first two only).
-        assertEquals("A|B", missingPickLabel(list, "ext|web|A|B"))
+        assertEquals("A|B", missingPickLabel(list, "ext|web|A|B", loading = false))
+    }
+
+    @Test
+    fun nothingIsSaidWhileTheListIsStillArriving() {
+        // BUG-142: ME5 on the phone listed 3 → 29 → 32 sources for ~60 s before "Toko · anizone" came in (45).
+        val anizone = "tatakai.extension.toko|web|anizone"
+        val partial = listOf(row("ToonsHub", recommended = true), row("Erai-raws"), row("Judas"))
+        assertNull(missingPickLabel(partial, anizone, loading = true))
+        assertNull(missingPickLabel(emptyList(), anizone, loading = true))
+        // The list finished without it: now it is said.
+        assertEquals("anizone", missingPickLabel(partial, anizone, loading = false))
+        // The pick arrived in a later batch: nothing to say once loading ends either.
+        assertNull(missingPickLabel(partial + row("anizone").let { r -> r.copy(candidate = r.candidate.copy(extId = "tatakai.extension.toko", kind = SourceKind.WEB)) }, anizone, loading = false))
     }
 }

@@ -207,7 +207,8 @@ private fun PickerContent(
                 }
                 if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 // BUG-140: the remembered pick did not come up this time: say it, never check another row in its place.
-                val missing = remember(sources, rememberedPick) { missingPickLabel(sources, rememberedPick) }
+                // BUG-142: only once the list is complete (while it loads the pick may still arrive, so nothing is said).
+                val missing = remember(sources, rememberedPick, loading) { missingPickLabel(sources, rememberedPick, loading) }
                 if (missing != null) {
                     Text(
                         stringResource(R.string.src_pick_missing, missing),
