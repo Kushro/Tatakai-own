@@ -223,8 +223,8 @@ fn extract(bytes: &[u8], dir: &Path) -> Result<usize, UiError> {
 /// Tatakai's starting point for the build's `anime_profile_controller.lua` ("Anime Build Options" in uosc), used
 /// while the build has not saved its own choices yet. Without these files the script detects anime by file name
 /// ("auto") and upscales it with FSRCNNX ("FidelityFX"); Tatakai only plays anime, so detection starts ON and
-/// sources up to 1440p use Anime4K mode A+A at HQ. 4K and 8K sources keep the build's choice (A+A HQ there would
-/// run its restore passes at full 4K, too heavy for most GPUs). The script reads only the keys present and keeps
+/// sources up to 4K use Anime4K mode A+A at HQ (at 4K its restore passes run at full resolution: heavy on weaker
+/// GPUs, lowered from the same menu). 8K keeps the build's choice. The script reads only the keys present and keeps
 /// its own defaults for the rest; it rewrites the whole file when the user changes anything in the menu.
 const ANIME_MODE_DEFAULTS: &str = "\
 anime_mode=on
@@ -232,6 +232,7 @@ fidelity_SD=false
 fidelity_HD=false
 fidelity_FHD=false
 fidelity_2K=false
+fidelity_4K=false
 ";
 const ANIME4K_DEFAULTS: &str = "\
 quality_SD=hq
@@ -242,6 +243,8 @@ quality_FHD=hq
 mode_FHD=AA
 quality_2K=hq
 mode_2K=AA
+quality_4K=hq
+mode_4K=AA
 ";
 
 /// Write [`ANIME_MODE_DEFAULTS`] / [`ANIME4K_DEFAULTS`] where the build has no saved options yet. Existing files are
@@ -375,14 +378,14 @@ mod tests {
         let mode = dir.join("script-opts/anime-mode.conf");
         let a4k = dir.join("script-opts/anime4k.conf");
 
-        // Fresh extraction: Anime4K A+A HQ, detection ON; 4K/8K left to the build.
+        // Fresh extraction: Anime4K A+A HQ up to 4K, detection ON; 8K left to the build.
         prepare_with(&dir, &zip, &digest).unwrap();
         let m = std::fs::read_to_string(&mode).unwrap();
         assert!(m.contains("anime_mode=on\n") && m.contains("fidelity_FHD=false\n"));
-        assert!(!m.contains("fidelity_4K"));
+        assert!(m.contains("fidelity_4K=false\n") && !m.contains("fidelity_8K"));
         let a = std::fs::read_to_string(&a4k).unwrap();
         assert!(a.contains("quality_FHD=hq\n") && a.contains("mode_FHD=AA\n") && a.contains("mode_SD=AA\n"));
-        assert!(!a.contains("_4K"));
+        assert!(a.contains("quality_4K=hq\nmode_4K=AA\n") && !a.contains("_8K"));
 
         // Choices the build saved from its menu are kept, also across a re-extraction.
         std::fs::write(&mode, "anime_mode=auto\nfidelity_FHD=true\n").unwrap();

@@ -2,6 +2,11 @@
 
 Cambios de Tatakai Next (rama `main`). Tatakai Classic tiene su propio changelog en la rama `legacy`.
 
+## [0.3.4] - 2026-11-15
+
+**Integrado mejorado (mpv-anime-build)**
+- Arranca con Anime4K en vez de FidelityFX: modo A+A (High Fid.) en calidad HQ para fuentes de SD a 4K, con la detección de anime en ON (Tatakai solo reproduce anime). Vale también para el mpv de la generación de cuadros. Lo que ya hayas elegido en "Anime Build Options" se respeta.
+
 ## [0.3.3] - 2026-11-15
 
 Generación de cuadros y mpv-anime-build, más claros y completos (escritorio).
