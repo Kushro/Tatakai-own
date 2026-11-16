@@ -18,7 +18,7 @@
 
 #![cfg_attr(not(feature = "live"), allow(dead_code))]
 
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
@@ -128,6 +128,7 @@ pub fn prepare(paths: &AppPaths) -> Result<PathBuf, UiError> {
 /// Verify `zip` against `expected` and extract it into `dir` unless `dir` already holds that exact release.
 fn prepare_with(dir: &Path, zip: &Path, expected: &str) -> Result<(), UiError> {
     if is_current(dir, expected) {
+        seed_profile_defaults(dir);
         return Ok(());
     }
     let bytes = std::fs::read(zip).map_err(|e| other(&format!("reading {}", zip.display()), e))?;
@@ -146,6 +147,7 @@ fn prepare_with(dir: &Path, zip: &Path, expected: &str) -> Result<(), UiError> {
     }
     let files = extract(&bytes, dir)?;
     sanitize_conf(dir).map_err(|e| other("preparing mpv.conf", e))?;
+    seed_profile_defaults(dir);
     let tmp = dir.join(format!("{MARKER}.tmp"));
     std::fs::write(&tmp, marker_body(&digest))
         .and_then(|()| std::fs::rename(&tmp, &marker))
@@ -216,6 +218,58 @@ fn extract(bytes: &[u8], dir: &Path) -> Result<usize, UiError> {
         files += 1;
     }
     Ok(files)
+}
+
+/// Tatakai's starting point for the build's `anime_profile_controller.lua` ("Anime Build Options" in uosc), used
+/// while the build has not saved its own choices yet. Without these files the script detects anime by file name
+/// ("auto") and upscales it with FSRCNNX ("FidelityFX"); Tatakai only plays anime, so detection starts ON and
+/// sources up to 4K use Anime4K mode A+A at HQ (at 4K its restore passes run at full resolution: heavy on weaker
+/// GPUs, lowered from the same menu). 8K keeps the build's choice. The script reads only the keys present and keeps
+/// its own defaults for the rest; it rewrites the whole file when the user changes anything in the menu.
+const ANIME_MODE_DEFAULTS: &str = "\
+anime_mode=on
+fidelity_SD=false
+fidelity_HD=false
+fidelity_FHD=false
+fidelity_2K=false
+fidelity_4K=false
+";
+const ANIME4K_DEFAULTS: &str = "\
+quality_SD=hq
+mode_SD=AA
+quality_HD=hq
+mode_HD=AA
+quality_FHD=hq
+mode_FHD=AA
+quality_2K=hq
+mode_2K=AA
+quality_4K=hq
+mode_4K=AA
+";
+
+/// Write [`ANIME_MODE_DEFAULTS`] / [`ANIME4K_DEFAULTS`] where the build has no saved options yet. Existing files are
+/// the user's choices (the script writes them from the menu) and are never touched. Failures only log: the build
+/// still plays with its own defaults.
+fn seed_profile_defaults(dir: &Path) {
+    let opts = dir.join("script-opts");
+    for (name, body) in [("anime-mode.conf", ANIME_MODE_DEFAULTS), ("anime4k.conf", ANIME4K_DEFAULTS)] {
+        let path = opts.join(name);
+        if path.exists() {
+            continue;
+        }
+        let written = std::fs::create_dir_all(&opts).and_then(|()| {
+            std::fs::OpenOptions::new().write(true).create_new(true).open(&path)?.write_all(body.as_bytes())
+        });
+        match written {
+            Ok(()) => {
+                tracing::info!(file = %path.display(), "mpv-anime-build: Tatakai profile defaults written")
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => {
+                tracing::warn!(file = %path.display(), error = %e, "mpv-anime-build: could not write defaults")
+            }
+        }
+    }
 }
 
 /// Keep the build's `mpv.conf` as `mpv.conf.upstream` and write the sanitized one in its place.
@@ -311,6 +365,41 @@ mod tests {
         std::fs::write(dir.join(MARKER), "old").unwrap();
         prepare_with(&dir, &zip, &digest).unwrap();
         assert_eq!(std::fs::read_to_string(dir.join("script-opts/uosc.conf")).unwrap(), "autohide=yes\n");
+    }
+
+    #[test]
+    fn profile_defaults_are_seeded_once_and_user_choices_survive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let bytes = make_zip(&[("mpv.conf", "[default]\n"), ("script-opts/uosc.conf", "autohide=yes\n")]);
+        let zip = tmp.path().join("release.zip");
+        std::fs::write(&zip, &bytes).unwrap();
+        let dir = tmp.path().join("build");
+        let digest = sha256_hex(&bytes);
+        let mode = dir.join("script-opts/anime-mode.conf");
+        let a4k = dir.join("script-opts/anime4k.conf");
+
+        // Fresh extraction: Anime4K A+A HQ up to 4K, detection ON; 8K left to the build.
+        prepare_with(&dir, &zip, &digest).unwrap();
+        let m = std::fs::read_to_string(&mode).unwrap();
+        assert!(m.contains("anime_mode=on\n") && m.contains("fidelity_FHD=false\n"));
+        assert!(m.contains("fidelity_4K=false\n") && !m.contains("fidelity_8K"));
+        let a = std::fs::read_to_string(&a4k).unwrap();
+        assert!(a.contains("quality_FHD=hq\n") && a.contains("mode_FHD=AA\n") && a.contains("mode_SD=AA\n"));
+        assert!(a.contains("quality_4K=hq\nmode_4K=AA\n") && !a.contains("_8K"));
+
+        // Choices the build saved from its menu are kept, also across a re-extraction.
+        std::fs::write(&mode, "anime_mode=auto\nfidelity_FHD=true\n").unwrap();
+        std::fs::remove_file(&a4k).unwrap();
+        prepare_with(&dir, &zip, &digest).unwrap();
+        assert_eq!(std::fs::read_to_string(&mode).unwrap(), "anime_mode=auto\nfidelity_FHD=true\n");
+        assert_eq!(
+            std::fs::read_to_string(&a4k).unwrap(),
+            ANIME4K_DEFAULTS,
+            "a missing file is seeded on an already-current install"
+        );
+        std::fs::write(dir.join(MARKER), "old").unwrap();
+        prepare_with(&dir, &zip, &digest).unwrap();
+        assert_eq!(std::fs::read_to_string(&mode).unwrap(), "anime_mode=auto\nfidelity_FHD=true\n");
     }
 
     #[test]
