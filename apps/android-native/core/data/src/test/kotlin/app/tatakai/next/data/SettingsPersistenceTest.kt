@@ -133,7 +133,7 @@ class SettingsPersistenceTest {
         assertEquals(ThemeMode.SYSTEM, read.themeMode)
         assertEquals(TorrentSettings(), read.torrent)
         assertEquals(SourcePrefs(mode = SourceMode.MANUAL), read.sourcePrefs)
-        assertEquals("off", read.playerPreset)
+        assertEquals(AppSettings().playerPreset, read.playerPreset)
     }
 
     @Test

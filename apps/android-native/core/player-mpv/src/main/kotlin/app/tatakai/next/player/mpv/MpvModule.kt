@@ -2,6 +2,7 @@
 package app.tatakai.next.player.mpv
 
 import app.tatakai.next.model.AppSettings
+import app.tatakai.next.framegen.FgController
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.player.MPV_SESSION_FACTORY
 import app.tatakai.next.player.PlayerSessionFactory
@@ -19,9 +20,14 @@ import org.koin.dsl.module
 val mpvPlayerModule: Module = module {
     single<PlayerSessionFactory>(named(MPV_SESSION_FACTORY)) {
         val settings = getOrNull<SettingsRepository>()
-        MpvSessionFactory(androidContext()) {
-            val s = settings?.settings?.value ?: AppSettings()
-            QualityRequest.from(s.playerPreset, s.playerQuality)
-        }
+        // 0.4.0: quality defaults from Settings (worker A) + the phone frame generation controller (worker B), when bound.
+        MpvSessionFactory(
+            androidContext(),
+            {
+                val s = settings?.settings?.value ?: AppSettings()
+                QualityRequest.from(s.playerPreset, s.playerQuality)
+            },
+            getOrNull<FgController>(),
+        )
     }
 }

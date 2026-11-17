@@ -18,11 +18,13 @@ data class AppSettings(
     val language: AppLanguage = AppLanguage.SYSTEM,
     /**
      * 0.4.0: libmpv is the default engine (quality presets, deband, image, decoder choice); Media3 stays as the simple engine and the
-     * automatic fallback. A stored value wins, so installs that already saved settings keep the engine they had.
+     * automatic fallback. Installs from <= 0.3.x that were on Media3 move to libmpv once (see SettingsCodec.read); an explicit
+     * choice made in 0.4.0 or later is kept.
      */
     val playerEngine: PlayerEngine = PlayerEngine.MPV,
     /** A [QualityPresets] id (desktop ids). Only the MPV engine applies it. */
-    val playerPreset: String = "off",
+    /** 0.4.0: Anime4K A+A (Balanced tier by default) for every new install and for installs that move from Media3. */
+    val playerPreset: String = "anime4k-aa",
     /** 0.4.0 (worker A): defaults of the libmpv quality engine (tier, deband, automatic adjustments, decoder, smoothing, sharpen). */
     val playerQuality: PlayerQualityPrefs = PlayerQualityPrefs(),
     /** Source selection; the mode (Auto / Manual) is [SourcePrefs.mode] (there is no separate sourceMode field). */
@@ -98,6 +100,9 @@ data class AppSettings(
     // --- 2026-11 UI refresh (desktop `Settings::look`); persisted by SettingsCodec as `look_json` ---
     /** Settings › Apariencia › Diseño y estilo: Home layout, card style, density, motion, episode / relations / calendar views, hero. */
     val look: LookPrefs = LookPrefs(),
+    // --- 0.4.0 player quality (worker B); persisted by SettingsCodec as `frame_gen_json` ---
+    /** Frame generation on the phone (:core:framegen): switch, multiplier, profile, refresh matching, audio offset. */
+    val frameGen: FrameGenSettings = FrameGenSettings(),
 ) {
     companion object {
         const val DEFAULT_PALETTE_ID = "tatakai-violet"

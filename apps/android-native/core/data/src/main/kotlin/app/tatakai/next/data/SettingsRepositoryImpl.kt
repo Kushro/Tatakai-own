@@ -9,8 +9,10 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.DownloadSettings
+import app.tatakai.next.model.FrameGenSettings
 import app.tatakai.next.model.LookPrefs
 import app.tatakai.next.model.NovelReaderSettings
+import app.tatakai.next.model.PlayerEngine
 import app.tatakai.next.model.PlayerQualityPrefs
 import app.tatakai.next.model.QualityPresets
 import app.tatakai.next.model.ReaderSettings
@@ -121,6 +123,8 @@ internal object SettingsCodec {
     private val LOOK = stringPreferencesKey("look_json")
     // --- 0.4.0 player quality (worker A): defaults of the libmpv quality engine ---
     private val PLAYER_QUALITY = stringPreferencesKey("player_quality_json")
+    // --- 0.4.0 player quality (worker B): phone frame generation ---
+    private val FRAME_GEN = stringPreferencesKey("frame_gen_json")
     private val KEYMAP_SERIALIZER = MapSerializer(String.serializer(), String.serializer())
     const val COUNTDOWN_MIN_SECS = 3
     const val COUNTDOWN_MAX_SECS = 30
@@ -135,6 +139,12 @@ internal object SettingsCodec {
 
     fun read(p: Preferences): AppSettings {
         val d = AppSettings()
+        // 0.4.0: libmpv is the default engine. Settings written by <= 0.3.x have no player_quality_json; there Media3 was the
+        // default and every write stored it, so a stored MEDIA3 cannot be told apart from a choice: those installs move to
+        // libmpv (and from preset "off", which Media3 could not use, to the new default) once. The next write stores
+        // player_quality_json, so a later explicit Media3 choice sticks.
+        val storedEngine = enumOr(p[PLAYER_ENGINE], d.playerEngine)
+        val fromMedia3 = p[PLAYER_QUALITY] == null && p[PLAYER_ENGINE] != null && storedEngine == PlayerEngine.MEDIA3
         return AppSettings(
             paletteId = p[PALETTE] ?: d.paletteId,
             amoled = p[AMOLED] ?: d.amoled,
@@ -145,8 +155,9 @@ internal object SettingsCodec {
             themeMode = enumOr(p[THEME_MODE], d.themeMode),
             reduceMotion = p[REDUCE_MOTION] ?: d.reduceMotion,
             language = enumOr(p[LANGUAGE], d.language),
-            playerEngine = enumOr(p[PLAYER_ENGINE], d.playerEngine),
-            playerPreset = p[PLAYER_PRESET]?.takeIf { it in PRESETS } ?: d.playerPreset,
+            playerEngine = if (fromMedia3) PlayerEngine.MPV else storedEngine,
+            playerPreset = (p[PLAYER_PRESET]?.takeIf { it in PRESETS } ?: d.playerPreset)
+                .let { if (fromMedia3 && it == "off") d.playerPreset else it },
             sourcePrefs = decode(p[SOURCE_PREFS], SourcePrefs.serializer())?.sanitized() ?: d.sourcePrefs,
             autoNext = p[AUTO_NEXT] ?: d.autoNext,
             skipIntro = p[SKIP_INTRO] ?: d.skipIntro,
@@ -180,6 +191,7 @@ internal object SettingsCodec {
             matureContent = enumOr(p[MATURE_CONTENT], d.matureContent),
             look = decodeLook(p[LOOK]) ?: d.look,
             playerQuality = decode(p[PLAYER_QUALITY], PlayerQualityPrefs.serializer())?.sanitized() ?: d.playerQuality,
+            frameGen = decode(p[FRAME_GEN], FrameGenSettings.serializer())?.sanitized() ?: d.frameGen,
         )
     }
 
@@ -231,6 +243,7 @@ internal object SettingsCodec {
         p[MATURE_CONTENT] = s.matureContent.name
         p[LOOK] = json.encodeToString(LookPrefs.serializer(), s.look.sanitized())
         p[PLAYER_QUALITY] = json.encodeToString(PlayerQualityPrefs.serializer(), s.playerQuality.sanitized())
+        p[FRAME_GEN] = json.encodeToString(FrameGenSettings.serializer(), s.frameGen.sanitized())
     }
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =

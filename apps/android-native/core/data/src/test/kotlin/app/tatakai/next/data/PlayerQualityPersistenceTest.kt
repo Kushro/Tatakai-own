@@ -23,9 +23,10 @@ class PlayerQualityPersistenceTest {
     }
 
     @Test
-    fun storedMedia3IsKept() {
-        // Every write stores every key, so a stored MEDIA3 may be an explicit choice: it is not migrated.
-        val p = mutablePreferencesOf(stringPreferencesKey("player_engine") to "MEDIA3")
+    fun storedMedia3IsKeptOnceWrittenBy040() {
+        // <= 0.3.x settings (no player_quality_json) move to libmpv once (EngineMigrationTest); a MEDIA3 written by 0.4.0 stays.
+        val p = mutablePreferencesOf()
+        SettingsCodec.write(p, AppSettings(playerEngine = PlayerEngine.MEDIA3))
         assertEquals(PlayerEngine.MEDIA3, SettingsCodec.read(p).playerEngine)
     }
 

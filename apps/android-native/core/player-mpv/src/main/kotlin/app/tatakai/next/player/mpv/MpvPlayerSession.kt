@@ -16,6 +16,8 @@ import app.tatakai.next.model.DecoderMode
 import app.tatakai.next.model.ImageAdjust
 import app.tatakai.next.model.QualityTier
 import app.tatakai.next.model.SharpenLevel
+import app.tatakai.next.framegen.FgController
+import app.tatakai.next.framegen.FrameGenController
 import app.tatakai.next.model.SubtitleStyle
 import app.tatakai.next.player.QualityEvent
 import app.tatakai.next.player.QualityEventKind
@@ -72,8 +74,16 @@ class MpvPlayerSession(
     remote: Boolean,
     /** 0.4.0: Settings › Reproductor quality defaults (preset, tier, deband, automatic adjustments...), changed live afterwards. */
     initialQuality: QualityRequest = QualityRequest(),
+    /** 0.4.0 (worker B): the app-wide phone frame generation controller (null = FG not wired, e.g. tests). */
+    frameGenController: FgController? = null,
 ) : PlayerSession {
     val engine = MpvEngine(context)
+
+    /** 0.4.0 (worker B): routes this engine's output through the phone FG (see MpvFrameGenBridge); released before the engine. */
+    private val frameGenBridge: MpvFrameGenBridge? = frameGenController?.let { MpvFrameGenBridge(engine, it) }
+
+    /** 0.4.0 (worker B): phone frame generation of this playback for the in-player UI; null when FG is not wired. */
+    val frameGen: FrameGenController? = frameGenController
     private val _state = MutableStateFlow(PlaybackState(isBuffering = false, fullAss = true))
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
     private var released = false
@@ -116,6 +126,7 @@ class MpvPlayerSession(
     private var lastQualityEventSeq = 0
     private var monitorJob: Job? = null
     private var qualityEventsJob: Job? = null
+    private var frameGenLinkJob: Job? = null
     private var startWatch: Job? = null
     private var prepareJob: Job? = null
     private var audioLang: String? = null
@@ -195,6 +206,16 @@ class MpvPlayerSession(
                 lastQualityEventSeq = e.seq
                 android.util.Log.i("mpv", "quality ${e.kind} (${e.reason}): ${e.from} -> ${e.to}")
                 announceLegacy(e)
+            }
+        }
+        // 0.4.0 integration (A <-> B): the quality engine drops mpv cadence interpolation and keeps its chain sized for the
+        // frame generation input while FG runs; FG pauses with the quality engine's battery Eco, like Enigmata.
+        frameGenController?.let { fg ->
+            frameGenLinkJob = scope.launch {
+                launch { fg.flag.active.collect { on -> if (!released) qualityController.setFrameGenActive(on) } }
+                launch {
+                    qualityController.state.collect { q -> if (!released) fg.onLowPower(q.batteryLow) }
+                }
             }
         }
         mirror = scope.launch {
@@ -374,7 +395,10 @@ class MpvPlayerSession(
 
     override fun undoAutoDowngrade() = qualityController.undoAutoDowngrade()
 
-    override fun setPictureInPicture(active: Boolean) = qualityController.setPictureInPicture(active)
+    override fun setPictureInPicture(active: Boolean) {
+        qualityController.setPictureInPicture(active)
+        frameGen?.onPip(active) // 0.4.0 integration: FG pauses in picture-in-picture
+    }
 
     override fun setRemoteProcessing(active: Boolean) = qualityController.setRemoteProcessing(active)
 
@@ -387,6 +411,7 @@ class MpvPlayerSession(
         ticker.stop()
         monitorJob?.cancel()
         qualityEventsJob?.cancel()
+        frameGenLinkJob?.cancel()
         thermal.stop()
         engine.logListener = null
         startWatch?.cancel()
@@ -394,6 +419,7 @@ class MpvPlayerSession(
         mirror.cancel()
         if (ActivePlayback.player.value === adapter) ActivePlayback.publish(null)
         adapter.detach()
+        frameGenBridge?.release() // 0.4.0 (worker B): FG off and unbound before MPVLib.destroy
         engine.release()
     }
 }
@@ -424,7 +450,12 @@ internal fun mpvErrorCode(error: String, started: Boolean, watched: Boolean): In
 
 /** Koin-bound factory of mpv sessions (see `mpvPlayerModule`). [quality] (the Settings › Reproductor defaults) is read at creation time. */
 @UnstableApi
-class MpvSessionFactory(private val context: Context, private val quality: () -> QualityRequest) : PlayerSessionFactory {
+class MpvSessionFactory(
+    private val context: Context,
+    private val quality: () -> QualityRequest,
+    // 0.4.0 (worker B): phone frame generation (null = not wired).
+    private val frameGen: FgController? = null,
+) : PlayerSessionFactory {
     override fun create(scope: CoroutineScope, listener: PlaybackListener, remote: Boolean): PlayerSession =
-        MpvPlayerSession(context, scope, listener, remote, quality())
+        MpvPlayerSession(context, scope, listener, remote, quality(), frameGen)
 }

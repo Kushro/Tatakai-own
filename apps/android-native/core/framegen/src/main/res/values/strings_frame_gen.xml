@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 0.4.0 (worker B): phone frame generation. Shared by Settings and the in-player UI (FrameGenText maps the enums). -->
+<resources>
+    <string name="fg_title">Frame generation on the phone</string>
+    <string name="fg_short">Frame generation</string>
+    <string name="fg_where_phone">On the phone</string>
+    <string name="fg_hint">Generates frames between the real ones on this phone\'s GPU (LSFG, Vulkan) for smoother motion. MPV engine only. Uses more battery and adds a few milliseconds of latency (the audio is shifted to match).</string>
+
+    <!-- State -->
+    <string name="fg_state_active">On the phone · %1$d×</string>
+    <string name="fg_state_ready">Available</string>
+    <string name="fg_state_off">Off</string>
+    <string name="fg_state_checking">Checking this device…</string>
+    <string name="fg_state_experimental">Experimental on this GPU</string>
+    <string name="fg_state_overloaded">The GPU cannot keep up</string>
+
+    <!-- Why it cannot run (FgUnavailableReason) -->
+    <string name="fg_reason_abi">Not available on this device/version (needs a 64-bit ARM or x86 build)</string>
+    <string name="fg_reason_library">Not available on this device/version (the frame generation library did not load)</string>
+    <string name="fg_reason_vulkan">Not available on this device: needs Vulkan 1.3</string>
+    <string name="fg_reason_shaders">Import Lossless.dll to use it</string>
+    <string name="fg_reason_pip">Paused in picture-in-picture</string>
+    <string name="fg_reason_background">Paused in the background</string>
+    <string name="fg_reason_low_power">Paused by battery saver</string>
+    <string name="fg_reason_eight_k">Paused for 8K video</string>
+    <string name="fg_reason_hdr_passthrough">Paused with HDR passthrough</string>
+    <string name="fg_reason_device_lost">Stopped: the GPU reset during playback</string>
+    <string name="fg_reason_start_failed">Could not start for this video</string>
+    <string name="fg_reason_remote">The PC already does it (Tatakai Link)</string>
+    <string name="fg_reason_no_input">Could not start for this video: MPV delivered no frames</string>
+
+    <!-- Choices -->
+    <string name="fg_enabled">Use when playing</string>
+    <string name="fg_multiplier">Multiplier</string>
+    <string name="fg_multiplier_hint">Auto picks the one that matches the screen refresh rate and lowers it if the GPU falls behind.</string>
+    <string name="fg_multiplier_auto">Auto</string>
+    <string name="fg_multiplier_n">%1$d×</string>
+    <string name="fg_profile">Profile</string>
+    <string name="fg_profile_saver">Saver</string>
+    <string name="fg_profile_balanced">Balanced</string>
+    <string name="fg_profile_quality">Quality</string>
+    <string name="fg_profile_custom">Custom</string>
+    <string name="fg_profile_hint">Saver works at 75 % resolution; Quality uses the full LSFG model and costs about twice as much.</string>
+    <string name="fg_match_refresh">Change the screen refresh rate</string>
+    <string name="fg_match_refresh_hint">Asks the screen for the video fps × multiplier (for example 24 × 5 = 120 Hz).</string>
+    <string name="fg_allow_untested">Allow on untested GPUs</string>
+    <string name="fg_allow_untested_hint">Also on Vulkan 1.1 / 1.2 GPUs. Experimental: it may not work or may look wrong.</string>
+    <string name="fg_show_stats">Show frame generation stats</string>
+    <string name="fg_audio_offset">Audio offset</string>
+    <string name="fg_audio_offset_value">%1$+d ms</string>
+
+    <!-- Lossless.dll -->
+    <string name="fg_shaders">LSFG shaders (Lossless.dll)</string>
+    <string name="fg_shaders_hint">The shaders come from your own copy of Lossless Scaling (Steam: Lossless Scaling › Browse local files › Lossless.dll). Only the shaders are kept, in this app\'s private storage; the DLL is not stored.</string>
+    <string name="fg_shaders_imported">Imported · %1$s</string>
+    <string name="fg_shaders_imported_plain">Imported</string>
+    <string name="fg_shaders_missing">Not imported</string>
+    <string name="fg_shaders_import">Import Lossless.dll</string>
+    <string name="fg_shaders_reimport">Import again</string>
+    <string name="fg_shaders_remove">Remove</string>
+    <string name="fg_shaders_importing">Importing…</string>
+    <string name="fg_install_imported">Shaders imported</string>
+    <string name="fg_install_too_large">That file is too large to be Lossless.dll</string>
+    <string name="fg_install_unreadable">The file could not be read</string>
+    <string name="fg_install_missing_shaders">That file does not contain the LSFG shaders (is it Lossless.dll?)</string>
+    <string name="fg_install_write_failed">The shaders could not be saved</string>
+    <string name="fg_install_unavailable">Not available on this device/version</string>
+    <string name="fg_shaders_removed">Shaders removed</string>
+</resources>

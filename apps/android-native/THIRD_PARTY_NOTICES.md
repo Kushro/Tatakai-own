@@ -112,3 +112,25 @@ lines relaxed to the variant its own header documents for scaled content and wit
 Not bundled: Enigmata's `Ani4Kv2_ArtCNN_C4F32_i2_CMP.glsl` (ArtCNN weights are CC BY-NC 4.0, and the shader needs `//!COMPUTE` on gpu-next +
 Vulkan, which `dev.jdtech.mpv:libmpv` 1.0.0 (mpv 0.41, OpenGL ES only) does not have: the preset is listed as unavailable), `adaptive-sharpen`,
 the Darken / Thin / Deblur post-filters and `hdr-toys`.
+
+### Frame generation on the phone (0.4.0, worker B, `:core:framegen`)
+
+Ported from Enigmata (author's own, AGPL-3.0-or-later, read at commit `115fcc8`, feature R13). Every copied file keeps its SPDX /
+copyright header; the native files carry an extra "Ported from Enigmata" line. `libtatakai_fg.so` is only built for arm64-v8a and
+x86_64.
+
+| Target file(s) in this app | Origin | License | Notes |
+|---|---|---|---|
+| `core/framegen/src/main/kotlin/.../framegen/{FgPolicy,FgConfig,FgResult,FgStats,FgStatsView,FgDeviceInfo,FgAudioDelay,FgInterpolationRule,FgActiveFlag,FgNative,ShaderInstaller}.kt` | Enigmata `app/src/main/java/app/enigmata/fg/*` | AGPL-3.0-or-later | Package `app.tatakai.next.framegen`, library `tatakai_fg`; `ShaderInstaller.remove()` added; `FgPriority` is an alias of `:core:model` `FrameGenPriority` |
+| `core/framegen/.../{FgController,FgMpvPort,FgUiContract,FgProfile,FgCapabilities,FgPreferences,SurfaceFrameRate}.kt` | Enigmata `fg/{FgController,FgMpvPort,FgUiContract,FgProfile}.kt`, `preferences/FgPreferences.kt`, `ui/player/SurfaceFrameRate.kt` | AGPL-3.0-or-later | Adapted: no HDR / quality-controller coupling, port reduced to connect / disconnect, preferences over `AppSettings.frameGen`, public `FrameGenController` API |
+| `core/framegen/src/test/kotlin/.../Fg{Policy,AutoBudget,Overload,FpsMeter,StatsView,Profile,AudioDelay,InterpolationRule}Test.kt` | Enigmata `app/src/test/java/app/enigmata/fg/*` | AGPL-3.0-or-later | Package renamed only |
+| `core/framegen/src/main/cpp/fg/{fg_jni.cpp,fg_types.h,fg_engine.h,fg_presenter.h,fg_device.h,fg_shader_loader.h,frame_source.h,fg_pacing.h}` | Enigmata `app/src/main/cpp/fg/*` | AGPL-3.0-or-later | JNI class, log tags, debug properties renamed |
+| `core/framegen/src/main/cpp/fg/{fg_engine,fg_presenter,fg_device,fg_pacing,fg_shader_loader,ahb_image,image_reader_source,fg_unicode}.cpp`, `ahb_image.h` | Enigmata `app/src/main/cpp/fg/*`, adapted by Enigmata from FrankBarretta/LSFG-Android-Application (commit `b84754199823615d32d65fe33ea59481dca88dcf`) | GPL-3.0-only (combined with AGPL-3.0 under GPL-3.0 section 13) | Same renames; each file names the upstream lines it adapts |
+| `core/framegen/src/main/cpp/CMakeLists.txt` | Enigmata `app/src/main/cpp/CMakeLists.txt` (FG part only) | AGPL-3.0-or-later | `libenigmata_fg.so` -> `libtatakai_fg.so` |
+| `core/framegen/src/main/cpp/third_party/lsfg-vk/**` | lsfg-vk framegen: FrankBarretta/lsfg-vk-android `b55b1820` + 4 files of amyroseee/LSFG-Android-A6xx `f1c0e9a` (2 with Enigmata changes), see its `README.enigmata.md` | MIT (Copyright (c) 2025 lsfg-vk) | Vendored as in Enigmata |
+| `core/framegen/src/main/cpp/third_party/volk/**` | zeux/volk `be3dbd49` | MIT (Copyright (c) 2018-2025 Arseny Kapoulkine) | Unmodified |
+| `core/framegen/src/main/cpp/third_party/pe-parse/**` | trailofbits/pe-parse `31ac5966` (subset) | MIT (Copyright (c) 2013 Andrew Ruef) | Unmodified; ICU-free `fg_unicode.cpp` replaces its unicode helpers |
+
+The LSFG shaders are **not** shipped: they come from the user's own `Lossless.dll` (Lossless Scaling, THS), imported in Settings ›
+Reproductor through the system file picker. Only the extracted SPIR-V is kept, in app-private storage (`filesDir/lsfg/spirv`); the
+DLL copy is deleted right after the extraction.

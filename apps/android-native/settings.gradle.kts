@@ -69,3 +69,6 @@ include(":feature:downloads")
 include(":feature:manga")
 include(":feature:novel")
 include(":feature:social")
+
+// 0.4.0 player quality (worker B): frame generation on the phone (LSFG, Kotlin + NDK)
+include(":core:framegen")

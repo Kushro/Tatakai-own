@@ -430,6 +430,12 @@ class MpvEngine(context: Context) {
 
     fun currentPositionSecs(): Double = if (released) 0.0 else mpv.getPropertyDouble("time-pos") ?: _state.value.positionSecs
 
+    /**
+     * 0.4.0 (worker B, phone FG): MpvFrameGenBridge drives this same libmpv instance (video-params, audio-delay, vid, its own
+     * observer). The output surface still only moves through [attachSurface] / [resizeSurface] / [detachSurface].
+     */
+    internal val frameGenLib: MPVLib get() = mpv
+
     private val surfaceLock = Any()
     private var surfaceAttached = false
     private var pendingStart: (() -> Unit)? = null
