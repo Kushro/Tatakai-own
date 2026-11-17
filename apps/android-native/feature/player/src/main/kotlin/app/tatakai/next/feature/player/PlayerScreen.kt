@@ -325,6 +325,7 @@ private fun StatusBody(
             onPick = onPick,
             onOpenTorrent = onOpenTorrent,
             onOpenExtensions = onOpenExtensions,
+            onPlayOnPhone = vm::playOnPhoneInstead,
         )
         PlayerPhase.EXTERNAL -> Unit
     }

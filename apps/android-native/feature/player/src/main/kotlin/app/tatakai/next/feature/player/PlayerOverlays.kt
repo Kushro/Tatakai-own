@@ -309,6 +309,8 @@ internal fun PlaybackErrorView(
     onPick: () -> Unit,
     onOpenTorrent: (String) -> Unit,
     onOpenExtensions: () -> Unit,
+    /** 0.4.1: a Link error with the original source on the phone ([PlayerUiState.linkPhoneFallback]). */
+    onPlayOnPhone: (() -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val noFile = state.noFileTorrentId
@@ -363,6 +365,9 @@ internal fun PlaybackErrorView(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onRetry) { Text(stringResource(UiR.string.ui_retry)) }
             if (state.canPickSource) OutlinedButton(onClick = onPick) { Text(stringResource(R.string.player_pick_source)) }
+        }
+        if (onPlayOnPhone != null && state.linkPhoneFallback && !state.remoteless) {
+            FilledTonalButton(onClick = onPlayOnPhone) { Text(stringResource(R.string.player_link_play_on_phone)) }
         }
         if (state.lastFailedTorrent && state.hasWeb) {
             FilledTonalButton(onClick = onUseWeb) { Text(stringResource(R.string.player_use_web)) }
