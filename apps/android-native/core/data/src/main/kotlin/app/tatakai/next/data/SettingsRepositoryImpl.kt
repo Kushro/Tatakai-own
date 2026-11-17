@@ -11,6 +11,8 @@ import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.DownloadSettings
 import app.tatakai.next.model.LookPrefs
 import app.tatakai.next.model.NovelReaderSettings
+import app.tatakai.next.model.PlayerQualityPrefs
+import app.tatakai.next.model.QualityPresets
 import app.tatakai.next.model.ReaderSettings
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SourcePrefs
@@ -117,11 +119,19 @@ internal object SettingsCodec {
     private val MATURE_CONTENT = stringPreferencesKey("mature_content")
     // --- 2026-11 UI refresh: Diseño y estilo (LookPrefs, lenient ids) ---
     private val LOOK = stringPreferencesKey("look_json")
+    // --- 0.4.0 player quality (worker A): defaults of the libmpv quality engine ---
+    private val PLAYER_QUALITY = stringPreferencesKey("player_quality_json")
     private val KEYMAP_SERIALIZER = MapSerializer(String.serializer(), String.serializer())
     const val COUNTDOWN_MIN_SECS = 3
     const val COUNTDOWN_MAX_SECS = 30
 
-    private val PRESETS = setOf("off", "anime4k-a", "anime4k-aa", "anime4k-b", "anime4k-c", "fsr")
+    /**
+     * 0.4.0: the desktop preset ids ([QualityPresets.ALL]). Unknown ids read as "off".
+     *
+     * Engine default: a missing `player_engine` reads as the new default (MPV). Installs that saved any setting have `player_engine`
+     * stored (every write stores every key), and a stored MEDIA3 cannot be told apart from an explicit choice, so it is kept.
+     */
+    private val PRESETS = QualityPresets.ALL.toSet()
 
     fun read(p: Preferences): AppSettings {
         val d = AppSettings()
@@ -169,6 +179,7 @@ internal object SettingsCodec {
             socialNotifications = p[SOCIAL_NOTIFICATIONS] ?: d.socialNotifications,
             matureContent = enumOr(p[MATURE_CONTENT], d.matureContent),
             look = decodeLook(p[LOOK]) ?: d.look,
+            playerQuality = decode(p[PLAYER_QUALITY], PlayerQualityPrefs.serializer())?.sanitized() ?: d.playerQuality,
         )
     }
 
@@ -219,6 +230,7 @@ internal object SettingsCodec {
         p[SOCIAL_NOTIFICATIONS] = s.socialNotifications
         p[MATURE_CONTENT] = s.matureContent.name
         p[LOOK] = json.encodeToString(LookPrefs.serializer(), s.look.sanitized())
+        p[PLAYER_QUALITY] = json.encodeToString(PlayerQualityPrefs.serializer(), s.playerQuality.sanitized())
     }
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =
