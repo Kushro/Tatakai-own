@@ -2360,6 +2360,67 @@
                 "type": "number"
               }
             }
+          },
+          "upscale": {
+            "enum": [
+              "none",
+              "anime4k"
+            ],
+            "description": "Additive (0.4.0): the session's upscaler."
+          },
+          "anime4k": {
+            "type": "object",
+            "description": "Additive (0.4.0): only with upscale = anime4k.",
+            "properties": {
+              "mode": {
+                "enum": [
+                  "a",
+                  "b",
+                  "c"
+                ]
+              },
+              "variant": {
+                "enum": [
+                  "s",
+                  "m",
+                  "l"
+                ]
+              }
+            }
+          },
+          "fg": {
+            "enum": [
+              "none",
+              "frc_amf",
+              "lsfg"
+            ],
+            "description": "Additive (0.4.0): the session's frame generation."
+          },
+          "encoder": {
+            "type": "string",
+            "description": "Additive (0.4.0): the H.264 encoder of the session (h264_amf, h264_nvenc, h264_qsv, h264_vaapi, libx264, libopenh264)."
+          },
+          "video_kbps": {
+            "type": "integer",
+            "description": "Additive (0.4.0): the profile's video bitrate."
+          },
+          "fg_effective": {
+            "type": "object",
+            "description": "Additive (0.4.0): only with frame generation. The multiplier really used (LSFG auto profiles choose it per source); frc_amf has no fps (its rate is not probed).",
+            "required": [
+              "multiplier"
+            ],
+            "properties": {
+              "multiplier": {
+                "type": "integer"
+              },
+              "source_fps": {
+                "type": "number"
+              },
+              "out_fps": {
+                "type": "number"
+              }
+            }
           }
         }
       },

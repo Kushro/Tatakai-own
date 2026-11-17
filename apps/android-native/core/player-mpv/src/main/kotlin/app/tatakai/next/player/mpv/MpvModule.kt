@@ -7,6 +7,8 @@ import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.player.MPV_SESSION_FACTORY
 import app.tatakai.next.player.PlayerSessionFactory
 import app.tatakai.next.player.QualityRequest
+import app.tatakai.next.player.RemoteProcessingState
+import app.tatakai.next.model.LocalEnhancementGate
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.Module
 import org.koin.core.qualifier.named
@@ -18,6 +20,9 @@ import org.koin.dsl.module
  * Settings › Reproductor (`AppSettings.playerPreset` + `AppSettings.playerQuality`), read when the session is created.
  */
 val mpvPlayerModule: Module = module {
+    // 0.4.0 integration: the Link modes' "PC processes this stream" flag, shared by the player and every libmpv session.
+    single { RemoteProcessingState() }
+    single<LocalEnhancementGate> { get<RemoteProcessingState>() }
     single<PlayerSessionFactory>(named(MPV_SESSION_FACTORY)) {
         val settings = getOrNull<SettingsRepository>()
         // 0.4.0: quality defaults from Settings (worker A) + the phone frame generation controller (worker B), when bound.
@@ -28,6 +33,7 @@ val mpvPlayerModule: Module = module {
                 QualityRequest.from(s.playerPreset, s.playerQuality)
             },
             getOrNull<FgController>(),
+            get<RemoteProcessingState>(),
         )
     }
 }

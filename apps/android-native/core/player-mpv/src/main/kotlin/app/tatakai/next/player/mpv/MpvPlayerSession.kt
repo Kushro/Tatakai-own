@@ -17,6 +17,7 @@ import app.tatakai.next.model.ImageAdjust
 import app.tatakai.next.model.QualityTier
 import app.tatakai.next.model.SharpenLevel
 import app.tatakai.next.framegen.FgController
+import app.tatakai.next.player.RemoteProcessingState
 import app.tatakai.next.framegen.FrameGenController
 import app.tatakai.next.model.SubtitleStyle
 import app.tatakai.next.player.QualityEvent
@@ -76,6 +77,8 @@ class MpvPlayerSession(
     initialQuality: QualityRequest = QualityRequest(),
     /** 0.4.0 (worker B): the app-wide phone frame generation controller (null = FG not wired, e.g. tests). */
     frameGenController: FgController? = null,
+    /** 0.4.0 integration: whether the PC processes this stream (Link PC / Mixto); local shaders stay off while it does. */
+    remoteProcessing: RemoteProcessingState? = null,
 ) : PlayerSession {
     val engine = MpvEngine(context)
 
@@ -127,6 +130,7 @@ class MpvPlayerSession(
     private var monitorJob: Job? = null
     private var qualityEventsJob: Job? = null
     private var frameGenLinkJob: Job? = null
+    private var remoteProcessingJob: Job? = null
     private var startWatch: Job? = null
     private var prepareJob: Job? = null
     private var audioLang: String? = null
@@ -210,6 +214,9 @@ class MpvPlayerSession(
         }
         // 0.4.0 integration (A <-> B): the quality engine drops mpv cadence interpolation and keeps its chain sized for the
         // frame generation input while FG runs; FG pauses with the quality engine's battery Eco, like Enigmata.
+        remoteProcessing?.let { rp ->
+            remoteProcessingJob = scope.launch { rp.active.collect { on -> if (!released) qualityController.setRemoteProcessing(on) } }
+        }
         frameGenController?.let { fg ->
             frameGenLinkJob = scope.launch {
                 launch { fg.flag.active.collect { on -> if (!released) qualityController.setFrameGenActive(on) } }
@@ -412,6 +419,7 @@ class MpvPlayerSession(
         monitorJob?.cancel()
         qualityEventsJob?.cancel()
         frameGenLinkJob?.cancel()
+        remoteProcessingJob?.cancel()
         thermal.stop()
         engine.logListener = null
         startWatch?.cancel()
@@ -455,7 +463,9 @@ class MpvSessionFactory(
     private val quality: () -> QualityRequest,
     // 0.4.0 (worker B): phone frame generation (null = not wired).
     private val frameGen: FgController? = null,
+    // 0.4.0 integration: Link "PC" / "Mixto" turn the local shaders off (set by the player through LocalEnhancementGate).
+    private val remoteProcessing: RemoteProcessingState? = null,
 ) : PlayerSessionFactory {
     override fun create(scope: CoroutineScope, listener: PlaybackListener, remote: Boolean): PlayerSession =
-        MpvPlayerSession(context, scope, listener, remote, quality(), frameGen)
+        MpvPlayerSession(context, scope, listener, remote, quality(), frameGen, remoteProcessing)
 }

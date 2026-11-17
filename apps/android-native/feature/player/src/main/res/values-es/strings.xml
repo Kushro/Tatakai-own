@@ -297,6 +297,41 @@
     <string name="player_settings_shortcut_clash">Ya la usa: %1$s</string>
     <string name="src_tag_debrid_cached">En caché · %1$s</string>
     <!-- BUG-082 parity (PC text) -->
+    <!-- 0.4.0 (worker C): "Procesar en: Teléfono | PC | Mixto" (ProcessingText.kt; el control lo dibuja el worker D) -->
+    <string name="player_processing_title">Procesar en</string>
+    <string name="player_processing_phone">En el teléfono</string>
+    <string name="player_processing_pc">En la PC</string>
+    <string name="player_processing_mixed">Mixto (PC + teléfono)</string>
+    <string name="player_processing_phone_hint">El teléfono reproduce la fuente original con sus propias mejoras.</string>
+    <string name="player_processing_pc_hint">Tu PC mejora el video y lo envía; el teléfono solo lo reproduce.</string>
+    <string name="player_processing_mixed_hint">Tu PC escala el video y el teléfono genera los cuadros.</string>
+    <string name="player_processing_switching">Pasando a %1$s…</string>
+    <string name="player_processing_switched_phone">Ahora en el teléfono, en el mismo punto.</string>
+    <string name="player_processing_switched_pc">Ahora lo procesa tu PC, en el mismo punto.</string>
+    <string name="player_processing_switched_mixed">Ahora en mixto: tu PC escala y el teléfono genera los cuadros.</string>
+    <string name="player_processing_failed_timeout">No se pudo cambiar: tu PC no respondió a tiempo. Sigue donde estaba.</string>
+    <string name="player_processing_failed_offline">No se pudo cambiar: no hay conexión con tu PC. Sigue donde estaba.</string>
+    <string name="player_processing_failed_source">No se pudo cambiar: tu PC no puede abrir esta fuente. Sigue donde estaba.</string>
+    <string name="player_processing_failed_pc">No se pudo cambiar: tu PC no pudo iniciar el video. Sigue donde estaba.</string>
+    <string name="player_processing_failed_local">No se pudo reproducir en el teléfono: no hay una fuente para él aquí.</string>
+    <string name="player_processing_on_phone_instead">Se reproduce en el teléfono: %1$s</string>
+    <string name="player_processing_block_not_paired">Primero enlaza una PC en Ajustes › Enlace.</string>
+    <string name="player_processing_block_offline">Tu PC no responde.</string>
+    <string name="player_processing_block_local_file">Es una descarga de este teléfono: tu PC no puede leerla.</string>
+    <string name="player_processing_block_not_sendable">Esta fuente no se puede enviar a tu PC.</string>
+    <string name="player_processing_block_no_source">Espera a que se reproduzca una fuente.</string>
+    <string name="player_processing_block_external">No con el reproductor externo.</string>
+    <string name="player_processing_block_no_original">Este video es de tu PC: no hay una copia para el teléfono.</string>
+    <string name="player_processing_block_mpv">Necesita el motor MPV, que no está en esta versión.</string>
+    <string name="player_processing_block_phone_fg">Este teléfono no puede generar cuadros.</string>
+    <string name="player_processing_block_pc_fg">Tu PC no lo permite: actualiza Tatakai en la PC.</string>
+    <string name="player_processing_block_no_upscale">Tu PC no tiene un perfil de escalado que este teléfono pueda reproducir.</string>
+    <string name="player_processing_local_off">Las mejoras del teléfono están en pausa: la PC procesa el video.</string>
+    <string name="player_processing_pc_falling_behind">Puede que tu PC no dé abasto con este perfil.</string>
+    <string name="player_processing_group_none">Sin mejora</string>
+    <string name="player_processing_group_upscale">Solo escalado</string>
+    <string name="player_processing_group_frame_gen">Solo generación de cuadros</string>
+    <string name="player_processing_group_both">Escalado + generación</string>
     <string name="player_no_sources_found_title">No se encontraron fuentes</string>
     <string name="player_no_sources_found">Las extensiones instaladas no devolvieron ninguna fuente para este episodio. Revisa tu conexión y reintenta, o prueba más tarde.</string>
 </resources>

@@ -41,6 +41,10 @@ import org.koin.dsl.module
 /** Player -> data bridge: flush pending watch history on pause / exit. */
 private val appModule = module {
     single<HistoryFlush> { HistoryFlush { get<HistorySyncScheduler>().requestSync(immediate = true) } }
+    // 0.4.0 integration: Link "Mixto" needs the phone frame generation (frameGenModule); FG runs on the main thread.
+    single<app.tatakai.next.model.PhoneFrameGenGate> {
+        FrameGenLinkGate(get(), kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main))
+    }
 }
 
 /**

@@ -449,7 +449,17 @@ internal fun PlayerContent(
                         modifier = Modifier.padding(horizontal = 24.dp),
                     )
                     Box(Modifier.padding(horizontal = 12.dp).verticalScroll(rememberScrollState())) {
-                        ProfileList(state.linkProfiles, selected = state.linkProfile.orEmpty(), unavailable = state.linkUnsupported, mayDropFrames = state.linkMayDropFrames) { id -> sheet = null; vm.changeLinkProfile(id) }
+                        // 0.4.0 (worker C): grouped and filtered like the Linked screen (only "Solo escalado" in Mixto)
+                        val groups = vm.processing.collectAsStateWithLifecycle().value.profileGroups
+                        if (groups.isNotEmpty()) {
+                            app.tatakai.next.feature.link.GroupedProfileList(
+                                groups = groups,
+                                selected = state.linkProfile.orEmpty(),
+                                groupLabel = { stringResource(linkProfileGroupLabel(it)) },
+                            ) { id -> sheet = null; vm.setLinkProfile(id) }
+                        } else {
+                            ProfileList(state.linkProfiles, selected = state.linkProfile.orEmpty(), unavailable = state.linkUnsupported, mayDropFrames = state.linkMayDropFrames) { id -> sheet = null; vm.changeLinkProfile(id) }
+                        }
                     }
                 }
                 Sheet.Speed -> SPEEDS.forEach { sp ->

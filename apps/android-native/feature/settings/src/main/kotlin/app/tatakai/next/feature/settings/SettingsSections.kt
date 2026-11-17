@@ -577,6 +577,31 @@ internal fun LinkSection(state: SettingsUiState, vm: SettingsViewModel, onOpenLi
         Icon(Icons.Outlined.Computer, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
         Text(stringResource(R.string.settings_link_open), modifier = Modifier.padding(start = 8.dp))
     }
+    // 0.4.0 (worker C): where a normal playback starts; the player switches it any time ("Procesar en")
+    SettingRow(
+        label = stringResource(R.string.settings_link_processing_title),
+        hint = stringResource(if (state.linkPaired) R.string.settings_link_processing_hint else R.string.settings_link_processing_unpaired),
+        stack = true,
+    ) {
+        app.tatakai.next.designsystem.components.Segmented(
+            options = app.tatakai.next.model.ProcessingLocation.entries.map { loc ->
+                app.tatakai.next.designsystem.components.SegmentedOption(
+                    value = loc,
+                    label = stringResource(
+                        when (loc) {
+                            app.tatakai.next.model.ProcessingLocation.PHONE -> R.string.settings_link_processing_phone
+                            app.tatakai.next.model.ProcessingLocation.PC -> R.string.settings_link_processing_pc
+                            app.tatakai.next.model.ProcessingLocation.MIXED -> R.string.settings_link_processing_mixed
+                        },
+                    ),
+                    enabled = state.linkPaired,
+                )
+            },
+            selected = state.linkDefaultProcessing,
+            onSelect = vm::setLinkDefaultProcessing,
+            fillWidth = true,
+        )
+    }
     Text(
         stringResource(R.string.settings_link_history_title),
         style = MaterialTheme.typography.bodyLarge,

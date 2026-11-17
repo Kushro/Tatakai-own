@@ -136,6 +136,13 @@
     <string name="settings_link">Tatakai Link</string>
     <string name="settings_link_hint">Conecta esta app con tu PC para que mejore el video (Anime4K) y lo envíe por tu red local.</string>
     <string name="settings_link_open">Dispositivo enlazado</string>
+    <!-- 0.4.0 (worker C) -->
+    <string name="settings_link_processing_title">Procesar por defecto en</string>
+    <string name="settings_link_processing_hint">Dónde empieza un video. Mixto: tu PC escala y el teléfono genera los cuadros. Puedes cambiarlo en el reproductor.</string>
+    <string name="settings_link_processing_unpaired">Enlaza una PC para procesar el video en ella. Mientras tanto, todo se reproduce en el teléfono.</string>
+    <string name="settings_link_processing_phone">Teléfono</string>
+    <string name="settings_link_processing_pc">PC</string>
+    <string name="settings_link_processing_mixed">Mixto</string>
     <string name="settings_torrents_hint">Límites de velocidad, red, almacenamiento y descargas en segundo plano del cliente de torrents.</string>
     <string name="settings_torrents_open">Ajustes de torrents</string>
     <string name="settings_torrents_open_sub">Velocidad · Red · Almacenamiento · Segundo plano</string>

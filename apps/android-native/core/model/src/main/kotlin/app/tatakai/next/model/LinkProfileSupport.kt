@@ -123,3 +123,73 @@ data class LinkProfileFallback(val from: String, val to: String)
 
 /** tk-link's profile without enhancement (the PC's video as is). */
 const val NO_ENHANCEMENT_PROFILE = "p-none"
+
+// ---- 0.4.0: the in-player profile list, grouped and filtered like the Linked screen --------------------------------------------
+
+/** Groups of the in-player profile list ("Sin mejora", "Solo escalado", "Solo generación de cuadros", "Escalado + generación"). */
+enum class LinkProfileGroupKind { NONE, UPSCALE, FRAME_GEN, UPSCALE_FRAME_GEN }
+
+fun linkProfileGroupKind(profile: LinkProfile): LinkProfileGroupKind = when {
+    profile.upscale && profile.frameGeneration -> LinkProfileGroupKind.UPSCALE_FRAME_GEN
+    profile.upscale -> LinkProfileGroupKind.UPSCALE
+    profile.frameGeneration -> LinkProfileGroupKind.FRAME_GEN
+    else -> LinkProfileGroupKind.NONE
+}
+
+/** One row: [support] != [ProfileSupport.Supported] = disabled with that reason; [mayDropFrames] = selectable with a note. */
+data class LinkProfileRow(val profile: LinkProfile, val support: ProfileSupport, val mayDropFrames: Boolean) {
+    val enabled: Boolean get() = support == ProfileSupport.Supported
+}
+
+data class LinkProfileGroup(val kind: LinkProfileGroupKind, val rows: List<LinkProfileRow>)
+
+/**
+ * The in-player profile list: like the Linked screen, profiles the PC measured as not sustainable (`measured_sustain` false)
+ * are hidden, except [current] (the one playing stays visible); profiles this phone cannot decode stay, disabled with the
+ * reason (BUG-132); a frame rate above the decoder's declared one is only a note (BUG-135). Grouped by [LinkProfileGroupKind]
+ * in that order, the PC's order inside each group; empty groups are left out. [upscaleOnly] keeps only the "Solo escalado"
+ * group (and "Sin mejora"): what "Mixto" can use.
+ */
+fun groupedLinkProfiles(
+    profiles: List<LinkProfile>,
+    limits: VideoDecodeLimits?,
+    rejected: Set<String> = emptySet(),
+    current: String? = null,
+    upscaleOnly: Boolean = false,
+): List<LinkProfileGroup> {
+    val visible = profiles.filter { it.measuredSustain != "false" || it.id == current }
+        .filter { !upscaleOnly || !it.frameGeneration }
+    return LinkProfileGroupKind.entries.mapNotNull { kind ->
+        val rows = visible.filter { linkProfileGroupKind(it) == kind }.map {
+            LinkProfileRow(it, linkProfileSupport(it, limits, rejected), linkProfileMayDropFrames(it, limits))
+        }
+        rows.takeIf { it.isNotEmpty() }?.let { LinkProfileGroup(kind, it) }
+    }
+}
+
+/**
+ * 0.4.0 "Mixto": the PC profile to use with the phone's frame generation: an upscale-only profile (no frame generation on the
+ * PC: tk-link's way of "fg: none, source cadence") that this phone decodes and the PC did not measure as unsustainable.
+ * [wanted] itself when it is one; else the one with the same output height as [wanted] (the upscale part of an
+ * "Anime4K + LSFG" profile); else the closest to 1080p (the phone also interpolates: a smaller stream leaves it more room),
+ * preferring the smaller one on a tie. null = the PC has none ("Mixto" is blocked).
+ */
+fun mixedLinkProfile(
+    wanted: String?,
+    profiles: List<LinkProfile>,
+    limits: VideoDecodeLimits?,
+    rejected: Set<String> = emptySet(),
+): String? {
+    val usable = profiles.filter {
+        it.upscale && !it.frameGeneration && it.measuredSustain != "false" &&
+            linkProfileSupport(it, limits, rejected) == ProfileSupport.Supported
+    }
+    if (usable.isEmpty()) return null
+    usable.firstOrNull { it.id == wanted }?.let { return it.id }
+    val from = profiles.firstOrNull { it.id == wanted }
+    if (from != null && from.upscale) usable.firstOrNull { it.outputHeight == from.outputHeight }?.let { return it.id }
+    return usable.minWithOrNull(compareBy<LinkProfile>({ kotlin.math.abs(it.outputHeight - MIXED_TARGET_HEIGHT) }, { it.outputHeight }))?.id
+}
+
+/** "Mixto" aims at this output height when nothing else says which upscale profile to use. */
+const val MIXED_TARGET_HEIGHT = 1080
