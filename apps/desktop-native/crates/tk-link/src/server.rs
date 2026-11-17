@@ -94,6 +94,8 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/sessions/{id}", get(session_state).delete(delete_session))
         .route("/v1/sessions/{id}/position", post(position))
         .route("/v1/sessions/{id}/{file}", get(session_file))
+        // 0.4.0: the source's subtitles (`crate::subtitles`); behind the same mTLS + per-device ownership as the HLS
+        .route("/v1/sessions/{id}/subtitles/{file}", get(session_subtitle))
         .fallback(not_found)
         .layer(middleware::from_fn_with_state(state.clone(), auth))
         .layer(middleware::from_fn(contract_header))
@@ -390,6 +392,14 @@ async fn session_file_inner(st: &AppState, s: &Arc<crate::sessions::Session>, fi
             Ok(with_type(st.manager.segment(&s, k).await?, "video/iso.segment", false))
         }
     }
+}
+
+/// `GET /v1/sessions/{id}/subtitles/{n}.ass|.vtt` (0.4.0): one text track of the source, private to the device.
+async fn session_subtitle(State(st): State<AppState>, axum::Extension(Authed(device)): axum::Extension<Authed>, Path((id, file)): Path<(String, String)>) -> ApiResult<Response> {
+    let s = st.manager.owned(&id, &device)?;
+    let (n, format) = crate::subtitles::parse_file_name(&file).ok_or(ApiError(ErrorCode::SessionNotFound))?;
+    let body = st.manager.subtitle(&s, n, format).await?;
+    Ok(with_type(body, format.content_type(), true))
 }
 
 // ---- TLS + connection loop ------------------------------------------------------------------------------------------

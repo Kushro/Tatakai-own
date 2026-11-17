@@ -35,6 +35,7 @@ pub mod playlist;
 pub mod protect;
 pub mod server;
 pub mod sessions;
+pub mod subtitles;
 mod sink;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
