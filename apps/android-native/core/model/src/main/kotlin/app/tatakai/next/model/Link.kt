@@ -18,6 +18,10 @@ data class LinkProfile(
     val fgMultiplier: Int? = null,
     /** BUG-132: LSFG automatic profiles aim at this output frame rate (`fg_target_fps`). */
     val fgTargetFps: Int? = null,
+    /** 0.4.0: the PC's frame generation of this profile (`fg`: `none` | `lsfg` | `frc_amf`). */
+    val fgKind: String = if (frameGeneration) "lsfg" else "none",
+    /** 0.4.0: the H.264 encoder the PC uses for it (`encoder`, e.g. `h264_vaapi`); null = not announced. */
+    val encoder: String? = null,
 )
 
 data class LinkCapabilities(
@@ -75,4 +79,6 @@ data class LinkedDevice(
     val preferredProfile: String?,
     /** Name this phone registered with at pairing. */
     val localDeviceName: String?,
+    /** 0.4.0: Settings › Enlace › "Procesar por defecto en": where a normal playback starts ([ProcessingLocation]). */
+    val defaultProcessing: ProcessingLocation = ProcessingLocation.PHONE,
 )

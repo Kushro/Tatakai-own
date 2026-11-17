@@ -30,6 +30,8 @@ data class ProfileDto(
     @SerialName("fg_multiplier") val fgMultiplier: Int? = null,
     /** Additive (LSFG auto): the multiplier is chosen per source to approach this rate. */
     @SerialName("fg_target_fps") val fgTargetFps: Int? = null,
+    /** The PC's encoder for this profile (`h264_amf`, `h264_vaapi`...; empty when it has none). */
+    val encoder: String? = null,
 )
 
 @Serializable
@@ -61,6 +63,30 @@ data class SessionStateDto(
     @SerialName("instance_id") val instanceId: String,
     val profile: String,
     val error: String? = null,
+    // --- optional status fields (contract SessionState); the 0.4.0 ones (upscale ... fg_effective) only from 0.4.0 PCs ---
+    val throttled: Boolean = false,
+    @SerialName("lead_secs") val leadSecs: Double? = null,
+    @SerialName("degraded_from") val degradedFrom: String? = null,
+    val output: SessionOutputDto? = null,
+    val upscale: String? = null,
+    val anime4k: Anime4kDto? = null,
+    val fg: String? = null,
+    @SerialName("fg_effective") val fgEffective: FgEffectiveDto? = null,
+    val encoder: String? = null,
+    @SerialName("video_kbps") val videoKbps: Int? = null,
+)
+
+@Serializable
+data class SessionOutputDto(val width: Int? = null, val height: Int? = null, val fps: Double? = null)
+
+@Serializable
+data class Anime4kDto(val mode: String? = null, val variant: String? = null)
+
+@Serializable
+data class FgEffectiveDto(
+    val multiplier: Int,
+    @SerialName("source_fps") val sourceFps: Double? = null,
+    @SerialName("out_fps") val outFps: Double? = null,
 )
 
 @Serializable

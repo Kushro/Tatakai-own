@@ -88,6 +88,8 @@ data class StoredDeviceMeta(
     val lastSeenMs: Long? = null,
     val preferredProfile: String? = null,
     val localDeviceName: String? = null,
+    /** 0.4.0: `ProcessingLocation.name` of "Procesar por defecto en"; null = PHONE. */
+    val defaultProcessing: String? = null,
 )
 
 /** Everything needed to talk to the paired PC, loaded into memory. [toString] reveals nothing secret. */
