@@ -98,6 +98,10 @@ class PlaybackController(
     private var released = false
     private var loaded = false
 
+    /** 0.4.1: [setRemoteEndIsFinal]; read by the load error policy on Media3's loader threads. */
+    @Volatile
+    private var remoteEndIsFinal = false
+
     // --- parity wave A (worker p) ---
     /** ISO 639-1 subtitle preference (`SourcePrefs.subLang`), for the forced selection of [onTracksChanged]. */
     private var preferredSub: String? = null
@@ -201,8 +205,9 @@ class PlaybackController(
                 }
             }
             .build()
-        // BUG-138: a Link session the PC no longer has (404 / 410) fails at once until this load shows its first frame
-        val failEndedAtOnce = { !_state.value.started }
+        // BUG-138: a Link session the PC no longer has (404 / 410) fails at once until this load shows its first frame.
+        // 0.4.1: and afterwards too unless a profile change / switch is replacing it ([setRemoteEndIsFinal]).
+        val failEndedAtOnce = { !_state.value.started || remoteEndIsFinal }
         val mediaSource = if (remote && source.container == Container.HLS && subs.isEmpty()) {
             // BUG-009 / BUG-023: a Link session without a known duration is a growing (EVENT) playlist that stops growing
             // while the PC waits for the playhead (pause, full buffer). Media3 calls a live playlist that has not changed
@@ -366,6 +371,10 @@ class PlaybackController(
 
     override fun setSubtitleStyle(style: SubtitleStyle) {
         _subtitleStyle.value = style
+    }
+
+    override fun setRemoteEndIsFinal(final: Boolean) {
+        remoteEndIsFinal = final
     }
 
     override fun release() {

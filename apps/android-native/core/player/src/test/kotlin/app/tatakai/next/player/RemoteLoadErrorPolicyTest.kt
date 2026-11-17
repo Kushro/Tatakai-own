@@ -24,8 +24,32 @@ class RemoteLoadErrorPolicyTest {
         unsafe.javaClass.getMethod("allocateInstance", Class::class.java).invoke(unsafe, DataSpec::class.java) as DataSpec
     }
 
-    private fun status(code: Int): IOException =
-        HttpDataSource.InvalidResponseCodeException(code, null, null, emptyMap(), spec, ByteArray(0))
+    private fun status(code: Int, body: String = ""): IOException =
+        HttpDataSource.InvalidResponseCodeException(code, null, null, emptyMap(), spec, body.toByteArray())
+
+    private fun pcError(code: Int, errorCode: String) = status(code, """{"error":{"code":"$errorCode","message":"x"}}""")
+
+    @Test
+    fun aSegmentThePcCannotProduceFailsAtOnceEvenWhilePlaying() {
+        // 0.4.1: the PC's engine failed / stalled for good; retrying it for a minute was the endless "preparing" flicker
+        val playing = RemoteLoadErrorPolicy(failEndedAtOnce = { false }, fromSession = { true })
+        assertEquals(C.TIME_UNSET, playing.getRetryDelayMsFor(info(pcError(410, "segment_unavailable"))))
+        // a session closed during a profile change is still retried while playing (the new one takes over)
+        assertEquals(0L, playing.getRetryDelayMsFor(info(pcError(410, "session_gone"))))
+        // a side-loaded web subtitle is not the PC's
+        val web = RemoteLoadErrorPolicy(failEndedAtOnce = { false }, fromSession = { false })
+        assertEquals(0L, web.getRetryDelayMsFor(info(pcError(410, "segment_unavailable"))))
+    }
+
+    @Test
+    fun errorBodiesAreReadDefensively() {
+        assertEquals("segment_unavailable", RemoteLoadErrorPolicy.errorCode("""{"error": {"code" : "segment_unavailable"}}""".toByteArray()))
+        assertEquals(null, RemoteLoadErrorPolicy.errorCode(ByteArray(0)))
+        assertEquals(null, RemoteLoadErrorPolicy.errorCode("<html>gone</html>".toByteArray()))
+        assertFalse(RemoteLoadErrorPolicy.segmentUnavailable(pcError(503, "segment_unavailable")))
+        assertTrue(RemoteLoadErrorPolicy.segmentUnavailable(pcError(410, "segment_unavailable")))
+        assertFalse(RemoteLoadErrorPolicy.segmentUnavailable(pcError(410, "session_gone")))
+    }
 
     private fun info(e: IOException, errorCount: Int = 1) = LoadErrorHandlingPolicy.LoadErrorInfo(
         LoadEventInfo(0L, spec, 0L),
@@ -44,7 +68,8 @@ class RemoteLoadErrorPolicyTest {
     @Test
     fun whilePlayingAClosedSessionKeepsRetrying() {
         // a profile change: the PC closed the old session before the new one is ready, the buffered video plays on
-        val policy = RemoteLoadErrorPolicy { false }
+        // (named: a trailing lambda would be `fromSession`)
+        val policy = RemoteLoadErrorPolicy(failEndedAtOnce = { false }, fromSession = { true })
         assertEquals(0L, policy.getRetryDelayMsFor(info(status(410))))
         assertEquals(5_000L, policy.getRetryDelayMsFor(info(status(404), errorCount = 9)))
     }

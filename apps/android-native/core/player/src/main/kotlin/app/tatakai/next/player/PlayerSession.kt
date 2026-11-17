@@ -142,6 +142,13 @@ interface PlayerSession {
 
     /** Phone frame generation (worker B) is presenting: mpv's smoothing is forced off while true. */
     fun setFrameGenActive(active: Boolean) = Unit
+
+    /**
+     * 0.4.1 (Link): whether a `404` / `410` of the PC is final even after the first frame ([RemoteLoadErrorPolicy]). The player sets
+     * false while a profile change / processing switch replaces the session (the old one is closed before the new one plays, and
+     * the buffered video must play on), true otherwise, so a dead session fails at once and the stall watchdog renews it.
+     */
+    fun setRemoteEndIsFinal(final: Boolean) = Unit
 }
 
 /**
