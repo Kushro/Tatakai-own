@@ -8,6 +8,8 @@ import android.os.BatteryManager
 import android.os.Looper
 import android.os.SystemClock
 import androidx.media3.common.util.UnstableApi
+import app.tatakai.next.framegen.FgController
+import app.tatakai.next.framegen.FrameGenController
 import app.tatakai.next.model.SubtitleStyle
 import app.tatakai.next.player.ActivePlayback
 import app.tatakai.next.player.AudioOption
@@ -53,8 +55,16 @@ class MpvPlayerSession(
     remote: Boolean,
     /** Settings › Reproductor › Preajuste (only applied when its shader files exist). */
     private val preset: String = "off",
+    /** 0.4.0 (worker B): the app-wide phone frame generation controller (null = FG not wired, e.g. tests). */
+    frameGenController: FgController? = null,
 ) : PlayerSession {
     val engine = MpvEngine(context)
+
+    /** 0.4.0 (worker B): routes this engine's output through the phone FG (see MpvFrameGenBridge); released before the engine. */
+    private val frameGenBridge: MpvFrameGenBridge? = frameGenController?.let { MpvFrameGenBridge(engine, it) }
+
+    /** 0.4.0 (worker B): phone frame generation of this playback for the in-player UI; null when FG is not wired. */
+    val frameGen: FrameGenController? = frameGenController
     private val _state = MutableStateFlow(PlaybackState(isBuffering = false, fullAss = true))
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
     private var released = false
@@ -297,6 +307,7 @@ class MpvPlayerSession(
         mirror.cancel()
         if (ActivePlayback.player.value === adapter) ActivePlayback.publish(null)
         adapter.detach()
+        frameGenBridge?.release() // 0.4.0 (worker B): FG off and unbound before MPVLib.destroy
         engine.release()
     }
 }
@@ -318,7 +329,12 @@ internal fun mpvErrorCode(error: String, started: Boolean, watched: Boolean): In
 
 /** Koin-bound factory of mpv sessions (see `mpvPlayerModule`). [preset] is read at creation time. */
 @UnstableApi
-class MpvSessionFactory(private val context: Context, private val preset: () -> String) : PlayerSessionFactory {
+class MpvSessionFactory(
+    private val context: Context,
+    private val preset: () -> String,
+    // 0.4.0 (worker B): phone frame generation (null = not wired).
+    private val frameGen: FgController? = null,
+) : PlayerSessionFactory {
     override fun create(scope: CoroutineScope, listener: PlaybackListener, remote: Boolean): PlayerSession =
-        MpvPlayerSession(context, scope, listener, remote, preset())
+        MpvPlayerSession(context, scope, listener, remote, preset(), frameGen)
 }

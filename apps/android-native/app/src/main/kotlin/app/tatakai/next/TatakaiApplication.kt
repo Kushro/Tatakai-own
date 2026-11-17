@@ -23,6 +23,7 @@ import app.tatakai.next.feature.settings.settingsModule
 import app.tatakai.next.feature.social.socialFeatureModule
 import app.tatakai.next.feature.torrents.torrentsFeatureModule
 import app.tatakai.next.feature.you.youFeatureModule
+import app.tatakai.next.framegen.frameGenModule
 import app.tatakai.next.link.linkModule
 import app.tatakai.next.manga.mangaModule
 import app.tatakai.next.metadata.metadataModule
@@ -77,6 +78,8 @@ class TatakaiApplication : Application() {
                 // `getAll<ChapterDownloadSource>()` of DownloadsViewModel resolve lazily, so the order among these does not matter.
                 discoverModule, downloadModule, mangaModule, novelModule, socialModule,
                 downloadsFeatureModule, mangaFeatureModule, novelFeatureModule, socialFeatureModule,
+                // 0.4.0 player quality (worker B): phone frame generation (FgController, used by mpvPlayerModule's sessions)
+                frameGenModule,
             )
         }
     }

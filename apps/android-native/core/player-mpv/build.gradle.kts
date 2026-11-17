@@ -10,6 +10,8 @@ dependencies {
     implementation(projects.core.model)
     implementation(projects.core.player)
     implementation(libs.libmpv)
+    // 0.4.0 (worker B): phone frame generation; api so feature/player sees FrameGenController (MpvPlayerSession.frameGen).
+    api(projects.core.framegen)
     implementation(libs.okhttp) // BUG-059: HlsPrefetch downloads the HLS master
     // parity wave A (15 §3.2, worker p): MpvPlayerAdapter is a Media3 SimpleBasePlayer so PlaybackService serves both engines.
     implementation(libs.media3.common)
