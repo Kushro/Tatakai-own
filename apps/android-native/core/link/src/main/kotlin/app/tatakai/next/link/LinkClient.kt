@@ -77,7 +77,15 @@ data class SessionStateDto(
     /** 0.4.0: the source's subtitle tracks (absent while the PC lists them, and on older PCs). */
     val subtitles: List<SubtitleTrackDto>? = null,
     @SerialName("subtitles_state") val subtitlesState: String? = null,
+    /** 0.4.1: the pipeline reached the real end of the source (`end_secs`), and what the PC holds around the playhead. */
+    val ended: Boolean = false,
+    @SerialName("end_secs") val endSecs: Double? = null,
+    val produced: ProducedDto? = null,
 )
+
+/** 0.4.1 `produced` of the session state: seconds of the source timeline. */
+@Serializable
+data class ProducedDto(@SerialName("from_secs") val fromSecs: Double? = null, @SerialName("to_secs") val toSecs: Double? = null)
 
 /** 0.4.0 `SubtitleTrack` of the session state (`subtitles[]`). */
 @Serializable

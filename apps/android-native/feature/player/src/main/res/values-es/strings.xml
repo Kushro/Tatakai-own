@@ -58,6 +58,7 @@
     <string name="player_link_phone_cannot_play_generic">Tu teléfono no puede reproducir ese perfil: volvió al anterior.</string>
     <string name="player_link_preferred_replaced">Tu teléfono no reproduce %1$s: tu perfil preferido pasó a %2$s.</string>
     <string name="player_link_pc_error">Tu PC no pudo seguir con esta sesión. Toca Reintentar para abrirla de nuevo.</string>
+    <string name="player_link_play_on_phone">Reproducir en el teléfono</string>
     <string name="player_link_renewed">La sesión con tu PC había vencido: se abrió una nueva en el mismo punto.</string>
     <!-- BUG-095: while a Link session buffers (the PC may be restarting its engine after a seek) -->
     <string name="player_link_preparing">Tu PC está preparando el video desde este punto…</string>

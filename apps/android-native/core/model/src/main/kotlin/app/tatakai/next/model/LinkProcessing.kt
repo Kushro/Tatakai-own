@@ -52,6 +52,12 @@ data class LinkSessionStatus(
     val subtitles: List<LinkSubtitleTrack>? = null,
     /** 0.4.0: `listing` | `unavailable` | `idle` | `extracting` | `ready` | `failed`; null = an older PC. */
     val subtitlesState: String? = null,
+    /** 0.4.1: the PC's pipeline reached the real end of the source at [endSecs] (state stays `ready`); false on older PCs. */
+    val ended: Boolean = false,
+    val endSecs: Double? = null,
+    /** 0.4.1: the contiguous range the PC holds around the playhead (`produced`, source timeline); null on older PCs. */
+    val producedFromSecs: Double? = null,
+    val producedToSecs: Double? = null,
 )
 
 /**
@@ -125,6 +131,9 @@ data class LinkProcessingInfo(
     val sessionState: String? = null,
     /** Capabilities `measured_sustain` of the profile: `true` | `false` | `unknown`. */
     val measuredSustain: String = "unknown",
+    /** 0.4.1: what the PC already produced around the playhead (seconds of the source; status `produced`); null = not known. */
+    val processedFromSecs: Double? = null,
+    val processedToSecs: Double? = null,
 ) {
     /** Playing, not held by back-pressure and less than [LOW_LEAD_SECS] ready: the PC may not keep up with this profile. */
     val fallingBehind: Boolean
@@ -176,6 +185,8 @@ fun linkProcessingInfo(pcName: String?, profileId: String, profile: LinkProfile?
         leadSecs = status?.leadSecs,
         sessionState = status?.state,
         measuredSustain = p?.measuredSustain ?: "unknown",
+        processedFromSecs = status?.producedFromSecs,
+        processedToSecs = status?.producedToSecs,
     )
 }
 

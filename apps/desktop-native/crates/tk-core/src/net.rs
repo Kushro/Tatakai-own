@@ -420,6 +420,19 @@ impl SafeHttp {
     /// the User-Agent and joins the cookies of its host, and one Cloudflare challenge per request is solved and the
     /// same hop retried.
     pub async fn send(&self, req: SafeRequest) -> Result<SafeResponse, NetError> {
+        self.send_inner(req, false).await
+    }
+
+    /// Like [`SafeHttp::send`] for a body that is read as a long stream at the reader's own pace (0.4.1, the Tatakai Link
+    /// fetcher: a torrent or a progressive video that FFmpeg reads for a whole episode and stops reading while its output
+    /// is held back). The policy timeout bounds the connection, the wait for the response head and each read of the body
+    /// (a source that stops sending), never the whole body: with [`SafeHttp::send`] every stream ended `policy.timeout`
+    /// after its request, whatever was left of it.
+    pub async fn send_stream(&self, req: SafeRequest) -> Result<SafeResponse, NetError> {
+        self.send_inner(req, true).await
+    }
+
+    async fn send_inner(&self, req: SafeRequest, stream: bool) -> Result<SafeResponse, NetError> {
         let origin0 = origin_of(&req.url);
         let mut url = req.url;
         let mut method = req.method;
@@ -433,10 +446,9 @@ impl SafeHttp {
         let mut solved = false;
         loop {
             let addrs = self.resolve_validated(&url).await?;
-            let mut builder = reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .timeout(self.policy.timeout)
-                .connect_timeout(self.policy.timeout);
+            let mut builder =
+                reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).connect_timeout(self.policy.timeout);
+            builder = if stream { builder.read_timeout(self.policy.timeout) } else { builder.timeout(self.policy.timeout) };
             match &proxy {
                 Some(p) => builder = builder.proxy(p.clone()),
                 None => {

@@ -103,6 +103,19 @@ pub struct FakeEngine {
     pub extract_delay: Mutex<Duration>,
     pub extract_fails: Mutex<bool>,
     pub extractions: Arc<Mutex<Vec<String>>>,
+    /// 0.4.1: PUT like FFmpeg n9's HLS muxer, which does not wait for the answer (fire and forget); every segment sent.
+    pub no_wait: Mutex<bool>,
+    pub sent: Arc<Mutex<Vec<u32>>>,
+    /// 0.4.1: what the next runs do, one entry per spawn (then normal runs): hang after n segments without exiting, or
+    /// exit with success after n segments (an input that broke).
+    pub scripts: Mutex<std::collections::VecDeque<RunScript>>,
+}
+
+/// 0.4.1: misbehaviour of one fake run.
+#[derive(Debug, Clone, Copy)]
+pub enum RunScript {
+    HangAfter(u32),
+    StopAfter(u32),
 }
 
 impl FakeEngine {
@@ -120,12 +133,17 @@ impl FakeEngine {
             extract_delay: Mutex::new(Duration::ZERO),
             extract_fails: Mutex::new(false),
             extractions: Arc::default(),
+            no_wait: Mutex::new(false),
+            sent: Arc::default(),
+            scripts: Mutex::default(),
         })
     }
 }
 
 struct FakeProc {
     task: Option<tokio::task::JoinHandle<()>>,
+    /// 0.4.1: `wait` takes the handle, and the session kills a run while waiting for it: abort through this.
+    abort: tokio::task::AbortHandle,
 }
 
 #[async_trait]
@@ -141,9 +159,7 @@ impl EngineProcess for FakeProc {
     }
 
     fn kill(&mut self) {
-        if let Some(t) = &self.task {
-            t.abort();
-        }
+        self.abort.abort();
     }
 }
 
@@ -153,15 +169,23 @@ impl Engine for FakeEngine {
         self.starts.lock().unwrap().push(job.start_segment);
         self.args.lock().unwrap().push(job.args.iter().map(|a| a.to_string_lossy().into_owned()).collect());
         let (total, bytes, delay, results) = (self.total_segments, self.seg_bytes, self.delay, self.put_results.clone());
+        let (no_wait, sent) = (*self.no_wait.lock().unwrap(), self.sent.clone());
+        let script = self.scripts.lock().unwrap().pop_front();
         let task = tokio::spawn(async move {
             let put = |name: String, body: Vec<u8>| {
                 let url = format!("{}/{name}", job.sink_base);
-                async move { ffmpeg_style_put(&url, &body).await }
+                async move { if no_wait { ffmpeg_n9_put(&url, &body).await } else { ffmpeg_style_put(&url, &body).await } }
             };
             if put("init.mp4".into(), b"INIT".to_vec()).await != 200 {
                 return;
             }
-            for k in job.start_segment..total {
+            for (n, k) in (job.start_segment..total).enumerate() {
+                match script {
+                    Some(RunScript::HangAfter(m)) if n as u32 >= m => std::future::pending::<()>().await,
+                    Some(RunScript::StopAfter(m)) if n as u32 >= m => return,
+                    _ => {}
+                }
+                sent.lock().unwrap().push(k);
                 let st = put(format!("seg_{k}.m4s"), vec![(k % 251) as u8; bytes]).await;
                 results.lock().unwrap().push((k, st));
                 if st != 200 {
@@ -170,7 +194,8 @@ impl Engine for FakeEngine {
                 tokio::time::sleep(delay).await;
             }
         });
-        Ok(Box::new(FakeProc { task: Some(task) }))
+        let abort = task.abort_handle();
+        Ok(Box::new(FakeProc { task: Some(task), abort }))
     }
 
     async fn source_info(&self, _input_url: &str) -> tk_link::media::probe::SourceInfo {
@@ -199,6 +224,27 @@ impl Engine for FakeEngine {
         }
         Ok(())
     }
+}
+
+/// 0.4.1: PUT `body` the way FFmpeg n9's HLS muxer really does: chunked body, a half-close, one non-blocking read and
+/// the connection is closed, without waiting for the status (measured with FFmpeg n9.0.2 against a server that answers
+/// 5 s late: six segments PUT within the same second). Answers 200 when the body was written.
+async fn ffmpeg_n9_put(url: &str, body: &[u8]) -> u16 {
+    use tokio::io::AsyncWriteExt;
+    let Some(rest) = url.strip_prefix("http://") else { return 0 };
+    let Some((host, path)) = rest.split_once('/') else { return 0 };
+    let Ok(mut sock) = tokio::net::TcpStream::connect(host).await else { return 0 };
+    let mut req = format!("PUT /{path} HTTP/1.1\r\nTransfer-Encoding: chunked\r\nUser-Agent: Lavf\r\nConnection: close\r\nHost: {host}\r\n\r\n").into_bytes();
+    for chunk in body.chunks(32 * 1024) {
+        req.extend_from_slice(format!("{:x}\r\n", chunk.len()).as_bytes());
+        req.extend_from_slice(chunk);
+        req.extend_from_slice(b"\r\n");
+    }
+    req.extend_from_slice(b"0\r\n\r\n");
+    if sock.write_all(&req).await.is_err() || sock.shutdown().await.is_err() {
+        return 0;
+    }
+    200
 }
 
 /// PUT `body` the way FFmpeg's HLS muxer does (`-method PUT`): chunked body, then a half-close (shutdown of the write

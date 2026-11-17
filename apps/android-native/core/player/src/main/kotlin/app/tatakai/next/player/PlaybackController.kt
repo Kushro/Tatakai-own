@@ -98,6 +98,13 @@ class PlaybackController(
     private var released = false
     private var loaded = false
 
+    /** 0.4.1: [setRemoteEndIsFinal]; read by the load error policy on Media3's loader threads. */
+    @Volatile
+    private var remoteEndIsFinal = false
+
+    /** 0.4.1: [finishAsEnded] ended this load (the player is stopped, [PlaybackState.ended] stays up). */
+    private var endedHere = false
+
     // --- parity wave A (worker p) ---
     /** ISO 639-1 subtitle preference (`SourcePrefs.subLang`), for the forced selection of [onTracksChanged]. */
     private var preferredSub: String? = null
@@ -201,8 +208,9 @@ class PlaybackController(
                 }
             }
             .build()
-        // BUG-138: a Link session the PC no longer has (404 / 410) fails at once until this load shows its first frame
-        val failEndedAtOnce = { !_state.value.started }
+        // BUG-138: a Link session the PC no longer has (404 / 410) fails at once until this load shows its first frame.
+        // 0.4.1: and afterwards too unless a profile change / switch is replacing it ([setRemoteEndIsFinal]).
+        val failEndedAtOnce = { !_state.value.started || remoteEndIsFinal }
         val mediaSource = if (remote && source.container == Container.HLS && subs.isEmpty()) {
             // BUG-009 / BUG-023: a Link session without a known duration is a growing (EVENT) playlist that stops growing
             // while the PC waits for the playhead (pause, full buffer). Media3 calls a live playlist that has not changed
@@ -223,6 +231,7 @@ class PlaybackController(
                 .createMediaSource(item)
         }
         loaded = true
+        endedHere = false
         _cues.value = emptyList()
         _state.value = _state.value.copy(
             loadId = _state.value.loadId + 1,
@@ -241,14 +250,35 @@ class PlaybackController(
         player.playWhenReady = true
     }
 
-    override fun play() = player.play()
+    override fun play() {
+        resumeAfterEnded()
+        player.play()
+    }
 
     override fun pause() = player.pause()
 
     override fun togglePlay() = if (player.isPlaying) pause() else play()
 
-    override fun seekTo(positionMs: Long) =
+    override fun seekTo(positionMs: Long) {
+        resumeAfterEnded()
         player.seekTo(positionMs.coerceIn(0, player.duration.takeIf { it != C.TIME_UNSET } ?: Long.MAX_VALUE))
+    }
+
+    /** 0.4.1: [finishAsEnded] stopped the player; a play / seek after it prepares the same media again. */
+    private fun resumeAfterEnded() {
+        if (!endedHere || released) return
+        endedHere = false
+        player.prepare()
+    }
+
+    override fun finishAsEnded() {
+        if (released || !loaded || endedHere) return
+        endedHere = true
+        player.playWhenReady = false
+        player.stop() // no more loads or retries of the segments past the PC's end
+        _state.value = _state.value.copy(error = null, ended = true, isBuffering = false, isPlaying = false)
+        listener.onProgress(player.currentPosition, player.duration.orZero(), true)
+    }
 
     override fun seekBy(deltaMs: Long) = seekTo(player.currentPosition + deltaMs)
 
@@ -368,6 +398,10 @@ class PlaybackController(
         _subtitleStyle.value = style
     }
 
+    override fun setRemoteEndIsFinal(final: Boolean) {
+        remoteEndIsFinal = final
+    }
+
     override fun release() {
         if (released) return
         if (loaded) listener.onProgress(player.currentPosition, player.duration.orZero(), true)
@@ -437,8 +471,8 @@ class PlaybackController(
         val cur = _state.value
         _state.value = cur.copy(
             isPlaying = player.isPlaying,
-            isBuffering = loaded && player.playbackState == Player.STATE_BUFFERING,
-            ended = player.playbackState == Player.STATE_ENDED,
+            isBuffering = loaded && !endedHere && player.playbackState == Player.STATE_BUFFERING,
+            ended = endedHere || player.playbackState == Player.STATE_ENDED,
             positionMs = player.currentPosition,
             durationMs = player.duration.orZero(),
             bufferedMs = player.bufferedPosition,

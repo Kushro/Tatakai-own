@@ -255,3 +255,56 @@ async fn the_own_extension_server_media_proxy_is_a_trusted_origin() {
     assert_eq!(f.validate(&t2, &other).await, Err(FetchError::Denied));
     assert!(seen.lock().unwrap().iter().all(|r| r.contains("/api/server/v1/media/")));
 }
+
+/// Loopback upstream that streams `chunks` chunks of `size` bytes, one every `every` (a torrent read at FFmpeg's pace).
+async fn slow_upstream(chunks: usize, size: usize, every: std::time::Duration) -> u16 {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut s, _)) = listener.accept().await else { return };
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 16 * 1024];
+                let _ = s.read(&mut buf).await;
+                let head = format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\ncontent-type: video/x-matroska\r\nconnection: close\r\n\r\n", chunks * size);
+                if s.write_all(head.as_bytes()).await.is_err() {
+                    return;
+                }
+                for _ in 0..chunks {
+                    tokio::time::sleep(every).await;
+                    if s.write_all(&vec![7u8; size]).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    port
+}
+
+/// 0.4.1 (Link stuck after a pause): the policy timeout bounds each read of a progressive stream, not the whole body. It
+/// was reqwest's TOTAL timeout, so every torrent / progressive input of a session ended 20 s after FFmpeg opened it.
+#[tokio::test]
+async fn a_long_stream_is_not_cut_by_the_policy_timeout_but_a_stalled_one_is() {
+    let policy = Policy { allow_loopback: true, allowed_ports: None, timeout: std::time::Duration::from_millis(700), ..Policy::link_source(true) };
+    let f = Fetcher::start(SafeHttp::with_resolver(policy, Arc::new(MapResolver(HashMap::new())))).await.unwrap();
+    // 10 chunks every 250 ms: 2.5 s in all, more than three times the timeout, never 700 ms without a byte
+    let port = slow_upstream(10, 4096, std::time::Duration::from_millis(250)).await;
+    let url = format!("http://127.0.0.1:{port}/episode.mkv");
+    let token = f.register_unmetered(spec(&url));
+    let r = no_proxy_client().get(f.entry_url(&token, &Url::parse(&url).unwrap(), false)).send().await.unwrap();
+    assert_eq!(r.status(), 200);
+    let body = r.bytes().await.expect("the whole stream arrives");
+    assert_eq!(body.len(), 10 * 4096);
+    // a source that stops sending for longer than the timeout is still cut (the reader gets an error, not a hang)
+    let stalled = slow_upstream(2, 4096, std::time::Duration::from_millis(2000)).await;
+    let url = format!("http://127.0.0.1:{stalled}/episode.mkv");
+    let token = f.register(spec(&url));
+    let r = no_proxy_client().get(f.entry_url(&token, &Url::parse(&url).unwrap(), false)).send().await;
+    let cut = match r {
+        Ok(r) => r.bytes().await.map(|b| b.len() < 2 * 4096).unwrap_or(true),
+        Err(_) => true,
+    };
+    assert!(cut, "a stalled source must not hang the reader");
+}

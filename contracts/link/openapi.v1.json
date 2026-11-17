@@ -613,7 +613,7 @@
             "$ref": "#/components/responses/session_not_ready"
           },
           "410": {
-            "$ref": "#/components/responses/session_gone"
+            "$ref": "#/components/responses/media_gone"
           },
           "503": {
             "$ref": "#/components/responses/segment_wait_timeout"
@@ -683,7 +683,7 @@
             "$ref": "#/components/responses/session_not_ready"
           },
           "410": {
-            "$ref": "#/components/responses/session_gone"
+            "$ref": "#/components/responses/media_gone"
           },
           "503": {
             "$ref": "#/components/responses/segment_wait_timeout"
@@ -1793,6 +1793,60 @@
             }
           }
         }
+      },
+      "segment_unavailable": {
+        "description": "410 segment_unavailable",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "example": {
+              "error": {
+                "code": "segment_unavailable",
+                "message": "the segment cannot be produced; open the session again"
+              }
+            }
+          }
+        }
+      },
+      "media_gone": {
+        "description": "410 session_gone (the session is closed) or, 0.4.1, segment_unavailable: the session failed (its engine failed, or stalled and its automatic restarts ran out; `GET /v1/sessions/{id}` says state=failed and why) and this file will never be produced. Both are final for this session: open a new one at the playback position (`source.kind = session`). Before 0.4.1 a failed session answered 503 source_unavailable forever.",
+        "headers": {
+          "Tatakai-Link": {
+            "$ref": "#/components/headers/TatakaiLink"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "session_gone": {
+                "value": {
+                  "error": {
+                    "code": "session_gone",
+                    "message": "the session is closed"
+                  }
+                }
+              },
+              "segment_unavailable": {
+                "value": {
+                  "error": {
+                    "code": "segment_unavailable",
+                    "message": "the segment cannot be produced; open the session again"
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "schemas": {
@@ -1838,7 +1892,8 @@
                   "internal",
                   "url_source_denied",
                   "extension_unavailable",
-                  "handoff_rejected"
+                  "handoff_rejected",
+                  "segment_unavailable"
                 ]
               },
               "message": {
@@ -2436,7 +2491,8 @@
               "shortfall",
               "memory_limit",
               "engine_unavailable",
-              "url_source_denied"
+              "url_source_denied",
+              "engine_stalled"
             ],
             "description": "Only when state = failed"
           },
@@ -2533,6 +2589,34 @@
               "failed"
             ],
             "description": "Additive (0.4.0): listing = tracks not known yet; unavailable = no listing (ffprobe missing / failed); idle = listed, nothing extracted (the first subtitle file request starts one FFmpeg pass that extracts every text track); extracting; ready = files served; failed = the pass failed or timed out (files answer 503 source_unavailable)."
+          },
+          "parked": {
+            "type": "boolean",
+            "description": "0.4.1: production is parked: the run got far enough ahead and was stopped (an encoder that does not wait for the PC's sink cannot be held otherwise); it starts again by itself before the playhead reaches it. `throttled` is true too."
+          },
+          "ended": {
+            "type": "boolean",
+            "description": "0.4.1: the pipeline reached the real end of the source (it can be a little before duration_secs). Segments at or after end_secs answer 404; the phone ends the episode normally there. Absent until then and on older PCs."
+          },
+          "end_secs": {
+            "type": "number",
+            "description": "0.4.1: with ended: where the source really ends."
+          },
+          "produced": {
+            "type": "object",
+            "description": "0.4.1: the consecutive range the PC holds around the playhead (source timeline): the one that contains it, or the next one after it. Absent when there is none.",
+            "properties": {
+              "from_secs": {
+                "type": "number"
+              },
+              "to_secs": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "from_secs",
+              "to_secs"
+            ]
           }
         }
       },
@@ -3018,7 +3102,7 @@
     }
   },
   "x-errors": {
-    "note": "Temple v1 catalog (23 codes) plus the 3 Link additions. `m0: false` codes are defined for forward compatibility but never produced by the M0 server.",
+    "note": "Temple v1 catalog (23 codes) plus the 4 Link additions. `m0: false` codes are defined for forward compatibility but never produced by the M0 server.",
     "codes": [
       {
         "code": "client_certificate_required",
@@ -3175,6 +3259,12 @@
         "http": 409,
         "message": "the handoff was rejected",
         "m0": false
+      },
+      {
+        "code": "segment_unavailable",
+        "http": 410,
+        "message": "the segment cannot be produced; open the session again",
+        "m0": true
       }
     ],
     "extraCodes": [
