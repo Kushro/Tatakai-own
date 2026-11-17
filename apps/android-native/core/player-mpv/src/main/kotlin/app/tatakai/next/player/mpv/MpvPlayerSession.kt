@@ -229,7 +229,7 @@ class MpvPlayerSession(
                     ended = m.ended,
                     positionMs = (m.positionSecs * 1000).toLong(),
                     durationMs = (m.durationSecs * 1000).toLong(),
-                    bufferedMs = ((m.positionSecs + m.cacheSecs) * 1000).toLong(),
+                    bufferedMs = mpvBufferedMs(m.positionSecs, m.cacheSecs),
                     speed = m.speed.toFloat(),
                     videoHeights = emptyList(),
                     subtitles = subs,
@@ -474,3 +474,11 @@ internal fun mpvSubtitles(tracks: List<app.tatakai.next.model.SubtitleTrack>, se
             select = select == i,
         )
     }
+
+/**
+ * 0.4.1 (seek bar): `demuxer-cache-time` is the timestamp where the demuxer cache ends (not a duration: that is
+ * `demuxer-cache-duration`), so the buffered position is that value itself. Adding the playhead to it drew the buffer at about
+ * twice the position. Never behind the playhead (a cache cleared by a seek reports an older end until it refills).
+ */
+internal fun mpvBufferedMs(positionSecs: Double, cacheEndSecs: Double): Long =
+    (maxOf(positionSecs, cacheEndSecs).coerceAtLeast(0.0) * 1000).toLong()

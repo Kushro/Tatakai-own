@@ -43,7 +43,7 @@ data class MpvState(
     /** The current file played at least once (first `playback-restart` after loading). */
     val started: Boolean = false,
     val speed: Double = 1.0,
-    /** Seconds buffered ahead (`demuxer-cache-time`). */
+    /** Timestamp (seconds) where the buffered data ends (`demuxer-cache-time`; 0.4.1: an absolute time, not a duration). */
     val cacheSecs: Double = 0.0,
     val subtitles: List<MpvTrack> = emptyList(),
     val audio: List<MpvTrack> = emptyList(),
