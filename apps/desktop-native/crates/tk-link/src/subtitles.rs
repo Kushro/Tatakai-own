@@ -16,8 +16,9 @@
 //!   so extracting means reading the whole file; with a torrent the PC is still downloading, that is minutes, and
 //!   reading it once per track (Temple) would multiply it. While the pass runs the files answer `503
 //!   segment_wait_timeout` + `Retry-After`, and the phone adds the tracks once they are ready.
-//! * The store belongs to the source, not to one session: a profile change / renewal (`source: session`) reuses the
-//!   store of the session it replaces, so a profile change does not extract (or download) everything again.
+//! * The store belongs to the source, not to one session: a new session of the same device and the same source (a profile
+//!   change, a Phone | PC | Mixto switch, a reopen; by `source: session` or by the source itself) reuses it, so a
+//!   profile change does not extract (or download) everything again. The manager keeps one store per device.
 //!
 //! **Timing**: the extracted files keep the source's own timestamps (FFmpeg's default: relative to the source's start
 //! time). The session's HLS uses the same timeline whatever its `start_secs` (segment `k` starts at `k * 2` s through
@@ -373,9 +374,9 @@ pub enum Lookup {
     Unavailable,
 }
 
-/// The subtitles of one source: its track list and, once the phone asked for a file, the extracted files. Shared by a
-/// session and the sessions that renew it (profile changes). Jobs are owned by the session that started them: when it
-/// closes ([`SubtitleStore::abandon`]) they stop and the next session starts them again with its own input.
+/// The subtitles of one source: its track list and, once the phone asked for a file, the extracted files. Shared by the
+/// sessions of that source (profile changes). Jobs are owned by the session that started them: when it closes
+/// ([`SubtitleStore::abandon`]) they stop and the next session starts them again with its own input.
 #[derive(Debug)]
 pub struct SubtitleStore {
     state: Mutex<(Probe, Extraction)>,

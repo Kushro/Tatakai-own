@@ -33,9 +33,17 @@ async fn wait_until<F: std::future::Future<Output = bool>>(what: &str, mut f: im
     panic!("timed out waiting for {what}");
 }
 
-async fn session(h: &Harness, p: &Paired) -> String {
+async fn upstream() -> u16 {
     let body = media_playlist(3);
-    let port = stub(move |_| text(200, &body)).await.0;
+    stub(move |_| text(200, &body)).await.0
+}
+
+/// A new session of a new source.
+async fn session(h: &Harness, p: &Paired) -> String {
+    session_of(h, p, upstream().await).await
+}
+
+async fn session_of(h: &Harness, p: &Paired, port: u16) -> String {
     let r = p
         .client
         .post(h.url("/v1/sessions"))
@@ -150,7 +158,8 @@ async fn a_profile_change_keeps_the_extracted_subtitles_and_restarts_an_unfinish
     let tuning = SessionTuning { subtitle_wait: Duration::from_millis(500), ..quick_tuning() };
     let mut h = harness(engine.clone(), tuning, lenient_default()).await;
     let p = h.pair("Pixel").await;
-    let sid = session(&h, &p).await;
+    let port = upstream().await;
+    let sid = session_of(&h, &p, port).await;
     listed(&h, &p, &sid).await;
     assert_eq!(file(&h, &p, &sid, "1.ass").await.status(), 200);
 
@@ -159,6 +168,14 @@ async fn a_profile_change_keeps_the_extracted_subtitles_and_restarts_an_unfinish
     let st = status(&h, &p, &renewed).await;
     assert_eq!((st["subtitles"].as_array().map(Vec::len), st["subtitles_state"].as_str()), (Some(4), Some("ready")));
     assert!(file(&h, &p, &renewed, "1.ass").await.text().await.unwrap().contains("track 1"));
+    assert_eq!(engine.extractions.lock().unwrap().len(), 1);
+
+    // so does a session of the same source by the source itself (what a phone's profile change sends), even after the
+    // previous one closed
+    assert_eq!(p.client.delete(h.url(&format!("/v1/sessions/{renewed}"))).send().await.unwrap().status(), 204);
+    let same = session_of(&h, &p, port).await;
+    assert_eq!(status(&h, &p, &same).await["subtitles_state"], "ready");
+    assert_eq!(file(&h, &p, &same, "0.vtt").await.status(), 200);
     assert_eq!(engine.extractions.lock().unwrap().len(), 1);
 
     // a pass the replaced session was running stops with it (its input is gone) and the new session starts it again

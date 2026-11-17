@@ -2521,7 +2521,7 @@
             "items": {
               "$ref": "#/components/schemas/SubtitleTrack"
             },
-            "description": "Additive (0.4.0): the source's subtitle tracks. Absent while the PC lists them (a few seconds after the session starts) and on a PC that cannot (no ffprobe) or an older one; present and empty = the source has none. A session that renews another one (source kind session) inherits its list and its extracted files."
+            "description": "Additive (0.4.0): the source's subtitle tracks. Absent while the PC lists them (a few seconds after the session starts) and on a PC that cannot (no ffprobe) or an older one; present and empty = the source has none. A new session of the same device and the same source (a profile change, by source kind session or by the source itself) keeps the list and the extracted files of the previous one."
           },
           "subtitles_state": {
             "enum": [

@@ -218,7 +218,7 @@ pub struct CreateRequest {
     pub start_secs: f64,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum SourceRequest {
     Library { item_id: String },
@@ -342,6 +342,8 @@ pub struct Manager {
     /// again.
     origins: Mutex<VecDeque<Origin>>,
     next_run: AtomicU32,
+    /// 0.4.0: the subtitles of each device's last source ([crate::subtitles::SubtitleStore]), kept across its renewals.
+    subtitle_stores: Mutex<HashMap<String, (SourceRequest, Arc<SubtitleStore>)>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -380,6 +382,7 @@ impl Manager {
             bench: Mutex::default(),
             measured: Mutex::default(),
             next_run: AtomicU32::new(1),
+            subtitle_stores: Mutex::default(),
         })
     }
 
@@ -476,13 +479,20 @@ impl Manager {
         let (fetch_token, torrent) = opened.keep();
         let torrent_id = torrent.as_ref().map(|t| t.torrent_id.clone());
 
-        // 0.4.0: a renewal (profile change, reopen) keeps the subtitles of the session it replaces, extracted or not:
-        // the same source would be listed and read whole again. Taken before that session closes below.
-        let subs = match &req.source {
-            SourceRequest::Session { session_id } => self.get(session_id).filter(|s| s.device_id == device_id).map(|s| s.subs.clone()),
-            _ => None,
-        }
-        .unwrap_or_default();
+        // 0.4.0: a renewal of the same source (profile change, Phone | PC | Mixto switch, reopen after the idle timeout; by
+        // `session` or by the source itself) keeps its subtitles, extracted or not: the source would be listed and read whole
+        // again. One store per device: its last source.
+        let subs = {
+            let mut stores = lock(&self.subtitle_stores);
+            match stores.get(device_id) {
+                Some((src, store)) if *src == source => store.clone(),
+                _ => {
+                    let store = Arc::new(SubtitleStore::default());
+                    stores.insert(device_id.to_owned(), (source.clone(), store.clone()));
+                    store
+                }
+            }
+        };
 
         // one active session per device. BUG-131: only now, with the new source already open (a renewed torrent
         // session holds its torrent twice for a moment, so closing the old one never ends the torrent's playback).
@@ -752,6 +762,7 @@ impl Manager {
 
     /// Close sessions of a revoked device.
     pub fn close_for_device(&self, device_id: &str) {
+        lock(&self.subtitle_stores).remove(device_id);
         let ids: Vec<String> = lock(&self.sessions).values().filter(|s| s.device_id == device_id).map(|s| s.id.clone()).collect();
         for id in ids {
             self.close(&id);
