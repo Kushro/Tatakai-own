@@ -117,6 +117,9 @@ fun PlayerScreen(
                     secrets = koin.getOrNull<SecretStore>(),
                     debrid = koin.getOrNull<DebridRepository>(),
                     embedSniffer = koin.getOrNull<EmbedSniffer>(),
+                    // 0.4.0 (worker C): bound by the coordinator to worker A's quality API / worker B's FrameGenController
+                    enhancementGate = koin.getOrNull<app.tatakai.next.model.LocalEnhancementGate>() ?: app.tatakai.next.model.LocalEnhancementGate.NONE,
+                    frameGenGate = koin.getOrNull<app.tatakai.next.model.PhoneFrameGenGate>() ?: app.tatakai.next.model.PhoneFrameGenGate.NONE,
                 )
             }
         },
@@ -208,6 +211,7 @@ private fun PlayerBody(
                 onBack = onBack,
                 onOpenPicker = { pickerOpen = true },
                 onOpenTorrent = onOpenTorrent,
+                onOpenSettings = onOpenSettings, // 0.4.0 (worker D): "Importar Lossless.dll" from the Mejoras panel
             ) }
             else -> StatusBody(vm, state, onOpenTorrent, onOpenExtensions, onOpenLinked, onPick = { pickerOpen = true })
         }

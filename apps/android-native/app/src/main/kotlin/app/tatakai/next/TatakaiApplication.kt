@@ -23,6 +23,7 @@ import app.tatakai.next.feature.settings.settingsModule
 import app.tatakai.next.feature.social.socialFeatureModule
 import app.tatakai.next.feature.torrents.torrentsFeatureModule
 import app.tatakai.next.feature.you.youFeatureModule
+import app.tatakai.next.framegen.frameGenModule
 import app.tatakai.next.link.linkModule
 import app.tatakai.next.manga.mangaModule
 import app.tatakai.next.metadata.metadataModule
@@ -40,6 +41,10 @@ import org.koin.dsl.module
 /** Player -> data bridge: flush pending watch history on pause / exit. */
 private val appModule = module {
     single<HistoryFlush> { HistoryFlush { get<HistorySyncScheduler>().requestSync(immediate = true) } }
+    // 0.4.0 integration: Link "Mixto" needs the phone frame generation (frameGenModule); FG runs on the main thread.
+    single<app.tatakai.next.model.PhoneFrameGenGate> {
+        FrameGenLinkGate(get(), kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main))
+    }
 }
 
 /**
@@ -77,6 +82,8 @@ class TatakaiApplication : Application() {
                 // `getAll<ChapterDownloadSource>()` of DownloadsViewModel resolve lazily, so the order among these does not matter.
                 discoverModule, downloadModule, mangaModule, novelModule, socialModule,
                 downloadsFeatureModule, mangaFeatureModule, novelFeatureModule, socialFeatureModule,
+                // 0.4.0 player quality (worker B): phone frame generation (FgController, used by mpvPlayerModule's sessions)
+                frameGenModule,
             )
         }
     }

@@ -2,6 +2,32 @@
 
 Cambios de Tatakai Next (rama `main`). Tatakai Classic tiene su propio changelog en la rama `legacy`.
 
+## [0.4.0] - 2026-11-17
+
+Mejoras de video en el teléfono a la par del escritorio, Tatakai Link elegible desde el reproductor y arreglos para tablets.
+
+**Reproductor del teléfono**
+- libmpv es el motor predeterminado (las instalaciones que estaban en Media3 pasan a libmpv una vez) con Anime4K A+A de entrada. Media3 queda como motor simple y respaldo, con "Cambiar a MPV" en el mismo punto.
+- Nuevo panel "Mejoras" en el reproductor: Anime4K A, A+A, B, C, B+B y C+A en calidad Rápida, Equilibrada o HQ, FSR, Fidelity y CAS; nitidez, deband, suavizado, proporción y zoom, brillo/contraste/saturación/gamma/tono y decodificador. Todo cambia al instante, sin reiniciar el video, y se mantiene al cambiar de episodio o de modo.
+- Un indicador arriba dice qué mejora corre y dónde ("Anime4K A+A · HQ", "PC · Anime4K 1080p + LSFG ×2", "PC escala · Teléfono FG ×2").
+- Ajustes automáticos: baja la calidad si el teléfono se calienta, con poca batería o si se pierden cuadros, con "Deshacer".
+- Generación de cuadros en el teléfono (LSFG, con el Lossless.dll propio importado en Ajustes › Reproductor): ×2 a ×5 o automático, perfiles Ahorro/Equilibrado/Calidad.
+
+**Tatakai Link**
+- "Procesar en: Teléfono | PC | Mixto" desde el reproductor, en cualquier dirección y en el mismo punto, con el mismo audio y subtítulos. Mixto: la PC escala y el teléfono genera los cuadros.
+- El reproductor muestra qué hace la PC (escalado, generación de cuadros con el multiplicador real, códec, margen) y solo ofrece los perfiles que la PC sostiene.
+- Los subtítulos de la fuente llegan desde la PC (ASS con estilos en MPV, VTT en Media3).
+- Ajustes › Enlace: "Procesar por defecto en".
+
+**Subtítulos**
+- La traducción funciona con cualquier subtítulo de texto, también los internos de MKV/MP4 de torrents, y traduce por adelantado.
+- Google sin clave ya no se corta con errores 429: pide en tandas espaciadas, reintenta con espera y alterna dos accesos; un solo aviso si limita.
+
+**Tablets y Android**
+- Torrents: ya no se cierra la app en tablets con Android 16 (el sistema de archivos tiraba el servicio de almacenamiento); las descargas van al almacenamiento interno de la app.
+- En horizontal: Biblioteca y las demás listas usan todo el ancho, y el menú lateral se desplaza cuando no entra.
+- Continuar viendo: tocar o mantener apretada la tarjeta abre los detalles; el botón de reproducir sigue el episodio.
+
 ## [0.3.4] - 2026-11-15
 
 **Integrado mejorado (mpv-anime-build)**

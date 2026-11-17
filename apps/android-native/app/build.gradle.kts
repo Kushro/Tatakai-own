@@ -97,6 +97,8 @@ dependencies {
     implementation(projects.core.release)
     implementation(projects.core.torrent)
     implementation(projects.core.playerMpv)
+    // 0.4.0 player quality (worker B): phone frame generation (frameGenModule)
+    implementation(projects.core.framegen)
     implementation(projects.feature.torrents)
     implementation(projects.feature.you)
     // integrated extension server client (docs/redesign/13 §3.10)

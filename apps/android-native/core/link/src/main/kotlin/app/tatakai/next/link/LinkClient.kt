@@ -30,6 +30,8 @@ data class ProfileDto(
     @SerialName("fg_multiplier") val fgMultiplier: Int? = null,
     /** Additive (LSFG auto): the multiplier is chosen per source to approach this rate. */
     @SerialName("fg_target_fps") val fgTargetFps: Int? = null,
+    /** The PC's encoder for this profile (`h264_amf`, `h264_vaapi`...; empty when it has none). */
+    val encoder: String? = null,
 )
 
 @Serializable
@@ -61,6 +63,46 @@ data class SessionStateDto(
     @SerialName("instance_id") val instanceId: String,
     val profile: String,
     val error: String? = null,
+    // --- optional status fields (contract SessionState); the 0.4.0 ones (upscale ... fg_effective) only from 0.4.0 PCs ---
+    val throttled: Boolean = false,
+    @SerialName("lead_secs") val leadSecs: Double? = null,
+    @SerialName("degraded_from") val degradedFrom: String? = null,
+    val output: SessionOutputDto? = null,
+    val upscale: String? = null,
+    val anime4k: Anime4kDto? = null,
+    val fg: String? = null,
+    @SerialName("fg_effective") val fgEffective: FgEffectiveDto? = null,
+    val encoder: String? = null,
+    @SerialName("video_kbps") val videoKbps: Int? = null,
+    /** 0.4.0: the source's subtitle tracks (absent while the PC lists them, and on older PCs). */
+    val subtitles: List<SubtitleTrackDto>? = null,
+    @SerialName("subtitles_state") val subtitlesState: String? = null,
+)
+
+/** 0.4.0 `SubtitleTrack` of the session state (`subtitles[]`). */
+@Serializable
+data class SubtitleTrackDto(
+    val index: Int,
+    val language: String? = null,
+    val title: String? = null,
+    val codec: String = "",
+    val default: Boolean = false,
+    val forced: Boolean = false,
+    val text: Boolean = true,
+    val formats: List<String> = emptyList(),
+)
+
+@Serializable
+data class SessionOutputDto(val width: Int? = null, val height: Int? = null, val fps: Double? = null)
+
+@Serializable
+data class Anime4kDto(val mode: String? = null, val variant: String? = null)
+
+@Serializable
+data class FgEffectiveDto(
+    val multiplier: Int,
+    @SerialName("source_fps") val sourceFps: Double? = null,
+    @SerialName("out_fps") val outFps: Double? = null,
 )
 
 @Serializable
@@ -145,6 +187,20 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
         val request = LinkHttp.request(url("v1/sessions/$sessionId/position")).post(body.toRequestBody(LinkHttp.JSON_TYPE)).build()
         return LinkHttp.exchange(client, request, MAX_JSON) { _, _ -> Unit }
     }
+
+    /**
+     * 0.4.0: `GET /v1/sessions/{id}/subtitles/{index}.{format}` (`ass` | `vtt`), the text of one subtitle track of the session's
+     * source. The first request starts the PC's extraction: until it ends the PC answers `503 segment_wait_timeout` (ask again).
+     */
+    suspend fun subtitle(sessionId: String, index: Int, format: String): LinkResult<String> {
+        if (!SESSION_ID.matches(sessionId) || index !in 0..999 || format !in SUBTITLE_FORMATS) {
+            return LinkResult.Failure(LinkError.Api(LinkApiError.RequestInvalid))
+        }
+        return get("v1/sessions/$sessionId/subtitles/$index.$format", MAX_SUBTITLE) { it.decodeToString() }
+    }
+
+    /** Absolute URL of [subtitle] (for Media3, which fetches it with the same mTLS client). */
+    fun subtitleUrl(sessionId: String, index: Int, format: String): String = url("v1/sessions/$sessionId/subtitles/$index.$format").toString()
 
     /** `DELETE /v1/devices/self`: this phone revokes its own certificate. */
     suspend fun forgetSelf(): LinkResult<Unit> =
@@ -240,6 +296,9 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
         const val TORRENT_CREATE_SECS = 90L
         private const val MAX_JSON = 256L * 1024
         private const val MAX_LIBRARY = 8L * 1024 * 1024
+        /** tk-link `subtitles::MAX_FILE_BYTES`. */
+        private const val MAX_SUBTITLE = 8L * 1024 * 1024
+        val SUBTITLE_FORMATS = setOf("ass", "vtt")
         private const val MAX_HISTORY = 2L * 1024 * 1024
         /** `tk-link::history::MAX_ROWS` (desktop contract §3.8). */
         const val MAX_HISTORY_ROWS = 500

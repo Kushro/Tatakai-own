@@ -36,6 +36,18 @@
     <string name="linked_profile_anime4k">Anime4K a %1$dp</string>
     <string name="linked_profile_fg">Generación de cuadros ×%1$d</string>
     <string name="linked_profile_fg_auto">Generación de cuadros automática (%1$d fps)</string>
+    <!-- 0.4.0 (worker C): qué hace la PC con la sesión en curso (LinkProcessingText.kt) -->
+    <string name="linked_pc_upscale_none">Sin escalado · %1$d×%2$d</string>
+    <string name="linked_pc_upscale_anime4k">Anime4K → %1$d×%2$d</string>
+    <string name="linked_pc_upscale_anime4k_mode">Anime4K %1$s → %2$d×%3$d</string>
+    <string name="linked_pc_fg_none">Sin generación de cuadros</string>
+    <string name="linked_pc_fg_fixed">LSFG ×%1$d</string>
+    <string name="linked_pc_fg_fixed_fps">LSFG ×%1$d → %2$s fps</string>
+    <string name="linked_pc_fg_auto">LSFG automático, hasta %1$d fps</string>
+    <string name="linked_pc_fg_auto_chosen">LSFG automático: ×%1$d → %2$s fps</string>
+    <string name="linked_pc_fg_frc">Generación de cuadros AMD ×2</string>
+    <string name="linked_pc_encoder">%1$s · %2$s Mb/s</string>
+    <string name="linked_pc_degraded">Tu PC bajó el perfil (era %1$s)</string>
     <string name="linked_profile_too_large">Tu teléfono no reproduce %1$dp</string>
     <string name="linked_profile_may_drop_frames">Puede perder cuadros en este teléfono</string>
     <string name="linked_profile_rejected">Tu teléfono no pudo reproducir este perfil</string>

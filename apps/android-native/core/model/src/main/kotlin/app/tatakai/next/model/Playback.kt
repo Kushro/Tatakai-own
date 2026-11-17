@@ -7,7 +7,8 @@ import kotlinx.serialization.Serializable
 // Player-side contract of the android wave (docs/redesign/12 §3.2). Signatures are FINAL.
 
 /**
- * Settings › Reproductor › Motor. [MEDIA3] = ExoPlayer (default); [MPV] = libmpv (dev.jdtech.mpv:libmpv) with OUR controls, full ASS;
+ * Settings › Reproductor › Motor. [MEDIA3] = ExoPlayer (simple engine, automatic fallback); [MPV] = libmpv (dev.jdtech.mpv:libmpv, default
+ * since 0.4.0) with OUR controls, full ASS and the quality engine;
  * [EXTERNAL] = ACTION_VIEW to mpv-android / VLC (headers as extras) + informative screen with Stop / Back (desktop external mpv mode).
  * No `EnhancedUi` on Android: the desktop "embedded enhanced + uosc" mode has no Android counterpart in this wave.
  */

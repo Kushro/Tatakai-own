@@ -132,7 +132,8 @@ object SubtitleParser {
             val start = assTime(fields[format.indexOf("start").takeIf { it >= 0 } ?: 1])
             val end = assTime(fields[format.indexOf("end").takeIf { it >= 0 } ?: 2])
             val body = fields[format.indexOf("text").takeIf { it >= 0 } ?: (format.size - 1)]
-            if (start != null && end != null) out += TimedCue(start, end, clean(body.replace("\\N", "\n").replace("\\n", "\n").replace("\\h", " ")))
+            // 0.4.0: SubtitleText.fromAss also drops the text of `{\p1}` vector drawings (it used to reach the screen as "m 0 0 l ...").
+            if (start != null && end != null) out += TimedCue(start, end, clean(SubtitleText.fromAss(body).plain))
         }
         return out
     }
@@ -149,7 +150,7 @@ object SubtitleParser {
     internal fun clean(s: String): String =
         s.replace(ASS_OVERRIDE, "").replace(HTML_TAG, "")
             .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ")
-            .split('\n').map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
+            .let(SubtitleText::normalize)
 
     private const val MAX_OVERLAP_SCAN = 64
 }

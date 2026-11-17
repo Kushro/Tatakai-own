@@ -1,6 +1,10 @@
 package app.tatakai.next.feature.home
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -125,6 +129,8 @@ fun HomeScreen(
     onOpenProviderItem: (extensionId: String, sourceId: String, itemId: String) -> Unit = { _, _, _ -> },
     /** Continue watching card of a provider title (`ext:` history id) -> resume it in the player. */
     onResumeProviderItem: ((HistoryEntry) -> Unit)? = null,
+    /** Continue watching: tap or long-press on a card opens its details; only the play button plays (2026-11 user request). */
+    onOpenDetails: (anilistId: Int) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     HomeContent(
@@ -134,6 +140,7 @@ fun HomeScreen(
             onSearchClick = onSearchClick,
             onWatch = { media -> onPlay(PlayerArgs(media = media.ref, title = media.title, episode = 1)) },
             onContinueClick = { onPlay(it.toResumeArgs()) },
+            onContinueDetails = { e -> e.anilistId?.takeIf { it > 0 }?.let(onOpenDetails) ?: onPlay(e.toResumeArgs()) },
             onRetry = viewModel::retry,
             onOpenFeed = onOpenFeed,
             onOpenGenre = onOpenGenre,
@@ -172,6 +179,7 @@ internal data class HomeActions(
     val onSearchClick: () -> Unit = {},
     val onWatch: (Media) -> Unit = {},
     val onContinueClick: (HistoryEntry) -> Unit = {},
+    val onContinueDetails: (HistoryEntry) -> Unit = {},
     val onRetry: (FeedKind) -> Unit = {},
     val onOpenFeed: (FeedKind) -> Unit = {},
     val onOpenGenre: (String) -> Unit = {},
@@ -269,6 +277,14 @@ internal fun HomeContent(
                     item(key = "continue", contentType = "continue") {
                         ContinueWatchingRow(
                             state.continueWatching,
+                            onDetails = { entry ->
+                                val provider = HomeLogic.parseProviderHistoryId(entry.animeId)
+                                if (provider != null) {
+                                    actions.onOpenProviderItem(provider.first, provider.second, provider.third)
+                                } else {
+                                    actions.onContinueDetails(entry)
+                                }
+                            },
                             onClick = { entry ->
                                 val provider = HomeLogic.parseProviderHistoryId(entry.animeId)
                                 if (provider != null) {
@@ -557,7 +573,12 @@ internal fun SectionHeader(title: String, onSeeAll: (() -> Unit)?) {
 }
 
 @Composable
-private fun ContinueWatchingRow(entries: List<HistoryEntry>, onClick: (HistoryEntry) -> Unit, onSeeAll: () -> Unit) {
+private fun ContinueWatchingRow(
+    entries: List<HistoryEntry>,
+    onDetails: (HistoryEntry) -> Unit,
+    onClick: (HistoryEntry) -> Unit,
+    onSeeAll: () -> Unit,
+) {
     Column(Modifier.fillMaxWidth()) {
         SectionHeader(stringResource(R.string.home_continue_watching), onSeeAll)
         LazyRow(
@@ -565,21 +586,34 @@ private fun ContinueWatchingRow(entries: List<HistoryEntry>, onClick: (HistoryEn
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(entries, key = { it.episodeId }, contentType = { "continue" }) { entry ->
-                ContinueCard(entry, onClick = { onClick(entry) })
+                ContinueCard(entry, onPlay = { onClick(entry) }, onDetails = { onDetails(entry) })
             }
         }
     }
 }
 
-/** Prototype `.cont`: cover with progress, title, "Episodio N · Quedan M min", play affordance. */
+/**
+ * Prototype `.cont`: cover with progress, title, "Episodio N · Quedan M min", play button. 2026-11 user request: a tap or a long
+ * press on the card opens the details; only the play button resumes the episode straight away.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ContinueCard(entry: HistoryEntry, onClick: () -> Unit) {
+private fun ContinueCard(entry: HistoryEntry, onPlay: () -> Unit, onDetails: () -> Unit) {
     val description = stringResource(R.string.home_continue_play, entry.title, entry.episode)
+    val haptics = LocalHapticFeedback.current
     Surface(
-        onClick = onClick,
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.width(CONTINUE_WIDTH).semantics { contentDescription = description },
+        modifier = Modifier
+            .width(CONTINUE_WIDTH)
+            .clip(MaterialTheme.shapes.large)
+            .combinedClickable(
+                onClick = onDetails,
+                onLongClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onDetails()
+                },
+            ),
     ) {
         Row(
             Modifier.padding(8.dp),
@@ -609,7 +643,12 @@ private fun ContinueCard(entry: HistoryEntry, onClick: () -> Unit) {
                     LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
                 }
             }
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp)) {
+            Surface(
+                onClick = onPlay,
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(44.dp).semantics { contentDescription = description },
+            ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary)
                 }

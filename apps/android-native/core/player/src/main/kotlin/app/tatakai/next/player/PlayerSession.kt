@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package app.tatakai.next.player
 
+import app.tatakai.next.model.AspectMode
+import app.tatakai.next.model.DebandConfig
+import app.tatakai.next.model.DecoderMode
+import app.tatakai.next.model.ImageAdjust
+import app.tatakai.next.model.QualityTier
+import app.tatakai.next.model.SharpenLevel
 import app.tatakai.next.model.SubtitleStyle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -68,6 +74,13 @@ interface PlayerSession {
      */
     fun addSubtitleFile(path: String, title: String): Boolean = false
 
+    /**
+     * 0.4.0: adds external subtitle [tracks] (URLs) to the file playing now, without reloading it, and selects [select] (an index of
+     * [tracks]; [PlayableSource.SUBTITLES_OFF] = none; null = keep the current choice). Returns false when the engine cannot
+     * (Media3: its side-loaded tracks are fixed at load, the caller reloads with them in [PlayableSource.subtitles]).
+     */
+    fun addSubtitleTracks(tracks: List<app.tatakai.next.model.SubtitleTrack>, select: Int?): Boolean = false
+
     /** True when [selectSecondarySubtitle] works on any track of the stream (mpv `secondary-sid`). */
     val supportsSecondaryTracks: Boolean get() = false
 
@@ -85,6 +98,50 @@ interface PlayerSession {
 
     /** Writes the current frame as PNG to [path] (mpv `screenshot-to-file`). False when the engine cannot (Media3: `PixelCopy`). */
     fun screenshotToFile(path: String): Boolean = false
+
+    // ---- 0.4.0 quality engine (worker A, specs/a-quality-engine.md). libmpv implements all of it live (no reload); the defaults are
+    // no-ops so Media3 (and any other engine) reports [QualityUiState.MEDIA3] and the UI offers "Cambiar a MPV" instead. -----------
+
+    /** Requested vs effective preset / tier, active shaders, reasons, decoder in use, drops, display Hz, renderer, last event. */
+    val quality: StateFlow<QualityUiState> get() = QualityUiState.UNAVAILABLE
+
+    /** Upscaling preset ([app.tatakai.next.model.QualityPresets] id) and tier, applied to the running video. */
+    fun setQuality(preset: String, tier: QualityTier) = Unit
+
+    /** Every knob at once (e.g. "reset to my defaults"). */
+    fun setQualityRequest(request: QualityRequest) = Unit
+
+    /** FidelityFX CAS sharpening on top of the preset ([SharpenLevel.OFF] = none). */
+    fun setSharpen(level: SharpenLevel) = Unit
+
+    /** Brightness / contrast / saturation / gamma / hue (-100..100). */
+    fun setImage(image: ImageAdjust) = Unit
+
+    /** Fit / fill (crop) / stretch / forced 16:9 or 4:3, plus zoom (25..400 %). */
+    fun setAspect(mode: AspectMode, zoomPercent: Int = 100) = Unit
+
+    /** Auto / HW (copy) / HW+ (direct) / SW; mpv re-opens the decoder in place. */
+    fun setDecoder(mode: DecoderMode) = Unit
+
+    fun setDeband(deband: DebandConfig) = Unit
+
+    /** mpv interpolation (`display-resample` + `tscale=oversample`): smoother pacing, not real frame generation. */
+    fun setSmoothing(enabled: Boolean) = Unit
+
+    /** Thermal / battery / frame-drop adjustments for this playback. */
+    fun setAutoAdjust(enabled: Boolean) = Unit
+
+    /** Reverts the frame-drop step-down ([QualityUiState.autoDowngrade]) and stops stepping down again for this video. */
+    fun undoAutoDowngrade() = Unit
+
+    /** The player entered / left picture-in-picture (caps the tier). */
+    fun setPictureInPicture(active: Boolean) = Unit
+
+    /** Tatakai Link (worker C): the PC processes the video, so local shaders / deband / smoothing stay off while true. */
+    fun setRemoteProcessing(active: Boolean) = Unit
+
+    /** Phone frame generation (worker B) is presenting: mpv's smoothing is forced off while true. */
+    fun setFrameGenActive(active: Boolean) = Unit
 }
 
 /**

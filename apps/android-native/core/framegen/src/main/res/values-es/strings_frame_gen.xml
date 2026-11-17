@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 0.4.0 (worker B): generación de cuadros en el teléfono. Usado por Ajustes y por la interfaz del reproductor. -->
+<resources>
+    <string name="fg_title">Generación de cuadros en el teléfono</string>
+    <string name="fg_short">Generación de cuadros</string>
+    <string name="fg_where_phone">En el teléfono</string>
+    <string name="fg_hint">Genera cuadros entre los reales con la GPU de este teléfono (LSFG, Vulkan) para un movimiento más fluido. Solo con el motor MPV. Consume más batería y suma unos milisegundos de latencia (el audio se corre para compensarlo).</string>
+
+    <!-- Estado -->
+    <string name="fg_state_active">En el teléfono · %1$d×</string>
+    <string name="fg_state_ready">Disponible</string>
+    <string name="fg_state_off">Desactivada</string>
+    <string name="fg_state_checking">Revisando este dispositivo…</string>
+    <string name="fg_state_experimental">Experimental en esta GPU</string>
+    <string name="fg_state_overloaded">La GPU no da abasto</string>
+
+    <!-- Por qué no puede funcionar (FgUnavailableReason) -->
+    <string name="fg_reason_abi">No disponible en este dispositivo/versión (requiere una versión ARM o x86 de 64 bits)</string>
+    <string name="fg_reason_library">No disponible en este dispositivo/versión (no se pudo cargar la biblioteca de generación de cuadros)</string>
+    <string name="fg_reason_vulkan">No disponible en este dispositivo: requiere Vulkan 1.3</string>
+    <string name="fg_reason_shaders">Hay que importar Lossless.dll para usarla</string>
+    <string name="fg_reason_pip">En pausa en imagen en imagen</string>
+    <string name="fg_reason_background">En pausa en segundo plano</string>
+    <string name="fg_reason_low_power">En pausa por el ahorro de batería</string>
+    <string name="fg_reason_eight_k">En pausa con video 8K</string>
+    <string name="fg_reason_hdr_passthrough">En pausa con HDR directo</string>
+    <string name="fg_reason_device_lost">Detenida: la GPU se reinició durante la reproducción</string>
+    <string name="fg_reason_start_failed">No se pudo iniciar con este video</string>
+    <string name="fg_reason_remote">Ya la hace la PC (Tatakai Link)</string>
+    <string name="fg_reason_no_input">No se pudo iniciar con este video: MPV no entregó cuadros</string>
+
+    <!-- Opciones -->
+    <string name="fg_enabled">Usar al reproducir</string>
+    <string name="fg_multiplier">Multiplicador</string>
+    <string name="fg_multiplier_hint">Auto elige el que coincide con la frecuencia de la pantalla y lo baja si la GPU se atrasa.</string>
+    <string name="fg_multiplier_auto">Auto</string>
+    <string name="fg_multiplier_n">%1$d×</string>
+    <string name="fg_profile">Perfil</string>
+    <string name="fg_profile_saver">Ahorro</string>
+    <string name="fg_profile_balanced">Equilibrado</string>
+    <string name="fg_profile_quality">Calidad</string>
+    <string name="fg_profile_custom">Personalizado</string>
+    <string name="fg_profile_hint">Ahorro trabaja al 75 % de la resolución; Calidad usa el modelo completo de LSFG y cuesta casi el doble.</string>
+    <string name="fg_match_refresh">Cambiar la frecuencia de la pantalla</string>
+    <string name="fg_match_refresh_hint">Pide a la pantalla los fps del video × el multiplicador (por ejemplo 24 × 5 = 120 Hz).</string>
+    <string name="fg_allow_untested">Permitir en GPU no probadas</string>
+    <string name="fg_allow_untested_hint">También en GPU con Vulkan 1.1 / 1.2. Experimental: puede no funcionar o verse mal.</string>
+    <string name="fg_show_stats">Mostrar estadísticas de generación de cuadros</string>
+    <string name="fg_audio_offset">Desfase del audio</string>
+    <string name="fg_audio_offset_value">%1$+d ms</string>
+
+    <!-- Lossless.dll -->
+    <string name="fg_shaders">Shaders de LSFG (Lossless.dll)</string>
+    <string name="fg_shaders_hint">Los shaders salen de tu propia copia de Lossless Scaling (Steam: Lossless Scaling › Examinar archivos locales › Lossless.dll). Solo se guardan los shaders, en el almacenamiento privado de la app; la DLL no se guarda.</string>
+    <string name="fg_shaders_imported">Importados · %1$s</string>
+    <string name="fg_shaders_imported_plain">Importados</string>
+    <string name="fg_shaders_missing">Sin importar</string>
+    <string name="fg_shaders_import">Importar Lossless.dll</string>
+    <string name="fg_shaders_reimport">Importar de nuevo</string>
+    <string name="fg_shaders_remove">Eliminar</string>
+    <string name="fg_shaders_importing">Importando…</string>
+    <string name="fg_install_imported">Shaders importados</string>
+    <string name="fg_install_too_large">Ese archivo es demasiado grande para ser Lossless.dll</string>
+    <string name="fg_install_unreadable">No se pudo leer el archivo</string>
+    <string name="fg_install_missing_shaders">Ese archivo no tiene los shaders de LSFG (¿es Lossless.dll?)</string>
+    <string name="fg_install_write_failed">No se pudieron guardar los shaders</string>
+    <string name="fg_install_unavailable">No disponible en este dispositivo/versión</string>
+    <string name="fg_shaders_removed">Shaders eliminados</string>
+</resources>

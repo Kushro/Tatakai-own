@@ -1094,6 +1094,99 @@
           }
         }
       }
+    },
+    "/v1/sessions/{id}/subtitles/{file}": {
+      "get": {
+        "security": [
+          {
+            "mutualTls": []
+          }
+        ],
+        "tags": [
+          "playback"
+        ],
+        "summary": "Additive (0.4.0): one subtitle track of the session's source",
+        "description": "`{n}.ass` (only tracks whose `formats` include ass: ASS/SSA sources, styles, positions and fonts kept; for libmpv) or `{n}.vtt` (any text track; for Media3). The files keep the SOURCE'S OWN TIMESTAMPS: the session's HLS uses the same timeline whatever its start_secs (segment k starts at k*segment_secs), so the phone adds them without any offset. All text tracks are extracted in ONE FFmpeg pass started by the first request for any of them; a Matroska source is read whole (with a torrent the PC is still downloading this can take minutes, limit 15 min). While it runs the request waits up to 8 s, then answers 503 segment_wait_timeout with Retry-After: poll again, or watch subtitles_state in the session state. Each file <= 8 MiB, <= 48 MiB per source; extracted files are kept in RAM for the source (shared with sessions that renew it) and dropped with it. HEAD is answered like GET without a body.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "UUIDv4, lowercase with hyphens. Any other form -> 404 session_not_found."
+          },
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]{1,3}\\.(ass|vtt)$"
+            },
+            "description": "<index>.ass or <index>.vtt"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The subtitle file (empty when the track has no event)",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              },
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "text/x-ssa; charset=utf-8": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "text/vtt; charset=utf-8": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/session_not_found"
+          },
+          "409": {
+            "$ref": "#/components/responses/session_not_ready"
+          },
+          "410": {
+            "$ref": "#/components/responses/session_gone"
+          },
+          "503": {
+            "description": "segment_wait_timeout + Retry-After: still extracting (ask again). source_unavailable (no Retry-After): the file is over the limit or the pass failed; final for this source.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Tatakai-Link": {
+                "$ref": "#/components/headers/TatakaiLink"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2360,6 +2453,86 @@
                 "type": "number"
               }
             }
+          },
+          "upscale": {
+            "enum": [
+              "none",
+              "anime4k"
+            ],
+            "description": "Additive (0.4.0): the session's upscaler."
+          },
+          "anime4k": {
+            "type": "object",
+            "description": "Additive (0.4.0): only with upscale = anime4k.",
+            "properties": {
+              "mode": {
+                "enum": [
+                  "a",
+                  "b",
+                  "c"
+                ]
+              },
+              "variant": {
+                "enum": [
+                  "s",
+                  "m",
+                  "l"
+                ]
+              }
+            }
+          },
+          "fg": {
+            "enum": [
+              "none",
+              "frc_amf",
+              "lsfg"
+            ],
+            "description": "Additive (0.4.0): the session's frame generation."
+          },
+          "encoder": {
+            "type": "string",
+            "description": "Additive (0.4.0): the H.264 encoder of the session (h264_amf, h264_nvenc, h264_qsv, h264_vaapi, libx264, libopenh264)."
+          },
+          "video_kbps": {
+            "type": "integer",
+            "description": "Additive (0.4.0): the profile's video bitrate."
+          },
+          "fg_effective": {
+            "type": "object",
+            "description": "Additive (0.4.0): only with frame generation. The multiplier really used (LSFG auto profiles choose it per source); frc_amf has no fps (its rate is not probed).",
+            "required": [
+              "multiplier"
+            ],
+            "properties": {
+              "multiplier": {
+                "type": "integer"
+              },
+              "source_fps": {
+                "type": "number"
+              },
+              "out_fps": {
+                "type": "number"
+              }
+            }
+          },
+          "subtitles": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/SubtitleTrack"
+            },
+            "description": "Additive (0.4.0): the source's subtitle tracks. Absent while the PC lists them (a few seconds after the session starts) and on a PC that cannot (no ffprobe) or an older one; present and empty = the source has none. A new session of the same device and the same source (a profile change, by source kind session or by the source itself) keeps the list and the extracted files of the previous one."
+          },
+          "subtitles_state": {
+            "enum": [
+              "listing",
+              "unavailable",
+              "idle",
+              "extracting",
+              "ready",
+              "failed"
+            ],
+            "description": "Additive (0.4.0): listing = tracks not known yet; unavailable = no listing (ffprobe missing / failed); idle = listed, nothing extracted (the first subtitle file request starts one FFmpeg pass that extracts every text track); extracting; ready = files served; failed = the pass failed or timed out (files answer 503 source_unavailable)."
           }
         }
       },
@@ -2786,6 +2959,59 @@
             "type": "integer",
             "minimum": 0,
             "description": "Other non-paused devices asked to replace their history from the PC (0 when the caller had no open window)."
+          }
+        }
+      },
+      "SubtitleTrack": {
+        "type": "object",
+        "description": "Additive (0.4.0): one subtitle track of the session's source, in the order ffprobe lists them. Text fields come from the file, cleaned (no control characters, language <= 16 bytes lowercase without `und`, title <= 120 characters); empty ones are omitted.",
+        "required": [
+          "index",
+          "codec",
+          "default",
+          "forced",
+          "text",
+          "formats"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Position among the source's subtitle tracks: the n of /v1/sessions/{id}/subtitles/{n}.ass|.vtt."
+          },
+          "language": {
+            "type": "string",
+            "description": "The file's language tag, e.g. spa, eng, pt-br."
+          },
+          "title": {
+            "type": "string"
+          },
+          "codec": {
+            "type": "string",
+            "description": "FFmpeg codec name: ass, ssa, subrip, webvtt, mov_text, hdmv_pgs_subtitle, dvd_subtitle..."
+          },
+          "default": {
+            "type": "boolean",
+            "description": "Default disposition of the track in the source."
+          },
+          "forced": {
+            "type": "boolean",
+            "description": "Forced disposition (signs / foreign parts only)."
+          },
+          "text": {
+            "type": "boolean",
+            "description": "false for image tracks (PGS, VobSub, DVB): listed, never served."
+          },
+          "formats": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "ass",
+                "vtt"
+              ]
+            },
+            "description": "Files served for the track: [ass, vtt] for ASS/SSA (styles kept in .ass), [vtt] for other text tracks, [] for image tracks or past the 24 extracted ones."
           }
         }
       }

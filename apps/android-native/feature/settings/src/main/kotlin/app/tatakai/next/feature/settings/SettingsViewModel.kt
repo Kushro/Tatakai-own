@@ -18,6 +18,8 @@ import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MetadataCacheStats
 import app.tatakai.next.model.MetadataRepository
 import app.tatakai.next.model.PlayerEngine
+import app.tatakai.next.model.PlayerQualityPrefs
+import app.tatakai.next.model.ProcessingLocation
 import app.tatakai.next.model.Quality
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SourceKind
@@ -68,6 +70,8 @@ data class SettingsUiState(
     val accounts: List<LinkedAccount> = emptyList(),
     /** A PC is paired over Tatakai Link (history sync possible). */
     val linkPaired: Boolean = false,
+    /** 0.4.0 (worker C): Enlace › "Procesar por defecto en" (`LinkedDevice.defaultProcessing`). */
+    val linkDefaultProcessing: ProcessingLocation = ProcessingLocation.PHONE,
     val resetting: Boolean = false,
 )
 
@@ -107,10 +111,13 @@ class SettingsViewModel(
         settingsRepo.settings,
         history?.lastSyncedAt ?: flowOf(null),
         lists?.accounts ?: flowOf(emptyList()),
-        link?.state?.map { it is LinkState.Paired } ?: flowOf(false),
+        link?.let { l -> combine(l.state, l.linkedDevice) { st, d -> (st is LinkState.Paired) to (d?.defaultProcessing ?: ProcessingLocation.PHONE) } }
+            ?: flowOf(false to ProcessingLocation.PHONE),
         extras,
-    ) { s, synced, accounts, paired, x ->
+    ) { s, synced, accounts, linkFacts, x ->
+        val (paired, defaultProcessing) = linkFacts
         SettingsUiState(
+            linkDefaultProcessing = defaultProcessing,
             settings = s,
             lastSyncedAt = synced,
             syncing = x.syncing,
@@ -157,6 +164,10 @@ class SettingsViewModel(
 
     fun setPlayerPreset(value: String) = update(announce = true) { it.copy(playerPreset = value) }
 
+    /** 0.4.0 (worker A): one field of the libmpv quality defaults (tier, deband, automatic adjustments, decoder, smoothing). */
+    fun setPlayerQuality(transform: (PlayerQualityPrefs) -> PlayerQualityPrefs) =
+        update(announce = true) { it.copy(playerQuality = transform(it.playerQuality).sanitized()) }
+
     fun setSourceMode(value: SourceMode) = updatePrefs { it.copy(mode = value) }
 
     /** null = any kind. */
@@ -184,6 +195,15 @@ class SettingsViewModel(
     fun setMetadataTtl(hours: Int) = update(announce = true) { it.copy(metadataCacheTtlHours = hours.coerceIn(1, 168)) }
 
     // ---------------------------------------------------------------- history over Tatakai Link (Enlace section)
+
+    /** 0.4.0 (worker C): Enlace › "Procesar por defecto en" (kept with the pairing; the player switches it any time). */
+    fun setLinkDefaultProcessing(location: ProcessingLocation) {
+        val repo = link ?: return
+        viewModelScope.launch {
+            runCatching { repo.setDefaultProcessing(location) }
+            _events.trySend(SettingsEvent.Saved)
+        }
+    }
 
     /** "Sincronizar ahora": push dirty rows to the paired PC and pull its recent ones. */
     fun syncNow() {

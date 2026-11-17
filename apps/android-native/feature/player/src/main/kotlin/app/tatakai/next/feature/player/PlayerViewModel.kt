@@ -11,6 +11,20 @@ import app.tatakai.next.link.LinkApiError
 import app.tatakai.next.link.LinkError
 import app.tatakai.next.link.RemotePlaybackAccess
 import app.tatakai.next.model.LinkProfile
+import app.tatakai.next.model.LinkCapabilities
+import app.tatakai.next.model.LinkSessionStatus
+import app.tatakai.next.model.LinkSubtitleTrack
+import app.tatakai.next.link.SubtitleReadiness
+import app.tatakai.next.model.LinkSource
+import app.tatakai.next.model.LinkState
+import app.tatakai.next.model.LocalEnhancementGate
+import app.tatakai.next.model.PhoneFrameGenGate
+import app.tatakai.next.model.ProcessingLocation
+import app.tatakai.next.model.RemoteSession
+import app.tatakai.next.model.groupedLinkProfiles
+import app.tatakai.next.model.linkProcessingInfo
+import app.tatakai.next.model.mixedLinkProfile
+import app.tatakai.next.model.playableLinkProfile
 import app.tatakai.next.model.ProfileSupport
 import app.tatakai.next.model.VideoDecodeLimits
 import app.tatakai.next.model.linkProfilesMayDropFrames
@@ -74,6 +88,11 @@ import app.tatakai.next.player.TimedCue
 import app.tatakai.next.player.TranslationCache
 import app.tatakai.next.player.TranslationException
 import app.tatakai.next.player.TranslatorConfig
+import app.tatakai.next.player.EmbeddedTrackMatcher
+import app.tatakai.next.player.EmbeddedTrackRef
+import app.tatakai.next.player.HlsSubtitles
+import app.tatakai.next.player.SubtitleSamples
+import app.tatakai.next.player.SubtitleText
 import app.tatakai.next.player.embedFailDetail
 import app.tatakai.next.player.historyAnimeId
 import app.tatakai.next.player.magnetInfoHash
@@ -82,9 +101,9 @@ import app.tatakai.next.player.providerSources
 import app.tatakai.next.player.resolveWebStream
 import app.tatakai.next.player.markDebrid
 import app.tatakai.next.player.resolvePick
-import app.tatakai.next.player.ShaderFallback
 import app.tatakai.next.player.PlaybackError
 import app.tatakai.next.player.decodesInHardware
+import app.tatakai.next.player.canSwitchToMpv
 import app.tatakai.next.player.decodeRecovery
 import app.tatakai.next.player.switchToMedia3OnStall
 import app.tatakai.next.player.DeviceCodecs
@@ -101,6 +120,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -211,14 +231,26 @@ sealed interface PlayerNotice {
     data class PretranslateDone(val failed: Int) : PlayerNotice
     data object PretranslateUnavailable : PlayerNotice
 
+    /** 0.4.0 (sub-translation): the provider rate-limited us; originals show and it retries in [seconds] ([google] = keyless Google). */
+    data class TranslationRateLimited(val seconds: Int, val google: Boolean) : PlayerNotice
+
+    /** 0.4.0 (sub-translation): the selected track is a bitmap (PGS / VobSub / DVB): there is no text to translate. */
+    data object TranslationImageSubtitles : PlayerNotice
+
     /** BUG-020: Media3 could not decode this video; it plays with libmpv (software decoding, may be slow). */
     data object SwitchedToMpv : PlayerNotice
 
     /** BUG-059: libmpv showed no frame of this stream in time; it plays with Media3 (no shader upscaling). */
     data object SwitchedToMedia3 : PlayerNotice
 
-    /** BUG-043 / BUG-006: libmpv changed the shader preset by itself (too slow, or low battery). */
-    data class ShaderChanged(val kind: ShaderFallback) : PlayerNotice
+    /**
+     * 0.4.0 (worker D): the quality engine changed the enhancements by itself ([QualityUiState.lastEvent], filtered by
+     * [announceQualityEvent]); [QualityEvent.undoable] adds "Deshacer". Replaces the 0.3.x `ShaderChanged` notice.
+     */
+    data class Quality(val event: app.tatakai.next.player.QualityEvent) : PlayerNotice
+
+    /** 0.4.0 (worker D): the phone's frame generation stopped during playback ([reason] of kind FAILED). */
+    data class FrameGen(val reason: app.tatakai.next.framegen.FgUnavailableReason, val noInput: Boolean = false) : PlayerNotice
 
     /** BUG-038: the PC had closed the Link session; a new one continues at the same position. */
     data object LinkSessionRenewed : PlayerNotice
@@ -234,6 +266,19 @@ sealed interface PlayerNotice {
 
     /** BUG-132: the saved preferred profile [from] is not playable on this phone; [to] is used (and saved) instead. */
     data class LinkPreferredReplaced(val from: app.tatakai.next.model.LinkProfile, val to: app.tatakai.next.model.LinkProfile) : PlayerNotice
+
+    /**
+     * 0.4.0 "Procesar en": a switch to [to] happened ([failure] and [block] null), failed ([failure]: the video goes on where it
+     * was) or was refused ([block], [detail]). [onPhoneInstead]: the player was asked to start at [to] (Settings default, the
+     * previous episode) and plays on the phone instead.
+     */
+    data class Processing(
+        val to: ProcessingLocation,
+        val failure: ProcessingFailure? = null,
+        val block: ProcessingBlock? = null,
+        val detail: String? = null,
+        val onPhoneInstead: Boolean = false,
+    ) : PlayerNotice
 }
 
 /**
@@ -300,8 +345,13 @@ data class PlayerUiState(
     val settings: AppSettings = AppSettings(),
     /** The user can pick another source (a candidate list exists). */
     val canPickSource: Boolean = false,
-    /** Not a Link (remote) session: episode navigation is available. */
+    /** Not playing from the PC (no Link session now). 0.4.0: episode navigation is [canNavigateEpisodes]. */
     val remoteless: Boolean = true,
+    /**
+     * 0.4.0: next / previous / episode list are available: always on the phone, and from the PC too when the playback has a
+     * title the phone can look up (a switch to PC from the player, a hand-off of an AniList title); not for a PC library file.
+     */
+    val canNavigateEpisodes: Boolean = true,
     /** BUG-038 / BUG-026: set with phase ERROR when a Link session failed. */
     val remoteFailure: RemoteFailure? = null,
     /** BUG-022: the PC's enhancement profiles (Link sessions only) and the one this session uses. */
@@ -359,14 +409,31 @@ class PlayerViewModel(
     private val embedSniffer: EmbedSniffer? = null,
     /** BUG-132: what the phone's H.264 decoder plays (the Link profiles it cannot are disabled); null = unknown. */
     private val linkDecodeLimits: () -> VideoDecodeLimits? = { app.tatakai.next.link.AvcDecodeLimits.device() },
+    // --- 0.4.0 (worker C): Phone | PC | Mixto. No-ops until the coordinator binds worker A's / B's implementations ---
+    /** Worker A's quality engine: local shaders off while the PC processes. */
+    private val enhancementGate: LocalEnhancementGate = LocalEnhancementGate.NONE,
+    /** Worker B's phone frame generation: eligibility for "Mixto", on in Mixto, off in strict PC. */
+    private val frameGenGate: PhoneFrameGenGate = PhoneFrameGenGate.NONE,
 ) : ViewModel() {
     private val initialSettings: AppSettings = settingsRepository?.settings?.value ?: AppSettings()
-    /** Can change once, from Media3 to libmpv, when Media3 cannot decode the video (BUG-020, [switchToMpv]). */
-    private var engine: PlayerEngine = when {
-        args.remoteSessionId != null -> PlayerEngine.MEDIA3 // the PC's HLS needs the mTLS OkHttp client
+
+    /** 0.4.0: the engine of the phone's own playback (the setting; BUG-020 / BUG-059 may change it for this player). */
+    private var localEngine: PlayerEngine = when {
         initialSettings.playerEngine == PlayerEngine.MPV && mpvFactory == null -> PlayerEngine.MEDIA3
         else -> initialSettings.playerEngine
     }
+
+    /** Can change once, from Media3 to libmpv, when Media3 cannot decode the video (BUG-020, [switchToMpv]). */
+    private var engine: PlayerEngine = when {
+        args.remoteSessionId != null -> PlayerEngine.MEDIA3 // the PC's HLS needs the mTLS OkHttp client
+        else -> localEngine
+    }
+
+    /** 0.4.0: where the video is processed now; a PC hand-off / "Enviar a dispositivo" starts on the PC. */
+    private var location: ProcessingLocation = if (args.remoteSessionId != null) ProcessingLocation.PC else ProcessingLocation.PHONE
+
+    /** 0.4.0: the phone can look up this title (episodes, and playing it on the phone from a PC session). */
+    private val titleKnown: Boolean = args.media.anilistId != null || args.media.malId != null || args.provider != null
 
     private val _state = MutableStateFlow(
         PlayerUiState(
@@ -374,11 +441,20 @@ class PlayerViewModel(
             settings = initialSettings,
             mode = initialSettings.sourcePrefs.mode,
             remoteless = args.remoteSessionId == null,
-            hasPrevEpisode = args.remoteSessionId == null && args.episode > 1,
+            canNavigateEpisodes = args.remoteSessionId == null || titleKnown,
+            hasPrevEpisode = (args.remoteSessionId == null || titleKnown) && args.episode > 1,
             translation = TranslationUi(available = initialSettings.subtitleTranslation.provider != TranslationProvider.NONE),
         ),
     )
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
+
+    private val _processing = MutableStateFlow(ProcessingUiState(location = location))
+
+    /**
+     * 0.4.0 "Procesar en: Teléfono | PC | Mixto" for worker D's UI: where the video is processed, the options with their block
+     * reasons, a switch in progress, what the PC does and its profiles. Commands: [setProcessingLocation], [setLinkProfile].
+     */
+    val processing: StateFlow<ProcessingUiState> = _processing.asStateFlow()
 
     /** Live settings (Settings › Reproductor changes apply while playing: subtitle style, translation, countdown...). */
     private val settings: AppSettings get() = _state.value.settings
@@ -432,7 +508,6 @@ class PlayerViewModel(
     private var handledStartLoad = 0
 
     /** BUG-020 / BUG-042: silent decoder retries spent on [decodeRetryKey] (the flow attempt, or the direct source's URL). */
-    private var shaderNoticeSeq = 0
     private var decodeRetries = 0
     private var decodeRetryKey: String? = null
 
@@ -455,15 +530,100 @@ class PlayerViewModel(
     private var secondaryDecidedLoad = -1
     private var translationSession: SubtitleTranslationSession? = null
     private var translationFor: SubtitleTranslationConfigKey? = null
-    private var liveJob: Job? = null
     private var pendingLive: List<String>? = null
+    // --- 0.4.0 (sub-translation worker): translation loop, the selected track's full cue list, embedded-track reader ---
+    private var translateLoop: Job? = null
+    private val translateWake = Channel<Unit>(Channel.CONFLATED)
+    private var timelineFor: String? = null
+    private var timelineJob: Job? = null
+    private var timelineCues: List<TimedCue>? = null
+    private var timelineSkip: Set<String> = emptySet()
+    private var timelineComplete = false
+    private var embedded: app.tatakai.next.player.EmbeddedSubtitleExtractor? = null
+    private var embeddedFor: String? = null
+    private var embeddedJob: Job? = null
+    private var embeddedRef: EmbeddedTrackRef? = null
+    private var rateNoticeUntil = 0L
+    private var imageNoticeFor: String? = null
     private var pretranslatedFor: String? = null
     private var pretranslateJob: Job? = null
     private var episodesJob: Job? = null
     private var notificationText: Pair<String, String?>? = null
 
+    // --- 0.4.0 (worker C): Phone | PC | Mixto ---
+    /** The location this player was asked to start at when it is not the phone (Settings default, the previous episode). */
+    private var pendingStart: ProcessingLocation? = null
+
+    /** The phone source of the last local load (played again on "PC -> Phone"; its URL / torrent goes to the PC). */
+    private var localSource: PlayableSource? = null
+
+    /** A torrent sent to the PC before the phone played it ([pendingStart] with a torrent candidate). */
+    private var pendingLinkSource: LinkSource? = null
+
+    /** The position the next load starts at ("PC -> Phone" through the source flow). */
+    private var pendingResumeMs: Long? = null
+
+    /** The phone's audio language / label before going to the PC, selected again when the phone plays the source again. */
+    private var pendingAudio: Pair<String?, String?>? = null
+    private var audioRestoredLoad = -1
+
+    /** The PC profile of strict PC (Mixto uses an upscale-only one; going back to PC brings this one back). */
+    private var pcProfile: String? = null
+    private var capabilities: LinkCapabilities? = null
+    private var lastStatus: LinkSessionStatus? = null
+    private var statusJob: Job? = null
+
+    // --- 0.4.0: the source's subtitles while the PC processes (LinkSubtitles.kt; tk-link `subtitles/{n}.ass|.vtt`) ---
+    /**
+     * The PC's text subtitle tracks of the source the PC plays, each one checked as served. The PC keeps them for every session of
+     * the same source (profile changes, PC <-> Mixto), so later loads side-load them at once. null = not known (yet) for this source.
+     */
+    private var pcSubtitleTracks: List<LinkSubtitleTrack>? = null
+
+    /** The Link session whose current engine load already side-loads [pcSubtitleTracks]. */
+    private var pcSubtitlesLoadedFor: String? = null
+    private var pcSubtitleJob: Job? = null
+    private var pcSubtitleJobFor: String? = null
+
+    /** The subtitle the player showed before the PC took over (or before a reload of the PC's stream): selected again on the PC. */
+    private var subtitleChoice: SubtitleChoice? = null
+
+    private val switcher = ProcessingSwitcher(
+        scope = viewModelScope,
+        port = object : ProcessingSwitcher.Port {
+            override fun positionMs(): Long = positionNow()
+            override fun audioTrackIndex(): Int? = session?.state?.value?.audioTracks?.indexOfFirst { it.selected }?.takeIf { it > 0 }
+            override suspend fun currentLinkSource(): LinkSource? = currentLinkSourceOrNull()
+            override suspend fun startAt(source: LinkSource, profileId: String?, startSecs: Double, audioTrack: Int?) =
+                remote.startAt(source, profileId, startSecs, audioTrack)
+            override suspend fun renew(sessionId: String, startSecs: Double, profileId: String?) = remote.renew(sessionId, startSecs, profileId)
+            override suspend fun ready(sessionId: String): Boolean? = remote.sessionReady(sessionId)
+            override fun playRemote(location: ProcessingLocation, session: RemoteSession, profileId: String?): Boolean =
+                playOnPc(location, session.sessionId, profileId)
+            override fun playLocal(positionMs: Long): Boolean = playOnPhone(positionMs)
+            override fun stop(sessionId: String) {
+                detached.launch { runCatching { link.stop(sessionId) } }
+            }
+        },
+        log = { line -> runCatching { android.util.Log.i(LINK_LOG_TAG, line) } },
+    )
+
     init {
+        if (args.remoteSessionId == null) {
+            val paired = link.state.value is LinkState.Paired
+            val carried = ProcessingCarry.take(titleKey)
+            pendingStart = startLocation(false, carried, link.linkedDevice.value?.defaultProcessing, paired).takeIf { it != ProcessingLocation.PHONE }
+        }
         start()
+        applyGates()
+        viewModelScope.launch {
+            link.state.collect { s ->
+                if (s is LinkState.Paired && s.reachable && capabilities == null) loadCapabilities()
+                refreshProcessing()
+            }
+        }
+        viewModelScope.launch { frameGenGate.availability.collect { refreshProcessing() } }
+        viewModelScope.launch { switcher.switching.collect { refreshProcessing() } }
         settingsRepository?.let { repo ->
             viewModelScope.launch {
                 repo.settings.collect { s ->
@@ -502,6 +662,7 @@ class PlayerViewModel(
             val remoteId = this@PlayerViewModel.remoteId
             if (remoteId != null) {
                 loadLinkProfiles(remoteId)
+                startStatusPolling() // 0.4.0: "En la PC" says what the PC does
                 launch { loadRemotePoster() }
                 // BUG-138: a hand-off card tapped after the PC closed the idle session (120 s): renew it now instead of
                 // loading a session that answers 410 (Media3 retried it ~65 s before the recovery renewed it)
@@ -511,7 +672,7 @@ class PlayerViewModel(
                     recoverRemote(auto = true)
                     return@launch
                 }
-                val src = RemotePlayback.source(remote, remoteId, args.title)
+                val src = remoteSourceFor(location, remoteId)
                 if (src == null) {
                     _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
                 } else {
@@ -571,6 +732,12 @@ class PlayerViewModel(
             throw e
         } catch (e: Exception) {
             null
+        }
+        // 0.4.0: the title is known, so "PC -> Phone" can play it here and the next episode button works from the PC too
+        if (m != null && media == null) {
+            media = m
+            _state.update { it.copy(hasNextEpisode = m.episodes?.let { total -> args.episode < total } ?: true) }
+            refreshProcessing()
         }
         val cover = m?.cover ?: return
         _state.update { it.copy(poster = cover) }
@@ -691,7 +858,8 @@ class PlayerViewModel(
         val f = flow ?: return
         _state.update {
             it.copy(
-                phase = when (f.phase) {
+                // 0.4.0: while the PC plays, the engine's state says the phase (the flow only waits behind it)
+                phase = if (remoteId != null) it.phase else when (f.phase) {
                     FlowPhase.RESOLVING -> PlayerPhase.RESOLVING
                     FlowPhase.BUFFERING -> if (engine == PlayerEngine.EXTERNAL) PlayerPhase.EXTERNAL else PlayerPhase.BUFFERING
                     FlowPhase.PLAYING -> if (engine == PlayerEngine.EXTERNAL) PlayerPhase.EXTERNAL else PlayerPhase.PLAYING
@@ -708,6 +876,7 @@ class PlayerViewModel(
                 mode = f.mode,
             )
         }
+        refreshProcessing()
     }
 
     private suspend fun resolve(src: RankedSource, attempt: Long) {
@@ -736,7 +905,15 @@ class PlayerViewModel(
                 }
                 handOff(PlayableSource.from(stream), attempt)
             }
-            SourceKind.TORRENT -> if (!resolveDebrid(src, attempt)) resolveTorrent(src, attempt)
+            SourceKind.TORRENT -> {
+                // 0.4.0: starting on the PC: the PC streams the torrent from its own engine, the phone never downloads it
+                // (a cached debrid link goes as a link: faster for the PC than the swarm)
+                if (pendingStart != null && src.candidate.debrid?.cached != true && torrentLinkSource(src) != null) {
+                    startOnPcFirst(null, torrentLinkSource(src), attempt)
+                    return
+                }
+                if (!resolveDebrid(src, attempt)) resolveTorrent(src, attempt)
+            }
         }
     }
 
@@ -843,20 +1020,30 @@ class PlayerViewModel(
         torrentJobs = listOfNotNull(statsJob, marksJob)
     }
 
-    private fun endTorrent(completed: Boolean) {
+    private fun endTorrent(completed: Boolean, suspend: Boolean = false) {
         val p = playback ?: return
         playback = null
         torrentJobs.forEach { it.cancel() }
         torrentJobs = emptyList()
         _state.update { it.copy(torrent = null) }
         val repo = torrents ?: return
-        detached.launch { runCatching { repo.playbackEnded(p.torrentId, completed) } }
+        detached.launch {
+            runCatching { if (suspend) repo.playbackSuspended(p.torrentId) else repo.playbackEnded(p.torrentId, completed) }
+        }
     }
+
+    /** 0.4.0: the phone torrent paused by a switch to the PC; its after-watch policy runs when the player closes. */
+    private var suspendedTorrent: String? = null
 
     /** The stream of [attempt] is ready: load it into the engine (or hand it to the external app). */
     private fun handOff(source: PlayableSource, attempt: Long) {
         val f = flow ?: return
         if (attempt != f.attempt) return
+        // 0.4.0: starting on the PC (Settings default / previous episode): the resolved stream goes to the PC instead
+        if (pendingStart != null && engine != PlayerEngine.EXTERNAL) {
+            startOnPcFirst(source, null, attempt)
+            return
+        }
         f.resolved(attempt)
         if (engine == PlayerEngine.EXTERNAL) {
             launchExternal(source)
@@ -914,27 +1101,51 @@ class PlayerViewModel(
 
     // ---- engine session ---------------------------------------------------------------------------------------------------------
 
+    /** 0.4.0: the last quality request of an engine session that has the quality engine (see [ensureSession]). */
+    private var carriedQuality: app.tatakai.next.player.QualityRequest? = null
+
     private fun ensureSession(): PlayerSession {
         session?.let { return it }
         val factory: PlayerSessionFactory = if (engine == PlayerEngine.MPV) mpvFactory ?: media3 else media3
-        val s = factory.create(viewModelScope, listener(), args.remoteSessionId != null)
+        // 0.4.0: a Link session heartbeats; the flag is per engine session, and every switch of location makes a new one
+        val s = factory.create(viewModelScope, listener(), remoteId != null)
         s.setSubtitleStyle(settings.subtitleStyle)
         prefs?.subtitleExtras?.value?.let { s.setSubtitleExtras(it) }
         s.setPreferredLanguages(settings.sourcePrefs.subLang, settings.sourcePrefs.dubLang)
         if (settings.stableVolume) s.setStableVolume(true)
         if (_state.value.loop) s.setLoop(true)
+        // 0.4.0: what the user picked in "Mejoras" (preset, tier, image, aspect...) carries over to the next engine session of this
+        // player: a PC -> Phone switch, an engine switch or the next episode went back to the Settings defaults before.
+        carriedQuality?.let { s.setQualityRequest(it) }
         session = s
         _state.update { it.copy(session = s) }
-        sessionJob = viewModelScope.launch { s.state.collect { onSessionState(it) } }
+        sessionJob = viewModelScope.launch {
+            // 0.4.0 (worker D): the quality engine's automatic changes, once per event of this session (QualityEvent.seq restarts
+            // with every session), as notices in the same style as the others. An event already there when the session is first
+            // collected belongs to it too (an 8K guard at load).
+            launch {
+                var seen = 0
+                s.quality.collect { q ->
+                    if (q.available) carriedQuality = q.requested
+                    val e = q.lastEvent ?: return@collect
+                    if (e.seq <= seen) return@collect
+                    seen = e.seq
+                    if (announceQualityEvent(e)) _notices.trySend(PlayerNotice.Quality(e))
+                }
+            }
+            s.state.collect { onSessionState(it) }
+        }
         return s
     }
 
     private fun loadIntoSession(source: PlayableSource, startOverride: Long? = null) {
         val s = ensureSession()
-        val resume = startOverride ?: s.currentPositionMs().takeIf { loadsIssued > 0 && it > 0 } ?: args.startMs
+        val resumeAt = pendingResumeMs.also { pendingResumeMs = null }
+        val resume = startOverride ?: resumeAt ?: s.currentPositionMs().takeIf { loadsIssued > 0 && it > 0 } ?: args.startMs
         loadsIssued++
         autoSkippedIntro = false
         currentSource = source
+        if (remoteId == null) localSource = source
         customCues = null
         fetchedPrimaryFor = null
         pretranslatedFor = null
@@ -944,12 +1155,6 @@ class PlayerViewModel(
     }
 
     private fun onSessionState(st: PlaybackState) {
-        st.shaderNotice?.let { n ->
-            if (n.seq != shaderNoticeSeq) {
-                shaderNoticeSeq = n.seq
-                _notices.trySend(PlayerNotice.ShaderChanged(n.kind))
-            }
-        }
         if (st.loadId != loadsIssued || loadsIssued == 0) return
         if (st.positionMs > 0) lastPositionMs = st.positionMs
         if (st.durationMs > 0) lastDurationMs = st.durationMs
@@ -976,9 +1181,11 @@ class PlayerViewModel(
         }
         if (st.started && handledStartLoad != st.loadId) {
             handledStartLoad = st.loadId
-            val key = f?.started()
+            // 0.4.0: a PC session's frames say nothing about the phone's source
+            val key = if (remoteId == null) f?.started() else null
             if (key != null) viewModelScope.launch { runCatching { extensions.reportSourceResult(key, true) } }
         }
+        restoreAudio(st)
         if (f != null && playbackInFlow()) {
             f.stalled(st.started && st.isBuffering)
             publishFlow()
@@ -1004,7 +1211,7 @@ class PlayerViewModel(
             return
         }
         if (st.ended && !st.loop && !sleepTimer.fired && _state.value.hasNextEpisode && nextJob == null && _state.value.next == null &&
-            !nextDismissed && args.remoteSessionId == null
+            !nextDismissed && _state.value.canNavigateEpisodes
         ) {
             startNextCountdown()
         }
@@ -1025,7 +1232,7 @@ class PlayerViewModel(
         }
         val tags = if (inFlow) flow?.currentSource()?.candidate?.tags else null
         val hardware = tags?.let { decodesInHardware(it, DeviceCodecs.capabilities()) } ?: true
-        val mpvOk = mpvFactory != null && args.remoteSessionId == null
+        val mpvOk = mpvFactory != null && remoteId == null
         val position = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs.takeIf { it > 0 }
         return when (decodeRecovery(err.code, engine == PlayerEngine.MEDIA3, mpvOk, hardware, decodeRetries)) {
             DecodeRecovery.RETRY_SAME -> {
@@ -1048,7 +1255,7 @@ class PlayerViewModel(
      */
     private fun recoverMpvStall(err: PlaybackError): Boolean {
         val src = currentSource ?: return false
-        if (!switchToMedia3OnStall(err.code, engine == PlayerEngine.MPV, args.remoteSessionId != null, media3TriedFor == src.url)) return false
+        if (!switchToMedia3OnStall(err.code, engine == PlayerEngine.MPV, remoteId != null, media3TriedFor == src.url)) return false
         media3TriedFor = src.url
         val position = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs.takeIf { it > 0 }
         switchEngine(PlayerEngine.MEDIA3, src, position, PlayerNotice.SwitchedToMedia3)
@@ -1063,16 +1270,65 @@ class PlayerViewModel(
     }
 
     /** Replaces the session with one of [target] for the rest of this player (the setting is not changed) and reloads [src]. */
-    private fun switchEngine(target: PlayerEngine, src: PlayableSource, positionMs: Long?, notice: PlayerNotice) {
+    private fun switchEngine(target: PlayerEngine, src: PlayableSource, positionMs: Long?, notice: PlayerNotice?) {
         engine = target
+        if (remoteId == null) localEngine = target // 0.4.0: "PC -> Phone" comes back to the engine that plays this source
         _state.update { it.copy(engine = target) }
-        _notices.trySend(notice)
+        notice?.let { _notices.trySend(it) }
         replaceSession(src, positionMs ?: args.startMs)
+    }
+
+    // ---- 0.4.0 (worker A): "Cambiar a MPV" from the player (the in-player UI is worker D's) ------------------------------------
+
+    /** Whether the player can offer "Cambiar a MPV" right now: on Media3, libmpv bundled, not a Link session, something loaded. */
+    fun canSwitchToMpvNow(): Boolean =
+        currentSource != null && canSwitchToMpv(engine == PlayerEngine.MEDIA3, mpvFactory != null, args.remoteSessionId != null)
+
+    /**
+     * Restarts the current source on libmpv at the current position, for this playback only (Settings › Motor is not changed), reusing
+     * the BUG-020 decode-recovery switch. No notice: the user asked for it. If libmpv then cannot open the stream (BUG-059 / BUG-080) the
+     * usual automatic move back to Media3 still applies. Returns false when [canSwitchToMpvNow] is false.
+     */
+    fun switchToMpvByUser(): Boolean {
+        if (!canSwitchToMpvNow()) return false
+        val src = currentSource ?: return false
+        val position = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs.takeIf { it > 0 }
+        switchEngine(PlayerEngine.MPV, src, position, notice = null)
+        return true
+    }
+
+    // ---- 0.4.0 (worker D): in-player "Mejoras" panel ------------------------------------------------------------------------------
+
+    /**
+     * "Usar como predeterminado" of the panel: the preset / tier changed in the player (which last for this playback only) become
+     * Settings › Reproductor's defaults for the next playbacks.
+     */
+    fun saveQualityAsDefault(preset: String, tier: app.tatakai.next.model.QualityTier) {
+        val repo = settingsRepository ?: return
+        viewModelScope.launch {
+            runCatching {
+                repo.update {
+                    it.copy(playerPreset = app.tatakai.next.model.QualityPresets.sanitize(preset), playerQuality = it.playerQuality.copy(tier = tier))
+                }
+            }
+        }
+    }
+
+    /** A notice raised by the screen (phone frame generation lives in an app-wide controller the ViewModel does not hold). */
+    internal fun postNotice(notice: PlayerNotice) {
+        _notices.trySend(notice)
     }
 
     /** Releases the engine session and loads [src] at [positionMs] in a new one of [engine] (speed kept). */
     private fun replaceSession(src: PlayableSource, positionMs: Long) {
         val speed = session?.state?.value?.speed
+        releaseSession()
+        loadIntoSession(src, startOverride = positionMs)
+        if (speed != null && speed != 1f) session?.setSpeed(speed)
+    }
+
+    /** Releases the engine session; the next load makes a new one (of [engine], remote or not). */
+    private fun releaseSession() {
         sessionJob?.cancel()
         sessionJob = null
         session?.release()
@@ -1082,14 +1338,15 @@ class PlayerViewModel(
         handledErrorLoad = 0
         handledStartLoad = 0
         secondaryDecidedLoad = -1
-        shaderNoticeSeq = 0
         _state.update { it.copy(session = null) }
-        loadIntoSession(src, startOverride = positionMs)
-        if (speed != null && speed != 1f) session?.setSpeed(speed)
     }
 
-    /** The current load belongs to the source flow (not a direct torrent / local / remote load). */
-    private fun playbackInFlow(): Boolean = flow?.phase.let { it == FlowPhase.BUFFERING || it == FlowPhase.PLAYING || it == FlowPhase.RESOLVING }
+    /**
+     * The current load belongs to the source flow (not a direct torrent / local / remote load). 0.4.0: never while the PC
+     * plays (a flow stays behind a "Phone -> PC" switch, but the PC's errors go through the Link recovery, not the failover).
+     */
+    private fun playbackInFlow(): Boolean =
+        remoteId == null && flow?.phase.let { it == FlowPhase.BUFFERING || it == FlowPhase.PLAYING || it == FlowPhase.RESOLVING }
 
     private fun listener() = object : PlaybackListener {
         override fun onProgress(positionMs: Long, durationMs: Long, force: Boolean) = recordProgress(positionMs, durationMs, force)
@@ -1142,6 +1399,7 @@ class PlayerViewModel(
         if (engine != PlayerEngine.EXTERNAL) return
         val source = currentSource ?: return
         engine = PlayerEngine.MEDIA3
+        localEngine = PlayerEngine.MEDIA3
         _state.update { it.copy(engine = PlayerEngine.MEDIA3, external = null) }
         loadIntoSession(source)
         if (flow != null) publishFlow() else _state.update { it.copy(phase = PlayerPhase.BUFFERING) }
@@ -1210,7 +1468,9 @@ class PlayerViewModel(
                     remote.renew(id, positionMs / 1000.0, retryLinkProfile()).fold(
                         onSuccess = { renewed ->
                             remoteId = renewed.sessionId
-                            val src = RemotePlayback.source(remote, renewed.sessionId, args.title)
+                            // 0.4.0: a recovery may follow a PC restart, which lost the subtitles it had extracted
+                            forgetPcSubtitles()
+                            val src = remoteSourceFor(location, renewed.sessionId)
                             if (src == null) {
                                 _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
                             } else {
@@ -1228,28 +1488,20 @@ class PlayerViewModel(
                     )
                 }
                 alive == false -> remoteError(RemoteFailure.SESSION_ENDED, null)
-                alive == true -> if (auto) remoteError(RemoteFailure.PC_ERROR, null) else start()
-                else -> if (auto) remoteError(RemoteFailure.CONNECTION_LOST, AppError.Offline) else start()
+                alive == true -> if (auto) remoteError(RemoteFailure.PC_ERROR, null) else reloadRemote(id)
+                else -> if (auto) remoteError(RemoteFailure.CONNECTION_LOST, AppError.Offline) else reloadRemote(id)
             }
         }
     }
 
     /** BUG-022: the profiles the PC offers, for the in-player profile sheet (best effort: no sheet without them). */
     private fun loadLinkProfiles(sessionId: String) {
-        if (_state.value.linkProfiles.isNotEmpty()) return
         viewModelScope.launch {
-            val caps = link.capabilities().getOrNull() ?: return@launch
+            val caps = loadCapabilities() ?: return@launch
             val current = remote.profileOf(sessionId) ?: caps.defaultProfile
-            linkDefaultProfile = caps.defaultProfile
-            linkLimits = runCatching { linkDecodeLimits() }.getOrNull()
-            _state.update {
-                it.copy(
-                    linkProfiles = caps.profiles,
-                    linkProfile = it.linkProfile ?: current,
-                    linkUnsupported = unsupportedLinkProfiles(caps.profiles, linkLimits, rejectedProfiles),
-                    linkMayDropFrames = linkProfilesMayDropFrames(caps.profiles, linkLimits),
-                )
-            }
+            _state.update { it.copy(linkProfile = it.linkProfile ?: current) }
+            if (location == ProcessingLocation.PC && pcProfile == null) pcProfile = _state.value.linkProfile
+            refreshProcessing()
             // BUG-132: the session started with the closest playable profile instead of the saved preferred one: say it once
             link.takeProfileFallback()?.let { f ->
                 val from = caps.profiles.firstOrNull { it.id == f.from }
@@ -1275,6 +1527,7 @@ class PlayerViewModel(
         if (bad != null) rejectedProfiles += bad
         val profiles = _state.value.linkProfiles
         _state.update { it.copy(linkUnsupported = unsupportedLinkProfiles(profiles, linkLimits, rejectedProfiles)) }
+        refreshProcessing()
         val back = linkProfileAfterRejection(bad, profileBeforeChange, profiles, linkLimits, rejectedProfiles, linkDefaultProfile)
         if (back == null || bad == null) {
             remoteError(RemoteFailure.PHONE_DECODER, null)
@@ -1307,6 +1560,8 @@ class PlayerViewModel(
      */
     fun changeLinkProfile(profileId: String) {
         if (profileId in _state.value.linkUnsupported) return // BUG-132: a disabled row (this phone cannot play it)
+        // 0.4.0: in Mixto the phone generates the frames: only upscale-only profiles (the list offers no other)
+        if (location == ProcessingLocation.MIXED && capabilities?.profiles?.firstOrNull { it.id == profileId }?.frameGeneration == true) return
         val before = _state.value.linkProfile
         val positionMs = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs
         profileChange.request(
@@ -1314,9 +1569,10 @@ class PlayerViewModel(
             currentProfile = _state.value.linkProfile,
             profileId = profileId,
             positionMs = positionMs,
-            onStarted = { _state.update { it.copy(linkProfileChanging = true) } },
+            onStarted = { _state.update { it.copy(linkProfileChanging = true) }; refreshProcessing() },
             onResult = { result ->
                 _state.update { it.copy(linkProfileChanging = profileChange.changing.value) }
+                refreshProcessing()
                 if (result is LinkProfileResult.Changed) {
                     profileBeforeChange = before
                     if (!playProfileChange(result)) {
@@ -1335,8 +1591,10 @@ class PlayerViewModel(
     /** BUG-131 / BUG-132: plays the new session of a profile change; false when its playlist cannot be opened (REMOTE_UNAVAILABLE). */
     private fun playProfileChange(result: LinkProfileResult.Changed): Boolean {
         remoteId = result.sessionId
+        if (location == ProcessingLocation.PC) pcProfile = result.profileId
         _state.update { it.copy(linkProfile = result.profileId, phase = PlayerPhase.BUFFERING, error = null, remoteFailure = null) }
-        val src = RemotePlayback.source(remote, result.sessionId, args.title)
+        refreshProcessing()
+        val src = remoteSourceFor(location, result.sessionId)
         if (src == null) {
             _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
             return false
@@ -1377,7 +1635,8 @@ class PlayerViewModel(
                 return@launch
             }
             val renewed = remote.renew(id, positionMs / 1000.0, retryLinkProfile()).getOrNull()
-            val src = renewed?.let { RemotePlayback.source(remote, it.sessionId, args.title) }
+            if (renewed != null) forgetPcSubtitles()
+            val src = renewed?.let { remoteSourceFor(location, it.sessionId) }
             if (renewed == null || src == null) {
                 remoteError(RemoteFailure.PC_ERROR, null)
                 return@launch
@@ -1396,7 +1655,8 @@ class PlayerViewModel(
     fun retry() {
         val f = flow
         _state.update { it.copy(error = null, noFileTorrentId = null, remoteFailure = null) }
-        if (remoteId != null && f == null) {
+        // 0.4.0: a PC session started from the player keeps its source flow behind it: Retry is the Link one
+        if (remoteId != null) {
             recoverRemote(auto = false)
             return
         }
@@ -1458,11 +1718,14 @@ class PlayerViewModel(
         val nextArgs = args.copy(
             episode = args.episode + 1,
             startMs = 0,
+            // 0.4.0: from the PC the next episode is resolved on the phone and sent again (ProcessingCarry), never this session
+            remoteSessionId = null,
             sourceKey = null,
             torrentId = if (p != null && p.batch) p.torrentId else null,
             fileIndex = null,
             localUri = null,
         )
+        ProcessingCarry.put(titleKey, location)
         _replace.trySend(nextArgs)
     }
 
@@ -1476,10 +1739,13 @@ class PlayerViewModel(
 
     /** Jump to [episode] from the episode list over the player, without going back to Details. */
     fun playEpisode(episode: Int) {
-        if (episode < 1 || episode == args.episode || args.remoteSessionId != null) return
+        if (episode < 1 || episode == args.episode || !_state.value.canNavigateEpisodes) return
         nextJob?.cancel()
         _state.update { it.copy(next = null) }
-        _replace.trySend(args.copy(episode = episode, startMs = 0, sourceKey = null, torrentId = null, fileIndex = null, localUri = null))
+        ProcessingCarry.put(titleKey, location)
+        _replace.trySend(
+            args.copy(episode = episode, startMs = 0, remoteSessionId = null, sourceKey = null, torrentId = null, fileIndex = null, localUri = null),
+        )
     }
 
     /** Loads the episode list once (Details' source: `MetadataRepository.episodes`, else 1..N from the media). */
@@ -1620,7 +1886,9 @@ class PlayerViewModel(
         val track = currentSource?.subtitles?.getOrNull(external) ?: return
         val tools = subtitleTools ?: return
         viewModelScope.launch {
-            val cues = runCatching { tools.fetch(track.url, currentSource?.headers.orEmpty(), track.format) }.getOrNull()
+            val via = currentSource?.let { clientFor(it, track.url) }
+            val headers = if (via != null) emptyMap() else currentSource?.headers.orEmpty()
+            val cues = runCatching { tools.fetch(track.url, headers, track.format, via = via) }.getOrNull()
             if (cues == null) {
                 _notices.trySend(PlayerNotice.SubtitleFailed)
                 _state.update { it.copy(secondaryExternal = null) }
@@ -1628,6 +1896,13 @@ class PlayerViewModel(
             }
             _screenSubs.update { it.copy(secondary = cues, secondaryLabel = track.label.ifBlank { track.lang }) }
         }
+    }
+
+    /** 0.4.0: the source's own client (the PC's mTLS one) for a side-loaded file on the stream's host; null = the player's. */
+    private fun clientFor(src: PlayableSource, url: String): okhttp3.OkHttpClient? {
+        val client = src.httpClient ?: return null
+        val host = { u: String -> runCatching { java.net.URI(u).host }.getOrNull() }
+        return client.takeIf { host(url) != null && host(url) == host(src.url) }
     }
 
     /**
@@ -1649,7 +1924,9 @@ class PlayerViewModel(
                     val tools = subtitleTools
                     if (tools != null) {
                         viewModelScope.launch {
-                            val cues = runCatching { tools.fetch(ext.url, src.headers, ext.format) }.getOrNull()
+                            // 0.4.0: a PC track is fetched with the PC's mTLS client (and without the web source's headers)
+                            val via = clientFor(src, ext.url)
+                            val cues = runCatching { tools.fetch(ext.url, if (via != null) emptyMap() else src.headers, ext.format, via = via) }.getOrNull()
                             if (fetchedPrimaryFor == key) {
                                 _screenSubs.update { it.copy(primary = cues) }
                                 if (cues != null) maybePretranslate()
@@ -1673,10 +1950,14 @@ class PlayerViewModel(
     }
 
     // ---- parity wave A (worker p): translation -------------------------------------------------------------------------------------
+    // 0.4.0 (sub-translation worker): one translation loop per player (one request in flight: live lines + look-ahead batched together,
+    // paced by the provider's RequestGate), the full cue list of the selected track whatever its origin (loaded file, sidecar,
+    // embedded MKV / MP4 track via EmbeddedSubtitleExtractor, HLS subtitle rendition) and ONE notice while a provider rate-limits.
 
     fun setTranslationEnabled(enabled: Boolean) {
         _state.update { it.copy(translation = it.translation.copy(enabled = enabled, error = null)) }
         session?.setSubtitlesVisible(true)
+        if (enabled && translationActive()) ensureTranslateLoop() else stopTimeline()
     }
 
     /** Translation is configured and switched on in the player. */
@@ -1687,9 +1968,10 @@ class PlayerViewModel(
         translationFor = null
         pretranslatedFor = null
         _screenSubs.update { it.copy(translated = emptyMap()) }
+        translateWake.trySend(Unit)
     }
 
-    /** One translation session per (provider settings, key) and episode; the key comes from SecretStore, never from settings. */
+    /** One translation session per (provider settings, key) and series; the key comes from SecretStore, never from settings. */
     private suspend fun translation(): SubtitleTranslationSession? {
         val tools = subtitleTools ?: return null
         val cfg = settings.subtitleTranslation
@@ -1705,40 +1987,220 @@ class PlayerViewModel(
             _notices.trySend(PlayerNotice.TranslationFailed(e.message.orEmpty()))
             return null
         }
-        val episodeKey = "${mediaId ?: args.title}:${args.episode}"
-        return SubtitleTranslationSession(translator, tools.translationCache, TranslationCache.scope(episodeKey, config)).also {
+        // 0.4.0: scoped by series, so openings / endings / recurring lines are translated once (TranslationCache).
+        val seriesKey = mediaId ?: args.title
+        return SubtitleTranslationSession(translator, tools.translationCache, TranslationCache.scope(seriesKey, config)).also {
             translationSession = it
+            pushTimeline(it)
             translationFor = id
         }
     }
 
     /**
      * Live translation (player.subs.translate.live): the screen hands the lines it is about to draw; cached ones come back at once, the
-     * rest are translated (one request in flight, the newest lines win). Until then the original is shown.
+     * rest go to the translation loop (newest lines win). Until then the original is shown. 0.4.0: lines are normalized per event
+     * ([SubtitleText]) so mpv's joined `sub-text` reuses the per-event look-ahead translations.
      */
     fun translateLines(lines: List<String>) {
-        if (!translationActive() || lines.isEmpty()) return
+        if (!translationActive()) return
+        ensureTranslateLoop()
+        if (lines.isEmpty()) return
         val known = _screenSubs.value.translated
-        if (lines.all { it in known }) return
-        pendingLive = lines
-        if (liveJob?.isActive == true) return
-        liveJob = viewModelScope.launch {
-            while (true) {
-                val batch = pendingLive ?: break
-                pendingLive = null
+        val missing = lines.flatMap { SubtitleText.missingParts(known, it) }.filter { it.isNotEmpty() && it !in timelineSkip }.distinct()
+        if (missing.isEmpty()) return
+        pendingLive = missing
+        translateWake.trySend(Unit)
+    }
+
+    /** The loop: picks up the selected track's cue list, translates pending live lines (+ look-ahead) or just looks ahead, waits. */
+    private fun ensureTranslateLoop() {
+        if (translateLoop?.isActive == true) return
+        translateLoop = viewModelScope.launch {
+            while (isActive && translationActive()) {
+                refreshTimeline()
                 val tr = translation() ?: break
-                val missing = batch.filter { it !in _screenSubs.value.translated }
-                if (missing.isEmpty()) continue
+                val live = pendingLive
+                pendingLive = null
+                val pos = session?.currentPositionMs()?.let { it - (session?.state?.value?.subtitleDelayMs ?: 0L) }
+                var progressed = false
                 try {
-                    val out = tr.translateLive(missing)
-                    _screenSubs.update { it.copy(translated = it.translated + missing.zip(out)) }
+                    val fresh = when {
+                        !live.isNullOrEmpty() -> tr.translateNow(live, pos)
+                        pos != null && tr.hasTimeline() -> tr.translateAhead(pos)
+                        else -> emptyMap()
+                    }
+                    if (fresh.isNotEmpty()) {
+                        _screenSubs.update { it.copy(translated = it.translated + fresh) }
+                        _state.update { if (it.translation.error != null) it.copy(translation = it.translation.copy(error = null)) else it }
+                        progressed = true
+                    }
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: TranslationException) {
+                    if (e.kind == TranslationException.Kind.RATE_LIMITED) {
+                        // Keep the lines for the retry (unless newer ones arrived) and keep showing the originals meanwhile.
+                        if (pendingLive == null) pendingLive = live
+                        val wait = (e.retryAfterMs ?: RATE_LIMIT_FALLBACK_MS).coerceIn(1_000, RATE_LIMIT_MAX_WAIT_MS)
+                        notifyRateLimited(wait)
+                        delay(wait)
+                        continue
+                    }
+                    _state.update { it.copy(translation = it.translation.copy(error = e.message)) }
+                    withTimeoutOrNull(TRANSLATE_ERROR_BACKOFF_MS) { translateWake.receive() }
+                    continue
                 } catch (e: Exception) {
                     _state.update { it.copy(translation = it.translation.copy(error = e.message)) }
-                    break
+                    withTimeoutOrNull(TRANSLATE_ERROR_BACKOFF_MS) { translateWake.receive() }
+                    continue
                 }
+                // A batch went out: the next one may be due right away (the provider's gate paces them).
+                if (progressed) continue
+                runCatching { tr.flush() }
+                withTimeoutOrNull(LOOKAHEAD_TICK_MS) { translateWake.receive() }
             }
+            if (!translationActive()) stopTimeline()
+        }
+    }
+
+    /** One "Google limitó las traducciones; reintento en N s" per throttling episode, not one failure per line. */
+    private fun notifyRateLimited(waitMs: Long) {
+        val now = System.currentTimeMillis()
+        if (now < rateNoticeUntil) return
+        rateNoticeUntil = now + waitMs + RATE_NOTICE_GRACE_MS
+        val google = settings.subtitleTranslation.provider == TranslationProvider.GOOGLE
+        _notices.trySend(PlayerNotice.TranslationRateLimited(((waitMs + 999) / 1000).toInt(), google))
+    }
+
+    /** What identifies the cue list the translator should know: the loaded file, or the selected track of the current source. */
+    private fun timelineKey(): String? {
+        customCues?.let { return "custom:${System.identityHashCode(it)}" }
+        val src = currentSource ?: return null
+        val sel = session?.state?.value?.subtitles?.firstOrNull { it.selected } ?: return null
+        _screenSubs.value.primary?.let { return "primary:${System.identityHashCode(it)}" }
+        return "${src.url}|${sel.groupIndex}|${sel.embeddedOrdinal}|${sel.external}|${sel.language}|${sel.label}"
+    }
+
+    /** Called by the loop: (re)starts reading the cue list when the selected track changed. */
+    private fun refreshTimeline() {
+        val key = timelineKey()
+        if (key == timelineFor) return
+        timelineFor = key
+        timelineJob?.cancel()
+        timelineJob = null
+        // Another file now (next episode, other source): the previous file's reader stops.
+        if (embeddedFor != null && embeddedFor != currentSource?.url) {
+            embeddedJob?.cancel()
+            embedded = null
+            embeddedFor = null
+        }
+        applyTimeline(null, emptySet(), complete = false)
+        if (key == null) return
+        customCues?.let { return applyTimeline(it, emptySet(), complete = true) }
+        _screenSubs.value.primary?.let { return applyTimeline(it, emptySet(), complete = true) }
+        val src = currentSource ?: return
+        val tools = subtitleTools ?: return
+        val sel = session?.state?.value?.subtitles?.firstOrNull { it.selected } ?: return
+        if (sel.embeddedOrdinal == null) {
+            // A sidecar: Media3 says which one; mpv only lists it as external, matched by language / title.
+            val track = sel.external?.let { src.subtitles.getOrNull(it) }
+                ?: src.subtitles.firstOrNull { LanguageCodes.matches(it.lang, it.label, sel.language ?: sel.label) }
+                ?: return
+            // A PC subtitle file (Tatakai Link "PC" / "Mixto") goes through the PC's mTLS client, like the player loads it.
+            val via = clientFor(src, track.url)
+            timelineJob = viewModelScope.launch {
+                val cues = runCatching { tools.fetch(track.url, if (via != null) emptyMap() else src.headers, track.format, via = via) }
+                    .getOrNull() ?: return@launch
+                if (timelineFor == key) applyTimeline(cues, emptySet(), complete = true)
+            }
+            return
+        }
+        if (SubtitleSamples.isImage(sel.codec)) {
+            imageNotice(key)
+            return
+        }
+        // The PC's own stream (Tatakai Link) carries no in-stream text track worth reading here: its subtitles are the files above.
+        if (src.httpClient != null) return
+        val ref = EmbeddedTrackRef(sel.embeddedOrdinal, sel.language, sel.label, sel.codec)
+        if (HlsSubtitles.isHls(src.url)) {
+            timelineJob = viewModelScope.launch {
+                val cues = runCatching { tools.hlsSubtitles(src.url, src.headers, ref) }.getOrNull() ?: return@launch
+                if (timelineFor == key) applyTimeline(cues, emptySet(), complete = true)
+            }
+            return
+        }
+        // Embedded track: one extractor per file reads every text track; a track switch in the same file reuses it.
+        embeddedRef = ref
+        val extractor = embedded?.takeIf { ex -> embeddedFor == src.url && (embeddedJob?.isActive == true || ex.state.value.complete) } ?: run {
+            embeddedJob?.cancel()
+            val marks: (() -> List<ClosedFloatingPointRange<Double>>)? = if (src.torrent) {
+                { _state.value.torrent?.marks.orEmpty() }
+            } else {
+                null
+            }
+            val media = tools.mediaSource(src.url, src.headers, marks) ?: return
+            val ex = app.tatakai.next.player.EmbeddedSubtitleExtractor(media, playheadMs = { lastPositionMs })
+            embedded = ex
+            embeddedFor = src.url
+            embeddedJob = viewModelScope.launch { ex.run() }
+            ex
+        }
+        timelineJob = viewModelScope.launch {
+            var lastSize = -1
+            extractor.state.collect { st ->
+                if (timelineFor != key) return@collect
+                val ref2 = embeddedRef ?: return@collect
+                val track = EmbeddedTrackMatcher.match(st.tracks, ref2) ?: return@collect
+                if (track.image) {
+                    imageNotice(key)
+                    return@collect
+                }
+                val cues = st.cues[track.id].orEmpty()
+                if (cues.size != lastSize || st.finished) {
+                    lastSize = cues.size
+                    applyTimeline(cues, st.skipped[track.id].orEmpty(), complete = st.complete)
+                }
+                if (st.finished && st.complete && cues.isNotEmpty()) maybePretranslate()
+            }
+        }
+    }
+
+    private fun imageNotice(key: String) {
+        if (imageNoticeFor == key) return
+        imageNoticeFor = key
+        _notices.trySend(PlayerNotice.TranslationImageSubtitles)
+    }
+
+    /** Translation off / player leaving the track: stop reading the file. */
+    private fun stopTimeline() {
+        timelineJob?.cancel()
+        embeddedJob?.cancel()
+        embedded = null
+        embeddedFor = null
+        timelineFor = null
+    }
+
+    /** The selected track's cues are known (or grew): hand them to the session and show what the cache already has. */
+    private fun applyTimeline(cues: List<TimedCue>?, skip: Set<String>, complete: Boolean) {
+        val norm = cues?.mapNotNull { c -> SubtitleText.normalize(c.text).takeIf { it.isNotEmpty() }?.let { if (it == c.text) c else c.copy(text = it) } }
+        timelineCues = norm
+        timelineSkip = skip
+        timelineComplete = complete
+        translationSession?.let(::pushTimeline)
+        translateWake.trySend(Unit)
+    }
+
+    /** The session learns the cue list; whatever the cache already has for it shows at once (re-watch, same series). */
+    private fun pushTimeline(tr: SubtitleTranslationSession) {
+        val norm = timelineCues
+        tr.setTimeline(norm, timelineSkip)
+        if (norm.isNullOrEmpty()) return
+        viewModelScope.launch {
+            val known = _screenSubs.value.translated
+            val texts = norm.asSequence().map { it.text }.filter { it !in known }.distinct().toList()
+            if (texts.isEmpty()) return@launch
+            val cached = tr.cachedOnly(texts)
+            val hits = texts.zip(cached).mapNotNull { (o, t) -> t?.let { o to it } }
+            if (hits.isNotEmpty()) _screenSubs.update { it.copy(translated = it.translated + hits) }
         }
     }
 
@@ -1754,14 +2216,16 @@ class PlayerViewModel(
 
     /**
      * "Pre-translate" (player.subs.translate.pretranslate): pauses, translates every line of the current track in batches with progress,
-     * then plays on. Needs the full text: a loaded file or an external track (embedded tracks only translate live).
+     * then plays on. 0.4.0: any text track (embedded ones are read from the file; a torrent still downloading pre-translates what is
+     * downloaded and the rest is translated ahead as it arrives); bitmap tracks (PGS / VobSub) say they cannot be translated.
      */
     fun pretranslate() {
         if (pretranslateJob?.isActive == true) return
         pretranslateJob = viewModelScope.launch {
             val cues = cuesForPretranslation()
             if (cues == null) {
-                _notices.trySend(PlayerNotice.PretranslateUnavailable)
+                val sel = session?.state?.value?.subtitles?.firstOrNull { it.selected }
+                _notices.trySend(if (SubtitleSamples.isImage(sel?.codec)) PlayerNotice.TranslationImageSubtitles else PlayerNotice.PretranslateUnavailable)
                 return@launch
             }
             val id = cues.size.toString() + ":" + cues.firstOrNull()?.text.orEmpty()
@@ -1770,9 +2234,11 @@ class PlayerViewModel(
             val s = session
             val wasPlaying = s?.state?.value?.isPlaying == true
             s?.pause()
-            val texts = cues.map { it.text }
+            val texts = cues.map { SubtitleText.normalize(it.text) }.filter { it.isNotEmpty() }
             val failed = try {
-                tr.pretranslate(texts) { done, total -> _state.update { it.copy(translation = it.translation.copy(progress = done to total)) } }
+                tr.pretranslate(texts, onThrottled = ::notifyRateLimited) { done, total ->
+                    _state.update { it.copy(translation = it.translation.copy(progress = done to total)) }
+                }
             } catch (e: CancellationException) {
                 _state.update { it.copy(translation = it.translation.copy(progress = null)) }
                 throw e
@@ -1794,16 +2260,507 @@ class PlayerViewModel(
         session?.play()
     }
 
+    /**
+     * The whole text of the selected track: loaded file, parsed sidecar, or (0.4.0) the cue list read from the file / HLS rendition.
+     * An embedded track still being read gets up to [PRETRANSLATE_WAIT_MS] to finish (a local file takes seconds); a torrent still
+     * downloading uses what is there.
+     */
     private suspend fun cuesForPretranslation(): List<TimedCue>? {
         customCues?.let { return it }
         _screenSubs.value.primary?.let { return it }
-        val src = currentSource ?: return null
-        val tools = subtitleTools ?: return null
-        val selected = session?.state?.value?.subtitles?.firstOrNull { it.selected } ?: return null
-        val track = selected.external?.let { src.subtitles.getOrNull(it) }
-            ?: src.subtitles.firstOrNull { LanguageCodes.matches(it.lang, it.label, selected.language ?: selected.label) }
-            ?: return null
-        return runCatching { tools.fetch(track.url, src.headers, track.format) }.getOrNull()
+        refreshTimeline()
+        if (timelineComplete) timelineCues?.takeIf { it.isNotEmpty() }?.let { return it }
+        val ex = embedded?.takeIf { embeddedFor == currentSource?.url }
+        if (ex != null) {
+            withTimeoutOrNull(PRETRANSLATE_WAIT_MS) { ex.state.first { it.finished || it.waiting } }
+            // The collector in refreshTimeline applies the final list; give it a beat.
+            delay(50)
+        } else {
+            withTimeoutOrNull(PRETRANSLATE_WAIT_MS) { while (timelineCues.isNullOrEmpty() && timelineJob?.isActive == true) delay(200) }
+        }
+        return timelineCues?.takeIf { it.isNotEmpty() }
+    }
+
+    // ---- 0.4.0 (worker C): Procesar en Teléfono | PC | Mixto ----------------------------------------------------------------------
+
+    /**
+     * Worker D's "Procesar en" control: switches to [to] keeping the position (and the audio stream). The video keeps playing
+     * where it is until the other side is ready; a failure leaves it there with a notice ([PlayerNotice.Processing]). A blocked
+     * option only says why ([ProcessingOption.block]). Choosing the current location while a switch runs cancels it.
+     */
+    fun setProcessingLocation(to: ProcessingLocation) {
+        if (switcher.switching.value != null) {
+            if (to == location) switcher.cancel()
+            return
+        }
+        if (to == location) return
+        val option = _processing.value.option(to)
+        if (!option.available) {
+            _notices.trySend(PlayerNotice.Processing(to, block = option.block, detail = option.detail))
+            return
+        }
+        pendingStart = null
+        viewModelScope.launch {
+            val profile = profileFor(to)
+            // the capabilities may have arrived just now (client_fg, the upscale profiles): ask again
+            val now = _processing.value.option(to)
+            if (!now.available || (to == ProcessingLocation.MIXED && profile == null)) {
+                _notices.trySend(PlayerNotice.Processing(to, block = now.block ?: ProcessingBlock.PC_NO_UPSCALE_PROFILE, detail = now.detail))
+                return@launch
+            }
+            switcher.request(location, to, remoteId, profile) { result -> onSwitchResult(result) }
+        }
+    }
+
+    /** Worker D's profile list ([ProcessingUiState.profileGroups]): the PC restarts the session with [profileId] at the same point. */
+    fun setLinkProfile(profileId: String) = changeLinkProfile(profileId)
+
+    /** Cancels a running "Procesar en" switch (the video goes on where it plays). */
+    fun cancelProcessingSwitch() = switcher.cancel()
+
+    private fun onSwitchResult(result: ProcessingSwitchResult) {
+        when (result) {
+            is ProcessingSwitchResult.Switched -> _notices.trySend(PlayerNotice.Processing(result.to))
+            is ProcessingSwitchResult.Failed -> _notices.trySend(PlayerNotice.Processing(result.to, failure = result.reason))
+            ProcessingSwitchResult.Same, ProcessingSwitchResult.Busy, ProcessingSwitchResult.Cancelled -> Unit
+        }
+        refreshProcessing()
+    }
+
+    /**
+     * The profile [to] asks the PC for: PC = the one used before in PC (Mixto keeps its own, so going back brings it back), from
+     * the phone null = the preferred one of the Linked screen; Mixto = an upscale-only one ([mixedLinkProfile]). null for Mixto
+     * = none available.
+     */
+    private suspend fun profileFor(to: ProcessingLocation): String? = when (to) {
+        ProcessingLocation.PHONE -> null
+        ProcessingLocation.PC -> pcProfile?.takeIf { it !in rejectedProfiles } ?: if (location == ProcessingLocation.MIXED) {
+            loadCapabilities()?.let { c ->
+                playableLinkProfile(link.linkedDevice.value?.preferredProfile, c.profiles, linkLimits, rejectedProfiles, c.defaultProfile)
+            }
+        } else {
+            null
+        }
+        ProcessingLocation.MIXED -> loadCapabilities()?.let { c ->
+            mixedLinkProfile(_state.value.linkProfile ?: pcProfile ?: link.linkedDevice.value?.preferredProfile, c.profiles, linkLimits, rejectedProfiles)
+        }
+    }
+
+    /**
+     * [pendingStart]: the first resolved source of this player goes to the PC instead of the phone ([source] = a stream the phone
+     * resolved, [linkSource] = a torrent the PC streams itself). When that location is blocked or the PC cannot take it, the
+     * phone plays it, with a notice.
+     */
+    private fun startOnPcFirst(source: PlayableSource?, linkSource: LinkSource?, attempt: Long) {
+        val want = pendingStart ?: return
+        pendingStart = null
+        val f = flow
+        if (source != null) localSource = source
+        pendingLinkSource = linkSource
+        _state.update { it.copy(phase = PlayerPhase.BUFFERING) }
+        refreshProcessing()
+        fun playHere() {
+            pendingLinkSource = null
+            if (f != null && attempt != f.attempt) return
+            if (source != null) {
+                f?.resolved(attempt)
+                loadIntoSession(source)
+                publishFlow()
+            } else {
+                val src = f?.currentSource() ?: return
+                resolveJob?.cancel()
+                resolveJob = viewModelScope.launch { if (!resolveDebrid(src, attempt)) resolveTorrent(src, attempt) }
+            }
+            refreshProcessing()
+        }
+        val option = _processing.value.option(want)
+        if (!option.available) {
+            _notices.trySend(PlayerNotice.Processing(want, block = option.block, detail = option.detail, onPhoneInstead = true))
+            playHere()
+            return
+        }
+        viewModelScope.launch {
+            val profile = profileFor(want)
+            val now = _processing.value.option(want)
+            if (!now.available || (want == ProcessingLocation.MIXED && profile == null)) {
+                val block = now.block ?: ProcessingBlock.PC_NO_UPSCALE_PROFILE
+                _notices.trySend(PlayerNotice.Processing(want, block = block, detail = now.detail, onPhoneInstead = true))
+                playHere()
+                return@launch
+            }
+            switcher.request(ProcessingLocation.PHONE, want, null, profile) { result ->
+                when (result) {
+                    is ProcessingSwitchResult.Switched -> {
+                        f?.resolved(attempt)
+                        _notices.trySend(PlayerNotice.Processing(want))
+                    }
+                    is ProcessingSwitchResult.Failed -> {
+                        _notices.trySend(PlayerNotice.Processing(want, failure = result.reason, onPhoneInstead = true))
+                        playHere()
+                    }
+                    else -> playHere()
+                }
+                refreshProcessing()
+            }
+        }
+    }
+
+    /**
+     * Loads the Link session [sessionId] for [to] (PC: Media3 with the mTLS client; Mixto: libmpv through the loopback proxy)
+     * at the current position, after the phone's own playback (its torrent stops: the PC streams it itself). The phone's
+     * shaders go off (worker A) and its frame generation follows [to] (worker B) before the load.
+     */
+    private fun playOnPc(to: ProcessingLocation, sessionId: String, profileId: String?): Boolean {
+        // 0.4.0: from the phone the PC plays a new source: its subtitles are asked for again (the phone's choice is kept)
+        if (location == ProcessingLocation.PHONE) forgetPcSubtitles()
+        val src = remoteSourceFor(to, sessionId) ?: return false
+        val positionMs = positionNow()
+        if (location == ProcessingLocation.PHONE) {
+            session?.state?.value?.audioTracks?.firstOrNull { it.selected }?.let { pendingAudio = it.language to it.label }
+            // The phone's torrent pauses but keeps its data: switching back resumes it (it restarted from 0 % before).
+            playback?.torrentId?.let { suspendedTorrent = it }
+            if (playback != null) endTorrent(completed = false, suspend = true)
+        }
+        pendingLinkSource = null
+        renewWatch?.cancel()
+        remoteId = sessionId
+        location = to
+        lastStatus = null
+        val profile = profileId ?: remote.profileOf(sessionId) ?: capabilities?.defaultProfile
+        if (to == ProcessingLocation.PC) pcProfile = profile
+        engine = engineFor(to, localEngine, mpvFactory != null)
+        _state.update {
+            it.copy(
+                engine = engine, remoteless = false, linkProfile = profile, phase = PlayerPhase.BUFFERING, error = null, remoteFailure = null,
+                torrent = null, metered = null,
+            )
+        }
+        applyGates()
+        loadRenewed(src, positionMs)
+        loadLinkProfiles(sessionId)
+        startStatusPolling()
+        refreshProcessing()
+        return true
+    }
+
+    /**
+     * "PC -> Phone": the original source plays again on the phone at [positionMs]: the web stream it played (or sent) when there
+     * is one, else the source flow's current source resolved again (a torrent), else the title's normal source flow (a PC
+     * hand-off). false = the phone has nothing to play.
+     */
+    private fun playOnPhone(positionMs: Long): Boolean {
+        if (!hasOriginal()) return false
+        statusJob?.cancel()
+        // 0.4.0: the original source's own tracks come back with it
+        forgetPcSubtitles()
+        renewWatch?.cancel()
+        remoteId = null
+        lastStatus = null
+        location = ProcessingLocation.PHONE
+        engine = localEngine
+        _state.update {
+            it.copy(engine = engine, remoteless = true, linkProfileChanging = false, remoteFailure = null, error = null, phase = PlayerPhase.BUFFERING)
+        }
+        applyGates()
+        val saved = localSource
+        val f = flow
+        val current = f?.currentSource()
+        when {
+            saved != null && !saved.torrent -> {
+                replaceSession(saved, positionMs)
+                if (f != null) publishFlow()
+            }
+            f != null && current != null -> {
+                releaseSession()
+                pendingResumeMs = positionMs
+                if (f.pick(current.key)) advance()
+            }
+            else -> {
+                releaseSession()
+                pendingResumeMs = positionMs
+                viewModelScope.launch {
+                    val m = media ?: runCatching { metadata.media(MediaKind.ANIME, args.media) }.getOrNull()?.also { media = it }
+                    val torrentId = args.torrentId
+                    when {
+                        m == null -> _state.update { it.copy(phase = PlayerPhase.FAILED, error = AppError.Unknown("media")) }
+                        torrentId != null -> playTorrentDirect(m, torrentId, args.fileIndex)
+                        else -> loadCandidates(m)
+                    }
+                }
+            }
+        }
+        refreshProcessing()
+        return true
+    }
+
+    /** The phone can play this title itself (a source it played or can resolve, or a title it can look up). */
+    private fun hasOriginal(): Boolean = flow != null || localSource != null || args.torrentId != null || titleKnown
+
+    /**
+     * The Link session's HLS for [loc]'s engine: the loopback proxy for libmpv, the mTLS client for Media3. 0.4.0: the PC's stream
+     * carries video + one audio stream only, so both engines side-load the web source's own subtitle files (Media3 fetches them
+     * with its normal client, the PC's with the mTLS one) and, once the PC serves them, the source's own tracks ([pcSubtitleTracks]),
+     * and select the one the player showed before ([subtitleChoice], captured here from the playing load unless [captureChoice] is
+     * false).
+     */
+    private fun remoteSourceFor(loc: ProcessingLocation, sessionId: String, captureChoice: Boolean = true): PlayableSource? {
+        if (captureChoice) rememberSubtitleChoice()
+        val mpv = engineFor(loc, localEngine, mpvFactory != null) == PlayerEngine.MPV
+        val web = localSource?.takeIf { !it.torrent }?.subtitles.orEmpty()
+        val pc = pcSubtitleTracks?.let { tracks -> pcSubtitles(tracks, mpv) { i, f -> remote.subtitleUrl(sessionId, i, f, loopback = mpv) } }.orEmpty()
+        val subtitles = web + pc.map { it.subtitle }
+        val select = chooseSubtitle(subtitles, pc.withIndex().associate { (i, p) -> web.size + i to p.track }, subtitleChoice, settings.sourcePrefs.subLang)
+        val base = if (mpv) {
+            val url = remote.loopbackUrl(sessionId) ?: return null
+            PlayableSource(url = url, headers = emptyMap(), container = Container.HLS, label = args.title)
+        } else {
+            RemotePlayback.source(remote, sessionId, args.title) ?: return null
+        }
+        pcSubtitlesLoadedFor = sessionId.takeIf { pc.isNotEmpty() }
+        // Media3: the web source's headers go with its own subtitle files only (PlaybackController never sends them to the PC)
+        val headers = if (!mpv && web.isNotEmpty()) localSource?.headers.orEmpty() else base.headers
+        return PlayableSource(
+            url = base.url, headers = headers, container = base.container, label = base.label, httpClient = base.httpClient,
+            subtitles = subtitles, selectSubtitle = select,
+        )
+    }
+
+    /** [subtitleChoice] from what the engine shows now (kept when it lists no track: a load that has not listed them yet). */
+    private fun rememberSubtitleChoice() {
+        val st = session?.state?.value ?: return
+        if (_state.value.customSubtitle != null) return
+        subtitleChoiceOf(st.subtitles, currentSource?.subtitles.orEmpty())?.let { subtitleChoice = it }
+    }
+
+    /** A new source on the PC (or none): its subtitle tracks are asked for again. */
+    private fun forgetPcSubtitles() {
+        pcSubtitleJob?.cancel()
+        pcSubtitleJob = null
+        pcSubtitleJobFor = null
+        pcSubtitleTracks = null
+        pcSubtitlesLoadedFor = null
+    }
+
+    /**
+     * The session status listed the source's subtitle tracks: unless they are known for this source, the PC is asked for them (the
+     * first request starts its extraction, which reads the whole source: with a torrent the PC still downloads, minutes) until it
+     * serves them, each one checked; then they are added to the playing load ([applyPcSubtitles]).
+     */
+    private fun onLinkSubtitles(sessionId: String, status: LinkSessionStatus) {
+        if (pcSubtitleTracks != null || pcSubtitleJobFor == sessionId) return
+        val listed = status.subtitles ?: return
+        val text = listed.filter { it.text && (it.hasVtt || it.hasAss) }
+        if (text.isEmpty() || status.subtitlesState == "failed") return
+        pcSubtitleJob?.cancel()
+        pcSubtitleJobFor = sessionId
+        pcSubtitleJob = viewModelScope.launch {
+            val started = SystemClock.elapsedRealtime()
+            val served = mutableListOf<LinkSubtitleTrack>()
+            for (t in text) {
+                // the first track waits for the pass; once it is served the others answer at once (or never: too large)
+                while (true) {
+                    if (remoteId != sessionId) return@launch
+                    val format = if (t.hasVtt) LinkSubtitleTrack.FORMAT_VTT else LinkSubtitleTrack.FORMAT_ASS
+                    when (remote.subtitleReadiness(sessionId, t.index, format)) {
+                        SubtitleReadiness.READY -> served += t
+                        SubtitleReadiness.UNAVAILABLE -> Unit
+                        SubtitleReadiness.PENDING -> {
+                            if (SystemClock.elapsedRealtime() - started > PC_SUBTITLES_MAX_WAIT_MS) return@launch
+                            delay(PC_SUBTITLES_POLL_MS)
+                            continue
+                        }
+                    }
+                    break
+                }
+            }
+            runCatching { android.util.Log.i(LINK_LOG_TAG, "session=$sessionId subtitles served=${served.size}/${text.size}") }
+            if (served.isEmpty() || remoteId != sessionId) return@launch
+            pcSubtitleTracks = served
+            applyPcSubtitles(sessionId)
+        }
+    }
+
+    /**
+     * The PC now serves the source's tracks: libmpv adds them to the playing file (`sub-add`, no reload); Media3, whose side-loaded
+     * tracks are fixed at load, reloads at the same point with them, only when one of them is the track to show (otherwise they
+     * come with the next load: a profile change, a switch).
+     */
+    private fun applyPcSubtitles(sessionId: String) {
+        val s = session ?: return
+        val src = currentSource ?: return
+        if (remoteId != sessionId || location == ProcessingLocation.PHONE || pcSubtitlesLoadedFor == sessionId) return
+        // the playing load lists no PC track yet: what it shows is not a choice (the phone's one stays)
+        val next = remoteSourceFor(location, sessionId, captureChoice = false) ?: return
+        val webCount = src.subtitles.size
+        val added = next.subtitles.drop(webCount)
+        if (added.isEmpty()) return
+        val select = next.selectSubtitle
+        if (engine == PlayerEngine.MPV) {
+            // a web file / nothing: the current choice stays; OFF only while nothing is on (the user may have picked one meanwhile)
+            val nothingOn = s.state.value.subtitles.none { it.selected }
+            val pick = when {
+                select == PlayableSource.SUBTITLES_OFF -> select.takeIf { nothingOn }
+                select != null && select >= webCount -> select - webCount
+                else -> null
+            }
+            if (s.addSubtitleTracks(added, pick)) {
+                currentSource = next
+                _state.update { it.copy(externalSubtitles = next.subtitles) }
+                return
+            }
+        }
+        if (select == null || select < webCount) {
+            pcSubtitlesLoadedFor = null
+            return
+        }
+        runCatching { android.util.Log.i(LINK_LOG_TAG, "session=$sessionId reloading with the PC's subtitles") }
+        val paused = s.state.value.let { it.started && !it.isPlaying && !it.isBuffering }
+        replaceSession(next, positionNow())
+        if (paused) session?.pause()
+    }
+
+    /** Opens the playing Link session again (Retry on a session the PC still has, or when it could not be asked). */
+    private fun reloadRemote(sessionId: String) {
+        val src = remoteSourceFor(location, sessionId)
+        if (src == null) _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) } else directLoad(src)
+    }
+
+    /** What the current phone playback can give the PC (for [ProcessingBlock]). */
+    private fun sendableState(): SendableState {
+        if (args.localUri != null) return SendableState.LocalFile
+        if (pendingLinkSource != null) return SendableState.Sendable
+        val src = localSource ?: return SendableState.NothingYet
+        if (!src.torrent) return if (src.url.startsWith("http://") || src.url.startsWith("https://")) SendableState.Sendable else SendableState.NotSendable
+        return if (args.media.anilistId != null && torrentUriNow() != null) SendableState.Sendable else SendableState.NotSendable
+    }
+
+    /** The current phone playback as a Link source (a web / debrid stream as a link, a torrent as the torrent itself). */
+    private fun currentLinkSourceOrNull(): LinkSource? {
+        pendingLinkSource?.let { return it }
+        val src = localSource ?: return null
+        if (!src.torrent) return src.takeIf { it.url.startsWith("http://") || it.url.startsWith("https://") }?.let { LinkSource.Url(it.url, it.headers) }
+        // the phone's torrent stream is its own loopback server: the PC gets the torrent (it needs the AniList id for the file)
+        val id = args.media.anilistId ?: return null
+        val uri = torrentUriNow() ?: return null
+        return LinkSource.Torrent(uri, id.toString(), args.episode)
+    }
+
+    private fun torrentUriNow(): String? =
+        flow?.currentSource()?.candidate?.takeIf { it.kind == SourceKind.TORRENT }?.torrentUri() ?: playback?.torrentId ?: args.torrentId
+
+    private fun torrentLinkSource(src: RankedSource): LinkSource? {
+        val id = args.media.anilistId ?: return null
+        val uri = src.candidate.torrentUri() ?: return null
+        return LinkSource.Torrent(uri, id.toString(), args.episode)
+    }
+
+    /** The PC's capabilities (profiles, `client_fg`), asked once per player; null while the PC cannot be asked. */
+    private suspend fun loadCapabilities(): LinkCapabilities? {
+        capabilities?.let { return it }
+        val caps = link.capabilities().getOrNull() ?: return null
+        capabilities = caps
+        linkDefaultProfile = caps.defaultProfile
+        linkLimits = runCatching { linkDecodeLimits() }.getOrNull()
+        _state.update {
+            it.copy(
+                linkProfiles = caps.profiles,
+                linkUnsupported = unsupportedLinkProfiles(caps.profiles, linkLimits, rejectedProfiles),
+                linkMayDropFrames = linkProfilesMayDropFrames(caps.profiles, linkLimits),
+            )
+        }
+        refreshProcessing()
+        return caps
+    }
+
+    /** `GET /v1/sessions/{id}` every [STATUS_POLL_MS] while the PC plays: what it does, for [ProcessingUiState.pc]. */
+    private fun startStatusPolling() {
+        statusJob?.cancel()
+        statusJob = viewModelScope.launch {
+            while (isActive) {
+                val id = remoteId ?: break
+                val status = runCatching { remote.sessionStatus(id) }.getOrNull()
+                if (status != null && id == remoteId) {
+                    lastStatus = status
+                    refreshProcessing()
+                    onLinkSubtitles(id, status)
+                }
+                delay(STATUS_POLL_MS)
+            }
+        }
+    }
+
+    /** Worker A / B: the phone's shaders off while the PC processes; its frame generation per location. */
+    private fun applyGates() {
+        runCatching { enhancementGate.setRemoteProcessing(location != ProcessingLocation.PHONE) }
+        runCatching { frameGenGate.setProcessingLocation(location) }
+    }
+
+    /** "PC -> Phone": the audio language the phone played before going to the PC is selected again (once per load). */
+    private fun restoreAudio(st: PlaybackState) {
+        val want = pendingAudio ?: return
+        if (remoteId != null || st.audioTracks.isEmpty() || audioRestoredLoad == st.loadId) return
+        audioRestoredLoad = st.loadId
+        pendingAudio = null
+        if (st.audioTracks.size < 2) return
+        val (language, label) = want
+        val match = st.audioTracks.firstOrNull { language != null && it.language == language }
+            ?: st.audioTracks.firstOrNull { label != null && it.label == label }
+            ?: return
+        if (!match.selected) session?.selectAudio(match.id)
+    }
+
+    private fun positionNow(): Long = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs.takeIf { it > 0 } ?: args.startMs
+
+    /** [ProcessingCarry] key: the title (history id, else its name). */
+    private val titleKey: String get() = mediaId ?: args.title
+
+    /** Recomputes [processing] from the player's facts (cheap; called on every change that matters). */
+    private fun refreshProcessing() {
+        val caps = capabilities
+        val linkState = link.state.value
+        val paired = linkState is LinkState.Paired
+        val reachable = (linkState as? LinkState.Paired)?.reachable == true
+        val frameGen = frameGenGate.availability.value
+        val st = _state.value
+        val current = st.linkProfile
+        val mixed = caps?.let { mixedLinkProfile(current ?: pcProfile ?: link.linkedDevice.value?.preferredProfile, it.profiles, linkLimits, rejectedProfiles) }
+        val facts = ProcessingFacts(
+            current = location,
+            paired = paired,
+            reachable = reachable,
+            external = engine == PlayerEngine.EXTERNAL,
+            sendable = sendableState(),
+            hasOriginal = hasOriginal(),
+            mpvAvailable = mpvFactory != null,
+            phoneFrameGen = frameGen,
+            clientFgAllowed = caps?.clientFrameGenerationAllowed,
+            capabilitiesKnown = caps != null,
+            mixedProfile = mixed,
+        )
+        val pcName = (linkState as? LinkState.Paired)?.pc?.serverName ?: link.linkedDevice.value?.serverName
+        val remoteNow = location != ProcessingLocation.PHONE && remoteId != null
+        val profileId = lastStatus?.profileId ?: current ?: caps?.defaultProfile
+        val pc = if (remoteNow && profileId != null) {
+            linkProcessingInfo(pcName, profileId, caps?.profiles?.firstOrNull { it.id == profileId }, lastStatus)
+        } else {
+            null
+        }
+        val groups = caps?.let { groupedLinkProfiles(it.profiles, linkLimits, rejectedProfiles, current, upscaleOnly = location == ProcessingLocation.MIXED) }
+        _processing.update {
+            it.copy(
+                location = location,
+                options = processingOptions(facts),
+                switchingTo = switcher.switching.value,
+                pc = pc,
+                pcName = pcName,
+                profileGroups = groups.orEmpty(),
+                profile = current.takeIf { remoteNow },
+                profileChanging = st.linkProfileChanging,
+                phoneFrameGen = location == ProcessingLocation.MIXED,
+                phoneFrameGenAvailability = frameGen,
+                localEnhancementsOff = location != ProcessingLocation.PHONE,
+            )
+        }
     }
 
     // ---- parity wave A (worker p): screenshots -------------------------------------------------------------------------------------
@@ -1819,11 +2776,22 @@ class PlayerViewModel(
 
     override fun onCleared() {
         sleepJob?.cancel()
+        switcher.cancel()
+        statusJob?.cancel()
         session?.release() // emits the final forced progress tick
         session = null
         val completed = lastDurationMs > 0 && lastPositionMs >= lastDurationMs * COMPLETED_FRACTION
+        // A torrent left suspended by a switch to the PC gets its normal after-watch policy now (unless playing it again).
+        suspendedTorrent?.takeIf { it != playback?.torrentId }?.let { id ->
+            torrents?.let { repo -> detached.launch { runCatching { repo.playbackEnded(id, completed) } } }
+        }
         endTorrent(completed)
         remoteId?.let { id -> detached.launch { link.stop(id) } }
+        // 0.4.0: the phone's own enhancements are the user's again once nothing plays from the PC
+        if (location != ProcessingLocation.PHONE) {
+            runCatching { enhancementGate.setRemoteProcessing(false) }
+            runCatching { frameGenGate.setProcessingLocation(ProcessingLocation.PHONE) }
+        }
     }
 
     private fun Throwable.asAppError(): AppError = (this as? AppException)?.error ?: AppError.Unknown(message ?: javaClass.simpleName)
@@ -1848,8 +2816,32 @@ class PlayerViewModel(
 
         /** BUG-138: how long start() waits for the PC to say whether the session still exists (then it just loads it). */
         const val START_ALIVE_CHECK_TIMEOUT_MS = 2_000L
+
+        /** 0.4.0: how often the "En la PC" indicator asks the PC what it does (`GET /v1/sessions/{id}`). */
+        const val STATUS_POLL_MS = 5_000L
+
+        /** 0.4.0: pause between two asks for the PC's subtitles while it extracts them (each ask waits up to 8 s on the PC). */
+        const val PC_SUBTITLES_POLL_MS = 3_000L
+
+        /** 0.4.0: the PC's own limit of an extraction (tk-link `subtitles::EXTRACT_TIMEOUT`) plus a margin. */
+        const val PC_SUBTITLES_MAX_WAIT_MS = 16 * 60_000L
     }
 }
 
 /** Identity of a translation setup (the key itself is never kept, only whether / which one is set). */
 private data class SubtitleTranslationConfigKey(val settings: app.tatakai.next.model.SubtitleTranslation, val keyHash: Int?)
+
+// 0.4.0 (sub-translation worker): translation loop timings.
+/** Look-ahead check while nothing new is on screen. */
+private const val LOOKAHEAD_TICK_MS = 4_000L
+
+/** A failed request (network / HTTP error) is not retried sooner than this unless new lines arrive. */
+private const val TRANSLATE_ERROR_BACKOFF_MS = 10_000L
+private const val RATE_LIMIT_FALLBACK_MS = 5_000L
+private const val RATE_LIMIT_MAX_WAIT_MS = 5 * 60_000L
+
+/** The rate-limit notice is not repeated while the same throttling lasts (+ this grace). */
+private const val RATE_NOTICE_GRACE_MS = 30_000L
+
+/** "Pretraducir" waits this long for an embedded track still being read. */
+private const val PRETRANSLATE_WAIT_MS = 20_000L

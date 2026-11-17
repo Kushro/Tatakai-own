@@ -124,7 +124,7 @@ import org.libtorrent4j.alerts.TorrentAlert
 
 /**
  * [TorrentRepository] on libtorrent4j 2.1.0-39 (docs/redesign/11, 12 §3.8 / §4 f): on-demand session, `labels.json` + resume data
- * in `filesDir/torrents`, downloads in `getExternalFilesDir("torrents")`, loopback HTTP streaming with sequential download and
+ * in `filesDir/torrents`, downloads in `noBackupFilesDir/torrent-downloads` (see [downloadDir]), loopback HTTP streaming with sequential download and
  * piece deadlines, after-watch policy, no seeding after completion unless `seed`, network / battery / storage policies and the
  * foreground [TorrentService]. Single instance (Koin `torrentModule`).
  *
@@ -143,8 +143,18 @@ internal class TorrentRepositoryImpl(
     private val app = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val stateDir = File(app.filesDir, "torrents")
+    /**
+     * Internal app storage, not `getExternalFilesDir`: on devices with FUSE-BPF (Galaxy Tab S9+, Android 16) libtorrent's file
+     * opens under `/storage/emulated/0/Android/data` made the MediaProvider FUSE daemon abort
+     * (`NodeTracker::CheckTracked ... active_nodes_.find(node)` in `pf_open`), and Android killed the app with it: the episode never
+     * got past 0 %. Internal storage does not go through FUSE. Exporting to Downloads / a SAF folder is unchanged.
+     */
     private val downloadDir: File
-        get() = (app.getExternalFilesDir("torrents") ?: File(app.filesDir, "torrent-downloads")).also { it.mkdirs() }
+        get() = File(app.noBackupFilesDir, "torrent-downloads").also { it.mkdirs() }
+
+    /** Where downloads went before 0.3.5. Torrents with data there keep it (their resume data points there); empty ones move. */
+    private val legacyDownloadDir: File?
+        get() = app.getExternalFilesDir("torrents")
 
     private val labels = LabelStore(File(stateDir, "labels.json"))
     private val history = SessionHistoryStore(File(stateDir, "history.json"))
@@ -295,6 +305,27 @@ internal class TorrentRepositoryImpl(
                 Result.failure(e.asAppException())
             }
         }
+
+    override suspend fun playbackSuspended(torrentId: TorrentId) {
+        // 0.4.0 (Link "PC" from the player): like playbackEnded (not playing, the tick pauses it) but nothing is removed: the
+        // player may switch back to the phone and must find what it already downloaded (it restarted from 0 %).
+        val rt = runtimes[torrentId] ?: return
+        rt.endJob?.cancel()
+        rt.playing = false
+        rt.ended = true
+        tickSafely()
+        rt.endJob = scope.launch {
+            delay(BATCH_GRACE_MS)
+            closeLeftoverStreams(rt.ended, rt.handles) { it.close() }
+            val handle = if (session.isRunning) session.find(torrentId) else null
+            runCatching {
+                handle?.unsetFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
+                handle?.clearPieceDeadlines()
+            }
+            handle?.let(session::requestResume)
+            tickSafely()
+        }
+    }
 
     override suspend fun playbackEnded(torrentId: TorrentId, completed: Boolean) {
         val rt = runtimes[torrentId] ?: return
@@ -534,7 +565,7 @@ internal class TorrentRepositoryImpl(
 
     override suspend fun storageUsage(): TorrentStorage = withContext(Dispatchers.IO) {
         TorrentStorage(
-            usedBytes = storage.usedBytes(downloadDir),
+            usedBytes = storage.usedBytes(downloadDir) + (legacyDownloadDir?.let(storage::usedBytes) ?: 0L),
             freeBytes = storage.allocatableBytes(downloadDir),
             location = settings.storageLocation,
         )
@@ -700,7 +731,7 @@ internal class TorrentRepositoryImpl(
     private suspend fun addWithParams(id: String, params: AddTorrentParams): TorrentHandle {
         ensureStarted()
         session.find(id)?.let { return it }
-        prepareParams(params, settings, paused = false)
+        prepareParams(params, settings, paused = false, labels[id])
         val handle = session.add(params)
         _events.tryEmit(TorrentEvent.Added(id))
         return handle
@@ -893,7 +924,7 @@ internal class TorrentRepositoryImpl(
             if (t.movedUri != null || session.find(t.id) != null) continue
             try {
                 val params = session.readResume(t.id) ?: torrentFileParams(t.id) ?: AddTorrentParams.parseMagnetUri(t.magnet ?: magnetFor(t.id))
-                prepareParams(params, s, paused = true)
+                prepareParams(params, s, paused = true, t)
                 val handle = session.add(params)
                 handle.torrentFile()?.let { applySelection(handle, it, t) }
             } catch (e: Exception) {
@@ -1211,14 +1242,21 @@ internal class TorrentRepositoryImpl(
         ensureStarted()
         session.find(id)?.let { return it }
         val params = session.readResume(id) ?: AddTorrentParams.parseMagnetUri(magnet)
-        prepareParams(params, settings, paused = false)
+        prepareParams(params, settings, paused = false, labels[id])
         val handle = session.add(params)
         _events.tryEmit(TorrentEvent.Added(id))
         return handle
     }
 
-    private fun prepareParams(params: AddTorrentParams, s: TorrentSettings, paused: Boolean) {
-        if (params.getSavePath().isNullOrBlank()) params.setSavePath(downloadDir.absolutePath)
+    private fun prepareParams(params: AddTorrentParams, s: TorrentSettings, paused: Boolean, stored: StoredTorrent?) {
+        val savePath = params.getSavePath()
+        if (savePath.isNullOrBlank()) {
+            params.setSavePath(downloadDir.absolutePath)
+        } else if (isLegacyDir(savePath) && stored?.hasNoData() != false) {
+            // The empty (often sparse, full-size) file left there is removed so storage usage does not count it.
+            stored?.let { deleteLocalFiles(it, listOfNotNull(legacyDownloadDir)) }
+            params.setSavePath(downloadDir.absolutePath)
+        }
         params.setFlags(LibtorrentSession.addFlags(params.getFlags(), paused = paused, pex = s.pex, dontDownloadByDefault = true))
         params.setMaxConnections(s.maxPeers)
         // parity wave A (torrent.custom-trackers): the user's trackers are announced on every new torrent
@@ -1348,12 +1386,22 @@ internal class TorrentRepositoryImpl(
         scope.launch { remove(id, deleteFiles = true) }
     }
 
-    private fun deleteLocalFiles(stored: StoredTorrent) {
+    private fun deleteLocalFiles(stored: StoredTorrent, roots: List<File> = listOfNotNull(downloadDir, legacyDownloadDir)) {
         val name = stored.name.ifBlank { return }
-        val root = downloadDir.canonicalFile
-        val target = File(root, name).canonicalFile
-        if (target.path.startsWith(root.path + File.separator)) target.deleteRecursively()
+        for (dir in roots) {
+            val root = dir.canonicalFile
+            val target = File(root, name).canonicalFile
+            if (target.path.startsWith(root.path + File.separator)) target.deleteRecursively()
+        }
     }
+
+    private fun isLegacyDir(path: String): Boolean {
+        val legacy = legacyDownloadDir ?: return false
+        return runCatching { File(path).canonicalPath == legacy.canonicalPath }.getOrDefault(false)
+    }
+
+    /** Nothing downloaded yet: safe to start over in [downloadDir] (the stuck-at-0 % case on FUSE-BPF devices). */
+    private fun StoredTorrent.hasNoData(): Boolean = !completed && progress <= 0.0
 
     private fun buildStats(id: String, handle: TorrentHandle): TorrentStats {
         val st = handle.status(true)

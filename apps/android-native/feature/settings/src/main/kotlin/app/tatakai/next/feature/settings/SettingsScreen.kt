@@ -321,7 +321,10 @@ private fun SettingsList(
             SectionPanel(section) {
                 when (section) {
                     SettingsSection.APPEARANCE -> AppearanceSection(state, viewModel)
-                    SettingsSection.PLAYER -> PlayerSection(state, viewModel, onOpenExtensions)
+                    SettingsSection.PLAYER -> {
+                        PlayerSection(state, viewModel, onOpenExtensions)
+                        FrameGenSettingsSection() // 0.4.0 (worker B): phone frame generation, its own file
+                    }
                     SettingsSection.METADATA -> MetadataSection(state, viewModel)
                     SettingsSection.ACCOUNTS -> AccountsSection(state, viewModel)
                     SettingsSection.LINK -> LinkSection(state, viewModel, onOpenLinked)

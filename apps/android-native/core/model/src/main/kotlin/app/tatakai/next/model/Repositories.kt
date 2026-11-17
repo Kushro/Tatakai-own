@@ -325,6 +325,12 @@ interface LinkRepository {
      */
     fun takeProfileFallback(): LinkProfileFallback? = null
 
+    /**
+     * 0.4.0 (worker C): Settings › Enlace › "Procesar por defecto en" ([LinkedDevice.defaultProcessing]); kept with the pairing,
+     * so forgetting the PC resets it to [ProcessingLocation.PHONE].
+     */
+    suspend fun setDefaultProcessing(location: ProcessingLocation) {}
+
     // --- parity wave B (16 §3.11, worker r; checklist link.remote-control / link.handoff / link.discovery). Defaults = "not available",
     // the Linked screen keeps its buttons disabled while `GET /v1/player` answers 404. Canonical wire in §3.11 (= desktop tk-link/src/control.rs). ---
 

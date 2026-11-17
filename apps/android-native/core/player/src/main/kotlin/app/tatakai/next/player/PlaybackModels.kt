@@ -20,8 +20,17 @@ class PlayableSource(
     val httpClient: OkHttpClient? = null,
     /** android wave: a torrent loopback stream (bigger buffer, long read timeouts; 11 §5.3). */
     val torrent: Boolean = false,
+    /**
+     * 0.4.0: the [subtitles] entry the engine selects once the load lists its tracks ([SUBTITLES_OFF] = none), instead of its own
+     * pick by preferred language; null = the engine's own pick. Used when the PC takes over a playback (Link "PC" / "Mixto"), so the
+     * track the phone showed stays selected.
+     */
+    val selectSubtitle: Int? = null,
 ) {
     companion object {
+        /** [selectSubtitle]: subtitles off. */
+        const val SUBTITLES_OFF = -1
+
         fun from(s: StreamSource): PlayableSource =
             PlayableSource(
                 url = s.url,
@@ -46,6 +55,11 @@ data class SubtitleOption(
     val ass: Boolean = false,
     /** parity wave A (worker p): index into [PlayableSource.subtitles] when this track is an external (sidecar) file, else null. */
     val external: Int? = null,
+    // --- 0.4.0 (sub-translation worker): lets the translator read the full cue list of an embedded track ---
+    /** Codec / mime as the engine reports it (mpv `subrip` / `ass` / `hdmv_pgs_subtitle`, Media3 `text/x-ssa` / `application/pgs`). */
+    val codec: String? = null,
+    /** Position among the subtitle tracks stored in the media file itself (container order); null for added / sidecar tracks. */
+    val embeddedOrdinal: Int? = null,
 )
 
 /** One audio track ([id] = Media3 track group index, mpv `aid`). */

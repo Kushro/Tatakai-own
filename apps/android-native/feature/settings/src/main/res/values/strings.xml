@@ -27,8 +27,8 @@
     <string name="settings_engine_media3">Media3</string>
     <string name="settings_engine_mpv">libmpv</string>
     <string name="settings_engine_external">External</string>
-    <string name="settings_engine_media3_hint">Default. ASS subtitles are shown simplified.</string>
-    <string name="settings_engine_mpv_hint">libmpv with Tatakai controls. Full ASS subtitles and upscaling presets.</string>
+    <string name="settings_engine_media3_hint">Simple engine, also used as the automatic fallback. ASS subtitles are shown simplified, no upscaling or image options.</string>
+    <string name="settings_engine_mpv_hint">Default. libmpv with Tatakai controls: full ASS subtitles, upscaling (Anime4K, FSR, Fidelity), deband and image options, all processed on the phone.</string>
     <string name="settings_engine_external_hint">Opens mpv-android, VLC or another player with the stream and its headers.</string>
     <string name="settings_external_app">External player</string>
     <string name="settings_external_app_hint">Used when the engine is External.</string>
@@ -38,7 +38,7 @@
     <string name="settings_external_missing">not installed</string>
     <string name="settings_external_none_installed">No external player is installed: playback will offer Media3 instead.</string>
     <string name="settings_preset">Default upscaling</string>
-    <string name="settings_preset_battery">Anime4K on the phone drains battery; it turns off below 20% unless charging, and steps down by itself if the phone cannot keep up.</string>
+    <string name="settings_preset_battery">Processed on the phone. Upscaling uses more battery; with automatic adjustments it turns off at 20% or less unless charging, and steps down by itself if the phone gets hot or cannot keep up.</string>
     <string name="settings_preset_mpv_only">Only the libmpv engine applies it.</string>
     <string name="settings_preset_off">Off</string>
     <string name="settings_preset_anime4k_a">Anime4K A</string>
@@ -50,6 +50,33 @@
     <string name="settings_preset_hint_restore">Restores lines on blurry sources</string>
     <string name="settings_preset_hint_soft">Softer restore for degraded sources</string>
     <string name="settings_preset_hint_fsr">Generic upscale</string>
+    <!-- 0.4.0 (worker A): desktop presets, tiers and quality defaults -->
+    <string name="settings_preset_anime4k_bb">Anime4K B+B</string>
+    <string name="settings_preset_anime4k_ca">Anime4K C+A</string>
+    <string name="settings_preset_fidelity">Fidelity (FSRCNNX)</string>
+    <string name="settings_preset_cas">Sharpen (CAS)</string>
+    <string name="settings_preset_hint_bb">Soft restore twice, against ringing</string>
+    <string name="settings_preset_hint_ca">Denoise, then restore</string>
+    <string name="settings_preset_hint_clean">For clean sources</string>
+    <string name="settings_preset_hint_fidelity">Line-art upscale and chroma</string>
+    <string name="settings_preset_hint_cas">Sharpen only</string>
+    <string name="settings_quality_tier">Upscaling quality</string>
+    <string name="settings_quality_tier_hint">Size of the Anime4K networks (and depth of Fidelity). High quality needs a strong GPU.</string>
+    <string name="settings_quality_tier_fast">Fast</string>
+    <string name="settings_quality_tier_balanced">Balanced</string>
+    <string name="settings_quality_tier_hq">High quality</string>
+    <string name="settings_deband">Deband</string>
+    <string name="settings_deband_hint">Smooths color banding in gradients (skies, dark scenes). On the phone, light.</string>
+    <string name="settings_quality_auto">Automatic adjustments</string>
+    <string name="settings_quality_auto_hint">Lowers the quality when the phone is hot, the battery is at 20% or less, or frames are dropped. You can undo it from the player.</string>
+    <string name="settings_decoder">Decoder</string>
+    <string name="settings_decoder_hint">Auto tries hardware first. HW+ uses the least battery; SW decodes anything but is slower.</string>
+    <string name="settings_decoder_auto">Auto</string>
+    <string name="settings_decoder_hw">HW</string>
+    <string name="settings_decoder_hw_plus">HW+</string>
+    <string name="settings_decoder_sw">SW</string>
+    <string name="settings_smoothing">Smoothing</string>
+    <string name="settings_smoothing_hint">mpv interpolation with display-resample. Not real frame generation.</string>
     <string name="settings_source_mode">Source selection</string>
     <string name="settings_source_mode_hint">Automatic picks the best match for your preferences and moves to the next one if it fails. Manual asks before playing.</string>
     <string name="settings_prefer">Preferred type</string>
@@ -109,6 +136,13 @@
     <string name="settings_link">Tatakai Link</string>
     <string name="settings_link_hint">Connect this app to your PC so it enhances video (Anime4K) and streams it over your local network.</string>
     <string name="settings_link_open">Linked device</string>
+    <!-- 0.4.0 (worker C) -->
+    <string name="settings_link_processing_title">Process by default on</string>
+    <string name="settings_link_processing_hint">Where a video starts. Mixed: your PC upscales and the phone generates the frames. You can switch it in the player.</string>
+    <string name="settings_link_processing_unpaired">Link a PC to process video on it. Until then everything plays on the phone.</string>
+    <string name="settings_link_processing_phone">Phone</string>
+    <string name="settings_link_processing_pc">PC</string>
+    <string name="settings_link_processing_mixed">Mixed</string>
     <string name="settings_torrents_hint">Speed limits, network, storage and background downloads of the torrent client.</string>
     <string name="settings_torrents_open">Torrent settings</string>
     <string name="settings_torrents_open_sub">Speed · Network · Storage · Background</string>

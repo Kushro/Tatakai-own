@@ -89,8 +89,12 @@ import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppLanguage
 import app.tatakai.next.model.ContrastPref
 import app.tatakai.next.model.LoadState
+import app.tatakai.next.model.DecoderMode
 import app.tatakai.next.model.PlayerEngine
+import app.tatakai.next.model.PlayerQualityPrefs
 import app.tatakai.next.model.Quality
+import app.tatakai.next.model.QualityPresets
+import app.tatakai.next.model.QualityTier
 import app.tatakai.next.model.SourceKind
 import app.tatakai.next.model.SourceMode
 import app.tatakai.next.model.SubtitleStyle
@@ -192,8 +196,11 @@ private fun PaletteSwatch(info: PaletteInfo, selected: Boolean, onClick: () -> U
 
 // ==================================================================== Reproductor
 
-/** Prototype data.js PRESETS (only the mpv engine applies them, 12 §7.13). */
-private val PRESETS = listOf("off", "anime4k-a", "anime4k-aa", "anime4k-b", "anime4k-c", "fsr")
+/**
+ * 0.4.0: the desktop presets (only the mpv engine applies them). ArtCNN is left out of the defaults menu: it needs the Vulkan renderer,
+ * which the bundled libmpv does not have (the player lists it disabled with that reason).
+ */
+private val PRESETS = QualityPresets.ALL - QualityPresets.ARTCNN
 
 private const val PKG_MPV = "is.xyz.mpv"
 private const val PKG_VLC = "org.videolan.vlc"
@@ -258,6 +265,8 @@ internal fun PlayerSection(state: SettingsUiState, vm: SettingsViewModel, onOpen
         // BUG-069 (UX-10): six presets do not fit a segmented row (it ran past the card); a menu with each preset's hint.
         PresetMenu(selected = s.playerPreset, onSelect = vm::setPlayerPreset)
     }
+    // 0.4.0: only libmpv has the quality engine; the rows stay hidden for Media3 / External so the section does not grow for nothing.
+    if (s.playerEngine == PlayerEngine.MPV) QualityDefaultsRows(s.playerQuality, vm::setPlayerQuality)
     SettingRow(stringResource(R.string.settings_source_mode), stringResource(R.string.settings_source_mode_hint), stack = true) {
         Segmented(
             options = listOf(
@@ -324,15 +333,76 @@ private fun presetLabelRes(id: String): Int = when (id) {
     "anime4k-aa" -> R.string.settings_preset_anime4k_aa
     "anime4k-b" -> R.string.settings_preset_anime4k_b
     "anime4k-c" -> R.string.settings_preset_anime4k_c
+    "anime4k-bb" -> R.string.settings_preset_anime4k_bb
+    "anime4k-ca" -> R.string.settings_preset_anime4k_ca
     "fsr" -> R.string.settings_preset_fsr
+    "fidelity" -> R.string.settings_preset_fidelity
+    "cas" -> R.string.settings_preset_cas
     else -> R.string.settings_preset_off
 }
 
 private fun presetHintRes(id: String): Int = when (id) {
     "anime4k-a", "anime4k-aa" -> R.string.settings_preset_hint_restore
-    "anime4k-b", "anime4k-c" -> R.string.settings_preset_hint_soft
+    "anime4k-b" -> R.string.settings_preset_hint_soft
+    "anime4k-c" -> R.string.settings_preset_hint_clean
+    "anime4k-bb" -> R.string.settings_preset_hint_bb
+    "anime4k-ca" -> R.string.settings_preset_hint_ca
     "fsr" -> R.string.settings_preset_hint_fsr
+    "fidelity" -> R.string.settings_preset_hint_fidelity
+    "cas" -> R.string.settings_preset_hint_cas
     else -> R.string.settings_preset_hint_off
+}
+
+/**
+ * 0.4.0 (worker A): defaults of the libmpv quality engine under the preset (tier, deband, automatic adjustments, decoder, smoothing).
+ * Each playback starts from these; the player changes them live for that playback.
+ */
+@Composable
+private fun QualityDefaultsRows(q: PlayerQualityPrefs, onChange: ((PlayerQualityPrefs) -> PlayerQualityPrefs) -> Unit) {
+    SettingRow(stringResource(R.string.settings_quality_tier), stringResource(R.string.settings_quality_tier_hint), stack = true) {
+        Segmented(
+            options = listOf(
+                SegmentedOption(QualityTier.FAST, stringResource(R.string.settings_quality_tier_fast)),
+                SegmentedOption(QualityTier.BALANCED, stringResource(R.string.settings_quality_tier_balanced)),
+                SegmentedOption(QualityTier.HQ, stringResource(R.string.settings_quality_tier_hq)),
+            ),
+            selected = q.tier,
+            onSelect = { t -> onChange { it.copy(tier = t) } },
+            fillWidth = true,
+        )
+    }
+    SwitchRow(
+        stringResource(R.string.settings_deband),
+        q.deband.enabled,
+        { on -> onChange { it.copy(deband = it.deband.copy(enabled = on)) } },
+        hint = stringResource(R.string.settings_deband_hint),
+    )
+    SwitchRow(
+        stringResource(R.string.settings_quality_auto),
+        q.autoAdjust,
+        { on -> onChange { it.copy(autoAdjust = on) } },
+        hint = stringResource(R.string.settings_quality_auto_hint),
+    )
+    SettingRow(stringResource(R.string.settings_decoder), stringResource(R.string.settings_decoder_hint), stack = true) {
+        Segmented(
+            options = listOf(
+                SegmentedOption(DecoderMode.AUTO, stringResource(R.string.settings_decoder_auto)),
+                SegmentedOption(DecoderMode.HW, stringResource(R.string.settings_decoder_hw)),
+                SegmentedOption(DecoderMode.HW_PLUS, stringResource(R.string.settings_decoder_hw_plus)),
+                SegmentedOption(DecoderMode.SW, stringResource(R.string.settings_decoder_sw)),
+            ),
+            selected = q.decoder,
+            onSelect = { d -> onChange { it.copy(decoder = d) } },
+            small = true,
+            fillWidth = true,
+        )
+    }
+    SwitchRow(
+        stringResource(R.string.settings_smoothing),
+        q.smoothing,
+        { on -> onChange { it.copy(smoothing = on) } },
+        hint = stringResource(R.string.settings_smoothing_hint),
+    )
 }
 
 /** ISO 639-1 codes shown as upper-case codes (technical, not translated). */
@@ -506,6 +576,31 @@ internal fun LinkSection(state: SettingsUiState, vm: SettingsViewModel, onOpenLi
     FilledTonalButton(onClick = onOpenLinked) {
         Icon(Icons.Outlined.Computer, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
         Text(stringResource(R.string.settings_link_open), modifier = Modifier.padding(start = 8.dp))
+    }
+    // 0.4.0 (worker C): where a normal playback starts; the player switches it any time ("Procesar en")
+    SettingRow(
+        label = stringResource(R.string.settings_link_processing_title),
+        hint = stringResource(if (state.linkPaired) R.string.settings_link_processing_hint else R.string.settings_link_processing_unpaired),
+        stack = true,
+    ) {
+        app.tatakai.next.designsystem.components.Segmented(
+            options = app.tatakai.next.model.ProcessingLocation.entries.map { loc ->
+                app.tatakai.next.designsystem.components.SegmentedOption(
+                    value = loc,
+                    label = stringResource(
+                        when (loc) {
+                            app.tatakai.next.model.ProcessingLocation.PHONE -> R.string.settings_link_processing_phone
+                            app.tatakai.next.model.ProcessingLocation.PC -> R.string.settings_link_processing_pc
+                            app.tatakai.next.model.ProcessingLocation.MIXED -> R.string.settings_link_processing_mixed
+                        },
+                    ),
+                    enabled = state.linkPaired,
+                )
+            },
+            selected = state.linkDefaultProcessing,
+            onSelect = vm::setLinkDefaultProcessing,
+            fillWidth = true,
+        )
     }
     Text(
         stringResource(R.string.settings_link_history_title),

@@ -7,6 +7,9 @@ import app.tatakai.next.model.DiscoveredPc
 import app.tatakai.next.model.LinkCapabilities
 import app.tatakai.next.model.LinkProfile
 import app.tatakai.next.model.LinkProfileFallback
+import app.tatakai.next.model.LinkSessionStatus
+import app.tatakai.next.model.LinkSubtitleTrack
+import app.tatakai.next.model.ProcessingLocation
 import app.tatakai.next.model.VideoDecodeLimits
 import app.tatakai.next.model.playableLinkProfile
 import app.tatakai.next.model.LinkRepository
@@ -78,7 +81,44 @@ interface RemotePlaybackAccess {
      * the session, null while it prepares (or the PC cannot be asked).
      */
     suspend fun sessionReady(sessionId: String): Boolean? = null
+
+    // --- 0.4.0 (worker C): Phone | PC | Mixed from the player ---
+
+    /**
+     * A NEW session of [source] starting at [startSecs] with [profileId] (null = the preferred / default one, as
+     * [LinkRepository.startSession]) and the source's audio stream [audioTrack] (null = the first): the player's "Phone -> PC"
+     * switch keeps the position and the audio. Renewals of it ([renew]) keep the same audio track.
+     */
+    suspend fun startAt(source: LinkSource, profileId: String?, startSecs: Double, audioTrack: Int? = null): Result<RemoteSession> =
+        Result.failure(UnsupportedOperationException("startAt"))
+
+    /** `GET /v1/sessions/{id}` with what the PC does (0.4.0 fields); null when the PC cannot be asked. */
+    suspend fun sessionStatus(sessionId: String): LinkSessionStatus? = null
+
+    /**
+     * The session's HLS through the phone's loopback proxy ([LinkLoopbackProxy], plain `http://127.0.0.1`), for libmpv, which
+     * cannot present the client certificate itself; null = not available (unknown session, unpaired, proxy cannot listen).
+     */
+    fun loopbackUrl(sessionId: String): String? = null
+
+    // --- 0.4.0: the source's subtitles while the PC processes ---
+
+    /**
+     * URL of the subtitle track [index] (`subtitles/{index}.{format}`, [format] `ass` | `vtt`) of [sessionId]: through the loopback
+     * proxy when [loopback] (libmpv), else the PC's own URL for the mTLS client (Media3). null = unknown session / not paired.
+     */
+    fun subtitleUrl(sessionId: String, index: Int, format: String, loopback: Boolean): String? = null
+
+    /**
+     * Asks the PC for subtitle track [index] of [sessionId] (the first request starts its extraction): [SubtitleReadiness.READY]
+     * once it serves it, [SubtitleReadiness.PENDING] while it extracts or lists (ask again later), [SubtitleReadiness.UNAVAILABLE]
+     * when it never will (no such track, too large, failed, session gone, older PC).
+     */
+    suspend fun subtitleReadiness(sessionId: String, index: Int, format: String): SubtitleReadiness = SubtitleReadiness.UNAVAILABLE
 }
+
+/** 0.4.0: [RemotePlaybackAccess.subtitleReadiness]. */
+enum class SubtitleReadiness { READY, PENDING, UNAVAILABLE }
 
 /**
  * Phone-side extras of the Link discovery for :feature:link (wave B, link.discovery): the TOFU fingerprint announced by a PC and the
@@ -136,8 +176,8 @@ class LinkRepositoryImpl(
     @Volatile private var connection: Connection? = null
     private val sessions = ConcurrentHashMap<String, RemoteSession>()
 
-    /** Source and profile of the sessions this phone started ([renew]); PC hand-offs have none. */
-    private data class Origin(val source: SessionSource, val profile: String?)
+    /** Source, profile and (0.4.0) audio stream of the sessions this phone started ([renew]); PC hand-offs have none. */
+    private data class Origin(val source: SessionSource, val profile: String?, val audioTrack: Int? = null)
 
     private val origins = ConcurrentHashMap<String, Origin>()
 
@@ -315,6 +355,8 @@ class LinkRepositoryImpl(
                         measuredSustain = (it.measuredSustain as? JsonPrimitive)?.let { p -> p.booleanOrNull?.toString() ?: p.contentOrNull } ?: "unknown",
                         fgMultiplier = it.fgMultiplier,
                         fgTargetFps = it.fgTargetFps,
+                        fgKind = it.fg,
+                        encoder = it.encoder?.takeIf { e -> e.isNotBlank() },
                     )
                 },
                 defaultProfile = dto.defaultProfile,
@@ -322,19 +364,77 @@ class LinkRepositoryImpl(
             )
 
     override suspend fun startSession(source: LinkSource, profileId: String?): Result<RemoteSession> = call { c ->
-        val wire = when (source) {
-            is LinkSource.Library -> SessionSource.Library(source.itemId)
-            is LinkSource.Url -> SessionSource.Url(source.url, source.headers)
-            is LinkSource.Torrent -> SessionSource.Torrent(source.uri, source.mediaId, source.episode)
-        }
         // android wave: the profile chosen on the Linked screen applies when the caller has no explicit one
         // BUG-132: never ask the PC for a profile this phone cannot decode
         val profile = playableProfile(c, profileId ?: _linkedDevice.value?.preferredProfile, fromPreferred = profileId == null)
-        create(c, wire, profile, startSecs = null)
+        create(c, wireOf(source), profile, startSecs = null)
     }
 
-    private suspend fun create(c: LinkClient, wire: SessionSource, profile: String?, startSecs: Double?): LinkResult<RemoteSession> =
-        c.createSession(wire, profile, startSecs = startSecs).map { dto ->
+    override suspend fun startAt(source: LinkSource, profileId: String?, startSecs: Double, audioTrack: Int?): Result<RemoteSession> = call { c ->
+        val profile = playableProfile(c, profileId ?: _linkedDevice.value?.preferredProfile, fromPreferred = profileId == null)
+        // tk-link refuses audio_track > 32 (request_invalid): the first stream instead of no session
+        create(c, wireOf(source), profile, startSecs.coerceAtLeast(0.0), audioTrack?.takeIf { it in 1..MAX_AUDIO_TRACK })
+    }
+
+    override suspend fun sessionStatus(sessionId: String): LinkSessionStatus? = withContext(io) {
+        val c = connectionOrNull()?.client ?: return@withContext null
+        (c.sessionState(sessionId) as? LinkResult.Ok)?.value?.let(::statusOf)
+    }
+
+    /** Started on first use (a Mixed / MPV Link playback), closed with [forget]. */
+    private val loopback by lazy {
+        LinkLoopbackProxy(upstream = {
+            connectionOrNull()?.let { conn ->
+                "https://${conn.identity.pairing.host}:${conn.identity.pairing.port}".toHttpUrl() to conn.http
+            }
+        })
+    }
+
+    override fun loopbackUrl(sessionId: String): String? {
+        val url = sessions[sessionId]?.playbackUrl ?: return null
+        if (connectionOrNull() == null) return null
+        return runCatching { loopback.localUrl(url) }.getOrNull()
+    }
+
+    // the `loopback` parameter of [subtitleUrl] shadows the property
+    private fun loopbackProxy(): LinkLoopbackProxy = loopback
+
+    override fun subtitleUrl(sessionId: String, index: Int, format: String, loopback: Boolean): String? {
+        val conn = connectionOrNull() ?: return null
+        if (sessions[sessionId] == null || format !in LinkClient.SUBTITLE_FORMATS) return null
+        val url = conn.client.subtitleUrl(sessionId, index, format)
+        return if (loopback) runCatching { loopbackProxy().localUrl(url) }.getOrNull() else url
+    }
+
+    override suspend fun subtitleReadiness(sessionId: String, index: Int, format: String): SubtitleReadiness = withContext(io) {
+        val c = connectionOrNull()?.client ?: return@withContext SubtitleReadiness.PENDING
+        subtitleReadinessOf(c.subtitle(sessionId, index, format))
+    }
+
+    override suspend fun setDefaultProcessing(location: ProcessingLocation) {
+        withContext(io) {
+            if (!vault.hasPairing()) return@withContext
+            val meta = vault.meta() ?: StoredDeviceMeta()
+            val stored = location.takeIf { it != ProcessingLocation.PHONE }?.name
+            runCatching { vault.saveMeta(meta.copy(defaultProcessing = stored)) }
+            _linkedDevice.value = readLinkedDevice()
+        }
+    }
+
+    private fun wireOf(source: LinkSource): SessionSource = when (source) {
+        is LinkSource.Library -> SessionSource.Library(source.itemId)
+        is LinkSource.Url -> SessionSource.Url(source.url, source.headers)
+        is LinkSource.Torrent -> SessionSource.Torrent(source.uri, source.mediaId, source.episode)
+    }
+
+    private suspend fun create(
+        c: LinkClient,
+        wire: SessionSource,
+        profile: String?,
+        startSecs: Double?,
+        audioTrack: Int? = null,
+    ): LinkResult<RemoteSession> =
+        c.createSession(wire, profile, audioTrack = audioTrack, startSecs = startSecs).map { dto ->
             RemoteSession(
                 sessionId = dto.sessionId,
                 generation = dto.generation,
@@ -344,7 +444,7 @@ class LinkRepositoryImpl(
                 idleTimeoutSecs = dto.idleTimeoutSecs,
             ).also {
                 sessions[it.sessionId] = it
-                origins[it.sessionId] = Origin(wire, profile)
+                origins[it.sessionId] = Origin(wire, profile, audioTrack)
             }
         }
 
@@ -375,7 +475,8 @@ class LinkRepositoryImpl(
     override suspend fun renew(sessionId: String, startSecs: Double, profileId: String?): Result<RemoteSession> {
         if (!canRenew(sessionId)) return Result.failure(LinkError.Api(LinkApiError.SessionGone).toAppException())
         val origin = origins[sessionId] ?: Origin(SessionSource.Session(sessionId), profile = null)
-        val result = call { c -> create(c, origin.source, profileId ?: origin.profile, startSecs.coerceAtLeast(0.0)) }
+        // 0.4.0: a profile change keeps the audio stream the session was started with (it went back to the first one)
+        val result = call { c -> create(c, origin.source, profileId ?: origin.profile, startSecs.coerceAtLeast(0.0), origin.audioTrack) }
         if (result.isSuccess) {
             sessions.remove(sessionId)
             origins.remove(sessionId)
@@ -402,6 +503,7 @@ class LinkRepositoryImpl(
             }
             sessions.clear()
             origins.clear()
+            runCatching { loopback.close() }
             connection?.http?.connectionPool?.evictAll()
             connection = null
             vault.clear()
@@ -495,6 +597,9 @@ class LinkRepositoryImpl(
             lastSeenMs = meta?.lastSeenMs,
             preferredProfile = meta?.preferredProfile,
             localDeviceName = meta?.localDeviceName,
+            defaultProcessing = meta?.defaultProcessing
+                ?.let { name -> ProcessingLocation.entries.firstOrNull { it.name == name } }
+                ?: ProcessingLocation.PHONE,
         )
     }
 
@@ -511,6 +616,61 @@ class LinkRepositoryImpl(
                 if (e is LinkError.Api && (e.error == LinkApiError.SessionGone || e.error == LinkApiError.SessionNotFound)) false else null
             }
         }
+
+        /** 0.4.0: `GET /v1/sessions/{id}` as the player's "En la PC" indicator reads it. */
+        fun statusOf(dto: SessionStateDto): LinkSessionStatus = LinkSessionStatus(
+            state = dto.state,
+            profileId = dto.profile,
+            throttled = dto.throttled,
+            leadSecs = dto.leadSecs,
+            degradedFrom = dto.degradedFrom?.takeIf { it.isNotBlank() },
+            outputWidth = dto.output?.width,
+            outputHeight = dto.output?.height,
+            upscale = dto.upscale,
+            anime4kMode = dto.anime4k?.mode,
+            anime4kVariant = dto.anime4k?.variant,
+            fg = dto.fg,
+            fgMultiplier = dto.fgEffective?.multiplier,
+            sourceFps = dto.fgEffective?.sourceFps,
+            outFps = dto.fgEffective?.outFps ?: dto.output?.fps,
+            encoder = dto.encoder?.takeIf { it.isNotBlank() },
+            videoKbps = dto.videoKbps,
+            error = dto.error,
+            subtitles = dto.subtitles?.map {
+                LinkSubtitleTrack(
+                    index = it.index,
+                    language = it.language?.takeIf { l -> l.isNotBlank() },
+                    title = it.title?.takeIf { t -> t.isNotBlank() },
+                    codec = it.codec,
+                    default = it.default,
+                    forced = it.forced,
+                    text = it.text,
+                    formats = it.formats.filter { f -> f in LinkClient.SUBTITLE_FORMATS },
+                )
+            },
+            subtitlesState = dto.subtitlesState,
+        )
+
+        /**
+         * 0.4.0: a subtitle answer as [SubtitleReadiness]: 200 -> READY; `503 segment_wait_timeout` (extracting), `409
+         * session_not_ready` (listing) or no answer (offline, timeout) -> PENDING; anything else (404, 410, `503
+         * source_unavailable`, an older PC's 404) -> UNAVAILABLE.
+         */
+        fun subtitleReadinessOf(r: LinkResult<String>): SubtitleReadiness = when (r) {
+            is LinkResult.Ok -> SubtitleReadiness.READY
+            is LinkResult.Failure -> when (val e = r.error) {
+                is LinkError.Api -> if (e.error == LinkApiError.SegmentWaitTimeout || e.error == LinkApiError.SessionNotReady) {
+                    SubtitleReadiness.PENDING
+                } else {
+                    SubtitleReadiness.UNAVAILABLE
+                }
+                is LinkError.Transport -> SubtitleReadiness.PENDING
+                else -> SubtitleReadiness.UNAVAILABLE
+            }
+        }
+
+        /** tk-link refuses `audio_track` above this (sessions.rs `create`). */
+        const val MAX_AUDIO_TRACK = 32
 
         const val LAST_SEEN_PERSIST_MS = 60_000L
         const val EVENTS_BACKOFF_MS = 5_000L

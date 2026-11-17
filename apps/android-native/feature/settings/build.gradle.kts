@@ -43,3 +43,8 @@ dependencies {
     implementation(projects.feature.novel)
     implementation(projects.feature.extensions)
 }
+
+dependencies {
+    // 0.4.0 player quality (worker B): Settings › Reproductor › Generación de cuadros en el teléfono (FrameGenSettingsSection).
+    implementation(projects.core.framegen)
+}

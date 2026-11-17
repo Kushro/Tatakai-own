@@ -4,11 +4,30 @@ package app.tatakai.next.player.mpv
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.hardware.display.DisplayManager
 import android.os.BatteryManager
 import android.os.Looper
 import android.os.SystemClock
+import android.view.Display
 import androidx.media3.common.util.UnstableApi
+import app.tatakai.next.model.AspectMode
+import app.tatakai.next.model.DebandConfig
+import app.tatakai.next.model.DecoderMode
+import app.tatakai.next.model.ImageAdjust
+import app.tatakai.next.model.QualityTier
+import app.tatakai.next.model.SharpenLevel
+import app.tatakai.next.framegen.FgController
+import app.tatakai.next.player.RemoteProcessingState
+import app.tatakai.next.framegen.FrameGenController
 import app.tatakai.next.model.SubtitleStyle
+import app.tatakai.next.player.QualityRequest
+import app.tatakai.next.player.QualityUiState
+import app.tatakai.next.player.mpv.quality.AssetShaderInstaller
+import app.tatakai.next.player.mpv.quality.FrameDropMonitor
+import app.tatakai.next.player.mpv.quality.MpvQualityController
+import app.tatakai.next.player.mpv.quality.QualityMpvPort
+import app.tatakai.next.player.mpv.quality.ThermalWatcher
+import app.tatakai.next.player.mpv.quality.isShaderCompilationError
 import app.tatakai.next.player.ActivePlayback
 import app.tatakai.next.player.AudioOption
 import app.tatakai.next.player.PlayableSource
@@ -21,8 +40,6 @@ import app.tatakai.next.player.SessionTicker
 import app.tatakai.next.player.MPV_OPEN_ERROR_CODE
 import app.tatakai.next.player.MPV_START_TIMEOUT_CODE
 import app.tatakai.next.player.MPV_START_TIMEOUT_MS
-import app.tatakai.next.player.ShaderFallback
-import app.tatakai.next.player.ShaderNotice
 import app.tatakai.next.player.SubtitleExtras
 import app.tatakai.next.player.SubtitleFonts
 import app.tatakai.next.player.SubtitleOption
@@ -51,10 +68,20 @@ class MpvPlayerSession(
     private val scope: CoroutineScope,
     private val listener: PlaybackListener,
     remote: Boolean,
-    /** Settings › Reproductor › Preajuste (only applied when its shader files exist). */
-    private val preset: String = "off",
+    /** 0.4.0: Settings › Reproductor quality defaults (preset, tier, deband, automatic adjustments...), changed live afterwards. */
+    initialQuality: QualityRequest = QualityRequest(),
+    /** 0.4.0 (worker B): the app-wide phone frame generation controller (null = FG not wired, e.g. tests). */
+    frameGenController: FgController? = null,
+    /** 0.4.0 integration: whether the PC processes this stream (Link PC / Mixto); local shaders stay off while it does. */
+    remoteProcessing: RemoteProcessingState? = null,
 ) : PlayerSession {
     val engine = MpvEngine(context)
+
+    /** 0.4.0 (worker B): routes this engine's output through the phone FG (see MpvFrameGenBridge); released before the engine. */
+    private val frameGenBridge: MpvFrameGenBridge? = frameGenController?.let { MpvFrameGenBridge(engine, it) }
+
+    /** 0.4.0 (worker B): phone frame generation of this playback for the in-player UI; null when FG is not wired. */
+    val frameGen: FrameGenController? = frameGenController
     private val _state = MutableStateFlow(PlaybackState(isBuffering = false, fullAss = true))
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
     private var released = false
@@ -76,11 +103,28 @@ class MpvPlayerSession(
         snapshot = { val s = _state.value; Triple(currentPositionMs(), s.durationMs, s.isPlaying) },
     )
 
-    /** BUG-043 / BUG-006: battery rule and real-time step-down of the shader chain. */
-    private val governor = PresetGovernor(preset)
     private val appContext = context.applicationContext
-    private var noticeSeq = 0
-    private var governorJob: Job? = null
+
+    /**
+     * 0.4.0 (worker A): owns every quality property of this mpv (shader chain, deband, image, aspect, decoder, smoothing) and the
+     * automatic adjustments (thermal, battery, frame drops, 4K / 8K, view and PiP guards). Replaces BUG-043's PresetGovernor.
+     */
+    private val qualityController = MpvQualityController(
+        port = object : QualityMpvPort {
+            override fun setProperty(name: String, value: String) = engine.setProperty(name, value)
+
+            override fun getProperty(name: String): String? = engine.getProperty(name)
+        },
+        shaders = AssetShaderInstaller(appContext),
+        initial = initialQuality,
+        fp16 = FP16_ANIME4K,
+    )
+    private val thermal = ThermalWatcher(appContext, scope) { hot -> qualityController.onThermal(hot) }
+    private var lastQualityEventSeq = 0
+    private var monitorJob: Job? = null
+    private var qualityEventsJob: Job? = null
+    private var frameGenLinkJob: Job? = null
+    private var remoteProcessingJob: Job? = null
     private var startWatch: Job? = null
     private var prepareJob: Job? = null
     private var audioLang: String? = null
@@ -99,51 +143,79 @@ class MpvPlayerSession(
         BatteryInfo(level * 100 / scale, charging)
     }.getOrNull()
 
-    private fun announce(kind: ShaderFallback) {
-        noticeSeq++
-        _state.value = _state.value.copy(shaderNotice = ShaderNotice(noticeSeq, kind))
-        android.util.Log.i("mpv", "shader preset -> ${governor.preset} ($kind)")
-    }
-
-    private fun startGovernor() {
-        governorJob = scope.launch {
+    /** Telemetry and frame drops every [FrameDropMonitor.SAMPLE_MS], battery every [BATTERY_CHECK_MS], while the session lives. */
+    private fun startMonitor() {
+        monitorJob = scope.launch {
             var sinceBattery = 0L
             while (isActive && !released) {
-                delay(PresetGovernor.SAMPLE_MS)
-                if (released || ShaderPresets.chain(governor.preset).isEmpty()) break
-                sinceBattery += PresetGovernor.SAMPLE_MS
+                delay(FrameDropMonitor.SAMPLE_MS)
+                if (released) break
+                sinceBattery += FrameDropMonitor.SAMPLE_MS
                 if (sinceBattery >= BATTERY_CHECK_MS) {
                     sinceBattery = 0
-                    governor.onBattery(battery())?.let { change ->
-                        engine.applyPreset(governor.preset)
-                        announce(change)
-                    }
+                    battery().let { qualityController.onBattery(it?.percent, it?.charging == true) }
                 }
+                qualityController.refreshTelemetry()
                 val st = _state.value
                 if (!st.isPlaying || st.isBuffering) {
-                    governor.reset()
+                    qualityController.onPlaybackIdle()
                     continue
                 }
                 val drops = engine.droppedFrames() ?: continue
                 val fps = engine.videoFps() ?: continue
-                governor.onSample(drops, fps, SystemClock.elapsedRealtime())?.let { change ->
-                    engine.applyPreset(governor.preset)
-                    announce(change)
-                }
+                qualityController.onDropSample(drops, fps, SystemClock.elapsedRealtime())
             }
         }
     }
 
+    private fun displayRefreshRate(): Float? = runCatching {
+        appContext.getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY)?.refreshRate
+    }.getOrNull()
+
     init {
-        val (initialPreset, change) = governor.initial(battery())
-        engine.applyPreset(initialPreset)
-        change?.let { announce(it) }
-        if (ShaderPresets.chain(initialPreset).isNotEmpty()) startGovernor()
+        battery().let { qualityController.onBattery(it?.percent, it?.charging == true) }
+        qualityController.onDisplayRefreshRate(displayRefreshRate())
+        // Shader compile / link errors arrive on mpv's event thread; the controller reacts on the session's scope.
+        engine.logListener = { level, prefix, text ->
+            if (isShaderCompilationError(level, "$prefix: $text")) scope.launch { if (!released) qualityController.onShaderError() }
+        }
+        thermal.start()
+        startMonitor()
+        qualityEventsJob = scope.launch {
+            qualityController.state.collect { q ->
+                val e = q.lastEvent ?: return@collect
+                if (e.seq == lastQualityEventSeq) return@collect
+                lastQualityEventSeq = e.seq
+                // 0.4.0 (worker D): the player shows QualityUiState.lastEvent itself (PlayerNotice.Quality); the 0.3.x shaderNotice
+                // toast it used to feed here is gone, so users never see both.
+                android.util.Log.i("mpv", "quality ${e.kind} (${e.reason}): ${e.from} -> ${e.to}")
+            }
+        }
+        // 0.4.0 integration (A <-> B): the quality engine drops mpv cadence interpolation and keeps its chain sized for the
+        // frame generation input while FG runs; FG pauses with the quality engine's battery Eco, like Enigmata.
+        remoteProcessing?.let { rp ->
+            remoteProcessingJob = scope.launch { rp.active.collect { on -> if (!released) qualityController.setRemoteProcessing(on) } }
+        }
+        frameGenController?.let { fg ->
+            frameGenLinkJob = scope.launch {
+                launch { fg.flag.active.collect { on -> if (!released) qualityController.setFrameGenActive(on) } }
+                launch {
+                    qualityController.state.collect { q -> if (!released) fg.onLowPower(q.batteryLow) }
+                }
+            }
+        }
         mirror = scope.launch {
             engine.state.collect { m ->
+                qualityController.onVideoSize(m.videoWidth, m.videoHeight)
+                qualityController.onViewport(m.surfaceWidth, m.surfaceHeight)
                 val prev = _state.value
+                // 0.4.0 (sub-translation): in-file tracks keep demuxer (container) order in track-list; `sub-add` ones are external.
+                var embedded = 0
                 val subs = m.subtitles.map { t ->
-                    SubtitleOption(t.id, t.title ?: t.lang ?: "#${t.id}", t.lang, t.selected, ass = t.codec?.lowercase() in ASS_CODECS)
+                    SubtitleOption(
+                        t.id, t.title ?: t.lang ?: "#${t.id}", t.lang, t.selected, ass = t.codec?.lowercase() in ASS_CODECS,
+                        codec = t.codec, embeddedOrdinal = if (t.external) null else embedded++,
+                    )
                 }
                 _state.value = prev.copy(
                     loadId = m.loadId,
@@ -179,12 +251,12 @@ class MpvPlayerSession(
         if (released) return
         loaded = true
         ActivePlayback.publish(adapter)
-        governor.reset()
+        qualityController.onFileStarted()
         startWatch?.cancel()
         prepareJob?.cancel()
         val loadId = engine.beginLoad()
         val startSecs = startMs.coerceAtLeast(0) / 1000.0
-        val subs = source.subtitles.map { it.url }
+        val subs = mpvSubtitles(source.subtitles, source.selectSubtitle)
         if (!HlsPrefetch.applies(source)) {
             open(source, source.url, startSecs, subs, loadId)
             return
@@ -197,11 +269,11 @@ class MpvPlayerSession(
         }
     }
 
-    private fun open(source: PlayableSource, url: String, startSecs: Double, subs: List<String>, loadId: Int) {
+    private fun open(source: PlayableSource, url: String, startSecs: Double, subs: List<MpvSubtitle>, loadId: Int) {
         val lavf = HlsPrefetch.lavfOptions(url, source.url)
         if (lavf.isNotEmpty()) android.util.Log.i("mpv", "filtered HLS master opened with demuxer-lavf-o=$lavf")
         watchedLoadId = if (mpvStartWatched(source.container, source.torrent)) loadId else -1
-        engine.loadPrepared(url, source.headers, startSecs, subs, lavf)
+        engine.loadPrepared(url, source.headers, startSecs, subs, lavf, subtitlesOff = source.selectSubtitle == PlayableSource.SUBTITLES_OFF)
         // BUG-059: a network stream that shows no frame in time is given up (the view-model moves it to Media3). Safety net only:
         // the filtered master above is what makes such streams start.
         startWatch = if (mpvStartWatched(source.container, source.torrent)) {
@@ -225,7 +297,7 @@ class MpvPlayerSession(
     override fun togglePlay() = if (_state.value.isPlaying) pause() else play()
 
     override fun seekTo(positionMs: Long) {
-        governor.reset()
+        qualityController.onPlaybackIdle()
         engine.seekTo(positionMs.coerceAtLeast(0) / 1000.0)
     }
 
@@ -269,6 +341,14 @@ class MpvPlayerSession(
         return true
     }
 
+    /** 0.4.0: `sub-add` reads each URL (the PC's, through the loopback proxy): off the main thread. */
+    override fun addSubtitleTracks(tracks: List<app.tatakai.next.model.SubtitleTrack>, select: Int?): Boolean {
+        if (released) return true
+        val subs = mpvSubtitles(tracks, select)
+        scope.launch(Dispatchers.IO) { if (!released) engine.addSubtitles(subs, off = select == PlayableSource.SUBTITLES_OFF) }
+        return true
+    }
+
     override val supportsSecondaryTracks: Boolean get() = true
 
     override fun selectSecondarySubtitle(id: Int?): Boolean {
@@ -286,22 +366,74 @@ class MpvPlayerSession(
 
     override fun currentPositionMs(): Long = (engine.currentPositionSecs() * 1000).toLong()
 
+    // ---- 0.4.0 quality engine (worker A): everything applies to the running mpv, no reload --------------------------------------
+
+    override val quality: StateFlow<QualityUiState> get() = qualityController.state
+
+    override fun setQuality(preset: String, tier: QualityTier) = qualityController.setQuality(preset, tier)
+
+    override fun setQualityRequest(request: QualityRequest) = qualityController.setRequest(request)
+
+    override fun setSharpen(level: SharpenLevel) = qualityController.setSharpen(level)
+
+    override fun setImage(image: ImageAdjust) = qualityController.setImage(image)
+
+    override fun setAspect(mode: AspectMode, zoomPercent: Int) = qualityController.setAspect(mode, zoomPercent)
+
+    override fun setDecoder(mode: DecoderMode) = qualityController.setDecoder(mode)
+
+    override fun setDeband(deband: DebandConfig) = qualityController.setDeband(deband)
+
+    override fun setSmoothing(enabled: Boolean) {
+        // The panel may have switched modes since the session started (120 Hz <-> 60 Hz): read it when smoothing turns on.
+        if (enabled) qualityController.onDisplayRefreshRate(displayRefreshRate())
+        qualityController.setSmoothing(enabled)
+    }
+
+    override fun setAutoAdjust(enabled: Boolean) = qualityController.setAutoAdjust(enabled)
+
+    override fun undoAutoDowngrade() = qualityController.undoAutoDowngrade()
+
+    override fun setPictureInPicture(active: Boolean) {
+        qualityController.setPictureInPicture(active)
+        frameGen?.onPip(active) // 0.4.0 integration: FG pauses in picture-in-picture
+    }
+
+    override fun setRemoteProcessing(active: Boolean) = qualityController.setRemoteProcessing(active)
+
+    override fun setFrameGenActive(active: Boolean) = qualityController.setFrameGenActive(active)
+
     override fun release() {
         if (released) return
         if (loaded) listener.onProgress(currentPositionMs(), _state.value.durationMs, true)
         released = true
         ticker.stop()
-        governorJob?.cancel()
+        monitorJob?.cancel()
+        qualityEventsJob?.cancel()
+        frameGenLinkJob?.cancel()
+        remoteProcessingJob?.cancel()
+        thermal.stop()
+        engine.logListener = null
         startWatch?.cancel()
         prepareJob?.cancel()
         mirror.cancel()
         if (ActivePlayback.player.value === adapter) ActivePlayback.publish(null)
         adapter.detach()
+        frameGenBridge?.release() // 0.4.0 (worker B): FG off and unbound before MPVLib.destroy
         engine.release()
     }
 }
 
 private const val BATTERY_CHECK_MS = 60_000L
+
+/**
+ * 0.4.0: Anime4K runs from FP16 (mediump) copies (Enigmata's default; cheaper on Adreno / Mali). A shader error on such a chain switches
+ * to full precision for the rest of the session ([MpvQualityController.onShaderError]); flip this to ship FP32 only.
+ */
+private const val FP16_ANIME4K = true
+
+/** Battery level from the sticky `ACTION_BATTERY_CHANGED` broadcast. */
+internal data class BatteryInfo(val percent: Int, val charging: Boolean)
 
 /** mpv error text of a load given up by the start watchdog (BUG-059). */
 internal const val START_TIMEOUT = "start timeout"
@@ -316,9 +448,30 @@ internal fun mpvErrorCode(error: String, started: Boolean, watched: Boolean): In
     else -> -1
 }
 
-/** Koin-bound factory of mpv sessions (see `mpvPlayerModule`). [preset] is read at creation time. */
+/** Koin-bound factory of mpv sessions (see `mpvPlayerModule`). [quality] (the Settings › Reproductor defaults) is read at creation time. */
 @UnstableApi
-class MpvSessionFactory(private val context: Context, private val preset: () -> String) : PlayerSessionFactory {
+class MpvSessionFactory(
+    private val context: Context,
+    private val quality: () -> QualityRequest,
+    // 0.4.0 (worker B): phone frame generation (null = not wired).
+    private val frameGen: FgController? = null,
+    // 0.4.0 integration: Link "PC" / "Mixto" turn the local shaders off (set by the player through LocalEnhancementGate).
+    private val remoteProcessing: RemoteProcessingState? = null,
+) : PlayerSessionFactory {
     override fun create(scope: CoroutineScope, listener: PlaybackListener, remote: Boolean): PlayerSession =
-        MpvPlayerSession(context, scope, listener, remote, preset())
+        MpvPlayerSession(context, scope, listener, remote, quality(), frameGen, remoteProcessing)
 }
+
+/**
+ * 0.4.0: a source's external subtitles as `sub-add` arguments: the label as mpv's title (a URL's file name before) and the language
+ * as mpv's `lang` (so the track list and `slang` see it), [select] (an index, [PlayableSource.SUBTITLES_OFF] or null) marked.
+ */
+internal fun mpvSubtitles(tracks: List<app.tatakai.next.model.SubtitleTrack>, select: Int?): List<MpvSubtitle> =
+    tracks.mapIndexed { i, t ->
+        MpvSubtitle(
+            url = t.url,
+            title = t.label.ifBlank { t.lang }.ifBlank { null },
+            lang = t.lang.trim().takeIf { it.isNotEmpty() && it.all { c -> c.isLetterOrDigit() || c == '-' || c == '_' } },
+            select = select == i,
+        )
+    }

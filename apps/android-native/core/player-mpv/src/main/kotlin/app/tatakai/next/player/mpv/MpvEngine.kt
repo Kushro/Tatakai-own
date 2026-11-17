@@ -20,7 +20,15 @@ import java.util.Locale
 // addLogObserver) - see .deps-sources/libmpv-1.0.0/MPVLib.signatures.txt.
 
 /** One subtitle / audio track as mpv lists it (`track-list/N/...`). [id] is mpv's `sid` / `aid`. */
-data class MpvTrack(val id: Int, val title: String?, val lang: String?, val codec: String?, val selected: Boolean)
+data class MpvTrack(
+    val id: Int,
+    val title: String?,
+    val lang: String?,
+    val codec: String?,
+    val selected: Boolean,
+    /** 0.4.0 (sub-translation): `track-list/N/external` - added with `sub-add`, not stored in the media file. */
+    val external: Boolean = false,
+)
 
 /** Minimal state the player UI renders for the mpv branch (d may extend it). */
 data class MpvState(
@@ -42,6 +50,11 @@ data class MpvState(
     val audio: List<MpvTrack> = emptyList(),
     /** Video height of the current file (`height`), 0 = unknown. */
     val videoHeight: Int = 0,
+    /** 0.4.0 (worker A): video width of the current file (`width`), 0 = unknown. */
+    val videoWidth: Int = 0,
+    /** 0.4.0 (worker A): size of the attached surface in pixels (the view the video is fitted into), 0 = none. */
+    val surfaceWidth: Int = 0,
+    val surfaceHeight: Int = 0,
     // --- parity wave A (worker p) ---
     /** Primary subtitle line on screen right now (`sub-text`), for the screen-drawn translation. */
     val subText: String? = null,
@@ -52,6 +65,9 @@ data class MpvState(
     /** `sub-delay` in ms. */
     val subDelayMs: Long = 0,
 )
+
+/** One external subtitle for `sub-add`: [title] / [lang] as mpv lists it; [select] = the active track. */
+data class MpvSubtitle(val url: String, val title: String? = null, val lang: String? = null, val select: Boolean = false)
 
 /**
  * One libmpv instance (create on the main thread, [release] exactly once). Options follow mpv-android's defaults for a SurfaceView
@@ -76,9 +92,16 @@ class MpvEngine(context: Context) {
     @Volatile
     private var lastError: String? = null
 
-    /** External subtitle URLs of the current load, added with `sub-add` once the file is loaded. */
+    /** External subtitles of the current load, added with `sub-add` once the file is loaded. */
     @Volatile
-    private var pendingSubtitles: List<String> = emptyList()
+    private var pendingSubtitles: List<MpvSubtitle> = emptyList()
+
+    /** 0.4.0: the current load asked for its subtitles off ([MpvSubtitle.select] for none of them, see [loadPrepared]). */
+    @Volatile
+    private var pendingSubtitlesOff = false
+
+    /** 0.4.0: [addSubtitles] before FILE_LOADED appends to the pending ones; this keeps the two threads from losing any. */
+    private val subtitleLock = Any()
 
     private val observer = object : MPVLib.EventObserver {
         override fun eventProperty(property: String) {
@@ -86,7 +109,10 @@ class MpvEngine(context: Context) {
         }
 
         override fun eventProperty(property: String, value: Long) {
-            if (property == "height") _state.update { it.copy(videoHeight = value.toInt()) }
+            when (property) {
+                "height" -> _state.update { it.copy(videoHeight = value.toInt()) }
+                "width" -> _state.update { it.copy(videoWidth = value.toInt()) }
+            }
         }
 
         override fun eventProperty(property: String, value: Double) {
@@ -125,7 +151,8 @@ class MpvEngine(context: Context) {
                 }
                 MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
                     fileLoaded = true
-                    for (url in pendingSubtitles) mpv.command(arrayOf("sub-add", url, "auto"))
+                    val (subs, off) = synchronized(subtitleLock) { pendingSubtitles to pendingSubtitlesOff }
+                    addPending(subs, off)
                     refreshTracks()
                 }
                 MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> _state.update {
@@ -144,6 +171,7 @@ class MpvEngine(context: Context) {
     private val logObserver = object : MPVLib.LogObserver {
         override fun logMessage(prefix: String, level: Int, text: String) {
             if (level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_ERROR) lastError = "$prefix: ${text.trim()}"
+            logListener?.invoke(level, prefix, text)
         }
     }
 
@@ -181,6 +209,7 @@ class MpvEngine(context: Context) {
         mpv.observeProperty("eof-reached", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
         mpv.observeProperty("core-idle", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
         mpv.observeProperty("height", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+        mpv.observeProperty("width", MPVLib.MpvFormat.MPV_FORMAT_INT64)
         mpv.observeProperty("track-list", MPVLib.MpvFormat.MPV_FORMAT_NONE)
         mpv.observeProperty("sub-text", MPVLib.MpvFormat.MPV_FORMAT_STRING)
     }
@@ -192,7 +221,7 @@ class MpvEngine(context: Context) {
     fun load(url: String, headers: Map<String, String>, startSecs: Double, subtitleUrls: List<String>) {
         if (released) return
         beginLoad()
-        loadPrepared(url, headers, startSecs, subtitleUrls, lavfOptions = "")
+        loadPrepared(url, headers, startSecs, subtitleUrls.map { MpvSubtitle(it) }, lavfOptions = "")
     }
 
     /**
@@ -204,14 +233,29 @@ class MpvEngine(context: Context) {
         fileLoaded = false
         lastError = null
         subtitleDecided = false
-        _state.update { MpvState(loadId = it.loadId + 1, buffering = true, speed = it.speed, loop = it.loop, subDelayMs = it.subDelayMs) }
+        _state.update {
+            MpvState(
+                loadId = it.loadId + 1, buffering = true, speed = it.speed, loop = it.loop, subDelayMs = it.subDelayMs,
+                surfaceWidth = it.surfaceWidth, surfaceHeight = it.surfaceHeight,
+            )
+        }
         return _state.value.loadId
     }
 
     /** Opens [url] for the load [beginLoad] started (see [load]). */
-    fun loadPrepared(url: String, headers: Map<String, String>, startSecs: Double, subtitleUrls: List<String>, lavfOptions: String = "") {
+    fun loadPrepared(
+        url: String,
+        headers: Map<String, String>,
+        startSecs: Double,
+        subtitles: List<MpvSubtitle>,
+        lavfOptions: String = "",
+        subtitlesOff: Boolean = false,
+    ) {
         if (released) return
-        pendingSubtitles = subtitleUrls
+        synchronized(subtitleLock) {
+            pendingSubtitles = subtitles
+            pendingSubtitlesOff = subtitlesOff
+        }
         // BUG-080: set on every load, so the widened protocol whitelist of a filtered local master does not leak into the next one.
         mpv.setPropertyString("demuxer-lavf-o", lavfOptions)
         val ua = headers.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
@@ -307,6 +351,37 @@ class MpvEngine(context: Context) {
         _state.update { it.copy(subDelayMs = clamped) }
     }
 
+    /**
+     * 0.4.0: `sub-add` of [subs] to the file playing now (the PC's subtitle tracks once it extracted them); [off] = none selected.
+     * Blocks while mpv reads them: call it off the main thread.
+     */
+    fun addSubtitles(subs: List<MpvSubtitle>, off: Boolean) {
+        if (released) return
+        val now = synchronized(subtitleLock) {
+            if (fileLoaded) return@synchronized true
+            // still opening: they go with the file's own (FILE_LOADED)
+            pendingSubtitles = pendingSubtitles + subs
+            pendingSubtitlesOff = pendingSubtitlesOff || off
+            false
+        }
+        if (!now) return
+        addPending(subs, off)
+        refreshTracks()
+    }
+
+    /** `sub-add <url> select|auto [<title> [<lang>]]` of each; a load that names its track (or none) is not auto-picked again. */
+    private fun addPending(subs: List<MpvSubtitle>, off: Boolean) {
+        if (subs.isEmpty()) return
+        if (off || subs.any { it.select }) subtitleDecided = true
+        for (s in subs) {
+            val cmd = mutableListOf("sub-add", s.url, if (s.select) "select" else "auto")
+            if (s.title != null || s.lang != null) cmd += s.title ?: ""
+            if (s.lang != null) cmd += s.lang
+            runCatching { mpv.command(cmd.toTypedArray()) }
+        }
+        if (off) mpv.setPropertyString("sid", "no")
+    }
+
     /** `sub-add <path> select <title>`: a loaded SRT / ASS / VTT becomes the active track. */
     fun addSubtitleFile(path: String, title: String) {
         if (released) return
@@ -382,17 +457,21 @@ class MpvEngine(context: Context) {
     }
 
     /**
-     * Applies a shader preset (Settings › Reproductor › Preajuste, checklist player.android.upscaling-shaders): every Anime4K / FSR shader
-     * is bundled in this module's `assets/shaders/` and copied to `filesDir/shaders/<preset>/` the first time ([ShaderPresets.install]);
-     * `glsl-shaders` then gets the chain in order. "off" (or an unknown id) clears it. Returns whether a chain is active.
+     * 0.4.0 (worker A): mpv log lines (level, prefix, text) for the quality engine's shader-error detection. Called on mpv's event
+     * thread: keep it cheap and hand any work to another thread.
      */
-    fun applyPreset(preset: String): Boolean {
-        if (released) return false
-        val files = runCatching { ShaderPresets.install(appContext, preset) }.getOrDefault(emptyList())
-        mpv.setPropertyString("glsl-shaders", files.joinToString(PATH_LIST_SEPARATOR) { it.absolutePath })
-        if (files.isNotEmpty()) android.util.Log.i("mpv", "glsl-shaders ($preset): ${files.joinToString(",") { it.name }}")
-        return files.isNotEmpty()
+    @Volatile
+    var logListener: ((Int, String, String) -> Unit)? = null
+
+    /**
+     * 0.4.0 (worker A): raw property access for `MpvQualityController` (glsl-shaders, deband, image, aspect, hwdec, interpolation and
+     * the telemetry reads). The shader chain and every quality option are owned by the controller; 0.3.x's `applyPreset` is gone.
+     */
+    internal fun setProperty(name: String, value: String) {
+        if (!released) mpv.setPropertyString(name, value)
     }
+
+    internal fun getProperty(name: String): String? = if (released) null else mpv.getPropertyString(name)
 
     /** BUG-043: frames mpv dropped so far in this file (`frame-drop-count` + `decoder-frame-drop-count`); null when unknown. */
     fun droppedFrames(): Long? {
@@ -410,6 +489,12 @@ class MpvEngine(context: Context) {
     }
 
     fun currentPositionSecs(): Double = if (released) 0.0 else mpv.getPropertyDouble("time-pos") ?: _state.value.positionSecs
+
+    /**
+     * 0.4.0 (worker B, phone FG): MpvFrameGenBridge drives this same libmpv instance (video-params, audio-delay, vid, its own
+     * observer). The output surface still only moves through [attachSurface] / [resizeSurface] / [detachSurface].
+     */
+    internal val frameGenLib: MPVLib get() = mpv
 
     private val surfaceLock = Any()
     private var surfaceAttached = false
@@ -430,6 +515,7 @@ class MpvEngine(context: Context) {
     internal fun resizeSurface(width: Int, height: Int) {
         if (released) return
         mpv.setPropertyString("android-surface-size", "${width}x$height")
+        _state.update { it.copy(surfaceWidth = width, surfaceHeight = height) }
         // BUG-093: a paused vo=gpu keeps the last frame laid out for the old size (stretched, black band) until playback resumes; an
         // exact seek to the same position redraws it for the new size.
         val st = _state.value
@@ -469,6 +555,7 @@ class MpvEngine(context: Context) {
                 lang = mpv.getPropertyString("track-list/$i/lang"),
                 codec = mpv.getPropertyString("track-list/$i/codec"),
                 selected = mpv.getPropertyBoolean("track-list/$i/selected") == true,
+                external = mpv.getPropertyBoolean("track-list/$i/external") == true,
             )
             when (type) {
                 "sub" -> subs += track
@@ -493,9 +580,6 @@ class MpvEngine(context: Context) {
         private const val DEFAULT_USER_AGENT = "TatakaiNext/0.1"
         private const val DEFAULT_SUB_FONT = "sans-serif"
         const val STABLE_VOLUME_FILTER = "lavfi=[dynaudnorm=f=250:g=15:p=0.9]"
-
-        /** mpv path-list separator on Android (POSIX). */
-        private const val PATH_LIST_SEPARATOR = ":"
     }
 }
 
