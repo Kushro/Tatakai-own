@@ -20,6 +20,12 @@ package app.tatakai.next.feature.player
  * `source:{kind:"session"}`, same profile, `start_secs`), at most [backoffMs].size times: the first at once, the next ones at
  * least 5 s and 15 s after the previous one. [HEALTHY_MS] of position played without a stall gives the attempts back. With the
  * attempts spent it answers [Action.GiveUp] once (the player shows a real error with "Reproducir en el teléfono").
+ *
+ * **End of the episode** is never a failure: the PC's last segments answer 404 past the real end of the source (its container
+ * duration may say a bit more), so a terminal error or a stall within [NEAR_END_MS] of the playlist's duration (older PCs), or
+ * buffering / a terminal error within [PC_END_MS] of the `end_secs` the PC reports with `ended: true`, answers [Action.Ended]
+ * (the player ends the playback like a local one: next-episode countdown, sleep timer...), never a renewal. Near the duration
+ * a stall needs only [END_STALL_MS].
  */
 internal class LinkStallWatchdog(
     private val stallMs: Long = STALL_MS,
@@ -38,6 +44,9 @@ internal class LinkStallWatchdog(
 
         /** Every attempt was spent: show the error (once, until [reset]). */
         data class GiveUp(val reason: Reason) : Action
+
+        /** The episode reached its end: finish the playback normally (once, until a seek or a new load). */
+        data object Ended : Action
     }
 
     var attempts = 0
@@ -57,6 +66,12 @@ internal class LinkStallWatchdog(
 
     private var terminal: Reason? = null
 
+    // end of the episode
+    private var durationMs = 0L
+    private var buffering = false
+    private var pcEndMs: Long? = null
+    private var finished = false
+
     /** A new load of the Link session (first load, renewal, profile change): idle until it starts, the attempts are kept. */
     fun onLoad() {
         measuring = false
@@ -64,6 +79,7 @@ internal class LinkStallWatchdog(
         windowMs = stallMs
         healthyFrom = null
         last = null
+        finished = false
     }
 
     /** A media load the PC answered "this session / segment is gone for good". */
@@ -71,15 +87,21 @@ internal class LinkStallWatchdog(
         terminal = Reason.TERMINAL_ERROR
     }
 
-    /** `GET /v1/sessions/{id}` `state`: `failed` / `closed` cannot recover by waiting. */
-    fun onStatus(state: String?) {
+    /**
+     * `GET /v1/sessions/{id}`: `failed` / `closed` cannot recover by waiting; `ended` + `end_secs` (0.4.1 PCs) is where the
+     * source really ends.
+     */
+    fun onStatus(state: String?, ended: Boolean = false, endSecs: Double? = null) {
         if (state == "failed" || state == "closed") terminal = Reason.SESSION_FAILED
+        if (ended && endSecs != null && endSecs > 0) pcEndMs = (endSecs * 1000).toLong()
     }
 
     /**
      * One look at the engine. [wantsPlay] = playing or buffering (a user pause is neither and never counts as a stall).
      */
-    fun observe(now: Long, started: Boolean, wantsPlay: Boolean, positionMs: Long) {
+    fun observe(now: Long, started: Boolean, wantsPlay: Boolean, positionMs: Long, durationMs: Long = 0, buffering: Boolean = false) {
+        this.durationMs = durationMs
+        this.buffering = started && buffering
         // A seek (the user's, or skip intro) shows as a jump the playback itself cannot make: back, or forward faster than 2x.
         // The PC restarts its engine there (BUG-095), so the next window is the longer one.
         val jumped = last != null && (positionMs < lastPos - PROGRESS_MS || positionMs > lastPos + (if (lastPlaying) 2 * (now - lastAt) else 0) + SEEK_JUMP_MS)
@@ -90,6 +112,7 @@ internal class LinkStallWatchdog(
         if (jumped) {
             windowMs = seekStallMs
             healthyFrom = null
+            finished = false // a seek back after the end plays again
         }
         if (!started || !wantsPlay) {
             measuring = false
@@ -120,15 +143,32 @@ internal class LinkStallWatchdog(
     private var lastAt = 0L
     private var lastPlaying = false
 
+    /** Within [NEAR_END_MS] of the playlist's duration (any PC). */
+    private fun nearDurationEnd(): Boolean = durationMs > 0 && lastPos >= durationMs - NEAR_END_MS
+
+    /** Within [PC_END_MS] of where the PC said the source ends. */
+    private fun nearPcEnd(): Boolean = pcEndMs?.let { lastPos >= it - PC_END_MS } == true
+
     fun decide(now: Long): Action {
+        if (finished) return Action.Wait
+        if (nearPcEnd() && (buffering || terminal != null)) return ended()
+        val window = if (nearDurationEnd()) minOf(windowMs, END_STALL_MS) else windowMs
+        val stalled = measuring && now - anchorAt >= window
+        if ((terminal != null || stalled) && (nearDurationEnd() || nearPcEnd())) return ended()
         if (gaveUp) return Action.Wait
-        val reason = terminal ?: if (measuring && now - anchorAt >= windowMs) Reason.STALLED else return Action.Wait
+        val reason = terminal ?: if (stalled) Reason.STALLED else return Action.Wait
         if (attempts >= backoffMs.size) {
             gaveUp = true
             return Action.GiveUp(reason)
         }
         if (now < nextAllowedAt) return Action.Wait
         return Action.Renew(reason, attempts + 1)
+    }
+
+    private fun ended(): Action {
+        finished = true
+        terminal = null
+        return Action.Ended
     }
 
     /** The player started the renewal [decide] asked for. */
@@ -143,6 +183,7 @@ internal class LinkStallWatchdog(
         attempts = 0
         nextAllowedAt = 0
         gaveUp = false
+        pcEndMs = null
         onLoad()
     }
 
@@ -157,6 +198,15 @@ internal class LinkStallWatchdog(
 
         /** A forward jump past what 2x playback explains by more than this is a seek. */
         const val SEEK_JUMP_MS = 3_000L
+
+        /** Older PCs: a dead end this close to the playlist's duration is the end of the episode. */
+        const val NEAR_END_MS = 6_000L
+
+        /** 0.4.1 PCs: this close to their `end_secs`, buffering is the end of the episode. */
+        const val PC_END_MS = 4_000L
+
+        /** Near the end a stall is the end after this long (not the 9 s of a stuck engine). */
+        const val END_STALL_MS = 3_000L
     }
 }
 

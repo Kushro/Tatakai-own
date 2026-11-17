@@ -1195,6 +1195,8 @@ class PlayerViewModel(
                     val id = remoteId
                     if (id != null && remote.canRenew(id)) {
                         syncStallWatchLoad(st.loadId)
+                        // where it failed: at the end of the episode this is the end, not a dead session
+                        stallWatchdog.observe(now(), false, false, st.positionMs, st.durationMs)
                         stallWatchdog.onTerminal()
                         _state.update { it.copy(phase = PlayerPhase.BUFFERING) }
                         checkStall()
@@ -1539,7 +1541,7 @@ class PlayerViewModel(
                 val st = session?.state?.value
                 if (st != null && st.loadId == loadsIssued) {
                     syncStallWatchLoad(st.loadId)
-                    stallWatchdog.observe(now(), st.started && st.error == null, st.isPlaying || st.isBuffering, st.positionMs)
+                    stallWatchdog.observe(now(), st.started && st.error == null, st.isPlaying || st.isBuffering, st.positionMs, st.durationMs, st.isBuffering)
                 }
                 checkStall()
                 delay(STALL_CHECK_MS)
@@ -1565,6 +1567,13 @@ class PlayerViewModel(
         when (val a = stallWatchdog.decide(now())) {
             LinkStallWatchdog.Action.Wait -> Unit
             is LinkStallWatchdog.Action.Renew -> renewStuckSession(id, a)
+            // the PC's stream ended (its last segments 404 past the real end of the source): the normal end, as on the phone
+            LinkStallWatchdog.Action.Ended -> {
+                runCatching { android.util.Log.i(LINK_LOG_TAG, "session=$id reached the end of the episode") }
+                // a seek back after it plays the same load again: its next error must be handled again
+                handledErrorLoad = -1
+                session?.finishAsEnded()
+            }
             is LinkStallWatchdog.Action.GiveUp -> {
                 runCatching { android.util.Log.i(LINK_LOG_TAG, "session=$id still stuck after ${stallWatchdog.attempts} renewals (${a.reason}): giving up") }
                 val (kind, error) = stallRenewFailure ?: (RemoteFailure.PC_ERROR to null)
@@ -2829,7 +2838,8 @@ class PlayerViewModel(
                 val id = remoteId ?: break
                 val status = runCatching { remote.sessionStatus(id) }.getOrNull()
                 if (status != null && id == remoteId) {
-                    stallWatchdog.onStatus(status.state) // 0.4.1: `failed` / `closed` is renewed without waiting for a stall
+                    // 0.4.1: `failed` / `closed` is renewed without waiting for a stall; `ended` marks the source's real end
+                    stallWatchdog.onStatus(status.state, status.ended, status.endSecs)
                     lastStatus = status
                     refreshProcessing()
                     onLinkSubtitles(id, status)

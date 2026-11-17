@@ -134,6 +134,75 @@ class LinkStallWatchdogTest {
         assertEquals(Action.Renew(Reason.SESSION_FAILED, 2), w.decide(now))
     }
 
+    // ---- end of the episode: never a failure, never a renewal ----
+
+    private fun observeAt(position: Long, duration: Long, buffering: Boolean, started: Boolean = true) {
+        now += 500
+        pos = position
+        w.observe(now, started, true, pos, duration, buffering)
+    }
+
+    @Test
+    fun aTerminalErrorAtTheEndOfAnOldPcsPlaylistEndsTheEpisode() {
+        // an older PC: the container said 1440 s, the last segments answer 404 at 1436 s
+        observeAt(1_436_000, 1_440_000, buffering = true)
+        w.onTerminal()
+        assertEquals(Action.Ended, w.decide(now))
+        // once, and no renewal was counted
+        assertEquals(Action.Wait, w.decide(now + 60_000))
+        assertEquals(0, w.attempts)
+    }
+
+    @Test
+    fun aStallNearTheDurationEndsTheEpisodeQuickly() {
+        repeat(4) { observeAt(1_433_000L + it * 500, 1_440_000, buffering = false) }
+        repeat(8) { observeAt(1_435_000, 1_440_000, buffering = true) }
+        assertEquals(Action.Ended, w.decide(now))
+    }
+
+    @Test
+    fun theSameFailureFarFromTheEndIsADeadSessionInstead() {
+        observeAt(700_000, 1_440_000, buffering = true)
+        w.onTerminal()
+        assertEquals(Action.Renew(Reason.TERMINAL_ERROR, 1), w.decide(now))
+    }
+
+    @Test
+    fun aNewPcSaysWhereTheSourceEndsAndBufferingThereIsTheEnd() {
+        // the container says 1440 s but the PC's pipeline reached the real end at 1418.4 s
+        w.onStatus("ready", ended = true, endSecs = 1418.4)
+        observeAt(1_410_000, 1_440_000, buffering = true)
+        assertEquals(Action.Wait, w.decide(now), "8 s before the PC's end: still playing what it made")
+        observeAt(1_415_000, 1_440_000, buffering = false)
+        assertEquals(Action.Wait, w.decide(now), "playing the last seconds")
+        observeAt(1_415_500, 1_440_000, buffering = true)
+        assertEquals(Action.Ended, w.decide(now))
+    }
+
+    @Test
+    fun aSeekBackAfterTheEndPlaysAndCanEndAgain() {
+        observeAt(1_437_000, 1_440_000, buffering = true)
+        w.onTerminal()
+        assertEquals(Action.Ended, w.decide(now))
+        observeAt(1_200_000, 1_440_000, buffering = false) // the user seeks back
+        repeat(10) { observeAt(pos + 500, 1_440_000, buffering = false) }
+        assertEquals(Action.Wait, w.decide(now))
+        observeAt(1_437_500, 1_440_000, buffering = true)
+        w.onTerminal()
+        assertEquals(Action.Ended, w.decide(now))
+    }
+
+    @Test
+    fun aShortSeekDoesNotRenewOnTheBufferingThatFollows() {
+        // ±10 s inside the session's playlist is a plain Media3 seek; the PC may need a few seconds for it
+        run(5.0, playing = true)
+        pos += 10_000
+        run(8.0, playing = false)
+        assertEquals(Action.Wait, w.decide(now))
+        run(5.0, playing = true)
+        assertEquals(Action.Wait, w.decide(now))
+    }
+
     @Test
     fun aNewLoadForgetsThePendingTriggerButKeepsTheAttempts() {
         w.onTerminal()
