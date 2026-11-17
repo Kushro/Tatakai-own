@@ -94,7 +94,6 @@ import app.tatakai.next.player.providerSources
 import app.tatakai.next.player.resolveWebStream
 import app.tatakai.next.player.markDebrid
 import app.tatakai.next.player.resolvePick
-import app.tatakai.next.player.ShaderFallback
 import app.tatakai.next.player.PlaybackError
 import app.tatakai.next.player.decodesInHardware
 import app.tatakai.next.player.canSwitchToMpv
@@ -230,8 +229,14 @@ sealed interface PlayerNotice {
     /** BUG-059: libmpv showed no frame of this stream in time; it plays with Media3 (no shader upscaling). */
     data object SwitchedToMedia3 : PlayerNotice
 
-    /** BUG-043 / BUG-006: libmpv changed the shader preset by itself (too slow, or low battery). */
-    data class ShaderChanged(val kind: ShaderFallback) : PlayerNotice
+    /**
+     * 0.4.0 (worker D): the quality engine changed the enhancements by itself ([QualityUiState.lastEvent], filtered by
+     * [announceQualityEvent]); [QualityEvent.undoable] adds "Deshacer". Replaces the 0.3.x `ShaderChanged` notice.
+     */
+    data class Quality(val event: app.tatakai.next.player.QualityEvent) : PlayerNotice
+
+    /** 0.4.0 (worker D): the phone's frame generation stopped during playback ([reason] of kind FAILED). */
+    data class FrameGen(val reason: app.tatakai.next.framegen.FgUnavailableReason, val noInput: Boolean = false) : PlayerNotice
 
     /** BUG-038: the PC had closed the Link session; a new one continues at the same position. */
     data object LinkSessionRenewed : PlayerNotice
@@ -489,7 +494,6 @@ class PlayerViewModel(
     private var handledStartLoad = 0
 
     /** BUG-020 / BUG-042: silent decoder retries spent on [decodeRetryKey] (the flow attempt, or the direct source's URL). */
-    private var shaderNoticeSeq = 0
     private var decodeRetries = 0
     private var decodeRetryKey: String? = null
 
@@ -1062,7 +1066,21 @@ class PlayerViewModel(
         if (_state.value.loop) s.setLoop(true)
         session = s
         _state.update { it.copy(session = s) }
-        sessionJob = viewModelScope.launch { s.state.collect { onSessionState(it) } }
+        sessionJob = viewModelScope.launch {
+            // 0.4.0 (worker D): the quality engine's automatic changes, once per event of this session (QualityEvent.seq restarts
+            // with every session), as notices in the same style as the others. An event already there when the session is first
+            // collected belongs to it too (an 8K guard at load).
+            launch {
+                var seen = 0
+                s.quality.collect { q ->
+                    val e = q.lastEvent ?: return@collect
+                    if (e.seq <= seen) return@collect
+                    seen = e.seq
+                    if (announceQualityEvent(e)) _notices.trySend(PlayerNotice.Quality(e))
+                }
+            }
+            s.state.collect { onSessionState(it) }
+        }
         return s
     }
 
@@ -1083,12 +1101,6 @@ class PlayerViewModel(
     }
 
     private fun onSessionState(st: PlaybackState) {
-        st.shaderNotice?.let { n ->
-            if (n.seq != shaderNoticeSeq) {
-                shaderNoticeSeq = n.seq
-                _notices.trySend(PlayerNotice.ShaderChanged(n.kind))
-            }
-        }
         if (st.loadId != loadsIssued || loadsIssued == 0) return
         if (st.positionMs > 0) lastPositionMs = st.positionMs
         if (st.durationMs > 0) lastDurationMs = st.durationMs
@@ -1231,6 +1243,28 @@ class PlayerViewModel(
         return true
     }
 
+    // ---- 0.4.0 (worker D): in-player "Mejoras" panel ------------------------------------------------------------------------------
+
+    /**
+     * "Usar como predeterminado" of the panel: the preset / tier changed in the player (which last for this playback only) become
+     * Settings › Reproductor's defaults for the next playbacks.
+     */
+    fun saveQualityAsDefault(preset: String, tier: app.tatakai.next.model.QualityTier) {
+        val repo = settingsRepository ?: return
+        viewModelScope.launch {
+            runCatching {
+                repo.update {
+                    it.copy(playerPreset = app.tatakai.next.model.QualityPresets.sanitize(preset), playerQuality = it.playerQuality.copy(tier = tier))
+                }
+            }
+        }
+    }
+
+    /** A notice raised by the screen (phone frame generation lives in an app-wide controller the ViewModel does not hold). */
+    internal fun postNotice(notice: PlayerNotice) {
+        _notices.trySend(notice)
+    }
+
     /** Releases the engine session and loads [src] at [positionMs] in a new one of [engine] (speed kept). */
     private fun replaceSession(src: PlayableSource, positionMs: Long) {
         val speed = session?.state?.value?.speed
@@ -1250,7 +1284,6 @@ class PlayerViewModel(
         handledErrorLoad = 0
         handledStartLoad = 0
         secondaryDecidedLoad = -1
-        shaderNoticeSeq = 0
         _state.update { it.copy(session = null) }
     }
 

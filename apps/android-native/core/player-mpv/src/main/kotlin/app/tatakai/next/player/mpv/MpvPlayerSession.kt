@@ -20,9 +20,6 @@ import app.tatakai.next.framegen.FgController
 import app.tatakai.next.player.RemoteProcessingState
 import app.tatakai.next.framegen.FrameGenController
 import app.tatakai.next.model.SubtitleStyle
-import app.tatakai.next.player.QualityEvent
-import app.tatakai.next.player.QualityEventKind
-import app.tatakai.next.player.QualityReason
 import app.tatakai.next.player.QualityRequest
 import app.tatakai.next.player.QualityUiState
 import app.tatakai.next.player.mpv.quality.AssetShaderInstaller
@@ -43,8 +40,6 @@ import app.tatakai.next.player.SessionTicker
 import app.tatakai.next.player.MPV_OPEN_ERROR_CODE
 import app.tatakai.next.player.MPV_START_TIMEOUT_CODE
 import app.tatakai.next.player.MPV_START_TIMEOUT_MS
-import app.tatakai.next.player.ShaderFallback
-import app.tatakai.next.player.ShaderNotice
 import app.tatakai.next.player.SubtitleExtras
 import app.tatakai.next.player.SubtitleFonts
 import app.tatakai.next.player.SubtitleOption
@@ -125,7 +120,6 @@ class MpvPlayerSession(
         fp16 = FP16_ANIME4K,
     )
     private val thermal = ThermalWatcher(appContext, scope) { hot -> qualityController.onThermal(hot) }
-    private var noticeSeq = 0
     private var lastQualityEventSeq = 0
     private var monitorJob: Job? = null
     private var qualityEventsJob: Job? = null
@@ -148,22 +142,6 @@ class MpvPlayerSession(
         val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
         BatteryInfo(level * 100 / scale, charging)
     }.getOrNull()
-
-    /**
-     * 0.3.x notice compatibility: the two automatic changes the old governor announced (frame drops, low battery) still reach the
-     * existing [PlaybackState.shaderNotice] toast ("Anime4K no llega a tiempo real...", "Batería por debajo del 20 %...") while a chain
-     * was running, until the 0.4.0 player UI shows [QualityUiState.lastEvent] itself (its texts cover every reason).
-     */
-    private fun announceLegacy(e: QualityEvent) {
-        if (e.from.off || e.kind == QualityEventKind.RESTORED || e.kind == QualityEventKind.PRECISION_FALLBACK) return
-        val kind = when (e.reason) {
-            QualityReason.BATTERY_LOW -> ShaderFallback.OFF_BATTERY
-            QualityReason.FRAME_DROPS -> if (e.to.off) ShaderFallback.OFF_SLOW else ShaderFallback.LIGHTER
-            else -> return
-        }
-        noticeSeq++
-        _state.value = _state.value.copy(shaderNotice = ShaderNotice(noticeSeq, kind))
-    }
 
     /** Telemetry and frame drops every [FrameDropMonitor.SAMPLE_MS], battery every [BATTERY_CHECK_MS], while the session lives. */
     private fun startMonitor() {
@@ -208,8 +186,9 @@ class MpvPlayerSession(
                 val e = q.lastEvent ?: return@collect
                 if (e.seq == lastQualityEventSeq) return@collect
                 lastQualityEventSeq = e.seq
+                // 0.4.0 (worker D): the player shows QualityUiState.lastEvent itself (PlayerNotice.Quality); the 0.3.x shaderNotice
+                // toast it used to feed here is gone, so users never see both.
                 android.util.Log.i("mpv", "quality ${e.kind} (${e.reason}): ${e.from} -> ${e.to}")
-                announceLegacy(e)
             }
         }
         // 0.4.0 integration (A <-> B): the quality engine drops mpv cadence interpolation and keeps its chain sized for the

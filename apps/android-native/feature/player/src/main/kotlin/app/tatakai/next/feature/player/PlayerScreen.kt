@@ -211,6 +211,7 @@ private fun PlayerBody(
                 onBack = onBack,
                 onOpenPicker = { pickerOpen = true },
                 onOpenTorrent = onOpenTorrent,
+                onOpenSettings = onOpenSettings, // 0.4.0 (worker D): "Importar Lossless.dll" from the Mejoras panel
             ) }
             else -> StatusBody(vm, state, onOpenTorrent, onOpenExtensions, onOpenLinked, onPick = { pickerOpen = true })
         }

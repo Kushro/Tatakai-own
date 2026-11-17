@@ -11,4 +11,6 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     // android wave (12-android-wave-contract.md): libmpv engine + surface (worker d)
     implementation(projects.core.playerMpv)
+    // 0.4.0 (worker D): the phone frame generation state / commands the "Mejoras" panel draws (FrameGenController)
+    implementation(projects.core.framegen)
 }
