@@ -16,10 +16,16 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -58,10 +64,12 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.WideNavigationRailItem
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.navigation3.ListDetailSceneStrategy
 import androidx.compose.material3.adaptive.navigation3.rememberListDetailSceneStrategy
@@ -341,8 +349,12 @@ private fun AppShell(
         .firstNotNullOfOrNull { key -> (key as? Route)?.topLevel(wide)?.takeIf { it in destinations } }
     // parity wave B (16 §3.12): the manga / novel readers hide the nav like the player.
     val onPlayer = current is Route.Player || current is Route.MangaReader || current is Route.NovelReader
+    // Tablet landscape (824 dp tall, 13 destinations): the icons-only rail did not fit either, Perfil / Ajustes ended under the
+    // taskbar and the stock rail cannot scroll. The icons-only rail is drawn here instead ([ScrollableSlimRail]): it scrolls and
+    // keeps clear of the system bars.
+    val scrollRail = !onPlayer && slimRail
     val suiteType = when {
-        onPlayer -> NavigationSuiteType.None
+        onPlayer || scrollRail -> NavigationSuiteType.None
         wide -> NavigationSuiteType.WideNavigationRailCollapsed
         else -> NavigationSuiteType.ShortNavigationBarCompact
     }
@@ -398,21 +410,63 @@ private fun AppShell(
     ) {
         // The rail does not consume the bottom system inset (the bar does): the banner and snackbar add it themselves there.
         val bottomInsets = if (suiteType == NavigationSuiteType.ShortNavigationBarCompact) WindowInsets(0) else WindowInsets.navigationBars
-        Box(Modifier.fillMaxSize()) {
-            Column(Modifier.fillMaxSize()) {
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    AppNavDisplay(backStack, wide)
-                }
-                AnimatedVisibility(visible = showOffline, enter = expandVertically(), exit = shrinkVertically()) {
-                    OfflineBanner(Modifier.windowInsetsPadding(bottomInsets))
-                }
+        Row(Modifier.fillMaxSize()) {
+            if (scrollRail) {
+                ScrollableSlimRail(destinations, selectedTop, activeDownloads) { backStack.navigateTop(it) }
             }
-            AppSnackbarHost(
-                snackbar,
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .windowInsetsPadding(bottomInsets)
-                    .padding(bottom = if (showOffline) OFFLINE_BANNER_HEIGHT else 0.dp),
+            Box(Modifier.weight(1f).fillMaxHeight()) {
+                Column(Modifier.fillMaxSize()) {
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        AppNavDisplay(backStack, wide)
+                    }
+                    AnimatedVisibility(visible = showOffline, enter = expandVertically(), exit = shrinkVertically()) {
+                        OfflineBanner(Modifier.windowInsetsPadding(bottomInsets))
+                    }
+                }
+                AppSnackbarHost(
+                    snackbar,
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .windowInsetsPadding(bottomInsets)
+                        .padding(bottom = if (showOffline) OFFLINE_BANNER_HEIGHT else 0.dp),
+                )
+            }
+        }
+    }
+}
+
+/** Icons-only rail that scrolls when the destinations do not fit the window height (see `scrollRail`). */
+@Composable
+private fun ScrollableSlimRail(destinations: List<Route>, selected: Route?, activeDownloads: Int, onSelect: (Route) -> Unit) {
+    val badgeDescription = pluralStringResource(R.plurals.app_active_downloads, activeDownloads, activeDownloads)
+    Column(
+        Modifier
+            .fillMaxHeight()
+            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Vertical + WindowInsetsSides.Start))
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        destinations.forEach { route ->
+            val isSelected = route == selected
+            val label = stringResource(route.labelRes())
+            WideNavigationRailItem(
+                selected = isSelected,
+                onClick = { onSelect(route) },
+                icon = {
+                    if (activeDownloads > 0 && route is Route.Torrents) {
+                        BadgedBox(badge = {
+                            Badge(Modifier.semantics { contentDescription = badgeDescription }) {
+                                Text(if (activeDownloads > 99) "99+" else activeDownloads.toString())
+                            }
+                        }) { Icon(route.icon(isSelected), contentDescription = label) }
+                    } else {
+                        Icon(route.icon(isSelected), contentDescription = label)
+                    }
+                },
+                label = null,
+                railExpanded = false,
             )
         }
     }
@@ -454,8 +508,14 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
     // List-detail on expanded windows: Search/Library are list panes, Details the detail pane.
     // BUG-045: two panes only when the window really is wide and tall enough (read from the configuration, which follows rotation at
     // once); a phone in portrait showed Search + a ~510 px Details with the title split letter by letter.
+    // Tablet landscape (Galaxy Tab S9+, 1318 dp): a list pane alone (Library, Search, Calendar...) got half the width and an empty
+    // detail pane beside it, so the screen looked like a phone in portrait. Two panes only while a detail is open next to its list.
     val config = LocalConfiguration.current
-    val twoPanes = config.screenWidthDp >= TWO_PANE_MIN_WIDTH_DP && config.screenHeightDp >= RAIL_MIN_HEIGHT_DP
+    val detailOnTop = when (backStack.lastOrNull()) {
+        is Route.Details, is Route.Character, is Route.ProviderItem, is Route.NovelDetails, is Route.ActivityThread -> true
+        else -> false
+    }
+    val twoPanes = detailOnTop && config.screenWidthDp >= TWO_PANE_MIN_WIDTH_DP && config.screenHeightDp >= RAIL_MIN_HEIGHT_DP
     val defaultDirective = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo())
     val directive = remember(defaultDirective, twoPanes) {
         defaultDirective.copy(maxHorizontalPartitions = if (twoPanes) defaultDirective.maxHorizontalPartitions.coerceAtMost(2) else 1)
