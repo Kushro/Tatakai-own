@@ -24,6 +24,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,7 +56,6 @@ import androidx.media3.common.util.UnstableApi
 import app.tatakai.next.designsystem.theme.TatakaiFonts
 import app.tatakai.next.model.SkipKind
 import app.tatakai.next.model.SubtitleStyle
-import app.tatakai.next.player.ShaderFallback
 import app.tatakai.next.player.FailKind
 import app.tatakai.next.ui.format.formatBytes
 import app.tatakai.next.ui.format.formatRate
@@ -117,15 +117,22 @@ internal fun BufferingOverlay(state: PlayerUiState, modifier: Modifier = Modifie
 internal fun hasBufferingText(state: PlayerUiState): Boolean =
     state.torrent != null || state.phase == PlayerPhase.RESOLVING || !state.remoteless
 
-/** Short confirmation over the video ("Intro skipped", "Trying another source"); disappears by itself. */
+/**
+ * Short confirmation over the video ("Intro skipped", "Trying another source"); disappears by itself. 0.4.0 (worker D): the quality
+ * engine's automatic changes and the phone frame generation's failures use it too (one style for every notice), with "Deshacer"
+ * ([onUndo]) after an undoable frame-drop step-down.
+ */
 @Composable
-internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modifier = Modifier) {
+internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modifier = Modifier, onUndo: (() -> Unit)? = null) {
     LaunchedEffect(notice) {
         delay(
             when (notice) {
                 PlayerNotice.AssSimplified, is PlayerNotice.StoredSourceIgnored, PlayerNotice.PretranslateUnavailable, PlayerNotice.SwitchedToMpv,
                 PlayerNotice.SwitchedToMedia3, PlayerNotice.LinkSessionRenewed, PlayerNotice.LinkProfileRetried,
-                is PlayerNotice.LinkPhoneCannotPlay, is PlayerNotice.LinkPreferredReplaced, is PlayerNotice.Processing -> 5_000
+                is PlayerNotice.LinkPhoneCannotPlay, is PlayerNotice.LinkPreferredReplaced, is PlayerNotice.Processing,
+                is PlayerNotice.FrameGen -> 5_000
+                // long enough to reach "Deshacer"
+                is PlayerNotice.Quality -> if (notice.event.undoable) 7_000 else 5_000
                 is PlayerNotice.LinkProfile -> if (notice.result is LinkProfileResult.Failed) 5_000 else FLASH_MS
                 is PlayerNotice.ScreenshotSaved -> 4_000
                 else -> FLASH_MS
@@ -153,12 +160,10 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
         PlayerNotice.PretranslateUnavailable -> stringResource(R.string.player_pretranslate_unavailable)
         PlayerNotice.SwitchedToMpv -> stringResource(R.string.player_switched_to_mpv)
         PlayerNotice.SwitchedToMedia3 -> stringResource(R.string.player_switched_to_media3)
-        is PlayerNotice.ShaderChanged -> stringResource(
-            when (notice.kind) {
-                ShaderFallback.LIGHTER -> R.string.player_shader_lighter
-                ShaderFallback.OFF_SLOW -> R.string.player_shader_off_slow
-                ShaderFallback.OFF_BATTERY -> R.string.player_shader_off_battery
-            },
+        is PlayerNotice.Quality -> qualityEventText(notice.event)
+        is PlayerNotice.FrameGen -> stringResource(
+            R.string.player_fg_notice,
+            stringResource(app.tatakai.next.framegen.FrameGenText.reason(notice.reason, notice.noInput)),
         )
         PlayerNotice.LinkSessionRenewed -> stringResource(R.string.player_link_renewed)
         is PlayerNotice.LinkProfile -> stringResource(linkProfileText(notice.result))
@@ -172,13 +177,39 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
     }
     val failed = (notice is PlayerNotice.LinkProfile && notice.result is LinkProfileResult.Failed) || notice is PlayerNotice.LinkPhoneCannotPlay ||
         (notice is PlayerNotice.Processing && (notice.failure != null || notice.block != null))
+    val warning = notice is PlayerNotice.FrameGen ||
+        (notice is PlayerNotice.Quality && notice.event.kind != app.tatakai.next.player.QualityEventKind.RESTORED)
+    val undo = onUndo?.takeIf { notice is PlayerNotice.Quality && notice.event.undoable }
     val scheme = MaterialTheme.colorScheme
     Surface(modifier.widthIn(max = 560.dp).padding(horizontal = 16.dp), shape = RoundedCornerShape(50), color = scheme.inverseSurface, contentColor = scheme.inverseOnSurface) {
-        Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
-            Icon(if (failed) Icons.Rounded.ErrorOutline else Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-            Text(text, style = MaterialTheme.typography.labelLarge)
+        Row(
+            Modifier.padding(start = 16.dp, end = if (undo != null) 4.dp else 16.dp, top = 10.dp, bottom = 10.dp),
+            Arrangement.spacedBy(8.dp),
+            Alignment.CenterVertically,
+        ) {
+            Icon(
+                when {
+                    failed -> Icons.Rounded.ErrorOutline
+                    warning -> Icons.Rounded.WarningAmber
+                    else -> Icons.Rounded.Check
+                },
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(text, style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f, fill = false))
+            if (undo != null) {
+                TextButton(onClick = undo) { Text(stringResource(app.tatakai.next.player.R.string.quality_undo), color = scheme.inversePrimary) }
+            }
         }
     }
+}
+
+/** The notice text of a quality engine event: the reason of a step-down / suspension, "Volvió la calidad elegida" on a restore. */
+@Composable
+internal fun qualityEventText(e: app.tatakai.next.player.QualityEvent): String = when (e.kind) {
+    app.tatakai.next.player.QualityEventKind.RESTORED -> stringResource(app.tatakai.next.player.R.string.quality_event_restored)
+    app.tatakai.next.player.QualityEventKind.PRECISION_FALLBACK -> stringResource(app.tatakai.next.player.R.string.quality_event_precision)
+    else -> stringResource(e.reason.labelRes)
 }
 
 /** BUG-131: the notice of each way a Link profile change ends. */

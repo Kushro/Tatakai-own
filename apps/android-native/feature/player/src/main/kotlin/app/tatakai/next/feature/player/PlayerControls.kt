@@ -3,8 +3,7 @@
 
 package app.tatakai.next.feature.player
 
-import androidx.compose.foundation.verticalScroll
-import app.tatakai.next.feature.link.ProfileList
+import app.tatakai.next.framegen.FgUnavailableReason
 import androidx.compose.material.icons.rounded.AutoAwesome
 import android.app.Activity
 import android.app.PictureInPictureParams
@@ -164,7 +163,9 @@ import org.koin.compose.getKoin
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private enum class Sheet { Quality, Subtitles, Audio, Speed, More, Episodes, LinkProfile }
+// 0.4.0 (worker D): Enhancements = the "Mejoras" panel (EnhancementPanel.kt); it replaces the BUG-022 "Perfil de mejora" sheet (the
+// PC's profiles are one of its sections).
+private enum class Sheet { Quality, Subtitles, Audio, Speed, More, Episodes, Enhancements }
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
 
@@ -181,6 +182,8 @@ internal fun PlayerContent(
     onBack: () -> Unit,
     onOpenPicker: () -> Unit,
     onOpenTorrent: (String) -> Unit,
+    /** 0.4.0 (worker D): the panel's "Importar Lossless.dll" (Settings › Reproductor holds the phone FG section). */
+    onOpenSettings: (app.tatakai.next.model.SettingsSection) -> Unit = {},
 ) {
     val ps by session.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -208,6 +211,31 @@ internal fun PlayerContent(
     val focus = remember { FocusRequester() }
     val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::loadSubtitleFile) }
     val episodeForShot = if (state.remoteless) vm.episodeNumber else null
+    // ---- 0.4.0 (worker D): what is enhanced and where. `session.quality` is per session (a new one after every engine / location
+    // switch): collecting the session's flow follows it. Phone frame generation is app-wide and only exists on libmpv.
+    val quality by session.quality.collectAsStateWithLifecycle()
+    val processing by vm.processing.collectAsStateWithLifecycle()
+    val frameGen = remember(session) { (session as? MpvPlayerSession)?.frameGen }
+    val fgState = frameGen?.state?.collectAsStateWithLifecycle()?.value
+    var statsVisible by rememberSaveable { mutableStateOf(false) }
+    val chip = enhancementChip(
+        location = processing.location,
+        switchingTo = processing.switchingTo,
+        pc = processing.pc,
+        quality = quality,
+        phoneFgMultiplier = fgState?.takeIf { it.active }?.multiplier,
+        phoneFgProblem = fgState?.let { it.enabled && it.unavailable != null && it.unavailable?.kind != FgUnavailableReason.Kind.SUSPENDED } == true,
+    )
+    // FG failing in the middle of a video gets a notice (the card says it too); ineligibility is only shown in the panel.
+    LaunchedEffect(frameGen) {
+        val fg = frameGen ?: return@LaunchedEffect
+        var last = fg.state.value.unavailable
+        fg.state.collect { s ->
+            val r = s.unavailable
+            if (r != last && r?.kind == FgUnavailableReason.Kind.FAILED && s.enabled) vm.postNotice(PlayerNotice.FrameGen(r, s.noInputTimeout))
+            last = r
+        }
+    }
     fun screenshot() {
         scope.launch { vm.onScreenshot(captureScreenshot(activity, session, vm.titleForFiles, episodeForShot)?.displayPath) }
     }
@@ -286,6 +314,9 @@ internal fun PlayerContent(
         host?.addOnPictureInPictureModeChangedListener(listener)
         onDispose { host?.removeOnPictureInPictureModeChangedListener(listener) }
     }
+    // 0.4.0 (worker D): the quality engine caps the tier in PiP and the phone FG pauses there (MpvPlayerSession.setPictureInPicture).
+    // Keyed on the session too, so a session made by a switch while in PiP hears it.
+    LaunchedEffect(inPip, session) { session.setPictureInPicture(inPip) }
     // Android 12+: leave to PiP automatically while playing.
     LaunchedEffect(ps.isPlaying, activity) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -360,7 +391,28 @@ internal fun PlayerContent(
             if (state.linkProfileChanging && hud == null) {
                 LinkProfileChangingPill(Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 16.dp))
             }
-            flash?.let { FlashToast(it, onFlashDone, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp)) }
+            // 0.4.0 (worker D): a "Procesar en" switch runs: visible with the controls hidden too, with Cancel
+            processing.switchingTo?.let { to ->
+                if (hud == null && !state.linkProfileChanging) {
+                    ProcessingSwitchPill(to, onCancel = vm::cancelProcessingSwitch, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 16.dp))
+                }
+            }
+            if (statsVisible) {
+                EnhancementStatsOverlay(
+                    quality = quality,
+                    processing = processing,
+                    fgState = fgState,
+                    modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 16.dp, top = if (controlsVisible || keepUp) 112.dp else 16.dp),
+                )
+            }
+            flash?.let {
+                FlashToast(
+                    it,
+                    onFlashDone,
+                    Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp),
+                    onUndo = { session.undoAutoDowngrade(); onFlashDone() },
+                )
+            }
 
             val skip = state.markers.skipAt(ps.positionMs / 1000.0)
             if (skip != null && ps.started) {
@@ -399,6 +451,7 @@ internal fun PlayerContent(
                     onScreenshot = { screenshot() },
                     onToggleFullscreen = { fullscreen = !fullscreen },
                     onHelp = { helpOpen = true },
+                    enhancementChip = chip,
                 )
             }
             state.translation.progress?.let { p ->
@@ -412,9 +465,25 @@ internal fun PlayerContent(
         }
     }
 
-    sheet?.let { kind ->
-        // BUG-131: the profile list opens whole (half open in landscape it showed two rows and cut the rest at the screen edge)
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = kind == Sheet.LinkProfile)
+    if (sheet == Sheet.Enhancements) {
+        EnhancementSheet(onDismiss = { sheet = null }) {
+            EnhancementPanel(
+                vm = vm,
+                session = session,
+                state = state,
+                quality = quality,
+                processing = processing,
+                fg = frameGen,
+                fgState = fgState,
+                statsVisible = statsVisible,
+                onStatsChange = { statsVisible = it },
+                onOpenFgSettings = { sheet = null; session.pause(); onOpenSettings(app.tatakai.next.model.SettingsSection.PLAYER) },
+                onClose = { sheet = null },
+            )
+        }
+    }
+    sheet?.takeIf { it != Sheet.Enhancements }?.let { kind ->
+        val sheetState = rememberModalBottomSheetState()
         ModalBottomSheet(onDismissRequest = { sheet = null }, sheetState = sheetState) {
             when (kind) {
                 Sheet.Quality -> {
@@ -436,32 +505,7 @@ internal fun PlayerContent(
                 Sheet.Audio -> ps.audioTracks.forEach { a ->
                     SheetRow(a.label, a.selected) { session.selectAudio(a.id); sheet = null }
                 }
-                Sheet.LinkProfile -> {
-                    Text(
-                        stringResource(R.string.player_link_profile),
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                    )
-                    Text(
-                        stringResource(R.string.player_link_profile_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 24.dp),
-                    )
-                    Box(Modifier.padding(horizontal = 12.dp).verticalScroll(rememberScrollState())) {
-                        // 0.4.0 (worker C): grouped and filtered like the Linked screen (only "Solo escalado" in Mixto)
-                        val groups = vm.processing.collectAsStateWithLifecycle().value.profileGroups
-                        if (groups.isNotEmpty()) {
-                            app.tatakai.next.feature.link.GroupedProfileList(
-                                groups = groups,
-                                selected = state.linkProfile.orEmpty(),
-                                groupLabel = { stringResource(linkProfileGroupLabel(it)) },
-                            ) { id -> sheet = null; vm.setLinkProfile(id) }
-                        } else {
-                            ProfileList(state.linkProfiles, selected = state.linkProfile.orEmpty(), unavailable = state.linkUnsupported, mayDropFrames = state.linkMayDropFrames) { id -> sheet = null; vm.changeLinkProfile(id) }
-                        }
-                    }
-                }
+                Sheet.Enhancements -> Unit // EnhancementSheet above
                 Sheet.Speed -> SPEEDS.forEach { sp ->
                     SheetRow(stringResource(R.string.player_speed_value, speedText(sp)), ps.speed == sp) { session.setSpeed(sp); sheet = null }
                 }
@@ -492,6 +536,19 @@ private fun LinkProfileChangingPill(modifier: Modifier) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
             CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
             Text(stringResource(R.string.player_link_profile_changing), style = MaterialTheme.typography.labelLarge, maxLines = 1)
+        }
+    }
+}
+
+/** 0.4.0 (worker D): "Cambiando a la PC…" while a "Procesar en" switch runs (the video keeps playing where it was), with Cancel. */
+@Composable
+private fun ProcessingSwitchPill(to: app.tatakai.next.model.ProcessingLocation, onCancel: () -> Unit, modifier: Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(modifier, shape = RoundedCornerShape(50), color = scheme.surfaceContainerHigh.copy(alpha = 0.9f), contentColor = scheme.onSurface) {
+        Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            Text(chipLabel(EnhancementChip.Switching(to), rememberChipWords()), style = MaterialTheme.typography.labelLarge, maxLines = 1)
+            androidx.compose.material3.TextButton(onClick = onCancel) { Text(stringResource(R.string.player_fx_switch_cancel)) }
         }
     }
 }
@@ -638,6 +695,7 @@ private fun Controls(
     onScreenshot: () -> Unit,
     onToggleFullscreen: () -> Unit,
     onHelp: () -> Unit,
+    enhancementChip: EnhancementChip,
 ) {
     val scheme = MaterialTheme.colorScheme
     val on = scheme.onBackground
@@ -651,6 +709,8 @@ private fun Controls(
         val hasKeyboard = LocalConfiguration.current.keyboard != Configuration.KEYBOARD_NOKEYS
         val chips: @Composable () -> Unit = {
             Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
+                // 0.4.0 (worker D): what is enhanced and where, first so it never scrolls out of sight; opens "Mejoras"
+                EnhancementStatusChip(enhancementChip, onClick = { onOpenSheet(Sheet.Enhancements) })
                 state.current?.let { cur ->
                     val (n, total) = state.position ?: (1 to 1)
                     AssistChip(
@@ -732,14 +792,12 @@ private fun Controls(
                                     onClick = { menu = false; onOpenSheet(Sheet.Episodes) },
                                     leadingIcon = { Icon(Icons.Rounded.FormatListNumbered, contentDescription = null) },
                                 )
-                            } else if (state.linkProfiles.isNotEmpty()) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.player_link_profile)) },
-                                    onClick = { menu = false; onOpenSheet(Sheet.LinkProfile) },
-                                    enabled = !state.linkProfileChanging,
-                                    leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
-                                )
                             }
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.player_fx_title)) },
+                                onClick = { menu = false; onOpenSheet(Sheet.Enhancements) },
+                                leadingIcon = { Icon(Icons.Rounded.AutoAwesome, contentDescription = null) },
+                            )
                             if (hasKeyboard) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.player_shortcuts)) },
@@ -755,13 +813,9 @@ private fun Controls(
                     IconButton(onClick = onScreenshot, enabled = ps.started) { Icon(Icons.Rounded.PhotoCamera, stringResource(R.string.player_screenshot), tint = on) }
                     if (state.remoteless) {
                         IconButton(onClick = { onOpenSheet(Sheet.Episodes) }) { Icon(Icons.Rounded.FormatListNumbered, stringResource(R.string.player_episodes), tint = on) }
-                    } else if (state.linkProfiles.isNotEmpty()) {
-                        // BUG-022: change the PC's enhancement profile without leaving the player
-                        IconButton(onClick = { onOpenSheet(Sheet.LinkProfile) }, enabled = !state.linkProfileChanging) {
-                            // the explicit tint hid the disabled state: dimmed while a change runs (BUG-131)
-                            Icon(Icons.Rounded.AutoAwesome, stringResource(R.string.player_link_profile), tint = if (state.linkProfileChanging) on.copy(alpha = 0.38f) else on)
-                        }
                     }
+                    // BUG-022 / 0.4.0: the PC's profiles, local enhancements and frame generation all live in "Mejoras"
+                    IconButton(onClick = { onOpenSheet(Sheet.Enhancements) }) { Icon(Icons.Rounded.AutoAwesome, stringResource(R.string.player_fx_title), tint = on) }
                     if (hasKeyboard) IconButton(onClick = onHelp) { Icon(Icons.Rounded.Keyboard, stringResource(R.string.player_shortcuts), tint = on) }
                     pipAndFullscreen()
                 }
