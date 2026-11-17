@@ -649,6 +649,10 @@ class LinkRepositoryImpl(
                 )
             },
             subtitlesState = dto.subtitlesState,
+            ended = dto.ended,
+            endSecs = dto.endSecs?.takeIf { it.isFinite() && it >= 0 },
+            producedFromSecs = dto.produced?.fromSecs?.takeIf { it.isFinite() && it >= 0 },
+            producedToSecs = dto.produced?.toSecs?.takeIf { it.isFinite() && it >= 0 },
         )
 
         /**
