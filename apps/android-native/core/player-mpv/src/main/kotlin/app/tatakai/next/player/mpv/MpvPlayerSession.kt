@@ -209,8 +209,13 @@ class MpvPlayerSession(
                 qualityController.onVideoSize(m.videoWidth, m.videoHeight)
                 qualityController.onViewport(m.surfaceWidth, m.surfaceHeight)
                 val prev = _state.value
+                // 0.4.0 (sub-translation): in-file tracks keep demuxer (container) order in track-list; `sub-add` ones are external.
+                var embedded = 0
                 val subs = m.subtitles.map { t ->
-                    SubtitleOption(t.id, t.title ?: t.lang ?: "#${t.id}", t.lang, t.selected, ass = t.codec?.lowercase() in ASS_CODECS)
+                    SubtitleOption(
+                        t.id, t.title ?: t.lang ?: "#${t.id}", t.lang, t.selected, ass = t.codec?.lowercase() in ASS_CODECS,
+                        codec = t.codec, embeddedOrdinal = if (t.external) null else embedded++,
+                    )
                 }
                 _state.value = prev.copy(
                     loadId = m.loadId,

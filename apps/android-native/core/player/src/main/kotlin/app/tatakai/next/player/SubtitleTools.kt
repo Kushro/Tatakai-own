@@ -81,6 +81,39 @@ class SubtitleTools(context: Context, private val client: OkHttpClient) {
     /** Translator of [config] on the player's HTTP client. Throws [TranslationException] for missing fields. */
     fun translator(config: TranslatorConfig): SubtitleTranslator = SubtitleTranslators.create(config, client)
 
+    /**
+     * 0.4.0 (sub-translation): random access to the playing file for [EmbeddedSubtitleExtractor]. [torrentRanges] = the downloaded
+     * parts of a torrent file as fractions 0..1 (`TorrentRepository.seekMarks`), null when the file is complete / not a torrent.
+     * Null for streaming manifests (HLS / DASH: see [HlsSubtitles]) and unknown schemes.
+     */
+    fun mediaSource(url: String, headers: Map<String, String>, torrentRanges: (() -> List<ClosedFloatingPointRange<Double>>)?): MediaByteSource? {
+        val lower = url.lowercase().substringBefore('?')
+        if (lower.endsWith(".m3u8") || lower.endsWith(".mpd")) return null
+        val availability: ((Long) -> List<LongRange>?)? = torrentRanges?.let { marks -> { length: Long -> TorrentByteRanges.of(marks(), length) } }
+        return when {
+            url.startsWith("/") || url.startsWith("file:") -> {
+                val path = if (url.startsWith("/")) url else Uri.parse(url).path ?: return null
+                val raf = runCatching { java.io.RandomAccessFile(path, "r") }.getOrNull() ?: return null
+                ChannelByteSource(raf.channel, raf, availability?.let { a -> { a(raf.length()) } })
+            }
+            url.startsWith("content:") -> {
+                val pfd = runCatching { appContext.contentResolver.openFileDescriptor(Uri.parse(url), "r") }.getOrNull() ?: return null
+                val channel = java.io.FileInputStream(pfd.fileDescriptor).channel
+                ChannelByteSource(channel, pfd, availability?.let { a -> { a(pfd.statSize) } })
+            }
+            url.startsWith("http://") || url.startsWith("https://") -> {
+                val host = Uri.parse(url).host.orEmpty()
+                val loopback = host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "[::1]"
+                HttpByteSource(client, url, headers, remote = !loopback, availability = availability)
+            }
+            else -> null
+        }
+    }
+
+    /** 0.4.0 (sub-translation): cues of the HLS subtitle rendition the player selected; null when the stream has none. */
+    suspend fun hlsSubtitles(masterUrl: String, headers: Map<String, String>, want: EmbeddedTrackRef): List<TimedCue>? =
+        HlsSubtitles.fetch(client, masterUrl, headers, want)
+
     fun displayName(uri: Uri): String? =
         runCatching {
             appContext.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
@@ -91,6 +124,18 @@ class SubtitleTools(context: Context, private val client: OkHttpClient) {
     companion object {
         const val MAX_SUBTITLE_BYTES = 8L * 1024 * 1024
         const val MAX_PARSED_TRACKS = 12
+    }
+}
+
+/** 0.4.0 (sub-translation): torrent piece fractions -> byte ranges that are fully downloaded (rounded inwards). Pure. */
+object TorrentByteRanges {
+    fun of(fractions: List<ClosedFloatingPointRange<Double>>, length: Long): List<LongRange> {
+        if (length <= 0) return emptyList()
+        return fractions.mapNotNull { r ->
+            val start = kotlin.math.ceil(r.start.coerceIn(0.0, 1.0) * length).toLong()
+            val endExclusive = if (r.endInclusive >= 1.0) length else kotlin.math.floor(r.endInclusive.coerceIn(0.0, 1.0) * length).toLong()
+            if (endExclusive > start) start until endExclusive else null
+        }.sortedBy { it.first }
     }
 }
 

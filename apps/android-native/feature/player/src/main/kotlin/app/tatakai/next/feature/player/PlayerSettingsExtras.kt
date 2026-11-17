@@ -463,6 +463,7 @@ private fun TranslationRows(settings: AppSettings, onUpdate: ((AppSettings) -> A
     var testResult by remember(t) { mutableStateOf<String?>(null) }
     var testFailed by remember(t) { mutableStateOf(false) }
     val missingKeyText = stringResource(R.string.player_settings_test_missing)
+    val rateLimitedText = stringResource(R.string.player_settings_test_rate_limited) // 0.4.0 (sub-translation)
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         FilledTonalButton(
             enabled = tools != null && !testing,
@@ -486,7 +487,13 @@ private fun TranslationRows(settings: AppSettings, onUpdate: ((AppSettings) -> A
                     testResult = result.fold(
                         onSuccess = { it },
                         onFailure = { e ->
-                            if (e is TranslationException && e.kind != TranslationException.Kind.HTTP && e.kind != TranslationException.Kind.FORMAT) missingKeyText else (e.message ?: e.javaClass.simpleName)
+                            if (e is TranslationException && e.kind == TranslationException.Kind.RATE_LIMITED) {
+                                rateLimitedText
+                            } else if (e is TranslationException && e.kind != TranslationException.Kind.HTTP && e.kind != TranslationException.Kind.FORMAT) {
+                                missingKeyText
+                            } else {
+                                e.message ?: e.javaClass.simpleName
+                            }
                         },
                     )
                 }

@@ -208,7 +208,10 @@
     <string name="player_pretranslate_skip">Reproducir ya</string>
     <string name="player_pretranslate_done">Subtítulos traducidos</string>
     <string name="player_pretranslate_done_failed">Subtítulos traducidos (%1$d líneas fallaron y se traducirán en vivo)</string>
-    <string name="player_pretranslate_unavailable">La pretraducción necesita una pista externa o un archivo cargado; esta se traduce en vivo.</string>
+    <string name="player_pretranslate_unavailable">No se pudo leer el texto completo de esta pista; se traduce en vivo.</string>
+    <string name="player_translation_rate_limited_google">Google limitó las traducciones; reintento en %1$d s</string>
+    <string name="player_translation_rate_limited">El servicio de traducción limitó las solicitudes; reintento en %1$d s</string>
+    <string name="player_translation_image_subs">Esta pista de subtítulos es de imágenes (PGS o VobSub) y no se puede traducir. Elige una pista de texto.</string>
     <string name="player_translation_failed">Falló la traducción: %1$s</string>
     <string name="player_shortcuts">Atajos de teclado</string>
     <string name="player_shortcuts_close">Cerrar</string>
@@ -280,6 +283,7 @@
     <string name="player_settings_testing">Probando…</string>
     <string name="player_settings_test_ok">Bien: %1$s</string>
     <string name="player_settings_test_failed">Falló: %1$s</string>
+    <string name="player_settings_test_rate_limited">el servicio limitó las solicitudes; prueba otra vez en un minuto</string>
     <string name="player_settings_test_missing">Completa la clave, URL o región que necesita este motor</string>
     <string name="player_settings_cache">Caché de traducciones</string>
     <string name="player_settings_cache_size">%1$s en uso</string>

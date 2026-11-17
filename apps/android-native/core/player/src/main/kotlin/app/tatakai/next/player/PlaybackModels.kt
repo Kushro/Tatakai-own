@@ -55,6 +55,11 @@ data class SubtitleOption(
     val ass: Boolean = false,
     /** parity wave A (worker p): index into [PlayableSource.subtitles] when this track is an external (sidecar) file, else null. */
     val external: Int? = null,
+    // --- 0.4.0 (sub-translation worker): lets the translator read the full cue list of an embedded track ---
+    /** Codec / mime as the engine reports it (mpv `subrip` / `ass` / `hdmv_pgs_subtitle`, Media3 `text/x-ssa` / `application/pgs`). */
+    val codec: String? = null,
+    /** Position among the subtitle tracks stored in the media file itself (container order); null for added / sidecar tracks. */
+    val embeddedOrdinal: Int? = null,
 )
 
 /** One audio track ([id] = Media3 track group index, mpv `aid`). */
