@@ -2,4 +2,26 @@
 <!-- parity wave A (docs/redesign/15 §2, worker p): notification channel of PlaybackService. -->
 <resources>
     <string name="player_service_channel">Playback</string>
+    <!-- 0.4.0 quality engine (worker A): why the effective quality differs from the requested one (QualityReason). -->
+    <string name="quality_reason_renderer">Needs the Vulkan renderer, not available in this build</string>
+    <string name="quality_reason_shader_error">A shader failed on this GPU: upscaling is off for this video</string>
+    <string name="quality_reason_8k">8K video: no upscaling or deband</string>
+    <string name="quality_reason_4k">4K video: no upscaling needed on this screen</string>
+    <string name="quality_reason_remote">On the PC: the phone shows the video as the PC sends it</string>
+    <string name="quality_reason_frame_gen">Frame generation is on: smoothing is off</string>
+    <string name="quality_reason_battery">Battery at 20 % or less: upscaling, deband and smoothing off until it charges</string>
+    <string name="quality_reason_thermal">The phone is hot: one quality step lower</string>
+    <string name="quality_reason_drops">Too many dropped frames: lower quality</string>
+    <string name="quality_reason_pip">Picture-in-picture: fastest quality</string>
+    <string name="quality_reason_viewport">The video already fills the screen: no upscaling needed</string>
+    <string name="quality_reason_pending">Waiting for the video size</string>
+    <!-- 0.4.0 quality engine: shared texts for the in-player UI (worker D) -->
+    <string name="quality_event_restored">Back to the chosen quality</string>
+    <string name="quality_event_precision">Shaders switched to full precision on this GPU</string>
+    <string name="quality_undo">Undo</string>
+    <string name="quality_not_on_media3">Not available on Media3</string>
+    <string name="quality_switch_to_mpv">Switch to MPV</string>
+    <string name="quality_where_phone">On the phone</string>
+    <string name="quality_where_pc">On the PC</string>
+    <string name="quality_smoothing_not_fg">Not real frame generation</string>
 </resources>
