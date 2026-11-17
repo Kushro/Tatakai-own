@@ -385,8 +385,8 @@ class FgController(
     pausedForCache = false
     seeking = false
     videoEightK = false
-    remote = false
-    inPip = false
+    // `remote` (Link, onRemote) and `inPip` (player UI, onPip) are kept: their owners may set them before the next session
+    // binds and reset them themselves.
     publish()
   }
 

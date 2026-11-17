@@ -2,7 +2,8 @@
 #
 # Tatakai Next 0.4.0: phone frame generation (LSFG) native library, libtatakai_fg.so.
 # Ported from Enigmata app/src/main/cpp/CMakeLists.txt (only the FG part, `libenigmata_fg.so` renamed); the targets,
-# source lists, definitions and link options are the same.
+# source lists and definitions are the same; the release options apply to every non-Debug config (AGP's release is
+# RelWithDebInfo, so Enigmata's `$<CONFIG:Release>` never matched) and the library is stripped at link time.
 #
 # - ABIs: only arm64-v8a and x86_64. On the 32-bit ABIs nothing below is built, System.loadLibrary("tatakai_fg") fails
 #   and FgNative.isAvailable() is false: the controller reports FgUnavailableReason.ABI.
@@ -18,16 +19,19 @@ cmake_minimum_required(VERSION 3.22.1)
 project("tatakai_fg" C CXX)
 
 set(TFG_RELEASE_COMPILE_OPTIONS
-    "$<$<CONFIG:Release>:-ffunction-sections>"
-    "$<$<CONFIG:Release>:-fdata-sections>"
-    "$<$<CONFIG:Release>:-fvisibility=hidden>"
+    "$<$<NOT:$<CONFIG:Debug>>:-ffunction-sections>"
+    "$<$<NOT:$<CONFIG:Debug>>:-fdata-sections>"
+    "$<$<NOT:$<CONFIG:Debug>>:-fvisibility=hidden>"
 )
 
 set(TFG_LINK_OPTIONS
     "-Wl,-z,max-page-size=16384"
-    "$<$<CONFIG:Release>:-Wl,-O1>"
-    "$<$<CONFIG:Release>:-Wl,--gc-sections>"
-    "$<$<CONFIG:Release>:-Wl,--icf=safe>"
+    "$<$<NOT:$<CONFIG:Debug>>:-Wl,-O1>"
+    "$<$<NOT:$<CONFIG:Debug>>:-Wl,--gc-sections>"
+    "$<$<NOT:$<CONFIG:Debug>>:-Wl,--icf=safe>"
+    # Tatakai: AGP builds the release variant as RelWithDebInfo (-g) and strips in the app's packaging only when the app
+    # module finds its NDK; strip here so the APK never carries the ~18 MB of DWARF (1.2 MB stripped per ABI).
+    "$<$<NOT:$<CONFIG:Debug>>:-Wl,--strip-all>"
 )
 
 if(ANDROID_ABI STREQUAL "arm64-v8a" OR ANDROID_ABI STREQUAL "x86_64")
