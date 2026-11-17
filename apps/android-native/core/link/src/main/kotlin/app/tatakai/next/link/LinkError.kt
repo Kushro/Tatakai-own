@@ -21,7 +21,7 @@ inline fun <T, R> LinkResult<T>.map(transform: (T) -> R): LinkResult<R> =
     }
 
 /**
- * The 26 error codes of contracts/link/openapi.v1.json (`x-errors`) with their HTTP status. A response whose code and status do not
+ * The 27 error codes of contracts/link/openapi.v1.json (`x-errors`) with their HTTP status. A response whose code and status do not
  * match one row is [LinkError.Unexpected], never one of these. [m0] = produced by the M0 server.
  */
 enum class LinkApiError(val code: String, val httpStatus: Int, val m0: Boolean = true) {
@@ -51,6 +51,12 @@ enum class LinkApiError(val code: String, val httpStatus: Int, val m0: Boolean =
     UrlSourceDenied("url_source_denied", 403),
     ExtensionUnavailable("extension_unavailable", 422, m0 = false),
     HandoffRejected("handoff_rejected", 409, m0 = false),
+
+    /**
+     * 0.4.1: the PC cannot produce this segment / init any more (its engine failed, or stalled and its automatic restarts ran out).
+     * Terminal for the session: the phone opens it again at the current position (`source:{kind:"session"}`). Older PCs never send it.
+     */
+    SegmentUnavailable("segment_unavailable", 410),
     ;
 
     companion object {

@@ -20,7 +20,7 @@ class LinkErrorTableTest {
     fun enumMatchesTheOpenApiCatalog() {
         val spec = Json.parseToJsonElement(contractFile("link/openapi.v1.json").readText()).jsonObject
         val rows = spec["x-errors"]!!.jsonObject["codes"]!!.jsonArray.map { it.jsonObject }
-        assertEquals(26, rows.size)
+        assertEquals(27, rows.size)
         assertEquals(rows.size, LinkApiError.entries.size)
         for (row in rows) {
             val code = row["code"]!!.jsonPrimitive.content

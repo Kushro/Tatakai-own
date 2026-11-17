@@ -40,7 +40,7 @@ import app.tatakai.next.player.SessionTicker
 import app.tatakai.next.player.MPV_OPEN_ERROR_CODE
 import app.tatakai.next.player.MPV_START_TIMEOUT_CODE
 import app.tatakai.next.player.MPV_START_TIMEOUT_MS
-import app.tatakai.next.player.SubtitleExtras
+import app.tatakai.next.player.ScreenSubtitleSpec
 import app.tatakai.next.player.SubtitleFonts
 import app.tatakai.next.player.SubtitleOption
 import app.tatakai.next.player.mpvStartWatched
@@ -86,11 +86,19 @@ class MpvPlayerSession(
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
     private var released = false
     private var loaded = false
+
+    /** 0.4.1 (Link Mixto): [finishAsEnded] ended this load; mpv is paused and [PlaybackState.ended] stays up until play / seek / load. */
+    @Volatile
+    private var endedHere = false
     private var wasPlaying = false
     private val mirror: Job
     private val fonts = SubtitleFonts(context)
-    private var style = SubtitleStyle()
-    private var extras: SubtitleExtras? = null
+
+    /** 0.4.1: writes only the sub-* options a style change touches (live while a slider moves). */
+    private val subtitleApplier = MpvSubtitleStyleApplier { name, value -> engine.setProperty(name, value) }
+
+    /** Imported font file -> its family (reading the name table once per file, not on every slider step). */
+    private var fontFamilyCache: Pair<String, String?>? = null
 
     /** parity wave A (15 §3.2): the engine as a Media3 Player for PlaybackService (background, notification, headset buttons). */
     val adapter: MpvPlayerAdapter = MpvPlayerAdapter(engine, Looper.getMainLooper())
@@ -221,11 +229,11 @@ class MpvPlayerSession(
                     loadId = m.loadId,
                     started = m.started,
                     isPlaying = m.playing,
-                    isBuffering = loaded && (m.buffering && m.error == null),
-                    ended = m.ended,
+                    isBuffering = loaded && !endedHere && (m.buffering && m.error == null),
+                    ended = endedHere || m.ended,
                     positionMs = (m.positionSecs * 1000).toLong(),
                     durationMs = (m.durationSecs * 1000).toLong(),
-                    bufferedMs = ((m.positionSecs + m.cacheSecs) * 1000).toLong(),
+                    bufferedMs = mpvBufferedMs(m.positionSecs, m.cacheSecs),
                     speed = m.speed.toFloat(),
                     videoHeights = emptyList(),
                     subtitles = subs,
@@ -233,7 +241,7 @@ class MpvPlayerSession(
                     subtitleIsAss = subs.any { it.selected && it.ass },
                     audioTracks = m.audio.map { t -> AudioOption(t.id, t.title ?: t.lang ?: "#${t.id}", t.lang, t.selected) },
                     fullAss = true,
-                    error = m.error?.let { PlaybackError(mpvErrorCode(it, m.started, m.loadId == watchedLoadId), it, exhausted = true) },
+                    error = if (endedHere) null else m.error?.let { PlaybackError(mpvErrorCode(it, m.started, m.loadId == watchedLoadId), it, exhausted = true) },
                     subText = m.subText,
                     subtitleDelayMs = m.subDelayMs,
                     loop = m.loop,
@@ -250,6 +258,7 @@ class MpvPlayerSession(
     override fun load(source: PlayableSource, startMs: Long) {
         if (released) return
         loaded = true
+        endedHere = false
         ActivePlayback.publish(adapter)
         qualityController.onFileStarted()
         startWatch?.cancel()
@@ -290,13 +299,25 @@ class MpvPlayerSession(
         }
     }
 
-    override fun play() = engine.play()
+    override fun play() {
+        endedHere = false
+        engine.play()
+    }
+
+    override fun finishAsEnded() {
+        if (released || !loaded || endedHere) return
+        endedHere = true
+        engine.pause()
+        _state.value = _state.value.copy(error = null, ended = true, isBuffering = false, isPlaying = false)
+        listener.onProgress(currentPositionMs(), _state.value.durationMs, true)
+    }
 
     override fun pause() = engine.pause()
 
     override fun togglePlay() = if (_state.value.isPlaying) pause() else play()
 
     override fun seekTo(positionMs: Long) {
+        endedHere = false
         qualityController.onPlaybackIdle()
         engine.seekTo(positionMs.coerceAtLeast(0) / 1000.0)
     }
@@ -319,19 +340,14 @@ class MpvPlayerSession(
     }
 
     override fun setSubtitleStyle(style: SubtitleStyle) {
-        this.style = style
-        engine.setSubtitleStyle(style.scale, style.backgroundOpacity, style.bold, style.outline)
-        extras?.let { applyExtras(it) }
-    }
-
-    override fun setSubtitleExtras(extras: SubtitleExtras) {
-        this.extras = extras
-        applyExtras(extras)
-    }
-
-    private fun applyExtras(e: SubtitleExtras) {
-        val family = e.fontFile?.let { fonts.familyName(it) }
-        engine.setSubtitleExtras(e, style.outline, family)
+        if (released) return
+        val imported = style.fontFile?.let { file ->
+            fontFamilyCache?.takeIf { it.first == file }?.second ?: fonts.familyName(file).also { fontFamilyCache = file to it }
+        }
+        // libass does not scale sub-line-spacing: screen pixels per "scaled pixel" (720 px tall window; the player is landscape).
+        val dm = appContext.resources.displayMetrics
+        val pxPerUnit = minOf(dm.widthPixels, dm.heightPixels) / ScreenSubtitleSpec.REFERENCE_HEIGHT
+        subtitleApplier.apply(mpvSubtitleProperties(style, mpvFontFamily(style, imported), pxPerUnit))
     }
 
     override fun setSubtitleDelay(ms: Long) = engine.setSubtitleDelay(ms)
@@ -475,3 +491,11 @@ internal fun mpvSubtitles(tracks: List<app.tatakai.next.model.SubtitleTrack>, se
             select = select == i,
         )
     }
+
+/**
+ * 0.4.1 (seek bar): `demuxer-cache-time` is the timestamp where the demuxer cache ends (not a duration: that is
+ * `demuxer-cache-duration`), so the buffered position is that value itself. Adding the playhead to it drew the buffer at about
+ * twice the position. Never behind the playhead (a cache cleared by a seek reports an older end until it refills).
+ */
+internal fun mpvBufferedMs(positionSecs: Double, cacheEndSecs: Double): Long =
+    (maxOf(positionSecs, cacheEndSecs).coerceAtLeast(0.0) * 1000).toLong()

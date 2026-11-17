@@ -41,6 +41,28 @@ class LinkSessionStatusTest {
         assertNull(s.fgMultiplier)
         assertNull(s.encoder)
         assertNull(s.leadSecs)
+        // 0.4.1 fields absent: not ended, nothing known about what the PC produced
+        assertEquals(false, s.ended)
+        assertNull(s.endSecs)
+        assertNull(s.producedFromSecs)
+        assertNull(s.producedToSecs)
+    }
+
+    @Test
+    fun aNewPcSaysWhatItProducedAndWhereTheSourceEnds() {
+        val s = decode(
+            """{"state":"ready","generation":3,"instance_id":"i","profile":"p-none","throttled":false,
+            "produced":{"from_secs":580.0,"to_secs":702.5},"ended":true,"end_secs":1418.37}""",
+        )
+        assertEquals(580.0 to 702.5, s.producedFromSecs to s.producedToSecs)
+        assertEquals(true, s.ended)
+        assertEquals(1418.37, s.endSecs)
+        val info = app.tatakai.next.model.linkProcessingInfo("PC", "p-none", null, s)
+        assertEquals(580.0 to 702.5, info.processedFromSecs to info.processedToSecs)
+        // a failed session with the new reason parses like any other
+        val failed = decode("""{"state":"failed","generation":3,"instance_id":"i","profile":"p-none","error":"engine_stalled","produced":{}}""")
+        assertEquals("failed" to "engine_stalled", failed.state to failed.error)
+        assertNull(failed.producedFromSecs)
     }
 
     @Test

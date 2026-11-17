@@ -27,7 +27,6 @@ import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -248,7 +247,8 @@ internal fun SkipButton(kind: SkipKind, onClick: () -> Unit, modifier: Modifier 
 
 /**
  * Next-episode card with the countdown ring (prototype `player.js` `ended()`): `autoNextCountdownSecs` long; without auto-next
- * ([NextEpisodeUi.secondsLeft] null) only the button, nothing counts.
+ * ([NextEpisodeUi.secondsLeft] null) only the button, nothing counts. 0.4.1: the full end screen ([EpisodeEndScreen]) shows the same
+ * countdown; this compact card remains for when the user hides that screen to look at the last frame.
  */
 @Composable
 internal fun NextEpisodeCard(next: NextEpisodeUi, onPlayNow: () -> Unit, onCancel: () -> Unit, modifier: Modifier = Modifier) {
@@ -256,12 +256,7 @@ internal fun NextEpisodeCard(next: NextEpisodeUi, onPlayNow: () -> Unit, onCance
     Surface(modifier, shape = RoundedCornerShape(20.dp), color = scheme.surfaceContainerHigh, contentColor = scheme.onSurface) {
         Row(Modifier.padding(12.dp), Arrangement.spacedBy(12.dp), Alignment.CenterVertically) {
             val left = next.secondsLeft
-            if (left != null) {
-                Box(contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(progress = { left / next.totalSecs.coerceAtLeast(1).toFloat() }, modifier = Modifier.size(44.dp))
-                    Text("$left", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                }
-            }
+            if (left != null) CountdownRing(left, next.totalSecs)
             Column(Modifier.widthIn(max = 220.dp)) {
                 Text(stringResource(R.string.player_next), style = MaterialTheme.typography.titleSmall)
                 Text(stringResource(R.string.player_next_episode_n, next.episode), style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant)
@@ -309,6 +304,8 @@ internal fun PlaybackErrorView(
     onPick: () -> Unit,
     onOpenTorrent: (String) -> Unit,
     onOpenExtensions: () -> Unit,
+    /** 0.4.1: a Link error with the original source on the phone ([PlayerUiState.linkPhoneFallback]). */
+    onPlayOnPhone: (() -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val noFile = state.noFileTorrentId
@@ -363,6 +360,9 @@ internal fun PlaybackErrorView(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onRetry) { Text(stringResource(UiR.string.ui_retry)) }
             if (state.canPickSource) OutlinedButton(onClick = onPick) { Text(stringResource(R.string.player_pick_source)) }
+        }
+        if (onPlayOnPhone != null && state.linkPhoneFallback && !state.remoteless) {
+            FilledTonalButton(onClick = onPlayOnPhone) { Text(stringResource(R.string.player_link_play_on_phone)) }
         }
         if (state.lastFailedTorrent && state.hasWeb) {
             FilledTonalButton(onClick = onUseWeb) { Text(stringResource(R.string.player_use_web)) }

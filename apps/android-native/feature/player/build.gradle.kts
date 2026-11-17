@@ -13,4 +13,6 @@ dependencies {
     implementation(projects.core.playerMpv)
     // 0.4.0 (worker D): the phone frame generation state / commands the "Mejoras" panel draws (FrameGenController)
     implementation(projects.core.framegen)
+    // 0.4.1: the end screen's blurred poster backdrop (MediaCover of :core:ui keeps a fixed aspect ratio)
+    implementation(libs.coil.compose)
 }

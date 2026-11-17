@@ -52,7 +52,10 @@ interface PlayerSession {
     /** Preferred subtitle / audio languages (ISO 639-1, `SourcePrefs.subLang` / `dubLang`) for the next tracks the engine picks. */
     fun setPreferredLanguages(subtitle: String?, audio: String?)
 
-    /** Settings › Reproductor › Estilo de subtítulos. ASS keeps its own styles where the engine renders them. */
+    /**
+     * Settings › Reproductor › Estilo de subtítulos, applied live (mpv: only the `sub-*` options that changed). ASS follows
+     * [SubtitleStyle.assMode] where the engine renders it; Media3 draws its cues on screen (`ScreenSubtitleSpec`).
+     */
     fun setSubtitleStyle(style: SubtitleStyle)
 
     /** Current position right now (the [state] tick may lag up to half a second). */
@@ -64,9 +67,6 @@ interface PlayerSession {
 
     /** Subtitle delay in ms (positive = later). mpv applies `sub-delay`; Media3 only records it (the screen shifts the cues it draws). */
     fun setSubtitleDelay(ms: Long) = Unit
-
-    /** Colour / outline / position / custom font of text subtitles (mpv `sub-*`; Media3 draws them on screen from [SubtitleExtras]). */
-    fun setSubtitleExtras(extras: SubtitleExtras) = Unit
 
     /**
      * Adds a local subtitle file ([path] on disk) and selects it. Returns false when the engine cannot (Media3: the screen draws a loaded
@@ -142,6 +142,21 @@ interface PlayerSession {
 
     /** Phone frame generation (worker B) is presenting: mpv's smoothing is forced off while true. */
     fun setFrameGenActive(active: Boolean) = Unit
+
+    /**
+     * 0.4.1 (Link): whether a `404` / `410` of the PC is final even after the first frame ([RemoteLoadErrorPolicy]). The player sets
+     * false while a profile change / processing switch replaces the session (the old one is closed before the new one plays, and
+     * the buffered video must play on), true otherwise, so a dead session fails at once and the stall watchdog renews it.
+     */
+    fun setRemoteEndIsFinal(final: Boolean) = Unit
+
+    /**
+     * 0.4.1 (Link): the PC's stream reached the real end of the episode although the playlist says a little more (the source's
+     * container duration is longer, or the last segments answer 404): stop loading and publish [PlaybackState.ended] exactly like
+     * a local playback that reached its end (no error, not buffering), so the player's normal end flow runs. [play] / [seekTo]
+     * afterwards resume normally.
+     */
+    fun finishAsEnded() = Unit
 }
 
 /**

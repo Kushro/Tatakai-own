@@ -144,7 +144,7 @@ class SettingsPersistenceTest {
         }
         val read = SettingsCodec.read(store.state.value)
         assertEquals(168, read.metadataCacheTtlHours)
-        assertEquals(2f, read.subtitleStyle.scale)
+        assertEquals(SubtitleStyle.MAX_SCALE, read.subtitleStyle.scale)
         assertEquals("outfit", read.subtitleStyle.font)
     }
 }

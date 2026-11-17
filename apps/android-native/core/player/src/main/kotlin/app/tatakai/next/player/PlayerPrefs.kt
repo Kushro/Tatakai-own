@@ -3,88 +3,78 @@ package app.tatakai.next.player
 
 import android.content.Context
 import android.content.SharedPreferences
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import app.tatakai.next.model.SettingsRepository
+import app.tatakai.next.model.SubtitleStyle
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
-import java.util.Locale
 
-// parity wave A (docs/redesign/15 §3.2 / §3.5, worker p): player settings that have no field in `AppSettings` (closed contract file), kept
-// PRIVATE to the player module in its own SharedPreferences ("tatakai_player"), like `SearchHistoryStore` of the search screen. Nothing
-// secret lives here (translation keys go to SecretStore).
+// parity wave A (docs/redesign/15 §3.2 / §3.5, worker p): player settings that had no field in `AppSettings` were kept PRIVATE to the
+// player module in its own SharedPreferences ("tatakai_player"). 0.4.1: the only ones (the subtitle colours, outline size, position and
+// imported font, 0.4.0's `SubtitleExtras`) moved into `AppSettings.subtitleStyle` (DataStore); this class now only migrates them once.
 
 /**
- * Subtitle look beyond `SubtitleStyle` (checklist player.subs.style.color / .position / .font / .custom-fonts):
- * [textColor] / [outlineColor] are ARGB, [outlineSize] 0..6 (mpv `sub-border-size`, Media3: shadow radius), [positionPct] is mpv
- * `sub-pos` (100 = bottom, 0 = top), [fontFile] the file name of an imported font in [SubtitleFonts.dir] (null = the style font).
+ * 0.4.0's private subtitle extras as stored in "tatakai_player" (`sub_text_color`, `sub_outline_color`, `sub_outline_size`,
+ * `sub_position`, `sub_font_file`). Pure: built from `SharedPreferences.getAll()` so the migration is unit-tested on the JVM.
  */
-data class SubtitleExtras(
-    val textColor: Int = WHITE,
-    val outlineColor: Int = BLACK,
-    val outlineSize: Float = 2.5f,
-    val positionPct: Int = 100,
+data class LegacySubtitleExtras(
+    val textColor: Int? = null,
+    val outlineColor: Int? = null,
+    val outlineSize: Float? = null,
+    val positionPct: Int? = null,
     val fontFile: String? = null,
 ) {
-    fun sanitized(): SubtitleExtras = copy(outlineSize = outlineSize.coerceIn(0f, MAX_OUTLINE), positionPct = positionPct.coerceIn(MIN_POSITION, 100))
+    fun applyTo(style: SubtitleStyle): SubtitleStyle = style.withLegacyExtras(textColor, outlineColor, outlineSize, positionPct, fontFile)
 
     companion object {
-        const val WHITE: Int = -0x1 // 0xFFFFFFFF
-        const val BLACK: Int = -0x1000000 // 0xFF000000
-        const val MAX_OUTLINE = 6f
-        const val MIN_POSITION = 0
-
-        /** Swatches of the colour pickers (ARGB): white, yellow, cyan, green, pink, black. */
-        val TEXT_COLORS: List<Int> = listOf(WHITE, 0xFFFFEB3B.toInt(), 0xFF80DEEA.toInt(), 0xFFA5D6A7.toInt(), 0xFFF48FB1.toInt(), BLACK)
-        val OUTLINE_COLORS: List<Int> = listOf(BLACK, 0xFF424242.toInt(), 0xFF1A237E.toInt(), 0xFF4A148C.toInt(), WHITE)
-
-        /** mpv colour syntax `r/g/b/a` with 0..1 components. */
-        fun mpvColor(argb: Int, alpha: Float? = null): String {
-            val a = alpha ?: (((argb ushr 24) and 0xFF) / 255f)
-            val r = ((argb ushr 16) and 0xFF) / 255f
-            val g = ((argb ushr 8) and 0xFF) / 255f
-            val b = (argb and 0xFF) / 255f
-            return String.format(Locale.ROOT, "%.3f/%.3f/%.3f/%.3f", r, g, b, a.coerceIn(0f, 1f))
-        }
-    }
-}
-
-/** Private, synchronous store of the player's own preferences. One instance per app (Koin `single` in `playerModule`). */
-class PlayerPrefs(context: Context) {
-    private val prefs: SharedPreferences = context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-
-    private val _subtitleExtras = MutableStateFlow(readExtras())
-    val subtitleExtras: StateFlow<SubtitleExtras> = _subtitleExtras.asStateFlow()
-
-    fun updateSubtitleExtras(transform: (SubtitleExtras) -> SubtitleExtras) {
-        val next = transform(_subtitleExtras.value).sanitized()
-        prefs.edit()
-            .putInt(K_TEXT_COLOR, next.textColor)
-            .putInt(K_OUTLINE_COLOR, next.outlineColor)
-            .putFloat(K_OUTLINE_SIZE, next.outlineSize)
-            .putInt(K_POSITION, next.positionPct)
-            .apply { if (next.fontFile == null) remove(K_FONT) else putString(K_FONT, next.fontFile) }
-            .apply()
-        _subtitleExtras.value = next
-    }
-
-    private fun readExtras(): SubtitleExtras {
-        val d = SubtitleExtras()
-        return SubtitleExtras(
-            textColor = prefs.getInt(K_TEXT_COLOR, d.textColor),
-            outlineColor = prefs.getInt(K_OUTLINE_COLOR, d.outlineColor),
-            outlineSize = prefs.getFloat(K_OUTLINE_SIZE, d.outlineSize),
-            positionPct = prefs.getInt(K_POSITION, d.positionPct),
-            fontFile = prefs.getString(K_FONT, null),
-        ).sanitized()
-    }
-
-    private companion object {
-        const val FILE = "tatakai_player"
         const val K_TEXT_COLOR = "sub_text_color"
         const val K_OUTLINE_COLOR = "sub_outline_color"
         const val K_OUTLINE_SIZE = "sub_outline_size"
         const val K_POSITION = "sub_position"
         const val K_FONT = "sub_font_file"
+        val KEYS: List<String> = listOf(K_TEXT_COLOR, K_OUTLINE_COLOR, K_OUTLINE_SIZE, K_POSITION, K_FONT)
+
+        /** The stored extras, or null when the user never changed them (0.4.0 wrote every key on the first change). */
+        fun from(values: Map<String, *>): LegacySubtitleExtras? {
+            if (KEYS.none { it in values }) return null
+            return LegacySubtitleExtras(
+                textColor = values[K_TEXT_COLOR] as? Int,
+                outlineColor = values[K_OUTLINE_COLOR] as? Int,
+                outlineSize = (values[K_OUTLINE_SIZE] as? Float)?.takeIf { it.isFinite() },
+                positionPct = values[K_POSITION] as? Int,
+                fontFile = (values[K_FONT] as? String)?.takeIf { it.isNotBlank() },
+            )
+        }
+    }
+}
+
+/**
+ * The player's private SharedPreferences. One instance per app (Koin `single(createdAtStart = true)` in `playerModule`): at start it
+ * folds 0.4.0's [LegacySubtitleExtras] into `AppSettings.subtitleStyle` (DataStore) and deletes them, so nobody loses their subtitle look.
+ */
+class PlayerPrefs(
+    context: Context,
+    settings: SettingsRepository? = null,
+    scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+) {
+    private val appContext = context.applicationContext
+
+    init {
+        if (settings != null) {
+            scope.launch {
+                val prefs: SharedPreferences = appContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+                val legacy = LegacySubtitleExtras.from(prefs.all) ?: return@launch
+                // Deleted only after the DataStore write succeeded: a failure retries on the next start.
+                runCatching { settings.update { it.copy(subtitleStyle = legacy.applyTo(it.subtitleStyle)) } }
+                    .onSuccess { prefs.edit().apply { LegacySubtitleExtras.KEYS.forEach { k -> remove(k) } }.apply() }
+            }
+        }
+    }
+
+    private companion object {
+        const val FILE = "tatakai_player"
     }
 }
 
@@ -92,11 +82,15 @@ class PlayerPrefs(context: Context) {
  * Fonts the user imports for subtitles (checklist player.subs.custom-fonts): TTF / OTF copied to `filesDir/fonts`. mpv gets the folder as
  * `sub-fonts-dir` (libass also finds the fonts ASS styles ask for there) and, when one is chosen, its family name as `sub-font`; Media3
  * draws with it through Compose `Font(File)`.
+ *
+ * 0.4.1: the same folder also holds static copies of the app's own fonts for libass (files named [BUNDLED_PREFIX]..., installed by
+ * :core:player-mpv); they are not user fonts, so [list] hides them and [import] never writes over them.
  */
 class SubtitleFonts(context: Context) {
     val dir: File = File(context.applicationContext.filesDir, "fonts")
 
-    fun list(): List<File> = dir.listFiles { f -> f.isFile && isFontName(f.name) }?.sortedBy { it.name.lowercase() }.orEmpty()
+    fun list(): List<File> =
+        dir.listFiles { f -> f.isFile && isFontName(f.name) && !f.name.startsWith(BUNDLED_PREFIX) }?.sortedBy { it.name.lowercase() }.orEmpty()
 
     fun file(name: String?): File? = name?.let { File(dir, it) }?.takeIf { it.isFile }
 
@@ -110,6 +104,7 @@ class SubtitleFonts(context: Context) {
     /** Copies [input] as [displayName] (sanitised, `.ttf` / `.otf` only). Returns the stored file name or null when refused. */
     fun import(displayName: String, input: java.io.InputStream): String? {
         val safe = displayName.substringAfterLast('/').replace(Regex("[^A-Za-z0-9._ -]"), "_").take(80)
+            .let { if (it.startsWith(BUNDLED_PREFIX)) "user_$it" else it }
         if (!isFontName(safe)) return null
         dir.mkdirs()
         val target = File(dir, safe)
@@ -125,6 +120,9 @@ class SubtitleFonts(context: Context) {
 
     companion object {
         const val MAX_FONT_BYTES = 30L * 1024 * 1024
+
+        /** File-name prefix of the app's own fonts installed for libass (`tatakai_outfit_medium.ttf`...). */
+        const val BUNDLED_PREFIX = "tatakai_"
 
         fun isFontName(name: String): Boolean = name.lowercase().let { it.endsWith(".ttf") || it.endsWith(".otf") || it.endsWith(".ttc") }
     }

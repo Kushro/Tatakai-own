@@ -91,6 +91,8 @@ fun PlayerScreen(
     onOpenSettings: (SettingsSection) -> Unit = {},
     onOpenExtensions: () -> Unit = {},
     onOpenLinked: () -> Unit = {},
+    /** 0.4.1 end screen "Volver a la ficha": the title's Details (the app goes back to it when it is the previous entry). */
+    onOpenDetails: (anilistId: Int) -> Unit = {},
 ) {
     val koin = getKoin()
     val vm: PlayerViewModel = viewModel(
@@ -150,6 +152,7 @@ fun PlayerScreen(
             onOpenSettings = onOpenSettings,
             onOpenExtensions = onOpenExtensions,
             onOpenLinked = onOpenLinked,
+            onOpenDetails = args.media.anilistId?.let { id -> { onOpenDetails(id) } },
         )
     }
     BackHandler(enabled = true, onBack = onBack)
@@ -166,6 +169,7 @@ private fun PlayerBody(
     onOpenSettings: (SettingsSection) -> Unit,
     onOpenExtensions: () -> Unit,
     onOpenLinked: () -> Unit,
+    onOpenDetails: (() -> Unit)?,
 ) {
     val title = if (args.remoteSessionId != null) args.title else stringResource(R.string.player_episode_title, args.title, args.episode)
     var pickerOpen by rememberSaveable { mutableStateOf(false) }
@@ -212,6 +216,8 @@ private fun PlayerBody(
                 onOpenPicker = { pickerOpen = true },
                 onOpenTorrent = onOpenTorrent,
                 onOpenSettings = onOpenSettings, // 0.4.0 (worker D): "Importar Lossless.dll" from the Mejoras panel
+                args = args,
+                onOpenDetails = onOpenDetails,
             ) }
             else -> StatusBody(vm, state, onOpenTorrent, onOpenExtensions, onOpenLinked, onPick = { pickerOpen = true })
         }
@@ -325,6 +331,7 @@ private fun StatusBody(
             onPick = onPick,
             onOpenTorrent = onOpenTorrent,
             onOpenExtensions = onOpenExtensions,
+            onPlayOnPhone = vm::playOnPhoneInstead,
         )
         PlayerPhase.EXTERNAL -> Unit
     }

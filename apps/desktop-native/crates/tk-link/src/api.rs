@@ -30,10 +30,13 @@ pub enum ErrorCode {
     ServerBusy,
     Internal,
     UrlSourceDenied,
+    /// 0.4.1: a media file of a failed session (its engine failed, or stalled and its automatic restarts ran out). Final
+    /// for the session: the phone opens a new one at its position instead of retrying a 503 forever.
+    SegmentUnavailable,
 }
 
 impl ErrorCode {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::ClientCertificateRequired,
         Self::DeviceNotAuthorized,
         Self::PairingClosed,
@@ -53,6 +56,7 @@ impl ErrorCode {
         Self::ServerBusy,
         Self::Internal,
         Self::UrlSourceDenied,
+        Self::SegmentUnavailable,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -76,6 +80,7 @@ impl ErrorCode {
             Self::ServerBusy => "server_busy",
             Self::Internal => "internal",
             Self::UrlSourceDenied => "url_source_denied",
+            Self::SegmentUnavailable => "segment_unavailable",
         }
     }
 
@@ -91,7 +96,7 @@ impl ErrorCode {
             Self::ProfileUnavailable => StatusCode::UNPROCESSABLE_ENTITY,
             Self::LibraryItemNotFound | Self::SessionNotFound => StatusCode::NOT_FOUND,
             Self::SourceUnavailable | Self::SegmentWaitTimeout | Self::ServerBusy => StatusCode::SERVICE_UNAVAILABLE,
-            Self::SessionGone => StatusCode::GONE,
+            Self::SessionGone | Self::SegmentUnavailable => StatusCode::GONE,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -117,6 +122,7 @@ impl ErrorCode {
             Self::ServerBusy => "the server is busy",
             Self::Internal => "internal server error",
             Self::UrlSourceDenied => "the url source is not allowed",
+            Self::SegmentUnavailable => "the segment cannot be produced; open the session again",
         }
     }
 }
@@ -144,3 +150,21 @@ impl IntoResponse for ApiError {
 }
 
 pub type ApiResult<T> = Result<T, ApiError>;
+
+#[cfg(test)]
+mod contract_tests {
+    use super::ErrorCode;
+
+    /// Every code the PC answers is in the contract's `x-errors` table with the same status and fixed message.
+    #[test]
+    fn every_error_code_matches_the_contract() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../contracts/link/openapi.v1.json");
+        let spec: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let rows = spec["x-errors"]["codes"].as_array().unwrap();
+        for code in ErrorCode::ALL {
+            let row = rows.iter().find(|r| r["code"] == code.as_str()).unwrap_or_else(|| panic!("{} missing", code.as_str()));
+            assert_eq!(row["http"].as_u64(), Some(u64::from(code.status().as_u16())), "{}", code.as_str());
+            assert_eq!(row["message"].as_str(), Some(code.message()), "{}", code.as_str());
+        }
+    }
+}

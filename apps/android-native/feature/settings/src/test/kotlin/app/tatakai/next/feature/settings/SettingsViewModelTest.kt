@@ -164,7 +164,7 @@ class SettingsViewModelTest {
 
         vm.setSubtitleStyle(SubtitleStyle(scale = 5f, backgroundOpacity = -1f, font = "space_grotesk"))
         val style = repo.settings.value.subtitleStyle
-        assertEquals(2f, style.scale)
+        assertEquals(SubtitleStyle.MAX_SCALE, style.scale)
         assertEquals(0f, style.backgroundOpacity)
         assertEquals("space_grotesk", style.font)
     }

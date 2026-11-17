@@ -91,15 +91,9 @@
     <string name="settings_subs">Estilo de subtítulos</string>
     <string name="settings_subs_summary">%1$s · %2$d %% · fondo %3$d %%</string>
     <string name="settings_subs_edit">Editar</string>
-    <string name="settings_subs_size">Tamaño</string>
-    <string name="settings_subs_background">Fondo</string>
-    <string name="settings_subs_font">Fuente</string>
     <string name="settings_subs_font_outfit">Outfit</string>
     <string name="settings_subs_font_space_grotesk">Space Grotesk</string>
     <string name="settings_subs_font_system">Sistema</string>
-    <string name="settings_subs_bold">Negrita</string>
-    <string name="settings_subs_outline">Contorno</string>
-    <string name="settings_subs_preview">La noche aún es joven.</string>
     <string name="settings_extensions">Extensiones</string>
     <string name="settings_metadata">Fuentes de metadatos</string>
     <string name="settings_metadata_hint">Gana la primera fuente que responde; las demás son respaldo.</string>

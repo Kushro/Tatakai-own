@@ -53,6 +53,7 @@ import app.tatakai.next.model.SkipMarksRepository
 import app.tatakai.next.model.SourceKind
 import app.tatakai.next.model.SourceMode
 import app.tatakai.next.model.SourceStatsStore
+import app.tatakai.next.model.SubtitleStyle
 import app.tatakai.next.model.TranslationMode
 import app.tatakai.next.model.TranslationProvider
 import app.tatakai.next.model.torrent.DebridRepository
@@ -354,6 +355,8 @@ data class PlayerUiState(
     val canNavigateEpisodes: Boolean = true,
     /** BUG-038 / BUG-026: set with phase ERROR when a Link session failed. */
     val remoteFailure: RemoteFailure? = null,
+    /** 0.4.1: a Link error screen can offer "Reproducir en el teléfono" (the phone has the original source). */
+    val linkPhoneFallback: Boolean = false,
     /** BUG-022: the PC's enhancement profiles (Link sessions only) and the one this session uses. */
     val linkProfiles: List<LinkProfile> = emptyList(),
     val linkProfile: String? = null,
@@ -485,6 +488,17 @@ class PlayerViewModel(
     /** BUG-038: the Link session being played; a renewed session replaces [PlayerArgs.remoteSessionId]. */
     private var remoteId: String? = args.remoteSessionId
     private var remoteRecovery: Job? = null
+
+    // --- 0.4.1: a stuck PC session recovers by itself (LinkStallWatchdog.kt) ---
+    private val stallWatchdog = LinkStallWatchdog()
+    private var stallWatchJob: Job? = null
+
+    /** Why the last automatic renewal failed (the error screen once the watchdog gives up). */
+    private var stallRenewFailure: Pair<RemoteFailure, AppError?>? = null
+    private val linkBuffering = BufferingDebounce()
+    private var linkBufferingLoad = -1
+    private var linkBufferingJob: Job? = null
+    private var stallWatchLoad = -1
 
     /** BUG-131: one profile change at a time, bounded, with a result for every tap ([LinkProfileChange]). */
     private val profileChange = LinkProfileChange(
@@ -624,6 +638,11 @@ class PlayerViewModel(
         }
         viewModelScope.launch { frameGenGate.availability.collect { refreshProcessing() } }
         viewModelScope.launch { switcher.switching.collect { refreshProcessing() } }
+        // 0.4.1: a 404 / 410 of the PC is final (the stall watchdog renews) except while a change replaces the session
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(profileChange.changing, switcher.switching) { changing, switching -> !changing && switching == null }
+                .collect { session?.setRemoteEndIsFinal(it) }
+        }
         settingsRepository?.let { repo ->
             viewModelScope.launch {
                 repo.settings.collect { s ->
@@ -638,9 +657,8 @@ class PlayerViewModel(
                 }
             }
         }
-        prefs?.let { p ->
-            viewModelScope.launch { p.subtitleExtras.collect { e -> session?.setSubtitleExtras(e) } }
-        }
+        // 0.4.1 (subtitle settings): the whole subtitle look is `settings.subtitleStyle` (applied above); PlayerPrefs only migrates
+        // 0.4.0's extras into it.
     }
 
     /** Episode of this entry (episode list, screenshot names). */
@@ -1110,13 +1128,13 @@ class PlayerViewModel(
         // 0.4.0: a Link session heartbeats; the flag is per engine session, and every switch of location makes a new one
         val s = factory.create(viewModelScope, listener(), remoteId != null)
         s.setSubtitleStyle(settings.subtitleStyle)
-        prefs?.subtitleExtras?.value?.let { s.setSubtitleExtras(it) }
         s.setPreferredLanguages(settings.sourcePrefs.subLang, settings.sourcePrefs.dubLang)
         if (settings.stableVolume) s.setStableVolume(true)
         if (_state.value.loop) s.setLoop(true)
         // 0.4.0: what the user picked in "Mejoras" (preset, tier, image, aspect...) carries over to the next engine session of this
         // player: a PC -> Phone switch, an engine switch or the next episode went back to the Settings defaults before.
         carriedQuality?.let { s.setQualityRequest(it) }
+        s.setRemoteEndIsFinal(!profileChange.changing.value && switcher.switching.value == null) // 0.4.1, see init
         session = s
         _state.update { it.copy(session = s) }
         sessionJob = viewModelScope.launch {
@@ -1170,7 +1188,20 @@ class PlayerViewModel(
                     if (playback != null) endTorrent(completed = false)
                     fail(f.attempt, FailKind.PLAYBACK, "${err.name} (${err.code})")
                 } else if (remoteId != null) {
-                    recoverRemote(auto = true)
+                    // 0.4.1: a dead session (404 / 410 / segment_unavailable fail at once now) or a load that ran out of
+                    // retries: the stall watchdog renews it at this point, with its cap and backoff (a session this phone
+                    // cannot renew, a PC hand-off, keeps the old recovery: "send it again")
+                    val id = remoteId
+                    if (id != null && remote.canRenew(id)) {
+                        syncStallWatchLoad(st.loadId)
+                        // where it failed: at the end of the episode this is the end, not a dead session
+                        stallWatchdog.observe(now(), false, false, st.positionMs, st.durationMs)
+                        stallWatchdog.onTerminal()
+                        _state.update { it.copy(phase = PlayerPhase.BUFFERING) }
+                        checkStall()
+                    } else {
+                        recoverRemote(auto = true)
+                    }
                 } else {
                     _state.update { it.copy(phase = PlayerPhase.ERROR, error = AppError.Unknown(err.name)) }
                 }
@@ -1190,7 +1221,9 @@ class PlayerViewModel(
             f.stalled(st.started && st.isBuffering)
             publishFlow()
         } else if (st.started) {
-            _state.update { it.copy(phase = if (st.isBuffering) PlayerPhase.BUFFERING else PlayerPhase.PLAYING) }
+            // 0.4.1: a PC stream's buffering card is debounced (Media3 flips READY <-> BUFFERING between retries)
+            val buffering = if (remoteId != null) linkBufferingShown(st) else st.isBuffering
+            _state.update { it.copy(phase = if (buffering) PlayerPhase.BUFFERING else PlayerPhase.PLAYING) }
         }
         if (st.subtitleIsAss && !st.fullAss && !assNoticeShown) {
             assNoticeShown = true
@@ -1494,6 +1527,123 @@ class PlayerViewModel(
         }
     }
 
+    // ---- 0.4.1: stall watchdog (LinkStallWatchdog.kt) -----------------------------------------------------------------------------
+
+    private fun now(): Long = SystemClock.elapsedRealtime()
+
+    /** Once a second while the PC plays: feed the watchdog and act on its decision. */
+    private fun startStallWatch() {
+        stallWatchJob?.cancel()
+        stallWatchJob = viewModelScope.launch {
+            while (isActive) {
+                remoteId ?: break
+                val st = session?.state?.value
+                if (st != null && st.loadId == loadsIssued) {
+                    syncStallWatchLoad(st.loadId)
+                    stallWatchdog.observe(now(), st.started && st.error == null, st.isPlaying || st.isBuffering, st.positionMs, st.durationMs, st.isBuffering)
+                }
+                checkStall()
+                delay(STALL_CHECK_MS)
+            }
+        }
+    }
+
+    /** A new engine load of the PC stream: the watchdog waits for its first frame again (attempts kept). */
+    private fun syncStallWatchLoad(loadId: Int) {
+        if (stallWatchLoad == loadId) return
+        stallWatchLoad = loadId
+        stallWatchdog.onLoad()
+    }
+
+    /**
+     * Acts on the watchdog's decision unless something else owns the session right now (a recovery or renewal running, a profile
+     * change or a "Procesar en" switch replacing it, an error screen up).
+     */
+    private fun checkStall() {
+        val id = remoteId ?: return
+        if (remoteRecovery?.isActive == true || profileChange.changing.value || switcher.switching.value != null) return
+        if (_state.value.phase == PlayerPhase.ERROR || _state.value.phase == PlayerPhase.REMOTE_UNAVAILABLE) return
+        when (val a = stallWatchdog.decide(now())) {
+            LinkStallWatchdog.Action.Wait -> Unit
+            is LinkStallWatchdog.Action.Renew -> renewStuckSession(id, a)
+            // the PC's stream ended (its last segments 404 past the real end of the source): the normal end, as on the phone
+            LinkStallWatchdog.Action.Ended -> {
+                runCatching { android.util.Log.i(LINK_LOG_TAG, "session=$id reached the end of the episode") }
+                // a seek back after it plays the same load again: its next error must be handled again
+                handledErrorLoad = -1
+                session?.finishAsEnded()
+            }
+            is LinkStallWatchdog.Action.GiveUp -> {
+                runCatching { android.util.Log.i(LINK_LOG_TAG, "session=$id still stuck after ${stallWatchdog.attempts} renewals (${a.reason}): giving up") }
+                val (kind, error) = stallRenewFailure ?: (RemoteFailure.PC_ERROR to null)
+                remoteError(kind, error)
+            }
+        }
+    }
+
+    /** A NEW session of the same source and profile at the current position (the BUG-038 renew path), then plays it. */
+    private fun renewStuckSession(id: String, action: LinkStallWatchdog.Action.Renew) {
+        stallWatchdog.onRenewing(now())
+        val positionMs = positionNow()
+        runCatching { android.util.Log.i(LINK_LOG_TAG, "session=$id stuck (${action.reason}) at ${positionMs}ms: renewal ${action.attempt}") }
+        _state.update { it.copy(phase = PlayerPhase.BUFFERING, error = null, remoteFailure = null) }
+        remoteRecovery = viewModelScope.launch {
+            remote.renew(id, positionMs / 1000.0, retryLinkProfile()).fold(
+                onSuccess = { renewed ->
+                    stallRenewFailure = null
+                    remoteId = renewed.sessionId
+                    forgetPcSubtitles() // the renewed session lists them again (the PC keeps them per source)
+                    val src = remoteSourceFor(location, renewed.sessionId)
+                    if (src == null) _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) } else loadRenewed(src, positionMs)
+                },
+                onFailure = { e ->
+                    val api = (e.linkErrorOrNull() as? LinkError.Api)?.error
+                    if (api == LinkApiError.RequestInvalid || api == LinkApiError.SessionNotFound || api == LinkApiError.SessionGone) {
+                        // an older PC (no `session` source) or a source it forgot: only a new send helps
+                        remoteError(RemoteFailure.SESSION_ENDED, e.asAppError())
+                    } else {
+                        // the PC did not answer or refused for now: the watchdog tries again after its backoff
+                        val offline = e.linkErrorOrNull() is LinkError.Transport
+                        stallRenewFailure = if (offline) RemoteFailure.CONNECTION_LOST to AppError.Offline else RemoteFailure.PC_ERROR to e.asAppError()
+                        stallWatchdog.onTerminal()
+                    }
+                },
+            )
+        }
+    }
+
+    /** [BufferingDebounce] of the current PC load; looks again by itself when the shown state is due to change. */
+    private fun linkBufferingShown(st: PlaybackState): Boolean {
+        val t = now()
+        if (linkBufferingLoad != st.loadId) {
+            linkBufferingLoad = st.loadId
+            linkBuffering.reset(t)
+        }
+        val shown = linkBuffering.update(st.isBuffering, t)
+        linkBufferingJob?.cancel()
+        val at = linkBuffering.nextChangeAt()
+        if (at != null) {
+            val load = st.loadId
+            linkBufferingJob = viewModelScope.launch {
+                delay((at - t).coerceAtLeast(0))
+                val cur = session?.state?.value ?: return@launch
+                val phase = _state.value.phase
+                if (remoteId == null || cur.loadId != load || cur.loadId != loadsIssued || !cur.started || cur.error != null) return@launch
+                if (phase != PlayerPhase.BUFFERING && phase != PlayerPhase.PLAYING) return@launch
+                val b = linkBufferingShown(cur)
+                _state.update { it.copy(phase = if (b) PlayerPhase.BUFFERING else PlayerPhase.PLAYING) }
+            }
+        }
+        return shown
+    }
+
+    /** 0.4.1: "Reproducir en el teléfono" on a Link error: the original source plays on the phone at the same point. */
+    fun playOnPhoneInstead() {
+        stallWatchdog.reset()
+        stallRenewFailure = null
+        setProcessingLocation(ProcessingLocation.PHONE)
+    }
+
     /** BUG-022: the profiles the PC offers, for the in-player profile sheet (best effort: no sheet without them). */
     private fun loadLinkProfiles(sessionId: String) {
         viewModelScope.launch {
@@ -1649,7 +1799,9 @@ class PlayerViewModel(
     }
 
     private fun remoteError(kind: RemoteFailure, error: AppError?) {
-        _state.update { it.copy(phase = PlayerPhase.ERROR, error = error, remoteFailure = kind) }
+        // 0.4.1: "Reproducir en el teléfono" whenever the phone has the original source to play instead
+        val phone = remoteId != null && _processing.value.option(ProcessingLocation.PHONE).available
+        _state.update { it.copy(phase = PlayerPhase.ERROR, error = error, remoteFailure = kind, linkPhoneFallback = phone) }
     }
 
     fun retry() {
@@ -1657,6 +1809,8 @@ class PlayerViewModel(
         _state.update { it.copy(error = null, noFileTorrentId = null, remoteFailure = null) }
         // 0.4.0: a PC session started from the player keeps its source flow behind it: Retry is the Link one
         if (remoteId != null) {
+            stallWatchdog.reset() // 0.4.1: the user's Retry gives the automatic renewals back
+            stallRenewFailure = null
             recoverRemote(auto = false)
             return
         }
@@ -1709,6 +1863,26 @@ class PlayerViewModel(
         nextDismissed = true
         _state.update { it.copy(next = null) }
     }
+
+    // ---- 0.4.1 (end screen, worker wj): additive ---------------------------------------------------------------------------------
+
+    /**
+     * End screen "Volver a ver": the countdown stops and the episode starts again from 0 on the same session (any engine, a Link
+     * session too: the PC restarts there). Unlike [cancelNext] the next end counts down again.
+     */
+    fun replay() {
+        nextJob?.cancel()
+        nextJob = null
+        nextDismissed = false
+        _state.update { it.copy(next = null) }
+        session?.let { s ->
+            s.seekTo(0)
+            s.play()
+        }
+    }
+
+    /** End screen: the title's episode count when the metadata is known ("Terminaste la serie" on the last one); null = unknown. */
+    val totalEpisodes: Int? get() = media?.episodes
 
     /** "Next episode" (button or countdown): reuses the torrent of a batch (`play(torrentId, media, ep + 1)`), else the normal flow. */
     fun playNext() {
@@ -1824,6 +1998,22 @@ class PlayerViewModel(
         session?.setStableVolume(enabled)
         val repo = settingsRepository ?: return
         viewModelScope.launch { runCatching { repo.update { it.copy(stableVolume = enabled) } } }
+    }
+
+    /**
+     * 0.4.1 (subtitle settings, player sheet › Estilo): shows [style] on the playing session right away, without saving (a slider
+     * being dragged). The screen-drawn lines follow the sheet's own draft; [saveSubtitleStyle] persists it.
+     */
+    fun previewSubtitleStyle(style: SubtitleStyle) {
+        session?.setSubtitleStyle(style)
+    }
+
+    /** 0.4.1: saves the subtitle look (Settings and every later playback use it); the settings collector re-applies it here. */
+    fun saveSubtitleStyle(style: SubtitleStyle) {
+        session?.setSubtitleStyle(style)
+        val repo = settingsRepository ?: return
+        val clean = style.sanitized()
+        viewModelScope.launch { runCatching { repo.update { it.copy(subtitleStyle = clean) } } }
     }
 
     // ---- parity wave A (worker p): subtitles ---------------------------------------------------------------------------------------
@@ -2423,6 +2613,8 @@ class PlayerViewModel(
         }
         pendingLinkSource = null
         renewWatch?.cancel()
+        stallWatchdog.reset() // 0.4.1: a new location starts with every automatic renewal available
+        stallRenewFailure = null
         remoteId = sessionId
         location = to
         lastStatus = null
@@ -2674,12 +2866,15 @@ class PlayerViewModel(
 
     /** `GET /v1/sessions/{id}` every [STATUS_POLL_MS] while the PC plays: what it does, for [ProcessingUiState.pc]. */
     private fun startStatusPolling() {
+        startStallWatch() // 0.4.1: same lifetime as the status polling (while the PC plays)
         statusJob?.cancel()
         statusJob = viewModelScope.launch {
             while (isActive) {
                 val id = remoteId ?: break
                 val status = runCatching { remote.sessionStatus(id) }.getOrNull()
                 if (status != null && id == remoteId) {
+                    // 0.4.1: `failed` / `closed` is renewed without waiting for a stall; `ended` marks the source's real end
+                    stallWatchdog.onStatus(status.state, status.ended, status.endSecs)
                     lastStatus = status
                     refreshProcessing()
                     onLinkSubtitles(id, status)
@@ -2819,6 +3014,9 @@ class PlayerViewModel(
 
         /** 0.4.0: how often the "En la PC" indicator asks the PC what it does (`GET /v1/sessions/{id}`). */
         const val STATUS_POLL_MS = 5_000L
+
+        /** 0.4.1: how often the stall watchdog looks at a PC playback. */
+        const val STALL_CHECK_MS = 1_000L
 
         /** 0.4.0: pause between two asks for the PC's subtitles while it extracts them (each ask waits up to 8 s on the PC). */
         const val PC_SUBTITLES_POLL_MS = 3_000L
