@@ -148,9 +148,7 @@ import app.tatakai.next.player.PlaybackController
 import app.tatakai.next.player.PlaybackService
 import app.tatakai.next.player.PlaybackState
 import app.tatakai.next.player.PlayerKeymap
-import app.tatakai.next.player.PlayerPrefs
 import app.tatakai.next.player.PlayerSession
-import app.tatakai.next.player.SubtitleExtras
 import app.tatakai.next.player.SubtitleTools
 import app.tatakai.next.player.mpv.MpvPlayerSession
 import app.tatakai.next.player.mpv.MpvPlayerSurface
@@ -165,7 +163,8 @@ import kotlin.math.roundToInt
 
 // 0.4.0 (worker D): Enhancements = the "Mejoras" panel (EnhancementPanel.kt); it replaces the BUG-022 "Perfil de mejora" sheet (the
 // PC's profiles are one of its sections).
-private enum class Sheet { Quality, Subtitles, Audio, Speed, More, Episodes, Enhancements }
+// 0.4.1: SubtitleStyle = the subtitle sheet's "Estilo" panel, SubtitleStyleFull = its "Más opciones" (SubtitleStyleEditor.kt).
+private enum class Sheet { Quality, Subtitles, Audio, Speed, More, Episodes, Enhancements, SubtitleStyle, SubtitleStyleFull }
 
 private val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
 
@@ -203,11 +202,12 @@ internal fun PlayerContent(
     var helpOpen by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val koin = getKoin()
-    val prefs = remember { koin.getOrNull<PlayerPrefs>() }
     val tools = remember { koin.getOrNull<SubtitleTools>() }
-    val extras = prefs?.subtitleExtras?.collectAsStateWithLifecycle()?.value ?: SubtitleExtras()
-    val fontFile = remember(extras.fontFile) { tools?.fonts?.file(extras.fontFile) }
     val settings = state.settings
+    // 0.4.1: the style panel's unsaved draft while a slider moves (the screen-drawn lines follow it; mpv gets it from the VM).
+    var stylePreview by remember { mutableStateOf<app.tatakai.next.model.SubtitleStyle?>(null) }
+    val subtitleStyle = stylePreview ?: settings.subtitleStyle
+    val fontFile = remember(subtitleStyle.fontFile) { tools?.fonts?.file(subtitleStyle.fontFile) }
     val focus = remember { FocusRequester() }
     val subtitlePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::loadSubtitleFile) }
     val episodeForShot = if (state.remoteless) vm.episodeNumber else null
@@ -362,10 +362,9 @@ internal fun PlayerContent(
             vm = vm,
             session = session,
             ps = ps,
-            style = settings.subtitleStyle,
-            extras = extras,
+            style = subtitleStyle,
             fontFile = fontFile,
-            bottomPadding = if (controlsVisible && !inPip && !locked) 136.dp else 24.dp,
+            controlsPadding = if (controlsVisible && !inPip && !locked) 136.dp else 0.dp,
             modifier = Modifier.navigationBarsPadding(),
         )
 
@@ -482,7 +481,34 @@ internal fun PlayerContent(
             )
         }
     }
-    sheet?.takeIf { it != Sheet.Enhancements }?.let { kind ->
+    // 0.4.1 (subtitle settings): "Estilo" and "Más opciones" sit beside the video in landscape (side sheet), so the subtitles stay
+    // visible while they change; slider steps are previewed live and saved when the finger lifts.
+    LaunchedEffect(sheet) { if (sheet != Sheet.SubtitleStyle && sheet != Sheet.SubtitleStyleFull) stylePreview = null }
+    val previewStyle: (app.tatakai.next.model.SubtitleStyle) -> Unit = { stylePreview = it; vm.previewSubtitleStyle(it) }
+    val saveStyle: (app.tatakai.next.model.SubtitleStyle) -> Unit = { stylePreview = it; vm.saveSubtitleStyle(it) }
+    if (sheet == Sheet.SubtitleStyle) {
+        EnhancementSheet(onDismiss = { sheet = null }) {
+            SubtitleStyleQuickPanel(
+                style = settings.subtitleStyle,
+                onPreview = previewStyle,
+                onChange = saveStyle,
+                onMore = { sheet = Sheet.SubtitleStyleFull },
+                onClose = { sheet = null },
+                showAss = ps.fullAss,
+            )
+        }
+    }
+    if (sheet == Sheet.SubtitleStyleFull) {
+        EnhancementSheet(onDismiss = { sheet = null }) {
+            SubtitleStyleEditor(
+                style = settings.subtitleStyle,
+                onChange = saveStyle,
+                onPreview = previewStyle,
+                onClose = { sheet = null },
+            )
+        }
+    }
+    sheet?.takeIf { it != Sheet.Enhancements && it != Sheet.SubtitleStyle && it != Sheet.SubtitleStyleFull }?.let { kind ->
         val sheetState = rememberModalBottomSheetState()
         ModalBottomSheet(onDismissRequest = { sheet = null }, sheetState = sheetState) {
             when (kind) {
@@ -499,13 +525,14 @@ internal fun PlayerContent(
                     state = state,
                     onLoadFile = { sheet = null; subtitlePicker.launch(SUBTITLE_MIME_TYPES) },
                     onDone = { sheet = null },
+                    onOpenStyle = { sheet = Sheet.SubtitleStyle },
                 )
                 Sheet.More -> MoreSheetContent(vm, state)
                 Sheet.Episodes -> EpisodesSheetContent(vm, state, current = vm.episodeNumber, onPick = { n -> sheet = null; vm.playEpisode(n) })
                 Sheet.Audio -> ps.audioTracks.forEach { a ->
                     SheetRow(a.label, a.selected) { session.selectAudio(a.id); sheet = null }
                 }
-                Sheet.Enhancements -> Unit // EnhancementSheet above
+                Sheet.Enhancements, Sheet.SubtitleStyle, Sheet.SubtitleStyleFull -> Unit // side / bottom sheets above
                 Sheet.Speed -> SPEEDS.forEach { sp ->
                     SheetRow(stringResource(R.string.player_speed_value, speedText(sp)), ps.speed == sp) { session.setSpeed(sp); sheet = null }
                 }

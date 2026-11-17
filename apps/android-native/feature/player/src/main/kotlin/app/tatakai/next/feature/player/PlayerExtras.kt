@@ -36,6 +36,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Remove
@@ -94,7 +95,7 @@ import app.tatakai.next.player.SavedScreenshot
 import app.tatakai.next.player.Screenshots
 import app.tatakai.next.player.SleepOption
 import app.tatakai.next.player.SubtitleDelay
-import app.tatakai.next.player.SubtitleExtras
+import app.tatakai.next.player.ScreenSubtitleSpec
 import app.tatakai.next.player.SubtitleParser
 import app.tatakai.next.player.SubtitleText
 import app.tatakai.next.player.TimedCue
@@ -231,9 +232,9 @@ internal fun ScreenSubtitleLayer(
     session: PlayerSession,
     ps: PlaybackState,
     style: SubtitleStyle,
-    extras: SubtitleExtras,
     fontFile: File?,
-    bottomPadding: androidx.compose.ui.unit.Dp,
+    /** Room the visible controls need at the bottom (0 when hidden); the style's bottom margin applies when it is larger. */
+    controlsPadding: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
     val subs by vm.screenSubs.collectAsState()
@@ -271,53 +272,23 @@ internal fun ScreenSubtitleLayer(
     }
     val secondary = subs.secondary?.let { SubtitleParser.activeAt(it, SubtitleDelay.lookupPositionMs(pos, delayMs)) }.orEmpty()
 
+    // 0.4.1: sizes, margins and position follow the video area like libmpv's (ScreenSubtitleSpec), so both engines match.
     BoxWithConstraints(modifier.fillMaxSize()) {
+        val spec = ScreenSubtitleSpec.of(style, maxHeight.value)
+        val family = rememberSubtitleFontFamily(style.font, fontFile)
+        val sides = spec.marginXDp.dp
         if (secondary.isNotEmpty()) {
-            SubtitleLines(secondary, style, extras, fontFile, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 16.dp, start = 24.dp, end = 24.dp))
+            SubtitleLines(secondary, spec, family, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 16.dp, start = sides, end = sides))
         }
         if (shown.isNotEmpty()) {
-            val lift = maxHeight * ((100 - extras.positionPct).coerceIn(0, 100) / 100f) * 0.8f
-            SubtitleLines(shown, style, extras, fontFile, Modifier.align(Alignment.BottomCenter).padding(bottom = bottomPadding + lift, start = 24.dp, end = 24.dp))
+            val lift = maxHeight * spec.liftFraction
+            val bottom = maxOf(controlsPadding, spec.marginYDp.dp)
+            SubtitleLines(shown, spec, family, Modifier.align(Alignment.BottomCenter).padding(bottom = bottom + lift, start = sides, end = sides))
         }
     }
 }
 
 private fun cueTexts(cues: List<Cue>): List<String> = cues.mapNotNull { it.text?.toString()?.takeIf { t -> t.isNotBlank() } }
-
-/** One block of subtitle lines with [SubtitleStyle] + [SubtitleExtras] (colour, outline, imported font). */
-@Composable
-internal fun SubtitleLines(lines: List<String>, style: SubtitleStyle, extras: SubtitleExtras, fontFile: File?, modifier: Modifier = Modifier) {
-    val scheme = MaterialTheme.colorScheme
-    val family = remember(fontFile, style.font) {
-        fontFile?.let { f -> runCatching { FontFamily(Font(f)) }.getOrNull() } ?: when (style.font) {
-            "system" -> FontFamily.SansSerif
-            "space_grotesk" -> TatakaiFonts.families.display
-            else -> TatakaiFonts.families.text
-        }
-    }
-    val scale = style.scale.coerceIn(0.5f, 2f)
-    val shadow = if (style.outline && extras.outlineSize > 0f) Shadow(color = Color(extras.outlineColor), blurRadius = 2f + extras.outlineSize * 2f) else null
-    val textStyle = TextStyle(
-        fontFamily = family,
-        fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Medium,
-        fontSize = (18 * scale).sp,
-        lineHeight = (24 * scale).sp,
-        textAlign = TextAlign.Center,
-        color = Color(extras.textColor),
-        shadow = shadow,
-    )
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        lines.forEach { line ->
-            Text(
-                line,
-                style = textStyle,
-                modifier = Modifier
-                    .background(scheme.scrim.copy(alpha = style.backgroundOpacity.coerceIn(0f, 1f)), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-            )
-        }
-    }
-}
 
 /** Pre-translation progress over the paused video, with "Play now". */
 @Composable
@@ -353,7 +324,8 @@ private fun CheckRow(text: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * Subtitles sheet: tracks (+ the loaded file), "Load file…", delay ±0.1 s, secondary track, translation toggle and "Pre-translate".
+ * Subtitles sheet: tracks (+ the loaded file), "Load file…", 0.4.1 "Estilo" (size, background, position, ASS, "Más opciones"), delay
+ * ±0.1 s, secondary track, translation toggle and "Pre-translate".
  */
 @Composable
 internal fun SubtitlesSheetContent(
@@ -363,6 +335,7 @@ internal fun SubtitlesSheetContent(
     state: PlayerUiState,
     onLoadFile: () -> Unit,
     onDone: () -> Unit,
+    onOpenStyle: () -> Unit = {},
 ) {
     Column(Modifier.verticalScroll(rememberScrollState())) {
         if (!ps.fullAss && ps.subtitles.any { it.ass }) {
@@ -376,6 +349,12 @@ internal fun SubtitlesSheetContent(
             headlineContent = { Text(stringResource(R.string.player_sub_load)) },
             leadingContent = { Icon(Icons.Rounded.UploadFile, contentDescription = null) },
             modifier = Modifier.clickable { onLoadFile() },
+        )
+        ListItem(
+            headlineContent = { Text(stringResource(R.string.sub_style_entry)) },
+            supportingContent = { Text(stringResource(R.string.sub_style_entry_hint)) },
+            leadingContent = { Icon(Icons.Rounded.FormatSize, contentDescription = null) },
+            modifier = Modifier.clickable { onOpenStyle() },
         )
         HorizontalDivider()
         SheetTitle(stringResource(R.string.player_sub_delay))

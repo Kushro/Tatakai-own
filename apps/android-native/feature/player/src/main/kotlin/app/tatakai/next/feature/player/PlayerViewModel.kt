@@ -53,6 +53,7 @@ import app.tatakai.next.model.SkipMarksRepository
 import app.tatakai.next.model.SourceKind
 import app.tatakai.next.model.SourceMode
 import app.tatakai.next.model.SourceStatsStore
+import app.tatakai.next.model.SubtitleStyle
 import app.tatakai.next.model.TranslationMode
 import app.tatakai.next.model.TranslationProvider
 import app.tatakai.next.model.torrent.DebridRepository
@@ -638,9 +639,8 @@ class PlayerViewModel(
                 }
             }
         }
-        prefs?.let { p ->
-            viewModelScope.launch { p.subtitleExtras.collect { e -> session?.setSubtitleExtras(e) } }
-        }
+        // 0.4.1 (subtitle settings): the whole subtitle look is `settings.subtitleStyle` (applied above); PlayerPrefs only migrates
+        // 0.4.0's extras into it.
     }
 
     /** Episode of this entry (episode list, screenshot names). */
@@ -1110,7 +1110,6 @@ class PlayerViewModel(
         // 0.4.0: a Link session heartbeats; the flag is per engine session, and every switch of location makes a new one
         val s = factory.create(viewModelScope, listener(), remoteId != null)
         s.setSubtitleStyle(settings.subtitleStyle)
-        prefs?.subtitleExtras?.value?.let { s.setSubtitleExtras(it) }
         s.setPreferredLanguages(settings.sourcePrefs.subLang, settings.sourcePrefs.dubLang)
         if (settings.stableVolume) s.setStableVolume(true)
         if (_state.value.loop) s.setLoop(true)
@@ -1824,6 +1823,22 @@ class PlayerViewModel(
         session?.setStableVolume(enabled)
         val repo = settingsRepository ?: return
         viewModelScope.launch { runCatching { repo.update { it.copy(stableVolume = enabled) } } }
+    }
+
+    /**
+     * 0.4.1 (subtitle settings, player sheet › Estilo): shows [style] on the playing session right away, without saving (a slider
+     * being dragged). The screen-drawn lines follow the sheet's own draft; [saveSubtitleStyle] persists it.
+     */
+    fun previewSubtitleStyle(style: SubtitleStyle) {
+        session?.setSubtitleStyle(style)
+    }
+
+    /** 0.4.1: saves the subtitle look (Settings and every later playback use it); the settings collector re-applies it here. */
+    fun saveSubtitleStyle(style: SubtitleStyle) {
+        session?.setSubtitleStyle(style)
+        val repo = settingsRepository ?: return
+        val clean = style.sanitized()
+        viewModelScope.launch { runCatching { repo.update { it.copy(subtitleStyle = clean) } } }
     }
 
     // ---- parity wave A (worker p): subtitles ---------------------------------------------------------------------------------------

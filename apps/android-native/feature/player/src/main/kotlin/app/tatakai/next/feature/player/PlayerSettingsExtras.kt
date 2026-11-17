@@ -68,8 +68,6 @@ import app.tatakai.next.model.SubtitleTranslation
 import app.tatakai.next.model.TranslationMode
 import app.tatakai.next.model.TranslationProvider
 import app.tatakai.next.player.PlayerKeymap
-import app.tatakai.next.player.PlayerPrefs
-import app.tatakai.next.player.SubtitleExtras
 import app.tatakai.next.player.SubtitleTools
 import app.tatakai.next.player.SubtitleTranslators
 import app.tatakai.next.player.TranslationException
@@ -87,10 +85,11 @@ import kotlin.math.roundToInt
  * (worker q's module) right after the "Saltar intro" switch, so p owns its own settings rows AND their strings (`player_settings_*` in
  * :feature:player) without touching :feature:settings.
  *
- * Rows: auto-next countdown (3..30 s), stable volume, background playback, secondary subtitle language, advanced subtitle style (colour,
- * outline, position, imported fonts, preview), subtitle translation (provider, mode, target language, endpoint / model / region, API key
- * in SecretStore, "Probar", "Vaciar caché") and the keyboard shortcuts editor (`AppSettings.playerKeymap`, conflicts, "Restablecer").
- * Settings changes go through [onUpdate] (saves immediately and shows "Ajustes guardados"); the style extras live in [PlayerPrefs].
+ * Rows: auto-next countdown (3..30 s), stable volume, background playback, secondary subtitle language, subtitle translation (provider,
+ * mode, target language, endpoint / model / region, API key in SecretStore, "Probar", "Vaciar caché") and the keyboard shortcuts editor
+ * (`AppSettings.playerKeymap`, conflicts, "Restablecer"). Settings changes go through [onUpdate] (saves immediately and shows "Ajustes
+ * guardados"). 0.4.1: the subtitle look (colour, outline, position, fonts, preview...) moved to [SubtitleStyleEditor], which Settings
+ * opens from its "Estilo de subtítulos" row.
  */
 @Composable
 fun PlayerSettingsExtras(
@@ -99,14 +98,12 @@ fun PlayerSettingsExtras(
     modifier: Modifier = Modifier,
 ) {
     val koin = getKoin()
-    val prefs = remember { koin.getOrNull<PlayerPrefs>() }
     val tools = remember { koin.getOrNull<SubtitleTools>() }
     val secrets = remember { koin.getOrNull<SecretStore>() }
     Column(modifier.fillMaxWidth()) {
         PlaybackRows(settings, onUpdate)
         SectionTitle(stringResource(R.string.player_settings_subs_section))
         SecondaryLanguageRow(settings, onUpdate)
-        if (prefs != null) SubtitleStyleExtrasRows(settings, prefs, tools)
         SectionTitle(stringResource(R.string.player_settings_translation_section))
         TranslationRows(settings, onUpdate, tools, secrets)
         SectionTitle(stringResource(R.string.player_settings_shortcuts_section))
@@ -185,140 +182,6 @@ private fun SecondaryLanguageRow(settings: AppSettings, onUpdate: ((AppSettings)
                 }
             }
         },
-    )
-}
-
-@Composable
-private fun ColorSwatches(colors: List<Int>, selected: Int, onPick: (Int) -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 4.dp), Arrangement.spacedBy(10.dp)) {
-        colors.forEach { c ->
-            Box(
-                Modifier
-                    .size(32.dp)
-                    .background(Color(c), CircleShape)
-                    .border(BorderStroke(if (c == selected) 3.dp else 1.dp, if (c == selected) scheme.primary else scheme.outline), CircleShape)
-                    .clickable { onPick(c) },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (c == selected) Icon(Icons.Rounded.Check, contentDescription = null, tint = if (c == SubtitleExtras.BLACK) Color(SubtitleExtras.WHITE) else Color(SubtitleExtras.BLACK), modifier = Modifier.size(18.dp))
-            }
-        }
-    }
-}
-
-/** Colour, outline, vertical position, imported fonts and a live preview (player.subs.style.*, player.subs.custom-fonts). */
-@Composable
-private fun SubtitleStyleExtrasRows(settings: AppSettings, prefs: PlayerPrefs, tools: SubtitleTools?) {
-    val extras by prefs.subtitleExtras.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    var fonts by remember { mutableStateOf(tools?.fonts?.list().orEmpty()) }
-    var fontError by remember { mutableStateOf(false) }
-    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris: List<Uri> ->
-        val t = tools ?: return@rememberLauncherForActivityResult
-        scope.launch {
-            var failed = false
-            withContext(Dispatchers.IO) {
-                uris.forEach { uri ->
-                    val name = t.displayName(uri) ?: "font.ttf"
-                    val stored = runCatching { context.contentResolver.openInputStream(uri)?.let { t.fonts.import(name, it) } }.getOrNull()
-                    if (stored == null) failed = true
-                }
-            }
-            fontError = failed
-            fonts = t.fonts.list()
-        }
-    }
-
-    ListItem(
-        headlineContent = { Text(stringResource(R.string.player_settings_text_color)) },
-        supportingContent = { ColorSwatches(SubtitleExtras.TEXT_COLORS, extras.textColor) { c -> prefs.updateSubtitleExtras { it.copy(textColor = c) } } },
-    )
-    ListItem(
-        headlineContent = { Text(stringResource(R.string.player_settings_outline_color)) },
-        supportingContent = { ColorSwatches(SubtitleExtras.OUTLINE_COLORS, extras.outlineColor) { c -> prefs.updateSubtitleExtras { it.copy(outlineColor = c) } } },
-    )
-    var outline by remember(extras.outlineSize) { mutableFloatStateOf(extras.outlineSize) }
-    ListItem(
-        headlineContent = { Text(stringResource(R.string.player_settings_outline_size, outline.roundToInt())) },
-        supportingContent = {
-            Column {
-                if (!settings.subtitleStyle.outline) Text(stringResource(R.string.player_settings_outline_disabled))
-                Slider(
-                    value = outline,
-                    onValueChange = { outline = it },
-                    onValueChangeFinished = { val v = outline; prefs.updateSubtitleExtras { it.copy(outlineSize = v) } },
-                    valueRange = 0f..SubtitleExtras.MAX_OUTLINE,
-                    steps = 5,
-                )
-            }
-        },
-    )
-    var position by remember(extras.positionPct) { mutableFloatStateOf(extras.positionPct.toFloat()) }
-    ListItem(
-        headlineContent = { Text(stringResource(R.string.player_settings_position, position.roundToInt())) },
-        supportingContent = {
-            Column {
-                Text(stringResource(R.string.player_settings_position_hint))
-                Slider(
-                    value = position,
-                    onValueChange = { position = it },
-                    onValueChangeFinished = { val v = position.roundToInt(); prefs.updateSubtitleExtras { it.copy(positionPct = v) } },
-                    valueRange = 0f..100f,
-                )
-            }
-        },
-    )
-
-    // Imported fonts: choose one for subtitles (mpv `sub-font`, Media3 drawing), delete, import TTF / OTF.
-    ListItem(
-        headlineContent = { Text(stringResource(R.string.player_settings_fonts)) },
-        supportingContent = { Text(stringResource(R.string.player_settings_fonts_hint)) },
-        leadingContent = { Icon(Icons.Rounded.FontDownload, contentDescription = null) },
-    )
-    if (tools == null) {
-        Hint(stringResource(R.string.player_settings_unavailable))
-    } else {
-        FontChoice(stringResource(R.string.player_settings_font_default), extras.fontFile == null) { prefs.updateSubtitleExtras { it.copy(fontFile = null) } }
-        if (fonts.isEmpty()) Hint(stringResource(R.string.player_settings_fonts_empty))
-        fonts.forEach { f ->
-            FontChoice(
-                f.name,
-                extras.fontFile == f.name,
-                onDelete = {
-                    tools.fonts.delete(f.name)
-                    if (extras.fontFile == f.name) prefs.updateSubtitleExtras { it.copy(fontFile = null) }
-                    fonts = tools.fonts.list()
-                },
-            ) { prefs.updateSubtitleExtras { it.copy(fontFile = f.name) } }
-        }
-        if (fontError) Hint(stringResource(R.string.player_settings_fonts_error), MaterialTheme.colorScheme.error)
-        TextButton(onClick = { importer.launch(arrayOf("font/ttf", "font/otf", "application/x-font-ttf", "application/x-font-otf", "application/octet-stream")) }, modifier = Modifier.padding(horizontal = 8.dp)) {
-            Text(stringResource(R.string.player_settings_fonts_import))
-        }
-    }
-
-    // Live preview with the full style (player.subs.style.preview).
-    Text(stringResource(R.string.player_settings_preview), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 16.dp, top = 8.dp))
-    Surface(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.inverseSurface,
-    ) {
-        Box(Modifier.padding(vertical = 24.dp, horizontal = 12.dp), contentAlignment = Alignment.Center) {
-            SubtitleLines(listOf(stringResource(R.string.player_settings_preview_line)), settings.subtitleStyle, extras, tools?.fonts?.file(extras.fontFile))
-        }
-    }
-}
-
-@Composable
-private fun FontChoice(name: String, selected: Boolean, onDelete: (() -> Unit)? = null, onSelect: () -> Unit) {
-    ListItem(
-        headlineContent = { Text(name) },
-        leadingContent = { if (selected) Icon(Icons.Rounded.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-        trailingContent = if (onDelete != null) ({ IconButton(onClick = onDelete) { Icon(Icons.Rounded.Delete, stringResource(R.string.player_settings_fonts_delete)) } }) else null,
-        modifier = Modifier.clickable(onClick = onSelect),
     )
 }
 
