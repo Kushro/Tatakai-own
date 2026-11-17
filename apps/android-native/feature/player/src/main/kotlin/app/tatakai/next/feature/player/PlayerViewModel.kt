@@ -86,6 +86,11 @@ import app.tatakai.next.player.TimedCue
 import app.tatakai.next.player.TranslationCache
 import app.tatakai.next.player.TranslationException
 import app.tatakai.next.player.TranslatorConfig
+import app.tatakai.next.player.EmbeddedTrackMatcher
+import app.tatakai.next.player.EmbeddedTrackRef
+import app.tatakai.next.player.HlsSubtitles
+import app.tatakai.next.player.SubtitleSamples
+import app.tatakai.next.player.SubtitleText
 import app.tatakai.next.player.embedFailDetail
 import app.tatakai.next.player.historyAnimeId
 import app.tatakai.next.player.magnetInfoHash
@@ -113,6 +118,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -222,6 +228,12 @@ sealed interface PlayerNotice {
     data class TranslationFailed(val message: String) : PlayerNotice
     data class PretranslateDone(val failed: Int) : PlayerNotice
     data object PretranslateUnavailable : PlayerNotice
+
+    /** 0.4.0 (sub-translation): the provider rate-limited us; originals show and it retries in [seconds] ([google] = keyless Google). */
+    data class TranslationRateLimited(val seconds: Int, val google: Boolean) : PlayerNotice
+
+    /** 0.4.0 (sub-translation): the selected track is a bitmap (PGS / VobSub / DVB): there is no text to translate. */
+    data object TranslationImageSubtitles : PlayerNotice
 
     /** BUG-020: Media3 could not decode this video; it plays with libmpv (software decoding, may be slow). */
     data object SwitchedToMpv : PlayerNotice
@@ -516,8 +528,21 @@ class PlayerViewModel(
     private var secondaryDecidedLoad = -1
     private var translationSession: SubtitleTranslationSession? = null
     private var translationFor: SubtitleTranslationConfigKey? = null
-    private var liveJob: Job? = null
     private var pendingLive: List<String>? = null
+    // --- 0.4.0 (sub-translation worker): translation loop, the selected track's full cue list, embedded-track reader ---
+    private var translateLoop: Job? = null
+    private val translateWake = Channel<Unit>(Channel.CONFLATED)
+    private var timelineFor: String? = null
+    private var timelineJob: Job? = null
+    private var timelineCues: List<TimedCue>? = null
+    private var timelineSkip: Set<String> = emptySet()
+    private var timelineComplete = false
+    private var embedded: app.tatakai.next.player.EmbeddedSubtitleExtractor? = null
+    private var embeddedFor: String? = null
+    private var embeddedJob: Job? = null
+    private var embeddedRef: EmbeddedTrackRef? = null
+    private var rateNoticeUntil = 0L
+    private var imageNoticeFor: String? = null
     private var pretranslatedFor: String? = null
     private var pretranslateJob: Job? = null
     private var episodesJob: Job? = null
@@ -1894,10 +1919,14 @@ class PlayerViewModel(
     }
 
     // ---- parity wave A (worker p): translation -------------------------------------------------------------------------------------
+    // 0.4.0 (sub-translation worker): one translation loop per player (one request in flight: live lines + look-ahead batched together,
+    // paced by the provider's RequestGate), the full cue list of the selected track whatever its origin (loaded file, sidecar,
+    // embedded MKV / MP4 track via EmbeddedSubtitleExtractor, HLS subtitle rendition) and ONE notice while a provider rate-limits.
 
     fun setTranslationEnabled(enabled: Boolean) {
         _state.update { it.copy(translation = it.translation.copy(enabled = enabled, error = null)) }
         session?.setSubtitlesVisible(true)
+        if (enabled && translationActive()) ensureTranslateLoop() else stopTimeline()
     }
 
     /** Translation is configured and switched on in the player. */
@@ -1908,9 +1937,10 @@ class PlayerViewModel(
         translationFor = null
         pretranslatedFor = null
         _screenSubs.update { it.copy(translated = emptyMap()) }
+        translateWake.trySend(Unit)
     }
 
-    /** One translation session per (provider settings, key) and episode; the key comes from SecretStore, never from settings. */
+    /** One translation session per (provider settings, key) and series; the key comes from SecretStore, never from settings. */
     private suspend fun translation(): SubtitleTranslationSession? {
         val tools = subtitleTools ?: return null
         val cfg = settings.subtitleTranslation
@@ -1926,40 +1956,217 @@ class PlayerViewModel(
             _notices.trySend(PlayerNotice.TranslationFailed(e.message.orEmpty()))
             return null
         }
-        val episodeKey = "${mediaId ?: args.title}:${args.episode}"
-        return SubtitleTranslationSession(translator, tools.translationCache, TranslationCache.scope(episodeKey, config)).also {
+        // 0.4.0: scoped by series, so openings / endings / recurring lines are translated once (TranslationCache).
+        val seriesKey = mediaId ?: args.title
+        return SubtitleTranslationSession(translator, tools.translationCache, TranslationCache.scope(seriesKey, config)).also {
             translationSession = it
+            pushTimeline(it)
             translationFor = id
         }
     }
 
     /**
      * Live translation (player.subs.translate.live): the screen hands the lines it is about to draw; cached ones come back at once, the
-     * rest are translated (one request in flight, the newest lines win). Until then the original is shown.
+     * rest go to the translation loop (newest lines win). Until then the original is shown. 0.4.0: lines are normalized per event
+     * ([SubtitleText]) so mpv's joined `sub-text` reuses the per-event look-ahead translations.
      */
     fun translateLines(lines: List<String>) {
-        if (!translationActive() || lines.isEmpty()) return
+        if (!translationActive()) return
+        ensureTranslateLoop()
+        if (lines.isEmpty()) return
         val known = _screenSubs.value.translated
-        if (lines.all { it in known }) return
-        pendingLive = lines
-        if (liveJob?.isActive == true) return
-        liveJob = viewModelScope.launch {
-            while (true) {
-                val batch = pendingLive ?: break
-                pendingLive = null
+        val missing = lines.flatMap { SubtitleText.missingParts(known, it) }.filter { it.isNotEmpty() && it !in timelineSkip }.distinct()
+        if (missing.isEmpty()) return
+        pendingLive = missing
+        translateWake.trySend(Unit)
+    }
+
+    /** The loop: picks up the selected track's cue list, translates pending live lines (+ look-ahead) or just looks ahead, waits. */
+    private fun ensureTranslateLoop() {
+        if (translateLoop?.isActive == true) return
+        translateLoop = viewModelScope.launch {
+            while (isActive && translationActive()) {
+                refreshTimeline()
                 val tr = translation() ?: break
-                val missing = batch.filter { it !in _screenSubs.value.translated }
-                if (missing.isEmpty()) continue
+                val live = pendingLive
+                pendingLive = null
+                val pos = session?.currentPositionMs()?.let { it - (session?.state?.value?.subtitleDelayMs ?: 0L) }
+                var progressed = false
                 try {
-                    val out = tr.translateLive(missing)
-                    _screenSubs.update { it.copy(translated = it.translated + missing.zip(out)) }
+                    val fresh = when {
+                        !live.isNullOrEmpty() -> tr.translateNow(live, pos)
+                        pos != null && tr.hasTimeline() -> tr.translateAhead(pos)
+                        else -> emptyMap()
+                    }
+                    if (fresh.isNotEmpty()) {
+                        _screenSubs.update { it.copy(translated = it.translated + fresh) }
+                        _state.update { if (it.translation.error != null) it.copy(translation = it.translation.copy(error = null)) else it }
+                        progressed = true
+                    }
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: TranslationException) {
+                    if (e.kind == TranslationException.Kind.RATE_LIMITED) {
+                        // Keep the lines for the retry (unless newer ones arrived) and keep showing the originals meanwhile.
+                        if (pendingLive == null) pendingLive = live
+                        val wait = (e.retryAfterMs ?: RATE_LIMIT_FALLBACK_MS).coerceIn(1_000, RATE_LIMIT_MAX_WAIT_MS)
+                        notifyRateLimited(wait)
+                        delay(wait)
+                        continue
+                    }
+                    _state.update { it.copy(translation = it.translation.copy(error = e.message)) }
+                    withTimeoutOrNull(TRANSLATE_ERROR_BACKOFF_MS) { translateWake.receive() }
+                    continue
                 } catch (e: Exception) {
                     _state.update { it.copy(translation = it.translation.copy(error = e.message)) }
-                    break
+                    withTimeoutOrNull(TRANSLATE_ERROR_BACKOFF_MS) { translateWake.receive() }
+                    continue
                 }
+                // A batch went out: the next one may be due right away (the provider's gate paces them).
+                if (progressed) continue
+                runCatching { tr.flush() }
+                withTimeoutOrNull(LOOKAHEAD_TICK_MS) { translateWake.receive() }
             }
+            if (!translationActive()) stopTimeline()
+        }
+    }
+
+    /** One "Google limitó las traducciones; reintento en N s" per throttling episode, not one failure per line. */
+    private fun notifyRateLimited(waitMs: Long) {
+        val now = System.currentTimeMillis()
+        if (now < rateNoticeUntil) return
+        rateNoticeUntil = now + waitMs + RATE_NOTICE_GRACE_MS
+        val google = settings.subtitleTranslation.provider == TranslationProvider.GOOGLE
+        _notices.trySend(PlayerNotice.TranslationRateLimited(((waitMs + 999) / 1000).toInt(), google))
+    }
+
+    /** What identifies the cue list the translator should know: the loaded file, or the selected track of the current source. */
+    private fun timelineKey(): String? {
+        customCues?.let { return "custom:${System.identityHashCode(it)}" }
+        val src = currentSource ?: return null
+        val sel = session?.state?.value?.subtitles?.firstOrNull { it.selected } ?: return null
+        _screenSubs.value.primary?.let { return "primary:${System.identityHashCode(it)}" }
+        return "${src.url}|${sel.groupIndex}|${sel.embeddedOrdinal}|${sel.external}|${sel.language}|${sel.label}"
+    }
+
+    /** Called by the loop: (re)starts reading the cue list when the selected track changed. */
+    private fun refreshTimeline() {
+        val key = timelineKey()
+        if (key == timelineFor) return
+        timelineFor = key
+        timelineJob?.cancel()
+        timelineJob = null
+        // Another file now (next episode, other source): the previous file's reader stops.
+        if (embeddedFor != null && embeddedFor != currentSource?.url) {
+            embeddedJob?.cancel()
+            embedded = null
+            embeddedFor = null
+        }
+        applyTimeline(null, emptySet(), complete = false)
+        if (key == null) return
+        customCues?.let { return applyTimeline(it, emptySet(), complete = true) }
+        _screenSubs.value.primary?.let { return applyTimeline(it, emptySet(), complete = true) }
+        val src = currentSource ?: return
+        val tools = subtitleTools ?: return
+        val sel = session?.state?.value?.subtitles?.firstOrNull { it.selected } ?: return
+        // The PC's stream (Tatakai Link) needs its own mTLS client: its subtitles stay live-only.
+        if (src.httpClient != null) return
+        if (sel.embeddedOrdinal == null) {
+            // A sidecar: Media3 says which one; mpv only lists it as external, matched by language / title.
+            val track = sel.external?.let { src.subtitles.getOrNull(it) }
+                ?: src.subtitles.firstOrNull { LanguageCodes.matches(it.lang, it.label, sel.language ?: sel.label) }
+                ?: return
+            timelineJob = viewModelScope.launch {
+                val cues = runCatching { tools.fetch(track.url, src.headers, track.format) }.getOrNull() ?: return@launch
+                if (timelineFor == key) applyTimeline(cues, emptySet(), complete = true)
+            }
+            return
+        }
+        if (SubtitleSamples.isImage(sel.codec)) {
+            imageNotice(key)
+            return
+        }
+        val ref = EmbeddedTrackRef(sel.embeddedOrdinal, sel.language, sel.label, sel.codec)
+        if (HlsSubtitles.isHls(src.url)) {
+            timelineJob = viewModelScope.launch {
+                val cues = runCatching { tools.hlsSubtitles(src.url, src.headers, ref) }.getOrNull() ?: return@launch
+                if (timelineFor == key) applyTimeline(cues, emptySet(), complete = true)
+            }
+            return
+        }
+        // Embedded track: one extractor per file reads every text track; a track switch in the same file reuses it.
+        embeddedRef = ref
+        val extractor = embedded?.takeIf { ex -> embeddedFor == src.url && (embeddedJob?.isActive == true || ex.state.value.complete) } ?: run {
+            embeddedJob?.cancel()
+            val marks: (() -> List<ClosedFloatingPointRange<Double>>)? = if (src.torrent) {
+                { _state.value.torrent?.marks.orEmpty() }
+            } else {
+                null
+            }
+            val media = tools.mediaSource(src.url, src.headers, marks) ?: return
+            val ex = app.tatakai.next.player.EmbeddedSubtitleExtractor(media, playheadMs = { lastPositionMs })
+            embedded = ex
+            embeddedFor = src.url
+            embeddedJob = viewModelScope.launch { ex.run() }
+            ex
+        }
+        timelineJob = viewModelScope.launch {
+            var lastSize = -1
+            extractor.state.collect { st ->
+                if (timelineFor != key) return@collect
+                val ref2 = embeddedRef ?: return@collect
+                val track = EmbeddedTrackMatcher.match(st.tracks, ref2) ?: return@collect
+                if (track.image) {
+                    imageNotice(key)
+                    return@collect
+                }
+                val cues = st.cues[track.id].orEmpty()
+                if (cues.size != lastSize || st.finished) {
+                    lastSize = cues.size
+                    applyTimeline(cues, st.skipped[track.id].orEmpty(), complete = st.complete)
+                }
+                if (st.finished && st.complete && cues.isNotEmpty()) maybePretranslate()
+            }
+        }
+    }
+
+    private fun imageNotice(key: String) {
+        if (imageNoticeFor == key) return
+        imageNoticeFor = key
+        _notices.trySend(PlayerNotice.TranslationImageSubtitles)
+    }
+
+    /** Translation off / player leaving the track: stop reading the file. */
+    private fun stopTimeline() {
+        timelineJob?.cancel()
+        embeddedJob?.cancel()
+        embedded = null
+        embeddedFor = null
+        timelineFor = null
+    }
+
+    /** The selected track's cues are known (or grew): hand them to the session and show what the cache already has. */
+    private fun applyTimeline(cues: List<TimedCue>?, skip: Set<String>, complete: Boolean) {
+        val norm = cues?.mapNotNull { c -> SubtitleText.normalize(c.text).takeIf { it.isNotEmpty() }?.let { if (it == c.text) c else c.copy(text = it) } }
+        timelineCues = norm
+        timelineSkip = skip
+        timelineComplete = complete
+        translationSession?.let(::pushTimeline)
+        translateWake.trySend(Unit)
+    }
+
+    /** The session learns the cue list; whatever the cache already has for it shows at once (re-watch, same series). */
+    private fun pushTimeline(tr: SubtitleTranslationSession) {
+        val norm = timelineCues
+        tr.setTimeline(norm, timelineSkip)
+        if (norm.isNullOrEmpty()) return
+        viewModelScope.launch {
+            val known = _screenSubs.value.translated
+            val texts = norm.asSequence().map { it.text }.filter { it !in known }.distinct().toList()
+            if (texts.isEmpty()) return@launch
+            val cached = tr.cachedOnly(texts)
+            val hits = texts.zip(cached).mapNotNull { (o, t) -> t?.let { o to it } }
+            if (hits.isNotEmpty()) _screenSubs.update { it.copy(translated = it.translated + hits) }
         }
     }
 
@@ -1975,14 +2182,16 @@ class PlayerViewModel(
 
     /**
      * "Pre-translate" (player.subs.translate.pretranslate): pauses, translates every line of the current track in batches with progress,
-     * then plays on. Needs the full text: a loaded file or an external track (embedded tracks only translate live).
+     * then plays on. 0.4.0: any text track (embedded ones are read from the file; a torrent still downloading pre-translates what is
+     * downloaded and the rest is translated ahead as it arrives); bitmap tracks (PGS / VobSub) say they cannot be translated.
      */
     fun pretranslate() {
         if (pretranslateJob?.isActive == true) return
         pretranslateJob = viewModelScope.launch {
             val cues = cuesForPretranslation()
             if (cues == null) {
-                _notices.trySend(PlayerNotice.PretranslateUnavailable)
+                val sel = session?.state?.value?.subtitles?.firstOrNull { it.selected }
+                _notices.trySend(if (SubtitleSamples.isImage(sel?.codec)) PlayerNotice.TranslationImageSubtitles else PlayerNotice.PretranslateUnavailable)
                 return@launch
             }
             val id = cues.size.toString() + ":" + cues.firstOrNull()?.text.orEmpty()
@@ -1991,9 +2200,11 @@ class PlayerViewModel(
             val s = session
             val wasPlaying = s?.state?.value?.isPlaying == true
             s?.pause()
-            val texts = cues.map { it.text }
+            val texts = cues.map { SubtitleText.normalize(it.text) }.filter { it.isNotEmpty() }
             val failed = try {
-                tr.pretranslate(texts) { done, total -> _state.update { it.copy(translation = it.translation.copy(progress = done to total)) } }
+                tr.pretranslate(texts, onThrottled = ::notifyRateLimited) { done, total ->
+                    _state.update { it.copy(translation = it.translation.copy(progress = done to total)) }
+                }
             } catch (e: CancellationException) {
                 _state.update { it.copy(translation = it.translation.copy(progress = null)) }
                 throw e
@@ -2015,16 +2226,25 @@ class PlayerViewModel(
         session?.play()
     }
 
+    /**
+     * The whole text of the selected track: loaded file, parsed sidecar, or (0.4.0) the cue list read from the file / HLS rendition.
+     * An embedded track still being read gets up to [PRETRANSLATE_WAIT_MS] to finish (a local file takes seconds); a torrent still
+     * downloading uses what is there.
+     */
     private suspend fun cuesForPretranslation(): List<TimedCue>? {
         customCues?.let { return it }
         _screenSubs.value.primary?.let { return it }
-        val src = currentSource ?: return null
-        val tools = subtitleTools ?: return null
-        val selected = session?.state?.value?.subtitles?.firstOrNull { it.selected } ?: return null
-        val track = selected.external?.let { src.subtitles.getOrNull(it) }
-            ?: src.subtitles.firstOrNull { LanguageCodes.matches(it.lang, it.label, selected.language ?: selected.label) }
-            ?: return null
-        return runCatching { tools.fetch(track.url, src.headers, track.format) }.getOrNull()
+        refreshTimeline()
+        if (timelineComplete) timelineCues?.takeIf { it.isNotEmpty() }?.let { return it }
+        val ex = embedded?.takeIf { embeddedFor == currentSource?.url }
+        if (ex != null) {
+            withTimeoutOrNull(PRETRANSLATE_WAIT_MS) { ex.state.first { it.finished || it.waiting } }
+            // The collector in refreshTimeline applies the final list; give it a beat.
+            delay(50)
+        } else {
+            withTimeoutOrNull(PRETRANSLATE_WAIT_MS) { while (timelineCues.isNullOrEmpty() && timelineJob?.isActive == true) delay(200) }
+        }
+        return timelineCues?.takeIf { it.isNotEmpty() }
     }
 
     // ---- 0.4.0 (worker C): Procesar en Teléfono | PC | Mixto ----------------------------------------------------------------------
@@ -2454,3 +2674,18 @@ class PlayerViewModel(
 
 /** Identity of a translation setup (the key itself is never kept, only whether / which one is set). */
 private data class SubtitleTranslationConfigKey(val settings: app.tatakai.next.model.SubtitleTranslation, val keyHash: Int?)
+
+// 0.4.0 (sub-translation worker): translation loop timings.
+/** Look-ahead check while nothing new is on screen. */
+private const val LOOKAHEAD_TICK_MS = 4_000L
+
+/** A failed request (network / HTTP error) is not retried sooner than this unless new lines arrive. */
+private const val TRANSLATE_ERROR_BACKOFF_MS = 10_000L
+private const val RATE_LIMIT_FALLBACK_MS = 5_000L
+private const val RATE_LIMIT_MAX_WAIT_MS = 5 * 60_000L
+
+/** The rate-limit notice is not repeated while the same throttling lasts (+ this grace). */
+private const val RATE_NOTICE_GRACE_MS = 30_000L
+
+/** "Pretraducir" waits this long for an embedded track still being read. */
+private const val PRETRANSLATE_WAIT_MS = 20_000L

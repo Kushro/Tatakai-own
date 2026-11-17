@@ -130,7 +130,7 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
                 PlayerNotice.AssSimplified, is PlayerNotice.StoredSourceIgnored, PlayerNotice.PretranslateUnavailable, PlayerNotice.SwitchedToMpv,
                 PlayerNotice.SwitchedToMedia3, PlayerNotice.LinkSessionRenewed, PlayerNotice.LinkProfileRetried,
                 is PlayerNotice.LinkPhoneCannotPlay, is PlayerNotice.LinkPreferredReplaced, is PlayerNotice.Processing,
-                is PlayerNotice.FrameGen -> 5_000
+                is PlayerNotice.FrameGen, is PlayerNotice.TranslationRateLimited, PlayerNotice.TranslationImageSubtitles -> 5_000
                 // long enough to reach "Deshacer"
                 is PlayerNotice.Quality -> if (notice.event.undoable) 7_000 else 5_000
                 is PlayerNotice.LinkProfile -> if (notice.result is LinkProfileResult.Failed) 5_000 else FLASH_MS
@@ -158,6 +158,12 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
             stringResource(R.string.player_pretranslate_done)
         }
         PlayerNotice.PretranslateUnavailable -> stringResource(R.string.player_pretranslate_unavailable)
+        // 0.4.0 (sub-translation)
+        is PlayerNotice.TranslationRateLimited -> stringResource(
+            if (notice.google) R.string.player_translation_rate_limited_google else R.string.player_translation_rate_limited,
+            notice.seconds,
+        )
+        PlayerNotice.TranslationImageSubtitles -> stringResource(R.string.player_translation_image_subs)
         PlayerNotice.SwitchedToMpv -> stringResource(R.string.player_switched_to_mpv)
         PlayerNotice.SwitchedToMedia3 -> stringResource(R.string.player_switched_to_media3)
         is PlayerNotice.Quality -> qualityEventText(notice.event)
@@ -177,7 +183,7 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
     }
     val failed = (notice is PlayerNotice.LinkProfile && notice.result is LinkProfileResult.Failed) || notice is PlayerNotice.LinkPhoneCannotPlay ||
         (notice is PlayerNotice.Processing && (notice.failure != null || notice.block != null))
-    val warning = notice is PlayerNotice.FrameGen ||
+    val warning = notice is PlayerNotice.FrameGen || notice is PlayerNotice.TranslationRateLimited || notice is PlayerNotice.TranslationImageSubtitles ||
         (notice is PlayerNotice.Quality && notice.event.kind != app.tatakai.next.player.QualityEventKind.RESTORED)
     val undo = onUndo?.takeIf { notice is PlayerNotice.Quality && notice.event.undoable }
     val scheme = MaterialTheme.colorScheme

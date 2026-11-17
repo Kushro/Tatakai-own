@@ -208,7 +208,10 @@
     <string name="player_pretranslate_skip">Play now</string>
     <string name="player_pretranslate_done">Subtitles translated</string>
     <string name="player_pretranslate_done_failed">Subtitles translated (%1$d lines failed and will be translated live)</string>
-    <string name="player_pretranslate_unavailable">Pre-translation needs an external or loaded subtitle track; this one is translated live.</string>
+    <string name="player_pretranslate_unavailable">Couldn\'t read the full text of this track; it\'s translated live.</string>
+    <string name="player_translation_rate_limited_google">Google is limiting translations; retrying in %1$d s</string>
+    <string name="player_translation_rate_limited">The translation service is limiting requests; retrying in %1$d s</string>
+    <string name="player_translation_image_subs">This subtitle track is made of images (PGS or VobSub) and can\'t be translated. Pick a text track.</string>
     <string name="player_translation_failed">Translation failed: %1$s</string>
     <string name="player_shortcuts">Keyboard shortcuts</string>
     <string name="player_shortcuts_close">Close</string>
@@ -280,6 +283,7 @@
     <string name="player_settings_testing">Testing…</string>
     <string name="player_settings_test_ok">OK: %1$s</string>
     <string name="player_settings_test_failed">Failed: %1$s</string>
+    <string name="player_settings_test_rate_limited">the service is limiting requests; try again in a minute</string>
     <string name="player_settings_test_missing">Fill in the key, URL or region this engine needs</string>
     <string name="player_settings_cache">Translation cache</string>
     <string name="player_settings_cache_size">%1$s used</string>

@@ -96,6 +96,7 @@ import app.tatakai.next.player.SleepOption
 import app.tatakai.next.player.SubtitleDelay
 import app.tatakai.next.player.SubtitleExtras
 import app.tatakai.next.player.SubtitleParser
+import app.tatakai.next.player.SubtitleText
 import app.tatakai.next.player.TimedCue
 import app.tatakai.next.ui.format.formatDuration
 import app.tatakai.next.ui.state.userMessage
@@ -261,7 +262,13 @@ internal fun ScreenSubtitleLayer(
     }
     LaunchedEffect(translating, media3) { if (!media3) vm.onTranslationDrawing(translating) }
     LaunchedEffect(primary, translating) { if (translating) vm.translateLines(primary) }
-    val shown = if (translating) primary.map { subs.translated[it] ?: it } else primary
+    // 0.4.0 (sub-translation): per-event lookup (mpv joins simultaneous events in one `sub-text`), and leftover ASS vector drawings
+    // ("m 0 0 l 100 0 ...", what engines leave of `{\p1}` signs) are never drawn as text.
+    val shown = if (translating) {
+        primary.mapNotNull { line -> SubtitleText.lookup(subs.translated, line) ?: SubtitleText.normalize(line).takeIf { it.isNotEmpty() } }
+    } else {
+        primary.filterNot { SubtitleText.isDrawingLike(it.trim()) }
+    }
     val secondary = subs.secondary?.let { SubtitleParser.activeAt(it, SubtitleDelay.lookupPositionMs(pos, delayMs)) }.orEmpty()
 
     BoxWithConstraints(modifier.fillMaxSize()) {
