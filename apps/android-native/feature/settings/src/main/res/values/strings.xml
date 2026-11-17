@@ -91,15 +91,9 @@
     <string name="settings_subs">Subtitle style</string>
     <string name="settings_subs_summary">%1$s · %2$d%% · background %3$d%%</string>
     <string name="settings_subs_edit">Edit</string>
-    <string name="settings_subs_size">Size</string>
-    <string name="settings_subs_background">Background</string>
-    <string name="settings_subs_font">Font</string>
     <string name="settings_subs_font_outfit">Outfit</string>
     <string name="settings_subs_font_space_grotesk">Space Grotesk</string>
     <string name="settings_subs_font_system">System</string>
-    <string name="settings_subs_bold">Bold</string>
-    <string name="settings_subs_outline">Outline</string>
-    <string name="settings_subs_preview">The night is still young.</string>
     <string name="settings_extensions">Extensions</string>
     <string name="settings_metadata">Metadata sources</string>
     <string name="settings_metadata_hint">The first source that answers wins; the others are fallbacks.</string>

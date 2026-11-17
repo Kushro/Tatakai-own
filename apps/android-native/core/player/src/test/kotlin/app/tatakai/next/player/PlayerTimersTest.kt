@@ -59,15 +59,6 @@ class PlayerTimersTest {
     }
 
     @Test
-    fun subtitleExtrasSanitiseAndMpvColours() {
-        val e = SubtitleExtras(outlineSize = 99f, positionPct = 140).sanitized()
-        assertEquals(SubtitleExtras.MAX_OUTLINE, e.outlineSize)
-        assertEquals(100, e.positionPct)
-        assertEquals("1.000/1.000/1.000/1.000", SubtitleExtras.mpvColor(SubtitleExtras.WHITE))
-        assertEquals("0.000/0.000/0.000/0.500", SubtitleExtras.mpvColor(SubtitleExtras.BLACK, 0.5f))
-    }
-
-    @Test
     fun fontFamilyFromTheNameTable() {
         val family = "Tatakai Sans"
         val utf16 = family.toByteArray(Charsets.UTF_16BE)

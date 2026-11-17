@@ -19,18 +19,7 @@ enum class PlayerEngine {
     @SerialName("external") EXTERNAL,
 }
 
-/** Subtitle look (Settings › Reproductor › Estilo de subtítulos). Applied by Media3 (CaptionStyle) and mpv (sub-* options; ASS keeps its own styles). */
-@Serializable
-data class SubtitleStyle(
-    /** 0.5..2.0, 1.0 = 100 %. */
-    val scale: Float = 1f,
-    /** Background box opacity 0..1 (prototype: 60 %). */
-    val backgroundOpacity: Float = 0.6f,
-    /** "outfit" | "space_grotesk" | "system". */
-    val font: String = "outfit",
-    val bold: Boolean = false,
-    val outline: Boolean = true,
-)
+// SubtitleStyle (Settings › Reproductor › Estilo de subtítulos) lives in SubtitleStyle.kt since 0.4.1.
 
 /** Intro / outro / recap interval (AniSkip), desktop `SkipKindVm`. Label keys `player_skip_<id>` live in :core:ui. */
 @Serializable

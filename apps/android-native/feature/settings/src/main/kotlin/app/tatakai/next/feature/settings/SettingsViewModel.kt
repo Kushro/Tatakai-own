@@ -184,7 +184,7 @@ class SettingsViewModel(
     fun setSkipIntro(value: Boolean) = update(announce = true) { it.copy(skipIntro = value) }
 
     fun setSubtitleStyle(value: SubtitleStyle) = update {
-        it.copy(subtitleStyle = value.copy(scale = value.scale.coerceIn(0.5f, 2f), backgroundOpacity = value.backgroundOpacity.coerceIn(0f, 1f)))
+        it.copy(subtitleStyle = value.sanitized()) // 0.4.1: every range lives in SubtitleStyle.sanitized()
     }
 
     // ---------------------------------------------------------------- metadata

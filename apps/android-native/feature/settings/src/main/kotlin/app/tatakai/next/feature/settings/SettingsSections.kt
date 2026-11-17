@@ -70,6 +70,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import app.tatakai.next.designsystem.components.AdaptiveSheet
 import app.tatakai.next.designsystem.components.EmptyState
 import app.tatakai.next.designsystem.components.ErrorState
@@ -84,6 +85,7 @@ import app.tatakai.next.designsystem.generated.TatakaiTokens
 import app.tatakai.next.designsystem.theme.TatakaiFonts
 import app.tatakai.next.feature.extensions.SourcesSettingsExtras
 import app.tatakai.next.feature.player.PlayerSettingsExtras
+import app.tatakai.next.feature.player.SubtitleStyleSheet
 import app.tatakai.next.feature.search.DiscoverSettingsExtras
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.AppLanguage
@@ -412,9 +414,10 @@ internal fun langOptions(codes: List<String>): List<SegmentedOption<String>> =
 @Composable
 private fun subtitleSummary(style: SubtitleStyle): String = stringResource(
     R.string.settings_subs_summary,
-    stringResource(fontLabelRes(style.font)),
-    (style.scale * 100).toInt(),
-    (style.backgroundOpacity * 100).toInt(),
+    style.fontFile?.substringBeforeLast('.') ?: stringResource(fontLabelRes(style.font)),
+    (style.scale * 100).roundToInt(),
+    // 0.4.1: the box has its own switch; "off" reads as 0 % like before.
+    if (style.background) (style.backgroundOpacity * 100).roundToInt() else 0,
 )
 
 private fun fontLabelRes(font: String): Int = when (font) {
@@ -422,77 +425,6 @@ private fun fontLabelRes(font: String): Int = when (font) {
     "system" -> R.string.settings_subs_font_system
     else -> R.string.settings_subs_font_outfit
 }
-
-@Composable
-private fun SubtitleStyleSheet(style: SubtitleStyle, onChange: (SubtitleStyle) -> Unit, onDismiss: () -> Unit) {
-    AdaptiveSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(stringResource(R.string.settings_subs), style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 8.dp))
-            SubtitlePreview(style)
-            SettingRow(stringResource(R.string.settings_subs_size), stack = true, divider = false) {
-                Segmented(
-                    options = listOf(0.8f, 1f, 1.3f).map { SegmentedOption(it, "${(it * 100).toInt()} %") },
-                    selected = style.scale,
-                    onSelect = { onChange(style.copy(scale = it)) },
-                    small = true,
-                )
-            }
-            SettingRow(stringResource(R.string.settings_subs_background), stack = true) {
-                Segmented(
-                    options = listOf(0f, 0.6f, 1f).map { SegmentedOption(it, "${(it * 100).toInt()} %") },
-                    selected = style.backgroundOpacity,
-                    onSelect = { onChange(style.copy(backgroundOpacity = it)) },
-                    small = true,
-                )
-            }
-            SettingRow(stringResource(R.string.settings_subs_font), stack = true) {
-                Segmented(
-                    options = listOf("outfit", "space_grotesk", "system").map { SegmentedOption(it, stringResource(fontLabelRes(it))) },
-                    selected = style.font,
-                    onSelect = { onChange(style.copy(font = it)) },
-                    small = true,
-                )
-            }
-            SwitchRow(stringResource(R.string.settings_subs_bold), style.bold, { onChange(style.copy(bold = it)) })
-            SwitchRow(stringResource(R.string.settings_subs_outline), style.outline, { onChange(style.copy(outline = it)) })
-        }
-    }
-}
-
-/** Live sample of the subtitle look on an inverse surface (stand-in for video). */
-@Composable
-private fun SubtitlePreview(style: SubtitleStyle) {
-    val family = when (style.font) {
-        "space_grotesk" -> TatakaiFonts.spaceGrotesk
-        "system" -> FontFamily.Default
-        else -> TatakaiFonts.outfit
-    }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(120.dp)
-            .clip(MaterialTheme.shapes.large)
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        Text(
-            stringResource(R.string.settings_subs_preview),
-            style = TextStyle(
-                fontFamily = family,
-                fontWeight = if (style.bold) FontWeight.Bold else FontWeight.Medium,
-                fontSize = (16 * style.scale).sp,
-                textAlign = TextAlign.Center,
-            ),
-            color = MaterialTheme.colorScheme.inverseOnSurface,
-            modifier = Modifier
-                .padding(12.dp)
-                .clip(MaterialTheme.shapes.small)
-                .background(MaterialTheme.colorScheme.inverseSurface.copy(alpha = style.backgroundOpacity.coerceAtLeast(0.15f)))
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-        )
-    }
-}
-
 // ==================================================================== Metadatos
 
 private val TTL_HOURS = listOf(6, 24, 72, 168)
