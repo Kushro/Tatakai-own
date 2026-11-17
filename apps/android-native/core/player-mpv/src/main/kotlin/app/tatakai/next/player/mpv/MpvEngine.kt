@@ -4,7 +4,6 @@ package app.tatakai.next.player.mpv
 import android.content.Context
 import android.view.Surface
 import app.tatakai.next.player.LanguageCodes
-import app.tatakai.next.player.SubtitleExtras
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -196,6 +195,9 @@ class MpvEngine(context: Context) {
         // parity wave A (player.subs.custom-fonts): fonts imported by the user (`filesDir/fonts`) are visible to libass, also for the
         // fonts ASS styles ask for; embedded MKV fonts keep working (`embeddedfonts` default yes).
         val fontsDir = File(appContext.filesDir, "fonts").apply { mkdirs() }
+        // 0.4.1: static Outfit / Space Grotesk faces for the "Outfit" and "Space Grotesk" subtitle fonts (libass draws a variable
+        // font at its default instance, Thin / Light). Installed before init: libass reads the folder when a track starts.
+        installBundledSubtitleFonts(fontsDir)
         mpv.setOptionString("sub-fonts-dir", fontsDir.absolutePath)
         mpv.init()
         mpv.addObserver(observer)
@@ -423,36 +425,23 @@ class MpvEngine(context: Context) {
         return f.isFile && f.length() > 0
     }
 
-    /**
-     * Colour, outline and vertical position of text subtitles (player.subs.style.*): `sub-color`, `sub-border-color`, `sub-border-size`
-     * (when [outline]), `sub-pos`, and the chosen imported font family as `sub-font` ([fontFamily] null = mpv's default).
-     */
-    fun setSubtitleExtras(extras: SubtitleExtras, outline: Boolean, fontFamily: String?) {
-        if (released) return
-        val e = extras.sanitized()
-        mpv.setPropertyString("sub-color", SubtitleExtras.mpvColor(e.textColor))
-        mpv.setPropertyString("sub-border-color", SubtitleExtras.mpvColor(e.outlineColor))
-        mpv.setPropertyDouble("sub-border-size", if (outline) e.outlineSize.toDouble() else 0.0)
-        mpv.setPropertyInt("sub-pos", e.positionPct)
-        mpv.setPropertyString("sub-font", fontFamily ?: DEFAULT_SUB_FONT)
-    }
+    // 0.4.1: the subtitle look is written by MpvPlayerSession through [setProperty] (MpvSubtitleStyle.kt: every sub-* option, only
+    // the ones that changed); 0.4.0's setSubtitleStyle / setSubtitleExtras are gone.
 
     /**
-     * Subtitle look for text subtitles (SRT / VTT; ASS keeps its own styles): `sub-scale`, `sub-bold`, `sub-border-size`, a translucent
-     * box (`sub-border-style=background-box` + `sub-back-color`) when [backgroundOpacity] > 0. The app font is not passed to libass
-     * (it would need a fonts directory on disk): mpv uses its default sans font.
+     * Copies `assets/subfonts/` (named `tatakai_*`, hidden from the imported-fonts list) into [dir] when missing. Assets may be stored
+     * compressed (no `openFd` size check): a changed font ships under a new file name instead.
      */
-    fun setSubtitleStyle(scale: Float, backgroundOpacity: Float, bold: Boolean, outline: Boolean) {
-        if (released) return
-        mpv.setPropertyDouble("sub-scale", scale.coerceIn(0.5f, 2f).toDouble())
-        mpv.setPropertyBoolean("sub-bold", bold)
-        if (!outline) mpv.setPropertyDouble("sub-border-size", 0.0)
-        val alpha = backgroundOpacity.coerceIn(0f, 1f)
-        if (alpha > 0f) {
-            mpv.setPropertyString("sub-border-style", "background-box")
-            mpv.setPropertyString("sub-back-color", String.format(Locale.ROOT, "0.0/0.0/0.0/%.2f", alpha))
-        } else {
-            mpv.setPropertyString("sub-border-style", "outline-and-shadow")
+    private fun installBundledSubtitleFonts(dir: File) {
+        val assets = appContext.assets
+        runCatching { assets.list(BUNDLED_FONTS_ASSETS).orEmpty() }.getOrDefault(emptyArray()).forEach { name ->
+            val target = File(dir, name)
+            if (target.isFile && target.length() > 0) return@forEach
+            runCatching {
+                val tmp = File(dir, "$name.part")
+                assets.open("$BUNDLED_FONTS_ASSETS/$name").use { src -> tmp.outputStream().use { src.copyTo(it) } }
+                if (!tmp.renameTo(target)) tmp.delete()
+            }
         }
     }
 
@@ -578,8 +567,8 @@ class MpvEngine(context: Context) {
         const val READAHEAD_SECS = 60
         const val NETWORK_TIMEOUT_S = 90
         private const val DEFAULT_USER_AGENT = "TatakaiNext/0.1"
-        private const val DEFAULT_SUB_FONT = "sans-serif"
-        const val STABLE_VOLUME_FILTER = "lavfi=[dynaudnorm=f=250:g=15:p=0.9]"
+        private const val BUNDLED_FONTS_ASSETS = "subfonts"
+        const val STABLE_VOLUME_FILTER ="lavfi=[dynaudnorm=f=250:g=15:p=0.9]"
     }
 }
 

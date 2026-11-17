@@ -44,6 +44,17 @@ Space Grotesk, Outfit and JetBrains Mono are licensed under the **SIL Open Font 
 | `jetbrains_mono.ttf` | JetBrains Mono, variable `[wght]` 100-800 (JetBrains) | `github.com/google/fonts` `ofl/jetbrainsmono/JetBrainsMono[wght].ttf` (main, fetched 2026-11-04) | `assets/licenses/OFL-JetBrainsMono.txt` |
 
 Files are unmodified (renamed only, Android resource names). `Fonts.kt` pins the `wght` axis per weight with `FontVariation.Settings`.
+
+0.4.1 (subtitle settings): libmpv / libass draws a variable font at its default instance (Outfit Thin, Space Grotesk Light), so
+`core/player-mpv/src/main/assets/subfonts/` ships static instances generated from the two files above with fontTools
+(`fontTools.varLib.instancer`, `wght` 500 and 700). The Medium instance's family / subfamily names are set to "Outfit" / "Space Grotesk"
++ "Regular" so libass pairs it with the Bold one. Modified versions under the same OFL 1.1 (no Reserved Font Name is declared by either
+family), same licence texts as above.
+
+| Font file (`core/player-mpv/src/main/assets/subfonts/`) | Generated from |
+|---|---|
+| `tatakai_outfit_medium.ttf`, `tatakai_outfit_bold.ttf` | `outfit.ttf` at `wght` 500 / 700 |
+| `tatakai_space_grotesk_medium.ttf`, `tatakai_space_grotesk_bold.ttf` | `space_grotesk.ttf` at `wght` 500 / 700 |
 Settings > About > Licenses shows this file (copied into the APK assets as `licenses/THIRD_PARTY_NOTICES.md` by `:app`) and the three OFL texts.
 
 ## 4. Services
@@ -150,3 +161,13 @@ DLL copy is deleted right after the extraction.
 | `EnhancementChip.kt` (status chip model), the chip in `EnhancementPanel.kt` | `ui/player/controls/island/StatusChips.kt`, `ui/temple/player/TemplePill.kt` | AGPL-3.0-or-later | Re-expressed (no file copied verbatim): one chip that says what runs and where (phone / PC / both); pure state -> label mapping with unit tests |
 | `EnhancementPanel.kt` ("Mejoras" panel) | `ui/player/controls/components/sheets/QualitySheet.kt`, `ui/player/options/ImagenContent.kt`, `ui/player/controls/components/panels/ProcessedOnPcPanel.kt` | AGPL-3.0-or-later | Redrawn with Tatakai's design system (AdaptiveSheet, SectionCard, Segmented) over the APIs of workers A / B / C |
 | `EnhancementStats.kt` (statistics overlay), the Undo notice in `PlayerOverlays.kt` | `ui/player/controls/components/{QualityStatsOverlay,FrameGenStatsOverlay}.kt`, the frame-drop Undo notice | AGPL-3.0-or-later | Touches pass through (no Surface, no pointer input) |
+
+### Subtitle settings (0.4.1, AGPL-3.0-or-later)
+
+Adapted from Enigmata (`/media/octavio/DATOS/Gitbutler Repos/Enigmata`, author's own, AGPL-3.0-or-later). Enigmata's subtitle panels
+descend from mpvEx (Apache-2.0, compatible in this direction); only patterns were taken from them, no file was copied verbatim.
+
+| Target file(s) | Origin (Enigmata `app/src/main/java/app/enigmata/...`) | License | Notes |
+|---|---|---|---|
+| `core/player-mpv/.../mpv/MpvSubtitleStyle.kt` (+ `MpvSubtitleStyleTest.kt`) | `ui/player/subtitles/SubtitleStyleApplier.kt` (`desiredSubtitleProperties`, `SubtitleStyleApplier`, `toMpvColorHex`) | AGPL-3.0-or-later | Adapted: maps Tatakai's `SubtitleStyle` (box + transparency, shadow, margins, blur, line spacing, three ASS modes, `secondary-sub-ass-override` mirrored) and applies it live with the same record-if-changed rule |
+| `feature/player/.../player/SubtitleStyleEditor.kt` | `ui/player/controls/components/panels/SubtitleSettings{Typography,Colors,Miscellaneous}Card.kt`, `SubtitleSettingsPanel.kt`, `preferences/SubtitlesPreferences.kt` | AGPL-3.0-or-later | Re-expressed: the same groups (typography, colours with R / G / B / alpha sliders, misc with the ASS override, scale and position, per-group reset) redrawn with Tatakai's design system over DataStore instead of writing mpv properties from the UI; presets, the preview and the in-player quick panel are Tatakai's own |

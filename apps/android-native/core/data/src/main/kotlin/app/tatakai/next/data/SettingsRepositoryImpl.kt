@@ -161,7 +161,7 @@ internal object SettingsCodec {
             sourcePrefs = decode(p[SOURCE_PREFS], SourcePrefs.serializer())?.sanitized() ?: d.sourcePrefs,
             autoNext = p[AUTO_NEXT] ?: d.autoNext,
             skipIntro = p[SKIP_INTRO] ?: d.skipIntro,
-            subtitleStyle = decode(p[SUBTITLE_STYLE], SubtitleStyle.serializer())?.sanitizedStyle() ?: d.subtitleStyle,
+            subtitleStyle = decodeSubtitleStyle(p[SUBTITLE_STYLE]) ?: d.subtitleStyle,
             torrent = decode(p[TORRENT], TorrentSettings.serializer())?.sanitized() ?: d.torrent,
             metadataCacheTtlHours = (p[METADATA_TTL] ?: d.metadataCacheTtlHours).coerceIn(TTL_MIN_HOURS, TTL_MAX_HOURS),
             externalPlayerPackage = p[EXTERNAL_PLAYER]?.takeIf { it.isNotBlank() } ?: d.externalPlayerPackage,
@@ -210,7 +210,7 @@ internal object SettingsCodec {
         p[SOURCE_PREFS] = json.encodeToString(SourcePrefs.serializer(), s.sourcePrefs.sanitized())
         p[AUTO_NEXT] = s.autoNext
         p[SKIP_INTRO] = s.skipIntro
-        p[SUBTITLE_STYLE] = json.encodeToString(SubtitleStyle.serializer(), s.subtitleStyle.sanitizedStyle())
+        p[SUBTITLE_STYLE] = json.encodeToString(SubtitleStyle.serializer(), s.subtitleStyle.sanitized())
         p[TORRENT] = json.encodeToString(TorrentSettings.serializer(), s.torrent.sanitized())
         p[METADATA_TTL] = s.metadataCacheTtlHours.coerceIn(TTL_MIN_HOURS, TTL_MAX_HOURS)
         val pkg = s.externalPlayerPackage?.trim()
@@ -263,12 +263,19 @@ internal object SettingsCodec {
     private fun <T> decode(raw: String?, serializer: KSerializer<T>): T? =
         raw?.let { runCatching { json.decodeFromString(serializer, it) }.getOrNull() }
 
-    /** Ranges of 12 §3.2: scale 0.5..2.0, opacity 0..1, known font ids. */
-    private fun SubtitleStyle.sanitizedStyle(): SubtitleStyle = copy(
-        scale = if (scale.isFinite()) scale.coerceIn(0.5f, 2f) else 1f,
-        backgroundOpacity = if (backgroundOpacity.isFinite()) backgroundOpacity.coerceIn(0f, 1f) else 0.6f,
-        font = font.takeIf { it in FONTS } ?: "outfit",
-    )
-
-    private val FONTS = setOf("outfit", "space_grotesk", "system")
+    /**
+     * 0.4.1: [SubtitleStyle] gained a separate box switch; until 0.4.0 "no box" was stored as `backgroundOpacity = 0`. A stored style
+     * without the `background` key keeps its look: box on when it had some opacity, otherwise off with the default opacity ready for
+     * when the user turns it on. Ranges and font ids: [SubtitleStyle.sanitized].
+     */
+    private fun decodeSubtitleStyle(raw: String?): SubtitleStyle? {
+        val style = decode(raw, SubtitleStyle.serializer()) ?: return null
+        val hasSwitch = raw != null && runCatching { json.parseToJsonElement(raw).jsonObject.containsKey("background") }.getOrDefault(true)
+        val fixed = when {
+            hasSwitch -> style
+            style.backgroundOpacity > 0f -> style.copy(background = true)
+            else -> style.copy(background = false, backgroundOpacity = SubtitleStyle().backgroundOpacity)
+        }
+        return fixed.sanitized()
+    }
 }

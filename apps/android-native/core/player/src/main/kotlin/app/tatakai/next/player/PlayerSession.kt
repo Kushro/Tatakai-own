@@ -52,7 +52,10 @@ interface PlayerSession {
     /** Preferred subtitle / audio languages (ISO 639-1, `SourcePrefs.subLang` / `dubLang`) for the next tracks the engine picks. */
     fun setPreferredLanguages(subtitle: String?, audio: String?)
 
-    /** Settings › Reproductor › Estilo de subtítulos. ASS keeps its own styles where the engine renders them. */
+    /**
+     * Settings › Reproductor › Estilo de subtítulos, applied live (mpv: only the `sub-*` options that changed). ASS follows
+     * [SubtitleStyle.assMode] where the engine renders it; Media3 draws its cues on screen (`ScreenSubtitleSpec`).
+     */
     fun setSubtitleStyle(style: SubtitleStyle)
 
     /** Current position right now (the [state] tick may lag up to half a second). */
@@ -64,9 +67,6 @@ interface PlayerSession {
 
     /** Subtitle delay in ms (positive = later). mpv applies `sub-delay`; Media3 only records it (the screen shifts the cues it draws). */
     fun setSubtitleDelay(ms: Long) = Unit
-
-    /** Colour / outline / position / custom font of text subtitles (mpv `sub-*`; Media3 draws them on screen from [SubtitleExtras]). */
-    fun setSubtitleExtras(extras: SubtitleExtras) = Unit
 
     /**
      * Adds a local subtitle file ([path] on disk) and selects it. Returns false when the engine cannot (Media3: the screen draws a loaded

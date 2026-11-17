@@ -48,7 +48,8 @@ val playerModule: Module = module {
     // android wave (12 §3.2, §3.16): AniSkip intro / outro / recap marks for web AND torrent playback.
     single<SkipMarksRepository> { AniSkipRepository(get(named("player-http"))) }
     // parity wave A (15 §3.2, worker p): private player preferences, subtitle fetch / translation / fonts.
-    single { PlayerPrefs(androidContext()) }
+    // 0.4.1: created at start so the 0.4.0 subtitle extras move into AppSettings.subtitleStyle before any screen reads them.
+    single(createdAtStart = true) { PlayerPrefs(androidContext(), getOrNull()) }
     single { SubtitleTools(androidContext(), get(named(PLAYER_HTTP))) }
 }
 

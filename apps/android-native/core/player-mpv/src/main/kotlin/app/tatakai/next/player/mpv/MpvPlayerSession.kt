@@ -40,7 +40,7 @@ import app.tatakai.next.player.SessionTicker
 import app.tatakai.next.player.MPV_OPEN_ERROR_CODE
 import app.tatakai.next.player.MPV_START_TIMEOUT_CODE
 import app.tatakai.next.player.MPV_START_TIMEOUT_MS
-import app.tatakai.next.player.SubtitleExtras
+import app.tatakai.next.player.ScreenSubtitleSpec
 import app.tatakai.next.player.SubtitleFonts
 import app.tatakai.next.player.SubtitleOption
 import app.tatakai.next.player.mpvStartWatched
@@ -89,8 +89,12 @@ class MpvPlayerSession(
     private var wasPlaying = false
     private val mirror: Job
     private val fonts = SubtitleFonts(context)
-    private var style = SubtitleStyle()
-    private var extras: SubtitleExtras? = null
+
+    /** 0.4.1: writes only the sub-* options a style change touches (live while a slider moves). */
+    private val subtitleApplier = MpvSubtitleStyleApplier { name, value -> engine.setProperty(name, value) }
+
+    /** Imported font file -> its family (reading the name table once per file, not on every slider step). */
+    private var fontFamilyCache: Pair<String, String?>? = null
 
     /** parity wave A (15 §3.2): the engine as a Media3 Player for PlaybackService (background, notification, headset buttons). */
     val adapter: MpvPlayerAdapter = MpvPlayerAdapter(engine, Looper.getMainLooper())
@@ -319,19 +323,14 @@ class MpvPlayerSession(
     }
 
     override fun setSubtitleStyle(style: SubtitleStyle) {
-        this.style = style
-        engine.setSubtitleStyle(style.scale, style.backgroundOpacity, style.bold, style.outline)
-        extras?.let { applyExtras(it) }
-    }
-
-    override fun setSubtitleExtras(extras: SubtitleExtras) {
-        this.extras = extras
-        applyExtras(extras)
-    }
-
-    private fun applyExtras(e: SubtitleExtras) {
-        val family = e.fontFile?.let { fonts.familyName(it) }
-        engine.setSubtitleExtras(e, style.outline, family)
+        if (released) return
+        val imported = style.fontFile?.let { file ->
+            fontFamilyCache?.takeIf { it.first == file }?.second ?: fonts.familyName(file).also { fontFamilyCache = file to it }
+        }
+        // libass does not scale sub-line-spacing: screen pixels per "scaled pixel" (720 px tall window; the player is landscape).
+        val dm = appContext.resources.displayMetrics
+        val pxPerUnit = minOf(dm.widthPixels, dm.heightPixels) / ScreenSubtitleSpec.REFERENCE_HEIGHT
+        subtitleApplier.apply(mpvSubtitleProperties(style, mpvFontFamily(style, imported), pxPerUnit))
     }
 
     override fun setSubtitleDelay(ms: Long) = engine.setSubtitleDelay(ms)
