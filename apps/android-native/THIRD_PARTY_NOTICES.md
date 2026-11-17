@@ -76,9 +76,39 @@ Code adapted from the author's own repositories (AGPL-3.0-or-later), per decisio
 
 ### Bundled mpv shaders (parity wave A, worker p)
 
-Shipped unmodified in `core/player-mpv/src/main/assets/shaders/` (each file keeps its own licence header) and copied to `filesDir/shaders/<preset>/` at runtime.
+Shipped unmodified in `core/player-mpv/src/main/assets/shaders/` (each file keeps its own licence header) and copied to `filesDir/shaders/<build>/` at runtime (0.4.0; `<preset>/` until 0.3.x).
 
 | File(s) | Origin | License | Notes |
 |---|---|---|---|
 | `Anime4K_Clamp_Highlights.glsl`, `Anime4K_Restore_CNN_{M,S,Soft_M}.glsl`, `Anime4K_Upscale_CNN_x2_{M,S}.glsl`, `Anime4K_Upscale_Denoise_CNN_x2_M.glsl`, `Anime4K_AutoDownscalePre_x2.glsl` | Anime4K v4 GLSL by bloc97 (github.com/bloc97/Anime4K) | MIT | Presets A / A+A / B / C (chains as desktop `tk-player/src/preset.rs`) |
 | `FSR.glsl` | AMD FidelityFX FSR 1.0.2, mpv port by agyild | MIT (Copyright (c) 2021 Advanced Micro Devices, Inc.) | Preset "fsr" |
+
+### Quality engine on libmpv (0.4.0, worker A, AGPL-3.0-or-later)
+
+Code adapted from Enigmata (`/media/octavio/DATOS/Gitbutler Repos/Enigmata`, Android app `app.enigmata`, author's own, AGPL-3.0-or-later;
+Enigmata itself ports these player features from mpvRx, github.com/Riteshp2001/mpvRx, AGPL-3.0-or-later). Ported files keep their
+SPDX / licence headers; package names moved to `app.tatakai.next.player.mpv.quality`.
+
+| Target file(s) in `core/player-mpv/.../mpv/quality/` | Origin (Enigmata `app/src/main/java/app/enigmata/...`) | Notes |
+|---|---|---|
+| `Anime4KShaderOptimizer.kt` (+ its test) | `domain/anime4k/Anime4KShaderOptimizer.kt` (itself from mpvRx `Anime4KManager.optimizeShaderContent`) | Copied, package renamed and re-indented; logic unchanged (FP16 / mediump rewrite of `Anime4K_*` files) |
+| `ThermalPolicy.kt` (+ its test) | `domain/quality/ThermalPolicy.kt` | Copied (policy + watcher), callback feeds `MpvQualityController` |
+| `QualityPlanner.kt`, `ShaderCatalog.kt` | `domain/quality/{ProfileEngine,QualityPlan,QualityModels,ShaderChainManager}.kt`, `domain/anime4k/Anime4KManager.kt` | Re-written for Tatakai: no content detection (anime only), desktop preset ids / chain shapes, Enigmata's guards (8K, 4K, thermal, Eco, PiP, viewport, frame-drop ceiling) and its tiered Fidelity chain |
+| `MpvQualityController.kt` | `domain/quality/{QualityController,QualityRuntime,QualityMpvPort,ScalingPolicy}.kt` | Re-written and much smaller (no personal shaders / layers / mpv.conf); keeps the session-only undoable drop ceiling and the live FP16 fallback |
+| `MpvOptions.kt`, `ShaderSources.kt` (`isShaderCompilationError`) | `ui/player/mpvoptions/MpvOptionsApplier.kt` (`interpolationOptions`, deband), `ui/player/PlayerEnums.kt` (decoder / filter ranges), `domain/quality/ShaderDiagnostics.kt` | Adapted |
+
+Additional shaders bundled in `core/player-mpv/src/main/assets/shaders/` (copied from Enigmata's `app/src/main/assets/shaders/`, line endings
+normalised to LF, otherwise unmodified; each keeps its licence header). They are installed under `filesDir/shaders/<build>/` at runtime;
+the FP16 copies of the `Anime4K_*` files are generated there by `Anime4KShaderOptimizer`, and `CAS.glsl` is installed with its `//!WHEN`
+lines relaxed to the variant its own header documents for scaled content and with `SHARPENING` set by the user's level (MIT allows it).
+
+| File(s) | Origin | License | Notes |
+|---|---|---|---|
+| `Anime4K_Restore_CNN_{L,Soft_L,Soft_S}.glsl`, `Anime4K_Upscale_CNN_x2_L.glsl`, `Anime4K_Upscale_Denoise_CNN_x2_{L,S}.glsl` | Anime4K v4 by bloc97 | MIT | Fast (S/S) and HQ (L/M) tiers, presets B+B / C+A |
+| `FSRCNNX_x2_8-0-4-1_LineArt.glsl` | FSRCNNX by igv (github.com/igv/FSRCNN-TensorFlow) | LGPL-3.0-or-later | Preset "fidelity" |
+| `KrigBilateral.glsl`, `SSimSuperRes.glsl`, `SSimDownscaler.glsl` | KrigBilateral and SSimSuperRes by Shiandow, SSimDownscaler by igv (mpv user shaders) | LGPL-3.0-or-later | Preset "fidelity" |
+| `CAS.glsl` | AMD FidelityFX CAS, mpv port by agyild | MIT (Copyright (c) 2017-2019 Advanced Micro Devices, Inc.) | Preset "cas" and the sharpen option |
+
+Not bundled: Enigmata's `Ani4Kv2_ArtCNN_C4F32_i2_CMP.glsl` (ArtCNN weights are CC BY-NC 4.0, and the shader needs `//!COMPUTE` on gpu-next +
+Vulkan, which `dev.jdtech.mpv:libmpv` 1.0.0 (mpv 0.41, OpenGL ES only) does not have: the preset is listed as unavailable), `adaptive-sharpen`,
+the Darken / Thin / Deblur post-filters and `hdr-toys`.

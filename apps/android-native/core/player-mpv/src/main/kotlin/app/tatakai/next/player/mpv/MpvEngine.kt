@@ -42,6 +42,11 @@ data class MpvState(
     val audio: List<MpvTrack> = emptyList(),
     /** Video height of the current file (`height`), 0 = unknown. */
     val videoHeight: Int = 0,
+    /** 0.4.0 (worker A): video width of the current file (`width`), 0 = unknown. */
+    val videoWidth: Int = 0,
+    /** 0.4.0 (worker A): size of the attached surface in pixels (the view the video is fitted into), 0 = none. */
+    val surfaceWidth: Int = 0,
+    val surfaceHeight: Int = 0,
     // --- parity wave A (worker p) ---
     /** Primary subtitle line on screen right now (`sub-text`), for the screen-drawn translation. */
     val subText: String? = null,
@@ -86,7 +91,10 @@ class MpvEngine(context: Context) {
         }
 
         override fun eventProperty(property: String, value: Long) {
-            if (property == "height") _state.update { it.copy(videoHeight = value.toInt()) }
+            when (property) {
+                "height" -> _state.update { it.copy(videoHeight = value.toInt()) }
+                "width" -> _state.update { it.copy(videoWidth = value.toInt()) }
+            }
         }
 
         override fun eventProperty(property: String, value: Double) {
@@ -144,6 +152,7 @@ class MpvEngine(context: Context) {
     private val logObserver = object : MPVLib.LogObserver {
         override fun logMessage(prefix: String, level: Int, text: String) {
             if (level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_ERROR) lastError = "$prefix: ${text.trim()}"
+            logListener?.invoke(level, prefix, text)
         }
     }
 
@@ -181,6 +190,7 @@ class MpvEngine(context: Context) {
         mpv.observeProperty("eof-reached", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
         mpv.observeProperty("core-idle", MPVLib.MpvFormat.MPV_FORMAT_FLAG)
         mpv.observeProperty("height", MPVLib.MpvFormat.MPV_FORMAT_INT64)
+        mpv.observeProperty("width", MPVLib.MpvFormat.MPV_FORMAT_INT64)
         mpv.observeProperty("track-list", MPVLib.MpvFormat.MPV_FORMAT_NONE)
         mpv.observeProperty("sub-text", MPVLib.MpvFormat.MPV_FORMAT_STRING)
     }
@@ -204,7 +214,12 @@ class MpvEngine(context: Context) {
         fileLoaded = false
         lastError = null
         subtitleDecided = false
-        _state.update { MpvState(loadId = it.loadId + 1, buffering = true, speed = it.speed, loop = it.loop, subDelayMs = it.subDelayMs) }
+        _state.update {
+            MpvState(
+                loadId = it.loadId + 1, buffering = true, speed = it.speed, loop = it.loop, subDelayMs = it.subDelayMs,
+                surfaceWidth = it.surfaceWidth, surfaceHeight = it.surfaceHeight,
+            )
+        }
         return _state.value.loadId
     }
 
@@ -382,17 +397,21 @@ class MpvEngine(context: Context) {
     }
 
     /**
-     * Applies a shader preset (Settings › Reproductor › Preajuste, checklist player.android.upscaling-shaders): every Anime4K / FSR shader
-     * is bundled in this module's `assets/shaders/` and copied to `filesDir/shaders/<preset>/` the first time ([ShaderPresets.install]);
-     * `glsl-shaders` then gets the chain in order. "off" (or an unknown id) clears it. Returns whether a chain is active.
+     * 0.4.0 (worker A): mpv log lines (level, prefix, text) for the quality engine's shader-error detection. Called on mpv's event
+     * thread: keep it cheap and hand any work to another thread.
      */
-    fun applyPreset(preset: String): Boolean {
-        if (released) return false
-        val files = runCatching { ShaderPresets.install(appContext, preset) }.getOrDefault(emptyList())
-        mpv.setPropertyString("glsl-shaders", files.joinToString(PATH_LIST_SEPARATOR) { it.absolutePath })
-        if (files.isNotEmpty()) android.util.Log.i("mpv", "glsl-shaders ($preset): ${files.joinToString(",") { it.name }}")
-        return files.isNotEmpty()
+    @Volatile
+    var logListener: ((Int, String, String) -> Unit)? = null
+
+    /**
+     * 0.4.0 (worker A): raw property access for `MpvQualityController` (glsl-shaders, deband, image, aspect, hwdec, interpolation and
+     * the telemetry reads). The shader chain and every quality option are owned by the controller; 0.3.x's `applyPreset` is gone.
+     */
+    internal fun setProperty(name: String, value: String) {
+        if (!released) mpv.setPropertyString(name, value)
     }
+
+    internal fun getProperty(name: String): String? = if (released) null else mpv.getPropertyString(name)
 
     /** BUG-043: frames mpv dropped so far in this file (`frame-drop-count` + `decoder-frame-drop-count`); null when unknown. */
     fun droppedFrames(): Long? {
@@ -430,6 +449,7 @@ class MpvEngine(context: Context) {
     internal fun resizeSurface(width: Int, height: Int) {
         if (released) return
         mpv.setPropertyString("android-surface-size", "${width}x$height")
+        _state.update { it.copy(surfaceWidth = width, surfaceHeight = height) }
         // BUG-093: a paused vo=gpu keeps the last frame laid out for the old size (stretched, black band) until playback resumes; an
         // exact seek to the same position redraws it for the new size.
         val st = _state.value
@@ -493,9 +513,6 @@ class MpvEngine(context: Context) {
         private const val DEFAULT_USER_AGENT = "TatakaiNext/0.1"
         private const val DEFAULT_SUB_FONT = "sans-serif"
         const val STABLE_VOLUME_FILTER = "lavfi=[dynaudnorm=f=250:g=15:p=0.9]"
-
-        /** mpv path-list separator on Android (POSIX). */
-        private const val PATH_LIST_SEPARATOR = ":"
     }
 }
 
