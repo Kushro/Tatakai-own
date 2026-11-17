@@ -20,6 +20,7 @@ use tokio_util::sync::CancellationToken;
 use super::job::JobObject;
 use super::lsfg::VULKAN_EXTRA_ENV;
 use super::probe::{self, FrameRate, SourceInfo};
+use crate::subtitles::{self, SubtitleOutput, SubtitleTrack};
 
 /// The first two LSFG stages; the third (the encoder that PUTs) is [`EngineJob::args`].
 pub struct LsfgStages {
@@ -67,6 +68,17 @@ pub trait Engine: Send + Sync {
     /// known duration). The default only knows the rate.
     async fn source_info(&self, input_url: &str) -> SourceInfo {
         SourceInfo { rate: self.source_rate(input_url).await, duration_secs: None, unreadable: false }
+    }
+
+    /// 0.4.0: the subtitle tracks of the loopback input ([`crate::subtitles`]). `None` = the engine cannot list them
+    /// (no `ffprobe`) or the listing failed; the session then has no `subtitles`.
+    async fn subtitle_tracks(&self, _input_url: &str) -> Option<Vec<SubtitleTrack>> {
+        None
+    }
+
+    /// 0.4.0: one pass that writes every file of `outputs` from the loopback input ([`crate::subtitles::extract_args`]).
+    async fn extract_subtitles(&self, _input_url: &str, _outputs: &[SubtitleOutput]) -> io::Result<()> {
+        Err(io::ErrorKind::Unsupported.into())
     }
 }
 
@@ -241,6 +253,32 @@ impl Engine for FfmpegEngine {
 
     async fn source_info(&self, input_url: &str) -> SourceInfo {
         self.probe(input_url).await.unwrap_or_default()
+    }
+
+    async fn subtitle_tracks(&self, input_url: &str) -> Option<Vec<SubtitleTrack>> {
+        let ffprobe = self.ffprobe.as_ref()?;
+        let mut cmd = tokio::process::Command::new(ffprobe);
+        cmd.args(subtitles::ffprobe_args(input_url)).stdin(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
+        #[cfg(windows)]
+        cmd.creation_flags(0x0800_0000);
+        super::job::die_with_parent(&mut cmd);
+        let out = tokio::time::timeout(subtitles::PROBE_TIMEOUT, cmd.output()).await.ok()?.ok()?;
+        if !out.status.success() || out.stdout.len() > 256 * 1024 {
+            tracing::warn!("the subtitle listing failed");
+            return None;
+        }
+        subtitles::parse_ffprobe(&String::from_utf8_lossy(&out.stdout))
+    }
+
+    /// Runs the pass in the job object like the video (it dies with the app); dropping the future kills it.
+    async fn extract_subtitles(&self, input_url: &str, outputs: &[SubtitleOutput]) -> io::Result<()> {
+        let dir = outputs.first().and_then(|o| o.path.parent()).ok_or_else(|| io::Error::other("no outputs"))?;
+        let mut cmd = self.command(&self.program, &subtitles::extract_args(input_url, outputs), dir);
+        cmd.stdin(Stdio::null()).stdout(Stdio::null());
+        let mut child = cmd.spawn()?;
+        self.adopt(&child);
+        let status = child.wait().await?;
+        if status.success() { Ok(()) } else { Err(io::Error::other("subtitle extraction failed")) }
     }
 }
 

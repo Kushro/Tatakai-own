@@ -74,6 +74,22 @@ data class SessionStateDto(
     @SerialName("fg_effective") val fgEffective: FgEffectiveDto? = null,
     val encoder: String? = null,
     @SerialName("video_kbps") val videoKbps: Int? = null,
+    /** 0.4.0: the source's subtitle tracks (absent while the PC lists them, and on older PCs). */
+    val subtitles: List<SubtitleTrackDto>? = null,
+    @SerialName("subtitles_state") val subtitlesState: String? = null,
+)
+
+/** 0.4.0 `SubtitleTrack` of the session state (`subtitles[]`). */
+@Serializable
+data class SubtitleTrackDto(
+    val index: Int,
+    val language: String? = null,
+    val title: String? = null,
+    val codec: String = "",
+    val default: Boolean = false,
+    val forced: Boolean = false,
+    val text: Boolean = true,
+    val formats: List<String> = emptyList(),
 )
 
 @Serializable
@@ -172,6 +188,20 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
         return LinkHttp.exchange(client, request, MAX_JSON) { _, _ -> Unit }
     }
 
+    /**
+     * 0.4.0: `GET /v1/sessions/{id}/subtitles/{index}.{format}` (`ass` | `vtt`), the text of one subtitle track of the session's
+     * source. The first request starts the PC's extraction: until it ends the PC answers `503 segment_wait_timeout` (ask again).
+     */
+    suspend fun subtitle(sessionId: String, index: Int, format: String): LinkResult<String> {
+        if (!SESSION_ID.matches(sessionId) || index !in 0..999 || format !in SUBTITLE_FORMATS) {
+            return LinkResult.Failure(LinkError.Api(LinkApiError.RequestInvalid))
+        }
+        return get("v1/sessions/$sessionId/subtitles/$index.$format", MAX_SUBTITLE) { it.decodeToString() }
+    }
+
+    /** Absolute URL of [subtitle] (for Media3, which fetches it with the same mTLS client). */
+    fun subtitleUrl(sessionId: String, index: Int, format: String): String = url("v1/sessions/$sessionId/subtitles/$index.$format").toString()
+
     /** `DELETE /v1/devices/self`: this phone revokes its own certificate. */
     suspend fun forgetSelf(): LinkResult<Unit> =
         LinkHttp.exchange(client, LinkHttp.request(url("v1/devices/self")).delete().build(), MAX_JSON) { _, _ -> Unit }
@@ -266,6 +296,9 @@ class LinkClient(private val baseUrl: HttpUrl, private val client: OkHttpClient)
         const val TORRENT_CREATE_SECS = 90L
         private const val MAX_JSON = 256L * 1024
         private const val MAX_LIBRARY = 8L * 1024 * 1024
+        /** tk-link `subtitles::MAX_FILE_BYTES`. */
+        private const val MAX_SUBTITLE = 8L * 1024 * 1024
+        val SUBTITLE_FORMATS = setOf("ass", "vtt")
         private const val MAX_HISTORY = 2L * 1024 * 1024
         /** `tk-link::history::MAX_ROWS` (desktop contract §3.8). */
         const val MAX_HISTORY_ROWS = 500

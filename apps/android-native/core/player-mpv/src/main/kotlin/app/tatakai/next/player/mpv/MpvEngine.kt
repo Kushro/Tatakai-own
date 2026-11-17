@@ -58,6 +58,9 @@ data class MpvState(
     val subDelayMs: Long = 0,
 )
 
+/** One external subtitle for `sub-add`: [title] / [lang] as mpv lists it; [select] = the active track. */
+data class MpvSubtitle(val url: String, val title: String? = null, val lang: String? = null, val select: Boolean = false)
+
 /**
  * One libmpv instance (create on the main thread, [release] exactly once). Options follow mpv-android's defaults for a SurfaceView
  * (`vo=gpu`, `gpu-context=android`, `hwdec=mediacodec-copy` with software fallback) plus a long network timeout and a large demuxer
@@ -81,9 +84,16 @@ class MpvEngine(context: Context) {
     @Volatile
     private var lastError: String? = null
 
-    /** External subtitle URLs of the current load, added with `sub-add` once the file is loaded. */
+    /** External subtitles of the current load, added with `sub-add` once the file is loaded. */
     @Volatile
-    private var pendingSubtitles: List<String> = emptyList()
+    private var pendingSubtitles: List<MpvSubtitle> = emptyList()
+
+    /** 0.4.0: the current load asked for its subtitles off ([MpvSubtitle.select] for none of them, see [loadPrepared]). */
+    @Volatile
+    private var pendingSubtitlesOff = false
+
+    /** 0.4.0: [addSubtitles] before FILE_LOADED appends to the pending ones; this keeps the two threads from losing any. */
+    private val subtitleLock = Any()
 
     private val observer = object : MPVLib.EventObserver {
         override fun eventProperty(property: String) {
@@ -133,7 +143,8 @@ class MpvEngine(context: Context) {
                 }
                 MPVLib.MpvEvent.MPV_EVENT_FILE_LOADED -> {
                     fileLoaded = true
-                    for (url in pendingSubtitles) mpv.command(arrayOf("sub-add", url, "auto"))
+                    val (subs, off) = synchronized(subtitleLock) { pendingSubtitles to pendingSubtitlesOff }
+                    addPending(subs, off)
                     refreshTracks()
                 }
                 MPVLib.MpvEvent.MPV_EVENT_PLAYBACK_RESTART -> _state.update {
@@ -202,7 +213,7 @@ class MpvEngine(context: Context) {
     fun load(url: String, headers: Map<String, String>, startSecs: Double, subtitleUrls: List<String>) {
         if (released) return
         beginLoad()
-        loadPrepared(url, headers, startSecs, subtitleUrls, lavfOptions = "")
+        loadPrepared(url, headers, startSecs, subtitleUrls.map { MpvSubtitle(it) }, lavfOptions = "")
     }
 
     /**
@@ -224,9 +235,19 @@ class MpvEngine(context: Context) {
     }
 
     /** Opens [url] for the load [beginLoad] started (see [load]). */
-    fun loadPrepared(url: String, headers: Map<String, String>, startSecs: Double, subtitleUrls: List<String>, lavfOptions: String = "") {
+    fun loadPrepared(
+        url: String,
+        headers: Map<String, String>,
+        startSecs: Double,
+        subtitles: List<MpvSubtitle>,
+        lavfOptions: String = "",
+        subtitlesOff: Boolean = false,
+    ) {
         if (released) return
-        pendingSubtitles = subtitleUrls
+        synchronized(subtitleLock) {
+            pendingSubtitles = subtitles
+            pendingSubtitlesOff = subtitlesOff
+        }
         // BUG-080: set on every load, so the widened protocol whitelist of a filtered local master does not leak into the next one.
         mpv.setPropertyString("demuxer-lavf-o", lavfOptions)
         val ua = headers.entries.firstOrNull { it.key.equals("User-Agent", ignoreCase = true) }?.value
@@ -320,6 +341,37 @@ class MpvEngine(context: Context) {
         val clamped = app.tatakai.next.player.SubtitleDelay.clamp(ms)
         mpv.setPropertyDouble("sub-delay", clamped / 1000.0)
         _state.update { it.copy(subDelayMs = clamped) }
+    }
+
+    /**
+     * 0.4.0: `sub-add` of [subs] to the file playing now (the PC's subtitle tracks once it extracted them); [off] = none selected.
+     * Blocks while mpv reads them: call it off the main thread.
+     */
+    fun addSubtitles(subs: List<MpvSubtitle>, off: Boolean) {
+        if (released) return
+        val now = synchronized(subtitleLock) {
+            if (fileLoaded) return@synchronized true
+            // still opening: they go with the file's own (FILE_LOADED)
+            pendingSubtitles = pendingSubtitles + subs
+            pendingSubtitlesOff = pendingSubtitlesOff || off
+            false
+        }
+        if (!now) return
+        addPending(subs, off)
+        refreshTracks()
+    }
+
+    /** `sub-add <url> select|auto [<title> [<lang>]]` of each; a load that names its track (or none) is not auto-picked again. */
+    private fun addPending(subs: List<MpvSubtitle>, off: Boolean) {
+        if (subs.isEmpty()) return
+        if (off || subs.any { it.select }) subtitleDecided = true
+        for (s in subs) {
+            val cmd = mutableListOf("sub-add", s.url, if (s.select) "select" else "auto")
+            if (s.title != null || s.lang != null) cmd += s.title ?: ""
+            if (s.lang != null) cmd += s.lang
+            runCatching { mpv.command(cmd.toTypedArray()) }
+        }
+        if (off) mpv.setPropertyString("sid", "no")
     }
 
     /** `sub-add <path> select <title>`: a loaded SRT / ASS / VTT becomes the active track. */

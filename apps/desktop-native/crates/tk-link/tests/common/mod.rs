@@ -97,6 +97,12 @@ pub struct FakeEngine {
     pub probed_duration: Mutex<Option<f64>>,
     /// BUG-024: the fake `ffprobe` cannot read the source.
     pub probe_unreadable: Mutex<bool>,
+    /// 0.4.0 subtitles: the `ffprobe -select_streams s` JSON the fake lists (`None` = it cannot list them), how long
+    /// its extraction pass takes, whether it fails, and the input of every pass it ran.
+    pub subtitle_probe: Mutex<Option<String>>,
+    pub extract_delay: Mutex<Duration>,
+    pub extract_fails: Mutex<bool>,
+    pub extractions: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeEngine {
@@ -110,6 +116,10 @@ impl FakeEngine {
             put_results: Arc::default(),
             probed_duration: Mutex::new(None),
             probe_unreadable: Mutex::new(false),
+            subtitle_probe: Mutex::new(None),
+            extract_delay: Mutex::new(Duration::ZERO),
+            extract_fails: Mutex::new(false),
+            extractions: Arc::default(),
         })
     }
 }
@@ -165,6 +175,29 @@ impl Engine for FakeEngine {
 
     async fn source_info(&self, _input_url: &str) -> tk_link::media::probe::SourceInfo {
         tk_link::media::probe::SourceInfo { rate: None, duration_secs: *self.probed_duration.lock().unwrap(), unreadable: *self.probe_unreadable.lock().unwrap() }
+    }
+
+    async fn subtitle_tracks(&self, _input_url: &str) -> Option<Vec<tk_link::subtitles::SubtitleTrack>> {
+        let json = self.subtitle_probe.lock().unwrap().clone()?;
+        tk_link::subtitles::parse_ffprobe(&json)
+    }
+
+    /// Writes `<n>.ass` / `<n>.vtt` with a line naming the track, like FFmpeg's pass would.
+    async fn extract_subtitles(&self, input_url: &str, outputs: &[tk_link::subtitles::SubtitleOutput]) -> std::io::Result<()> {
+        self.extractions.lock().unwrap().push(input_url.to_owned());
+        let delay = *self.extract_delay.lock().unwrap();
+        tokio::time::sleep(delay).await;
+        if *self.extract_fails.lock().unwrap() {
+            return Err(std::io::Error::other("fake extraction failed"));
+        }
+        for o in outputs {
+            let body = match o.format {
+                tk_link::subtitles::SubFormat::Ass => format!("[Script Info]\nScriptType: v4.00+\n\n[Events]\nDialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,track {}\n", o.track),
+                tk_link::subtitles::SubFormat::Vtt => format!("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\ntrack {}\n", o.track),
+            };
+            std::fs::write(&o.path, body)?;
+        }
+        Ok(())
     }
 }
 

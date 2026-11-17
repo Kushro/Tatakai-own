@@ -13,6 +13,8 @@ import app.tatakai.next.link.RemotePlaybackAccess
 import app.tatakai.next.model.LinkProfile
 import app.tatakai.next.model.LinkCapabilities
 import app.tatakai.next.model.LinkSessionStatus
+import app.tatakai.next.model.LinkSubtitleTrack
+import app.tatakai.next.link.SubtitleReadiness
 import app.tatakai.next.model.LinkSource
 import app.tatakai.next.model.LinkState
 import app.tatakai.next.model.LocalEnhancementGate
@@ -545,6 +547,21 @@ class PlayerViewModel(
     private var capabilities: LinkCapabilities? = null
     private var lastStatus: LinkSessionStatus? = null
     private var statusJob: Job? = null
+
+    // --- 0.4.0: the source's subtitles while the PC processes (LinkSubtitles.kt; tk-link `subtitles/{n}.ass|.vtt`) ---
+    /**
+     * The PC's text subtitle tracks of the source the PC plays, each one checked as served. The PC keeps them for every session of
+     * the same source (profile changes, PC <-> Mixto), so later loads side-load them at once. null = not known (yet) for this source.
+     */
+    private var pcSubtitleTracks: List<LinkSubtitleTrack>? = null
+
+    /** The Link session whose current engine load already side-loads [pcSubtitleTracks]. */
+    private var pcSubtitlesLoadedFor: String? = null
+    private var pcSubtitleJob: Job? = null
+    private var pcSubtitleJobFor: String? = null
+
+    /** The subtitle the player showed before the PC took over (or before a reload of the PC's stream): selected again on the PC. */
+    private var subtitleChoice: SubtitleChoice? = null
 
     private val switcher = ProcessingSwitcher(
         scope = viewModelScope,
@@ -1426,6 +1443,8 @@ class PlayerViewModel(
                     remote.renew(id, positionMs / 1000.0, retryLinkProfile()).fold(
                         onSuccess = { renewed ->
                             remoteId = renewed.sessionId
+                            // 0.4.0: a recovery may follow a PC restart, which lost the subtitles it had extracted
+                            forgetPcSubtitles()
                             val src = remoteSourceFor(location, renewed.sessionId)
                             if (src == null) {
                                 _state.update { it.copy(phase = PlayerPhase.REMOTE_UNAVAILABLE) }
@@ -1591,6 +1610,7 @@ class PlayerViewModel(
                 return@launch
             }
             val renewed = remote.renew(id, positionMs / 1000.0, retryLinkProfile()).getOrNull()
+            if (renewed != null) forgetPcSubtitles()
             val src = renewed?.let { remoteSourceFor(location, it.sessionId) }
             if (renewed == null || src == null) {
                 remoteError(RemoteFailure.PC_ERROR, null)
@@ -1841,7 +1861,9 @@ class PlayerViewModel(
         val track = currentSource?.subtitles?.getOrNull(external) ?: return
         val tools = subtitleTools ?: return
         viewModelScope.launch {
-            val cues = runCatching { tools.fetch(track.url, currentSource?.headers.orEmpty(), track.format) }.getOrNull()
+            val via = currentSource?.let { clientFor(it, track.url) }
+            val headers = if (via != null) emptyMap() else currentSource?.headers.orEmpty()
+            val cues = runCatching { tools.fetch(track.url, headers, track.format, via = via) }.getOrNull()
             if (cues == null) {
                 _notices.trySend(PlayerNotice.SubtitleFailed)
                 _state.update { it.copy(secondaryExternal = null) }
@@ -1849,6 +1871,13 @@ class PlayerViewModel(
             }
             _screenSubs.update { it.copy(secondary = cues, secondaryLabel = track.label.ifBlank { track.lang }) }
         }
+    }
+
+    /** 0.4.0: the source's own client (the PC's mTLS one) for a side-loaded file on the stream's host; null = the player's. */
+    private fun clientFor(src: PlayableSource, url: String): okhttp3.OkHttpClient? {
+        val client = src.httpClient ?: return null
+        val host = { u: String -> runCatching { java.net.URI(u).host }.getOrNull() }
+        return client.takeIf { host(url) != null && host(url) == host(src.url) }
     }
 
     /**
@@ -1870,7 +1899,9 @@ class PlayerViewModel(
                     val tools = subtitleTools
                     if (tools != null) {
                         viewModelScope.launch {
-                            val cues = runCatching { tools.fetch(ext.url, src.headers, ext.format) }.getOrNull()
+                            // 0.4.0: a PC track is fetched with the PC's mTLS client (and without the web source's headers)
+                            val via = clientFor(src, ext.url)
+                            val cues = runCatching { tools.fetch(ext.url, if (via != null) emptyMap() else src.headers, ext.format, via = via) }.getOrNull()
                             if (fetchedPrimaryFor == key) {
                                 _screenSubs.update { it.copy(primary = cues) }
                                 if (cues != null) maybePretranslate()
@@ -2024,7 +2055,8 @@ class PlayerViewModel(
         val track = selected.external?.let { src.subtitles.getOrNull(it) }
             ?: src.subtitles.firstOrNull { LanguageCodes.matches(it.lang, it.label, selected.language ?: selected.label) }
             ?: return null
-        return runCatching { tools.fetch(track.url, src.headers, track.format) }.getOrNull()
+        val via = clientFor(src, track.url) // 0.4.0: a PC track (Link "PC" on Media3)
+        return runCatching { tools.fetch(track.url, if (via != null) emptyMap() else src.headers, track.format, via = via) }.getOrNull()
     }
 
     // ---- 0.4.0 (worker C): Procesar en Teléfono | PC | Mixto ----------------------------------------------------------------------
@@ -2157,6 +2189,8 @@ class PlayerViewModel(
      * shaders go off (worker A) and its frame generation follows [to] (worker B) before the load.
      */
     private fun playOnPc(to: ProcessingLocation, sessionId: String, profileId: String?): Boolean {
+        // 0.4.0: from the phone the PC plays a new source: its subtitles are asked for again (the phone's choice is kept)
+        if (location == ProcessingLocation.PHONE) forgetPcSubtitles()
         val src = remoteSourceFor(to, sessionId) ?: return false
         val positionMs = positionNow()
         if (location == ProcessingLocation.PHONE) {
@@ -2195,6 +2229,8 @@ class PlayerViewModel(
     private fun playOnPhone(positionMs: Long): Boolean {
         if (!hasOriginal()) return false
         statusJob?.cancel()
+        // 0.4.0: the original source's own tracks come back with it
+        forgetPcSubtitles()
         renewWatch?.cancel()
         remoteId = null
         lastStatus = null
@@ -2238,16 +2274,127 @@ class PlayerViewModel(
     /** The phone can play this title itself (a source it played or can resolve, or a title it can look up). */
     private fun hasOriginal(): Boolean = flow != null || localSource != null || args.torrentId != null || titleKnown
 
-    /** The Link session's HLS for [loc]'s engine: the loopback proxy for libmpv, the mTLS client for Media3. */
-    private fun remoteSourceFor(loc: ProcessingLocation, sessionId: String): PlayableSource? {
-        if (engineFor(loc, localEngine, mpvFactory != null) == PlayerEngine.MPV) {
+    /**
+     * The Link session's HLS for [loc]'s engine: the loopback proxy for libmpv, the mTLS client for Media3. 0.4.0: the PC's stream
+     * carries video + one audio stream only, so both engines side-load the web source's own subtitle files (Media3 fetches them
+     * with its normal client, the PC's with the mTLS one) and, once the PC serves them, the source's own tracks ([pcSubtitleTracks]),
+     * and select the one the player showed before ([subtitleChoice], captured here from the playing load unless [captureChoice] is
+     * false).
+     */
+    private fun remoteSourceFor(loc: ProcessingLocation, sessionId: String, captureChoice: Boolean = true): PlayableSource? {
+        if (captureChoice) rememberSubtitleChoice()
+        val mpv = engineFor(loc, localEngine, mpvFactory != null) == PlayerEngine.MPV
+        val web = localSource?.takeIf { !it.torrent }?.subtitles.orEmpty()
+        val pc = pcSubtitleTracks?.let { tracks -> pcSubtitles(tracks, mpv) { i, f -> remote.subtitleUrl(sessionId, i, f, loopback = mpv) } }.orEmpty()
+        val subtitles = web + pc.map { it.subtitle }
+        val select = chooseSubtitle(subtitles, pc.withIndex().associate { (i, p) -> web.size + i to p.track }, subtitleChoice, settings.sourcePrefs.subLang)
+        val base = if (mpv) {
             val url = remote.loopbackUrl(sessionId) ?: return null
-            // the PC's stream carries video + one audio stream only (tk-link maps no subtitles): libmpv side-loads the phone
-            // source's external tracks itself (Media3 cannot: its client for the PC trusts only the PC's CA)
-            val subtitles = localSource?.takeIf { !it.torrent }?.subtitles.orEmpty()
-            return PlayableSource(url = url, headers = emptyMap(), container = Container.HLS, label = args.title, subtitles = subtitles)
+            PlayableSource(url = url, headers = emptyMap(), container = Container.HLS, label = args.title)
+        } else {
+            RemotePlayback.source(remote, sessionId, args.title) ?: return null
         }
-        return RemotePlayback.source(remote, sessionId, args.title)
+        pcSubtitlesLoadedFor = sessionId.takeIf { pc.isNotEmpty() }
+        // Media3: the web source's headers go with its own subtitle files only (PlaybackController never sends them to the PC)
+        val headers = if (!mpv && web.isNotEmpty()) localSource?.headers.orEmpty() else base.headers
+        return PlayableSource(
+            url = base.url, headers = headers, container = base.container, label = base.label, httpClient = base.httpClient,
+            subtitles = subtitles, selectSubtitle = select,
+        )
+    }
+
+    /** [subtitleChoice] from what the engine shows now (kept when it lists no track: a load that has not listed them yet). */
+    private fun rememberSubtitleChoice() {
+        val st = session?.state?.value ?: return
+        if (_state.value.customSubtitle != null) return
+        subtitleChoiceOf(st.subtitles, currentSource?.subtitles.orEmpty())?.let { subtitleChoice = it }
+    }
+
+    /** A new source on the PC (or none): its subtitle tracks are asked for again. */
+    private fun forgetPcSubtitles() {
+        pcSubtitleJob?.cancel()
+        pcSubtitleJob = null
+        pcSubtitleJobFor = null
+        pcSubtitleTracks = null
+        pcSubtitlesLoadedFor = null
+    }
+
+    /**
+     * The session status listed the source's subtitle tracks: unless they are known for this source, the PC is asked for them (the
+     * first request starts its extraction, which reads the whole source: with a torrent the PC still downloads, minutes) until it
+     * serves them, each one checked; then they are added to the playing load ([applyPcSubtitles]).
+     */
+    private fun onLinkSubtitles(sessionId: String, status: LinkSessionStatus) {
+        if (pcSubtitleTracks != null || pcSubtitleJobFor == sessionId) return
+        val listed = status.subtitles ?: return
+        val text = listed.filter { it.text && (it.hasVtt || it.hasAss) }
+        if (text.isEmpty() || status.subtitlesState == "failed") return
+        pcSubtitleJob?.cancel()
+        pcSubtitleJobFor = sessionId
+        pcSubtitleJob = viewModelScope.launch {
+            val started = SystemClock.elapsedRealtime()
+            val served = mutableListOf<LinkSubtitleTrack>()
+            for (t in text) {
+                // the first track waits for the pass; once it is served the others answer at once (or never: too large)
+                while (true) {
+                    if (remoteId != sessionId) return@launch
+                    val format = if (t.hasVtt) LinkSubtitleTrack.FORMAT_VTT else LinkSubtitleTrack.FORMAT_ASS
+                    when (remote.subtitleReadiness(sessionId, t.index, format)) {
+                        SubtitleReadiness.READY -> served += t
+                        SubtitleReadiness.UNAVAILABLE -> Unit
+                        SubtitleReadiness.PENDING -> {
+                            if (SystemClock.elapsedRealtime() - started > PC_SUBTITLES_MAX_WAIT_MS) return@launch
+                            delay(PC_SUBTITLES_POLL_MS)
+                            continue
+                        }
+                    }
+                    break
+                }
+            }
+            runCatching { android.util.Log.i(LINK_LOG_TAG, "session=$sessionId subtitles served=${served.size}/${text.size}") }
+            if (served.isEmpty() || remoteId != sessionId) return@launch
+            pcSubtitleTracks = served
+            applyPcSubtitles(sessionId)
+        }
+    }
+
+    /**
+     * The PC now serves the source's tracks: libmpv adds them to the playing file (`sub-add`, no reload); Media3, whose side-loaded
+     * tracks are fixed at load, reloads at the same point with them, only when one of them is the track to show (otherwise they
+     * come with the next load: a profile change, a switch).
+     */
+    private fun applyPcSubtitles(sessionId: String) {
+        val s = session ?: return
+        val src = currentSource ?: return
+        if (remoteId != sessionId || location == ProcessingLocation.PHONE || pcSubtitlesLoadedFor == sessionId) return
+        // the playing load lists no PC track yet: what it shows is not a choice (the phone's one stays)
+        val next = remoteSourceFor(location, sessionId, captureChoice = false) ?: return
+        val webCount = src.subtitles.size
+        val added = next.subtitles.drop(webCount)
+        if (added.isEmpty()) return
+        val select = next.selectSubtitle
+        if (engine == PlayerEngine.MPV) {
+            // a web file / nothing: the current choice stays; OFF only while nothing is on (the user may have picked one meanwhile)
+            val nothingOn = s.state.value.subtitles.none { it.selected }
+            val pick = when {
+                select == PlayableSource.SUBTITLES_OFF -> select.takeIf { nothingOn }
+                select != null && select >= webCount -> select - webCount
+                else -> null
+            }
+            if (s.addSubtitleTracks(added, pick)) {
+                currentSource = next
+                _state.update { it.copy(externalSubtitles = next.subtitles) }
+                return
+            }
+        }
+        if (select == null || select < webCount) {
+            pcSubtitlesLoadedFor = null
+            return
+        }
+        runCatching { android.util.Log.i(LINK_LOG_TAG, "session=$sessionId reloading with the PC's subtitles") }
+        val paused = s.state.value.let { it.started && !it.isPlaying && !it.isBuffering }
+        replaceSession(next, positionNow())
+        if (paused) session?.pause()
     }
 
     /** Opens the playing Link session again (Retry on a session the PC still has, or when it could not be asked). */
@@ -2313,6 +2460,7 @@ class PlayerViewModel(
                 if (status != null && id == remoteId) {
                     lastStatus = status
                     refreshProcessing()
+                    onLinkSubtitles(id, status)
                 }
                 delay(STATUS_POLL_MS)
             }
@@ -2449,6 +2597,12 @@ class PlayerViewModel(
 
         /** 0.4.0: how often the "En la PC" indicator asks the PC what it does (`GET /v1/sessions/{id}`). */
         const val STATUS_POLL_MS = 5_000L
+
+        /** 0.4.0: pause between two asks for the PC's subtitles while it extracts them (each ask waits up to 8 s on the PC). */
+        const val PC_SUBTITLES_POLL_MS = 3_000L
+
+        /** 0.4.0: the PC's own limit of an extraction (tk-link `subtitles::EXTRACT_TIMEOUT`) plus a margin. */
+        const val PC_SUBTITLES_MAX_WAIT_MS = 16 * 60_000L
     }
 }
 

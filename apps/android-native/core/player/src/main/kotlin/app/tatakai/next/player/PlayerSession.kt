@@ -74,6 +74,13 @@ interface PlayerSession {
      */
     fun addSubtitleFile(path: String, title: String): Boolean = false
 
+    /**
+     * 0.4.0: adds external subtitle [tracks] (URLs) to the file playing now, without reloading it, and selects [select] (an index of
+     * [tracks]; [PlayableSource.SUBTITLES_OFF] = none; null = keep the current choice). Returns false when the engine cannot
+     * (Media3: its side-loaded tracks are fixed at load, the caller reloads with them in [PlayableSource.subtitles]).
+     */
+    fun addSubtitleTracks(tracks: List<app.tatakai.next.model.SubtitleTrack>, select: Int?): Boolean = false
+
     /** True when [selectSecondarySubtitle] works on any track of the stream (mpv `secondary-sid`). */
     val supportsSecondaryTracks: Boolean get() = false
 

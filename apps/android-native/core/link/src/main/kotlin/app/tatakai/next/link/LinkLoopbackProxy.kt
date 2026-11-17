@@ -31,8 +31,9 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * - it listens on the loopback interface only (`127.0.0.1`, random port) and answers only paths that start with its
  *   [token] (128 random bits): another app on the phone cannot borrow the session without it;
- * - it forwards only `GET` / `HEAD` of session files (`/v1/sessions/<uuid>/<file>`: playlists, init and segments), never the
- *   rest of the API, through the mTLS client to the paired PC (`Range` forwarded);
+ * - it forwards only `GET` / `HEAD` of session files (`/v1/sessions/<uuid>/<file>`: playlists, init and segments, and 0.4.0 the
+ *   source's subtitles `/v1/sessions/<uuid>/subtitles/<n>.ass|.vtt` for mpv's `sub-add`), never the rest of the API, through the
+ *   mTLS client to the paired PC (`Range` forwarded);
  * - the PC answers `503 segment_wait_timeout` + `Retry-After` while its engine is still making a segment and `409
  *   session_not_ready` while it prepares: Media3 retries those (`RemoteLoadErrorPolicy`), FFmpeg's HLS demuxer would skip the
  *   segment or stop, so the proxy waits and asks again (up to [retryBudgetMs]) and FFmpeg just sees a slow answer;
@@ -183,7 +184,7 @@ class LinkLoopbackProxy(
         const val BACKLOG = 16
         const val COPY_BUFFER = 64 * 1024
         private val FORWARDED_HEADERS = listOf("Content-Type", "Content-Range", "Accept-Ranges", "Cache-Control", "Retry-After")
-        private val SESSION_PATH = Regex("""^/v1/sessions/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/[A-Za-z0-9_.-]{1,64}$""")
+        private val SESSION_PATH = Regex("""^/v1/sessions/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/([A-Za-z0-9_.-]{1,64}|subtitles/[0-9]{1,3}\.(ass|vtt))$""")
 
         /** Only session files go through the proxy (no `..`, no other API route). */
         fun isSessionPath(path: String): Boolean = SESSION_PATH.matches(path) && ".." !in path

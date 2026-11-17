@@ -27,6 +27,7 @@ use crate::media::capabilities::{Environment, MAX_RAM_BYTES};
 use crate::media::engine::{Engine, EngineExit, EngineJob, LsfgStages};
 use crate::media::probe::{FALLBACK_RATE, FrameRate, SourceInfo};
 use crate::media::profiles::{self, Encoder, ProfileSpec, SEGMENT_SECS};
+use crate::subtitles::{self, Lookup, ScratchDir, SubFormat, SubtitleStore};
 use tk_core::net::{Policy, sanitize_headers};
 
 pub const HEARTBEAT_SECS: u64 = 4;
@@ -59,6 +60,9 @@ pub struct SessionTuning {
     pub seek_ahead_segments: u32,
     /// BUG-131: time limit of a session's preparation unless it is a fresh `torrent` source ([`PREPARE_TIMEOUT`]).
     pub prepare_timeout: Duration,
+    /// 0.4.0: how long a subtitle file request waits for the extraction before `503` + `Retry-After`
+    /// ([`crate::subtitles::REQUEST_WAIT`]).
+    pub subtitle_wait: Duration,
 }
 
 impl Default for SessionTuning {
@@ -72,6 +76,7 @@ impl Default for SessionTuning {
             max_lead_segments: 15,
             seek_ahead_segments: 4,
             prepare_timeout: PREPARE_TIMEOUT,
+            subtitle_wait: crate::subtitles::REQUEST_WAIT,
         }
     }
 }
@@ -165,6 +170,8 @@ pub struct Session {
     state: Mutex<State>,
     notify: Notify,
     last_heartbeat: Mutex<Instant>,
+    /// 0.4.0: the source's subtitles ([`crate::subtitles`]); shared with the session this one renews, if any.
+    pub(crate) subs: Arc<SubtitleStore>,
 }
 
 impl Session {
@@ -211,7 +218,7 @@ pub struct CreateRequest {
     pub start_secs: f64,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 pub enum SourceRequest {
     Library { item_id: String },
@@ -335,6 +342,8 @@ pub struct Manager {
     /// again.
     origins: Mutex<VecDeque<Origin>>,
     next_run: AtomicU32,
+    /// 0.4.0: the subtitles of each device's last source ([crate::subtitles::SubtitleStore]), kept across its renewals.
+    subtitle_stores: Mutex<HashMap<String, (SourceRequest, Arc<SubtitleStore>)>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -373,6 +382,7 @@ impl Manager {
             bench: Mutex::default(),
             measured: Mutex::default(),
             next_run: AtomicU32::new(1),
+            subtitle_stores: Mutex::default(),
         })
     }
 
@@ -469,6 +479,21 @@ impl Manager {
         let (fetch_token, torrent) = opened.keep();
         let torrent_id = torrent.as_ref().map(|t| t.torrent_id.clone());
 
+        // 0.4.0: a renewal of the same source (profile change, Phone | PC | Mixto switch, reopen after the idle timeout; by
+        // `session` or by the source itself) keeps its subtitles, extracted or not: the source would be listed and read whole
+        // again. One store per device: its last source.
+        let subs = {
+            let mut stores = lock(&self.subtitle_stores);
+            match stores.get(device_id) {
+                Some((src, store)) if *src == source => store.clone(),
+                _ => {
+                    let store = Arc::new(SubtitleStore::default());
+                    stores.insert(device_id.to_owned(), (source.clone(), store.clone()));
+                    store
+                }
+            }
+        };
+
         // one active session per device. BUG-131: only now, with the new source already open (a renewed torrent
         // session holds its torrent twice for a moment, so closing the old one never ends the torrent's playback).
         self.close_device_session(device_id);
@@ -514,6 +539,7 @@ impl Manager {
             }),
             notify: Notify::new(),
             last_heartbeat: Mutex::new(Instant::now()),
+            subs,
         });
         lock(&self.sessions).insert(id.clone(), session.clone());
         {
@@ -531,6 +557,7 @@ impl Manager {
             *e
         };
         self.start_run(&session, start_segment).await;
+        self.list_subtitles(&session);
         let _ = self.events.send(crate::LinkEvent::SessionStarted { device_id: device_id.to_owned(), session_id: id.clone() });
         Ok(SessionCreated {
             playback_path: format!("/v1/sessions/{id}/master.m3u8"),
@@ -700,6 +727,8 @@ impl Manager {
             st.window = Window::default();
         }
         s.notify.notify_waiters();
+        // 0.4.0: a listing / extraction this session runs reads its loopback input, which goes away below
+        s.subs.abandon(id);
         {
             let mut by = lock(&self.by_device);
             if by.get(&s.device_id).is_some_and(|cur| cur == id) {
@@ -733,6 +762,7 @@ impl Manager {
 
     /// Close sessions of a revoked device.
     pub fn close_for_device(&self, device_id: &str) {
+        lock(&self.subtitle_stores).remove(device_id);
         let ids: Vec<String> = lock(&self.sessions).values().filter(|s| s.device_id == device_id).map(|s| s.id.clone()).collect();
         for id in ids {
             self.close(&id);
@@ -972,6 +1002,98 @@ impl Manager {
         }
     }
 
+    // ---- subtitles (0.4.0, crate::subtitles) ---------------------------------------------------------------------------
+
+    /// Lists the source's subtitle tracks in the background (unless the renewed session's store already has them).
+    fn list_subtitles(self: &Arc<Self>, s: &Arc<Session>) {
+        let Some(cancel) = s.subs.begin_probe(&s.id) else { return };
+        let (engine, store, owner, input) = (self.engine.clone(), s.subs.clone(), s.id.clone(), s.input_url.clone());
+        tokio::spawn(async move {
+            tokio::select! {
+                tracks = engine.subtitle_tracks(&input) => {
+                    if let Some(t) = &tracks {
+                        tracing::info!(tracks = t.len(), text = t.iter().filter(|x| x.text).count(), "Link source subtitles listed");
+                    }
+                    store.finish_probe(&owner, tracks);
+                }
+                () = cancel.cancelled() => {}
+            }
+        });
+    }
+
+    /// The single extraction pass of the store of `s`, started by the first file request (an older phone never asks,
+    /// so a session it plays never reads the source twice).
+    fn extract_subtitles(self: &Arc<Self>, s: &Arc<Session>) {
+        let Some((tracks, cancel)) = s.subs.begin_extraction(&s.id) else { return };
+        let dir = self.work_root.join(format!("subs-{}", uuid::Uuid::new_v4().simple()));
+        let outputs = subtitles::plan_outputs(&tracks, &dir);
+        let (engine, store, owner, input) = (self.engine.clone(), s.subs.clone(), s.id.clone(), s.input_url.clone());
+        tokio::spawn(async move {
+            if outputs.is_empty() {
+                store.finish_extraction(&owner, Some(Default::default()));
+                return;
+            }
+            if std::fs::create_dir_all(&dir).is_err() {
+                store.finish_extraction(&owner, None);
+                return;
+            }
+            let _scratch = ScratchDir(dir);
+            tracing::info!(files = outputs.len(), "Link subtitle extraction started");
+            let started = Instant::now();
+            let result = tokio::select! {
+                r = tokio::time::timeout(subtitles::EXTRACT_TIMEOUT, engine.extract_subtitles(&input, &outputs)) => r,
+                () = cancel.cancelled() => {
+                    tracing::info!("Link subtitle extraction stopped: its session closed");
+                    return;
+                }
+            };
+            match result {
+                Ok(Ok(())) => {
+                    let files = tokio::task::spawn_blocking(move || subtitles::collect_outputs(&outputs)).await.ok();
+                    tracing::info!(secs = started.elapsed().as_secs(), ok = files.is_some(), "Link subtitle extraction finished");
+                    store.finish_extraction(&owner, files);
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(error = %e, "Link subtitle extraction failed");
+                    store.finish_extraction(&owner, None);
+                }
+                Err(_) => {
+                    tracing::warn!("Link subtitle extraction timed out");
+                    store.finish_extraction(&owner, None);
+                }
+            }
+        });
+    }
+
+    /// `GET /v1/sessions/{id}/subtitles/{n}.{ass|vtt}`: the file, waiting up to [`SessionTuning::subtitle_wait`] for
+    /// the listing / the pass. `409 session_not_ready` while listing, `503 segment_wait_timeout` + `Retry-After` while
+    /// extracting, `404` for a track or format that is not served, `503 source_unavailable` when it cannot be.
+    pub async fn subtitle(self: &Arc<Self>, s: &Arc<Session>, n: u32, format: SubFormat) -> ApiResult<Bytes> {
+        let deadline = tokio::time::Instant::now() + self.tuning.subtitle_wait;
+        loop {
+            let notified = s.subs.notify.notified();
+            if s.state().phase == Phase::Closed {
+                return Err(ErrorCode::SessionGone.into());
+            }
+            let waiting = match s.subs.lookup(n, format) {
+                Lookup::File(b) => return Ok(b),
+                Lookup::NotFound => return Err(ErrorCode::SessionNotFound.into()),
+                Lookup::Unavailable => return Err(ErrorCode::SourceUnavailable.into()),
+                Lookup::Listing => ErrorCode::SessionNotReady,
+                Lookup::Extracting { start } => {
+                    if start {
+                        self.extract_subtitles(s);
+                        continue;
+                    }
+                    ErrorCode::SegmentWaitTimeout
+                }
+            };
+            if tokio::time::timeout_at(deadline, notified).await.is_err() {
+                return Err(waiting.into());
+            }
+        }
+    }
+
     // ---- reads (HLS surface) ------------------------------------------------------------------------------------------
 
     pub fn heartbeat(&self, s: &Arc<Session>, position_secs: f64, paused: bool) {
@@ -1143,6 +1265,12 @@ impl Manager {
         if let Some(fps) = v["fg_effective"]["out_fps"].as_f64() {
             v["output"]["fps"] = fps.into();
         }
+        // 0.4.0: the source's subtitles (additive; absent while listing or when the PC cannot list them)
+        drop(st);
+        if let Some(tracks) = s.subs.tracks() {
+            v["subtitles"] = serde_json::to_value(tracks).unwrap_or_default();
+        }
+        v["subtitles_state"] = s.subs.state_str().into();
         v
     }
 }
