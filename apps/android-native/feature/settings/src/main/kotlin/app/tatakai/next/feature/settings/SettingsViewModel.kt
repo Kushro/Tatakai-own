@@ -18,6 +18,7 @@ import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.MetadataCacheStats
 import app.tatakai.next.model.MetadataRepository
 import app.tatakai.next.model.PlayerEngine
+import app.tatakai.next.model.PlayerQualityPrefs
 import app.tatakai.next.model.Quality
 import app.tatakai.next.model.SettingsRepository
 import app.tatakai.next.model.SourceKind
@@ -156,6 +157,10 @@ class SettingsViewModel(
     fun setExternalPlayerPackage(value: String?) = update(announce = true) { it.copy(externalPlayerPackage = value?.takeIf(String::isNotBlank)) }
 
     fun setPlayerPreset(value: String) = update(announce = true) { it.copy(playerPreset = value) }
+
+    /** 0.4.0 (worker A): one field of the libmpv quality defaults (tier, deband, automatic adjustments, decoder, smoothing). */
+    fun setPlayerQuality(transform: (PlayerQualityPrefs) -> PlayerQualityPrefs) =
+        update(announce = true) { it.copy(playerQuality = transform(it.playerQuality).sanitized()) }
 
     fun setSourceMode(value: SourceMode) = updatePrefs { it.copy(mode = value) }
 

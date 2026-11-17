@@ -2,6 +2,8 @@
 package app.tatakai.next.player.mpv
 
 import androidx.media3.common.Player
+import app.tatakai.next.model.QualityTier
+import app.tatakai.next.player.mpv.quality.ShaderCatalog
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -43,21 +45,21 @@ class MpvAdapterAndShadersTest {
 
     @Test
     fun presetChainsMatchDesktop() {
-        assertTrue(ShaderPresets.chain("off").isEmpty())
-        assertTrue(ShaderPresets.chain("unknown").isEmpty())
-        assertEquals(listOf("FSR.glsl"), ShaderPresets.chain("fsr"))
-        listOf("anime4k-a", "anime4k-aa", "anime4k-b", "anime4k-c").forEach { id ->
-            val chain = ShaderPresets.chain(id)
+        val t = QualityTier.BALANCED
+        assertTrue(ShaderCatalog.chain("off", t).isEmpty())
+        assertTrue(ShaderCatalog.chain("unknown", t).isEmpty())
+        assertEquals(listOf("FSR.glsl"), ShaderCatalog.chain("fsr", t))
+        listOf("anime4k-a", "anime4k-aa", "anime4k-b", "anime4k-c", "anime4k-bb", "anime4k-ca").forEach { id ->
+            val chain = ShaderCatalog.chain(id, t)
             assertEquals("Anime4K_Clamp_Highlights.glsl", chain.first(), id)
             assertTrue(chain.last().startsWith("Anime4K_Upscale"), id)
         }
-        assertEquals("00_Anime4K_Clamp_Highlights.glsl", ShaderPresets.targetNames("anime4k-a").first())
     }
 
     @Test
     fun everyShaderIsBundled() {
-        val dir = File("src/main/assets/${ShaderPresets.ASSET_DIR}")
+        val dir = File("src/main/assets/${ShaderCatalog.ASSET_DIR}")
         if (!dir.isDirectory) return // test run from another working directory
-        ShaderPresets.ALL_FILES.forEach { assertTrue(File(dir, it).isFile, "missing $it") }
+        ShaderCatalog.ALL_FILES.forEach { assertTrue(File(dir, it).isFile, "missing $it") }
     }
 }

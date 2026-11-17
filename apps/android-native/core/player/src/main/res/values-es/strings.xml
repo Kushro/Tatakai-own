@@ -2,4 +2,26 @@
 <!-- parity wave A (docs/redesign/15 §2, worker p): notification channel of PlaybackService. -->
 <resources>
     <string name="player_service_channel">Reproducción</string>
+    <!-- 0.4.0 quality engine (worker A): why the effective quality differs from the requested one (QualityReason). -->
+    <string name="quality_reason_renderer">Necesita el renderizador Vulkan, que esta versión no tiene</string>
+    <string name="quality_reason_shader_error">Un shader falló en esta GPU: el escalado queda desactivado para este video</string>
+    <string name="quality_reason_8k">Video 8K: sin escalado ni deband</string>
+    <string name="quality_reason_4k">Video 4K: en esta pantalla no hace falta escalar</string>
+    <string name="quality_reason_remote">En la PC: el teléfono muestra el video tal como llega de la PC</string>
+    <string name="quality_reason_frame_gen">Generación de cuadros activa: el suavizado queda desactivado</string>
+    <string name="quality_reason_battery">Batería al 20 % o menos: escalado, deband y suavizado desactivados hasta que cargue</string>
+    <string name="quality_reason_thermal">El teléfono está caliente: un nivel de calidad menos</string>
+    <string name="quality_reason_drops">Demasiados cuadros perdidos: calidad más baja</string>
+    <string name="quality_reason_pip">Imagen en imagen: calidad más rápida</string>
+    <string name="quality_reason_viewport">El video ya llena la pantalla: no hace falta escalar</string>
+    <string name="quality_reason_pending">Esperando el tamaño del video</string>
+    <!-- 0.4.0 quality engine: textos compartidos para la UI del reproductor (worker D) -->
+    <string name="quality_event_restored">Volvió la calidad elegida</string>
+    <string name="quality_event_precision">Los shaders pasaron a precisión completa en esta GPU</string>
+    <string name="quality_undo">Deshacer</string>
+    <string name="quality_not_on_media3">No disponible en Media3</string>
+    <string name="quality_switch_to_mpv">Cambiar a MPV</string>
+    <string name="quality_where_phone">En el teléfono</string>
+    <string name="quality_where_pc">En la PC</string>
+    <string name="quality_smoothing_not_fg">No es generación de cuadros real</string>
 </resources>

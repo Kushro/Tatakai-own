@@ -4,11 +4,30 @@ package app.tatakai.next.player.mpv
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.hardware.display.DisplayManager
 import android.os.BatteryManager
 import android.os.Looper
 import android.os.SystemClock
+import android.view.Display
 import androidx.media3.common.util.UnstableApi
+import app.tatakai.next.model.AspectMode
+import app.tatakai.next.model.DebandConfig
+import app.tatakai.next.model.DecoderMode
+import app.tatakai.next.model.ImageAdjust
+import app.tatakai.next.model.QualityTier
+import app.tatakai.next.model.SharpenLevel
 import app.tatakai.next.model.SubtitleStyle
+import app.tatakai.next.player.QualityEvent
+import app.tatakai.next.player.QualityEventKind
+import app.tatakai.next.player.QualityReason
+import app.tatakai.next.player.QualityRequest
+import app.tatakai.next.player.QualityUiState
+import app.tatakai.next.player.mpv.quality.AssetShaderInstaller
+import app.tatakai.next.player.mpv.quality.FrameDropMonitor
+import app.tatakai.next.player.mpv.quality.MpvQualityController
+import app.tatakai.next.player.mpv.quality.QualityMpvPort
+import app.tatakai.next.player.mpv.quality.ThermalWatcher
+import app.tatakai.next.player.mpv.quality.isShaderCompilationError
 import app.tatakai.next.player.ActivePlayback
 import app.tatakai.next.player.AudioOption
 import app.tatakai.next.player.PlayableSource
@@ -51,8 +70,8 @@ class MpvPlayerSession(
     private val scope: CoroutineScope,
     private val listener: PlaybackListener,
     remote: Boolean,
-    /** Settings › Reproductor › Preajuste (only applied when its shader files exist). */
-    private val preset: String = "off",
+    /** 0.4.0: Settings › Reproductor quality defaults (preset, tier, deband, automatic adjustments...), changed live afterwards. */
+    initialQuality: QualityRequest = QualityRequest(),
 ) : PlayerSession {
     val engine = MpvEngine(context)
     private val _state = MutableStateFlow(PlaybackState(isBuffering = false, fullAss = true))
@@ -76,11 +95,27 @@ class MpvPlayerSession(
         snapshot = { val s = _state.value; Triple(currentPositionMs(), s.durationMs, s.isPlaying) },
     )
 
-    /** BUG-043 / BUG-006: battery rule and real-time step-down of the shader chain. */
-    private val governor = PresetGovernor(preset)
     private val appContext = context.applicationContext
+
+    /**
+     * 0.4.0 (worker A): owns every quality property of this mpv (shader chain, deband, image, aspect, decoder, smoothing) and the
+     * automatic adjustments (thermal, battery, frame drops, 4K / 8K, view and PiP guards). Replaces BUG-043's PresetGovernor.
+     */
+    private val qualityController = MpvQualityController(
+        port = object : QualityMpvPort {
+            override fun setProperty(name: String, value: String) = engine.setProperty(name, value)
+
+            override fun getProperty(name: String): String? = engine.getProperty(name)
+        },
+        shaders = AssetShaderInstaller(appContext),
+        initial = initialQuality,
+        fp16 = FP16_ANIME4K,
+    )
+    private val thermal = ThermalWatcher(appContext, scope) { hot -> qualityController.onThermal(hot) }
     private var noticeSeq = 0
-    private var governorJob: Job? = null
+    private var lastQualityEventSeq = 0
+    private var monitorJob: Job? = null
+    private var qualityEventsJob: Job? = null
     private var startWatch: Job? = null
     private var prepareJob: Job? = null
     private var audioLang: String? = null
@@ -99,48 +134,73 @@ class MpvPlayerSession(
         BatteryInfo(level * 100 / scale, charging)
     }.getOrNull()
 
-    private fun announce(kind: ShaderFallback) {
+    /**
+     * 0.3.x notice compatibility: the two automatic changes the old governor announced (frame drops, low battery) still reach the
+     * existing [PlaybackState.shaderNotice] toast ("Anime4K no llega a tiempo real...", "Batería por debajo del 20 %...") while a chain
+     * was running, until the 0.4.0 player UI shows [QualityUiState.lastEvent] itself (its texts cover every reason).
+     */
+    private fun announceLegacy(e: QualityEvent) {
+        if (e.from.off || e.kind == QualityEventKind.RESTORED || e.kind == QualityEventKind.PRECISION_FALLBACK) return
+        val kind = when (e.reason) {
+            QualityReason.BATTERY_LOW -> ShaderFallback.OFF_BATTERY
+            QualityReason.FRAME_DROPS -> if (e.to.off) ShaderFallback.OFF_SLOW else ShaderFallback.LIGHTER
+            else -> return
+        }
         noticeSeq++
         _state.value = _state.value.copy(shaderNotice = ShaderNotice(noticeSeq, kind))
-        android.util.Log.i("mpv", "shader preset -> ${governor.preset} ($kind)")
     }
 
-    private fun startGovernor() {
-        governorJob = scope.launch {
+    /** Telemetry and frame drops every [FrameDropMonitor.SAMPLE_MS], battery every [BATTERY_CHECK_MS], while the session lives. */
+    private fun startMonitor() {
+        monitorJob = scope.launch {
             var sinceBattery = 0L
             while (isActive && !released) {
-                delay(PresetGovernor.SAMPLE_MS)
-                if (released || ShaderPresets.chain(governor.preset).isEmpty()) break
-                sinceBattery += PresetGovernor.SAMPLE_MS
+                delay(FrameDropMonitor.SAMPLE_MS)
+                if (released) break
+                sinceBattery += FrameDropMonitor.SAMPLE_MS
                 if (sinceBattery >= BATTERY_CHECK_MS) {
                     sinceBattery = 0
-                    governor.onBattery(battery())?.let { change ->
-                        engine.applyPreset(governor.preset)
-                        announce(change)
-                    }
+                    battery().let { qualityController.onBattery(it?.percent, it?.charging == true) }
                 }
+                qualityController.refreshTelemetry()
                 val st = _state.value
                 if (!st.isPlaying || st.isBuffering) {
-                    governor.reset()
+                    qualityController.onPlaybackIdle()
                     continue
                 }
                 val drops = engine.droppedFrames() ?: continue
                 val fps = engine.videoFps() ?: continue
-                governor.onSample(drops, fps, SystemClock.elapsedRealtime())?.let { change ->
-                    engine.applyPreset(governor.preset)
-                    announce(change)
-                }
+                qualityController.onDropSample(drops, fps, SystemClock.elapsedRealtime())
             }
         }
     }
 
+    private fun displayRefreshRate(): Float? = runCatching {
+        appContext.getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY)?.refreshRate
+    }.getOrNull()
+
     init {
-        val (initialPreset, change) = governor.initial(battery())
-        engine.applyPreset(initialPreset)
-        change?.let { announce(it) }
-        if (ShaderPresets.chain(initialPreset).isNotEmpty()) startGovernor()
+        battery().let { qualityController.onBattery(it?.percent, it?.charging == true) }
+        qualityController.onDisplayRefreshRate(displayRefreshRate())
+        // Shader compile / link errors arrive on mpv's event thread; the controller reacts on the session's scope.
+        engine.logListener = { level, prefix, text ->
+            if (isShaderCompilationError(level, "$prefix: $text")) scope.launch { if (!released) qualityController.onShaderError() }
+        }
+        thermal.start()
+        startMonitor()
+        qualityEventsJob = scope.launch {
+            qualityController.state.collect { q ->
+                val e = q.lastEvent ?: return@collect
+                if (e.seq == lastQualityEventSeq) return@collect
+                lastQualityEventSeq = e.seq
+                android.util.Log.i("mpv", "quality ${e.kind} (${e.reason}): ${e.from} -> ${e.to}")
+                announceLegacy(e)
+            }
+        }
         mirror = scope.launch {
             engine.state.collect { m ->
+                qualityController.onVideoSize(m.videoWidth, m.videoHeight)
+                qualityController.onViewport(m.surfaceWidth, m.surfaceHeight)
                 val prev = _state.value
                 val subs = m.subtitles.map { t ->
                     SubtitleOption(t.id, t.title ?: t.lang ?: "#${t.id}", t.lang, t.selected, ass = t.codec?.lowercase() in ASS_CODECS)
@@ -179,7 +239,7 @@ class MpvPlayerSession(
         if (released) return
         loaded = true
         ActivePlayback.publish(adapter)
-        governor.reset()
+        qualityController.onFileStarted()
         startWatch?.cancel()
         prepareJob?.cancel()
         val loadId = engine.beginLoad()
@@ -225,7 +285,7 @@ class MpvPlayerSession(
     override fun togglePlay() = if (_state.value.isPlaying) pause() else play()
 
     override fun seekTo(positionMs: Long) {
-        governor.reset()
+        qualityController.onPlaybackIdle()
         engine.seekTo(positionMs.coerceAtLeast(0) / 1000.0)
     }
 
@@ -286,12 +346,49 @@ class MpvPlayerSession(
 
     override fun currentPositionMs(): Long = (engine.currentPositionSecs() * 1000).toLong()
 
+    // ---- 0.4.0 quality engine (worker A): everything applies to the running mpv, no reload --------------------------------------
+
+    override val quality: StateFlow<QualityUiState> get() = qualityController.state
+
+    override fun setQuality(preset: String, tier: QualityTier) = qualityController.setQuality(preset, tier)
+
+    override fun setQualityRequest(request: QualityRequest) = qualityController.setRequest(request)
+
+    override fun setSharpen(level: SharpenLevel) = qualityController.setSharpen(level)
+
+    override fun setImage(image: ImageAdjust) = qualityController.setImage(image)
+
+    override fun setAspect(mode: AspectMode, zoomPercent: Int) = qualityController.setAspect(mode, zoomPercent)
+
+    override fun setDecoder(mode: DecoderMode) = qualityController.setDecoder(mode)
+
+    override fun setDeband(deband: DebandConfig) = qualityController.setDeband(deband)
+
+    override fun setSmoothing(enabled: Boolean) {
+        // The panel may have switched modes since the session started (120 Hz <-> 60 Hz): read it when smoothing turns on.
+        if (enabled) qualityController.onDisplayRefreshRate(displayRefreshRate())
+        qualityController.setSmoothing(enabled)
+    }
+
+    override fun setAutoAdjust(enabled: Boolean) = qualityController.setAutoAdjust(enabled)
+
+    override fun undoAutoDowngrade() = qualityController.undoAutoDowngrade()
+
+    override fun setPictureInPicture(active: Boolean) = qualityController.setPictureInPicture(active)
+
+    override fun setRemoteProcessing(active: Boolean) = qualityController.setRemoteProcessing(active)
+
+    override fun setFrameGenActive(active: Boolean) = qualityController.setFrameGenActive(active)
+
     override fun release() {
         if (released) return
         if (loaded) listener.onProgress(currentPositionMs(), _state.value.durationMs, true)
         released = true
         ticker.stop()
-        governorJob?.cancel()
+        monitorJob?.cancel()
+        qualityEventsJob?.cancel()
+        thermal.stop()
+        engine.logListener = null
         startWatch?.cancel()
         prepareJob?.cancel()
         mirror.cancel()
@@ -302,6 +399,15 @@ class MpvPlayerSession(
 }
 
 private const val BATTERY_CHECK_MS = 60_000L
+
+/**
+ * 0.4.0: Anime4K runs from FP16 (mediump) copies (Enigmata's default; cheaper on Adreno / Mali). A shader error on such a chain switches
+ * to full precision for the rest of the session ([MpvQualityController.onShaderError]); flip this to ship FP32 only.
+ */
+private const val FP16_ANIME4K = true
+
+/** Battery level from the sticky `ACTION_BATTERY_CHANGED` broadcast. */
+internal data class BatteryInfo(val percent: Int, val charging: Boolean)
 
 /** mpv error text of a load given up by the start watchdog (BUG-059). */
 internal const val START_TIMEOUT = "start timeout"
@@ -316,9 +422,9 @@ internal fun mpvErrorCode(error: String, started: Boolean, watched: Boolean): In
     else -> -1
 }
 
-/** Koin-bound factory of mpv sessions (see `mpvPlayerModule`). [preset] is read at creation time. */
+/** Koin-bound factory of mpv sessions (see `mpvPlayerModule`). [quality] (the Settings › Reproductor defaults) is read at creation time. */
 @UnstableApi
-class MpvSessionFactory(private val context: Context, private val preset: () -> String) : PlayerSessionFactory {
+class MpvSessionFactory(private val context: Context, private val quality: () -> QualityRequest) : PlayerSessionFactory {
     override fun create(scope: CoroutineScope, listener: PlaybackListener, remote: Boolean): PlayerSession =
-        MpvPlayerSession(context, scope, listener, remote, preset())
+        MpvPlayerSession(context, scope, listener, remote, quality())
 }

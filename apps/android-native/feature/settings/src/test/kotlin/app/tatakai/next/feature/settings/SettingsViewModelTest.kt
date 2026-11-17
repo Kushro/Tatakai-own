@@ -99,6 +99,22 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `quality defaults are written through the repository`() = runTest {
+        val repo = FakeSettings()
+        val vm = SettingsViewModel(repo)
+        assertEquals(PlayerEngine.MPV, repo.settings.value.playerEngine, "0.4.0: libmpv is the default engine")
+
+        vm.setPlayerQuality { it.copy(tier = app.tatakai.next.model.QualityTier.HQ, autoAdjust = false) }
+        vm.setPlayerQuality { it.copy(deband = it.deband.copy(enabled = false, iterations = 99)) }
+
+        val q = repo.settings.value.playerQuality
+        assertEquals(app.tatakai.next.model.QualityTier.HQ, q.tier)
+        assertEquals(false, q.autoAdjust)
+        assertEquals(false, q.deband.enabled)
+        assertEquals(16, q.deband.iterations)
+    }
+
+    @Test
     fun `wave settings are written through the repository`() = runTest {
         val repo = FakeSettings()
         val vm = SettingsViewModel(repo)

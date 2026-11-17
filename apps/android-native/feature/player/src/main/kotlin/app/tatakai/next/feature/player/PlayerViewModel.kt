@@ -85,6 +85,7 @@ import app.tatakai.next.player.resolvePick
 import app.tatakai.next.player.ShaderFallback
 import app.tatakai.next.player.PlaybackError
 import app.tatakai.next.player.decodesInHardware
+import app.tatakai.next.player.canSwitchToMpv
 import app.tatakai.next.player.decodeRecovery
 import app.tatakai.next.player.switchToMedia3OnStall
 import app.tatakai.next.player.DeviceCodecs
@@ -1063,11 +1064,30 @@ class PlayerViewModel(
     }
 
     /** Replaces the session with one of [target] for the rest of this player (the setting is not changed) and reloads [src]. */
-    private fun switchEngine(target: PlayerEngine, src: PlayableSource, positionMs: Long?, notice: PlayerNotice) {
+    private fun switchEngine(target: PlayerEngine, src: PlayableSource, positionMs: Long?, notice: PlayerNotice?) {
         engine = target
         _state.update { it.copy(engine = target) }
-        _notices.trySend(notice)
+        notice?.let { _notices.trySend(it) }
         replaceSession(src, positionMs ?: args.startMs)
+    }
+
+    // ---- 0.4.0 (worker A): "Cambiar a MPV" from the player (the in-player UI is worker D's) ------------------------------------
+
+    /** Whether the player can offer "Cambiar a MPV" right now: on Media3, libmpv bundled, not a Link session, something loaded. */
+    fun canSwitchToMpvNow(): Boolean =
+        currentSource != null && canSwitchToMpv(engine == PlayerEngine.MEDIA3, mpvFactory != null, args.remoteSessionId != null)
+
+    /**
+     * Restarts the current source on libmpv at the current position, for this playback only (Settings › Motor is not changed), reusing
+     * the BUG-020 decode-recovery switch. No notice: the user asked for it. If libmpv then cannot open the stream (BUG-059 / BUG-080) the
+     * usual automatic move back to Media3 still applies. Returns false when [canSwitchToMpvNow] is false.
+     */
+    fun switchToMpvByUser(): Boolean {
+        if (!canSwitchToMpvNow()) return false
+        val src = currentSource ?: return false
+        val position = session?.currentPositionMs()?.takeIf { it > 0 } ?: lastPositionMs.takeIf { it > 0 }
+        switchEngine(PlayerEngine.MPV, src, position, notice = null)
+        return true
     }
 
     /** Releases the engine session and loads [src] at [positionMs] in a new one of [engine] (speed kept). */

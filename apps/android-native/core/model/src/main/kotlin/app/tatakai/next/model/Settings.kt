@@ -16,9 +16,15 @@ data class AppSettings(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val reduceMotion: Boolean = false,
     val language: AppLanguage = AppLanguage.SYSTEM,
-    val playerEngine: PlayerEngine = PlayerEngine.MEDIA3,
-    /** Prototype data.js PRESETS id: "off" | "anime4k-a" | "anime4k-aa" | "anime4k-b" | "anime4k-c" | "fsr". Only the MPV engine applies it. */
+    /**
+     * 0.4.0: libmpv is the default engine (quality presets, deband, image, decoder choice); Media3 stays as the simple engine and the
+     * automatic fallback. A stored value wins, so installs that already saved settings keep the engine they had.
+     */
+    val playerEngine: PlayerEngine = PlayerEngine.MPV,
+    /** A [QualityPresets] id (desktop ids). Only the MPV engine applies it. */
     val playerPreset: String = "off",
+    /** 0.4.0 (worker A): defaults of the libmpv quality engine (tier, deband, automatic adjustments, decoder, smoothing, sharpen). */
+    val playerQuality: PlayerQualityPrefs = PlayerQualityPrefs(),
     /** Source selection; the mode (Auto / Manual) is [SourcePrefs.mode] (there is no separate sourceMode field). */
     val sourcePrefs: SourcePrefs = SourcePrefs(),
     val autoNext: Boolean = true,
