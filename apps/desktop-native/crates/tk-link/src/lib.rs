@@ -229,6 +229,9 @@ pub struct LinkConfig {
     pub anime4k_lock: Option<PathBuf>,
     /// "Allow HTTP" setting for `url` sources (https only by default).
     pub allow_http_sources: bool,
+    /// `client_fg` of the capabilities: whether the phone may run its own frame generation on this PC's stream
+    /// (Tatakai Next 0.4.0 "Mixto": the PC upscales at the source cadence with a `fg: none` profile, the phone
+    /// generates the frames). On by default since 0.4.0: the phone only does it with profiles that generate none.
     pub client_fg_allowed: bool,
     /// Real GPU info from the app (DXGI). `None` = guessed from the detected encoders (Linux: the VAAPI render
     /// node's PCI vendor; the name from the LSFG probe when it ran).
@@ -252,7 +255,7 @@ impl LinkConfig {
             anime4k_dir: None,
             anime4k_lock: None,
             allow_http_sources: false,
-            client_fg_allowed: false,
+            client_fg_allowed: true,
             gpu: None,
             lsfg: LsfgSetup::Off,
             tuning: SessionTuning::default(),

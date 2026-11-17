@@ -1135,8 +1135,49 @@ impl Manager {
         if let Some(e) = error {
             v["error"] = e.into();
         }
+        // 0.4.0 (Tatakai Link Phone | PC | Mixed): what the PC does with this session, so the phone can say it in the
+        // player. Additive fields: older phones ignore them, older PCs simply do not send them.
+        if let (Some(obj), serde_json::Value::Object(extra)) = (v.as_object_mut(), processing_json(s.profile, s.encoder, s.lsfg_rate)) {
+            obj.extend(extra);
+        }
+        if let Some(fps) = v["fg_effective"]["out_fps"].as_f64() {
+            v["output"]["fps"] = fps.into();
+        }
         v
     }
+}
+
+/// 0.4.0: the processing a session runs, as additive `GET /v1/sessions/{id}` fields: `upscale` (`none` | `anime4k`),
+/// `anime4k` (`{mode, variant}`, only with Anime4K), `fg` (`none` | `frc_amf` | `lsfg`), `encoder`, `video_kbps` and
+/// `fg_effective` (`{multiplier, source_fps?, out_fps?}`, only with frame generation). For the LSFG auto profiles the
+/// multiplier is the one chosen for this source (it was internal before: the phone only knew "auto 120"); `frc_amf`
+/// always doubles and its rate is not probed, so it has no fps.
+pub fn processing_json(profile: &ProfileSpec, encoder: Encoder, lsfg_rate: Option<FrameRate>) -> serde_json::Value {
+    let mut v = serde_json::json!({
+        "upscale": if matches!(profile.upscale, profiles::Upscale::None) { "none" } else { "anime4k" },
+        "fg": profile.fg.as_str(),
+        "encoder": encoder.as_str(),
+        "video_kbps": profile.video_kbps,
+    });
+    if let profiles::Upscale::Anime4k { mode, variant } = profile.upscale {
+        v["anime4k"] = serde_json::json!({ "mode": mode.as_str(), "variant": variant.as_str() });
+    }
+    match profile.fg {
+        profiles::Fg::None => {}
+        profiles::Fg::FrcAmf => v["fg_effective"] = serde_json::json!({ "multiplier": 2 }),
+        profiles::Fg::Lsfg(mode) => {
+            // the session probed the rate at creation; FALLBACK_RATE is what the engine uses when it could not
+            let source = lsfg_rate.unwrap_or(FALLBACK_RATE);
+            let multiplier = mode.multiplier(Some(source.fps()));
+            let round3 = |x: f64| (x * 1000.0).round() / 1000.0;
+            v["fg_effective"] = serde_json::json!({
+                "multiplier": multiplier,
+                "source_fps": round3(source.fps()),
+                "out_fps": round3(source.fps() * f64::from(multiplier)),
+            });
+        }
+    }
+    v
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1198,5 +1239,47 @@ mod create_log_tests {
         assert_eq!((kind, renews.as_str()), ("session", "945e3855"));
         let (kind, renews) = source_log_fields(&SourceRequest::Torrent { uri: "magnet:?".into(), media_id: "1".into(), episode: 4 });
         assert_eq!((kind, renews.as_str()), ("torrent", "-"));
+    }
+}
+
+#[cfg(test)]
+mod processing_tests {
+    use super::processing_json;
+    use crate::media::probe::FrameRate;
+    use crate::media::profiles::{Encoder, find};
+    use serde_json::json;
+
+    // 0.4.0: the phone says what the PC does ("Anime4K A + LSFG x5, 120 fps, h264_vaapi 11 Mb/s")
+    #[test]
+    fn an_auto_lsfg_session_reports_the_multiplier_it_chose() {
+        let p = find("p-anime4k-lsfg-1080-auto120").unwrap();
+        let v = processing_json(p, Encoder::H264Vaapi, Some(FrameRate { num: 24_000, den: 1001 }));
+        assert_eq!(v["upscale"], "anime4k");
+        assert_eq!(v["anime4k"], json!({ "mode": "a", "variant": "m" }));
+        assert_eq!(v["fg"], "lsfg");
+        assert_eq!(v["encoder"], "h264_vaapi");
+        assert_eq!(v["video_kbps"], 11_000);
+        assert_eq!(v["fg_effective"], json!({ "multiplier": 5, "source_fps": 23.976, "out_fps": 119.88 }));
+        // a 30 fps source gets x4 from the same kind of profile
+        let thirty = processing_json(find("p-lsfg-1080-auto120").unwrap(), Encoder::LibX264, Some(FrameRate { num: 30, den: 1 }));
+        assert_eq!(thirty["fg_effective"], json!({ "multiplier": 4, "source_fps": 30.0, "out_fps": 120.0 }));
+        assert_eq!(thirty["upscale"], "none");
+        assert!(thirty.get("anime4k").is_none());
+    }
+
+    #[test]
+    fn fixed_frame_generation_and_no_frame_generation() {
+        let x3 = processing_json(find("p-lsfg-1080-x3").unwrap(), Encoder::H264Nvenc, Some(FrameRate { num: 25, den: 1 }));
+        assert_eq!(x3["fg_effective"], json!({ "multiplier": 3, "source_fps": 25.0, "out_fps": 75.0 }));
+        // without a probed rate the session's own fallback (23.976) is what the engine uses
+        let fallback = processing_json(find("p-lsfg-1080-x2").unwrap(), Encoder::H264Nvenc, None);
+        assert_eq!(fallback["fg_effective"]["out_fps"], 47.952);
+        let amf = processing_json(find("p-anime4k-1080-fg2x").unwrap(), Encoder::H264Amf, None);
+        assert_eq!((amf["fg"].as_str(), amf["fg_effective"].clone()), (Some("frc_amf"), json!({ "multiplier": 2 })));
+        let none = processing_json(find("p-none").unwrap(), Encoder::LibOpenH264, None);
+        assert_eq!(none, json!({ "upscale": "none", "fg": "none", "encoder": "libopenh264", "video_kbps": 6000 }));
+        let up = processing_json(find("p-anime4k-1440").unwrap(), Encoder::H264Amf, None);
+        assert_eq!(up["anime4k"], json!({ "mode": "a", "variant": "l" }));
+        assert!(up.get("fg_effective").is_none());
     }
 }

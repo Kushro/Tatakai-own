@@ -226,6 +226,10 @@ async fn session_lifecycle_vod_playlists_segments_and_one_session_per_device() {
     assert_eq!(st["profile"], "p-none");
     assert_eq!(st["output"], json!({ "width": 1920, "height": 1080 }));
     assert!(st["instance_id"].as_str().unwrap().len() == 36);
+    // 0.4.0: what the PC does, for the phone's "En la PC" indicator (additive fields)
+    assert_eq!((st["upscale"].as_str(), st["fg"].as_str()), (Some("none"), Some("none")));
+    assert!(st["encoder"].is_string() && st["video_kbps"] == 6000, "{st}");
+    assert!(st.get("fg_effective").is_none());
 
     // heartbeat
     let hb = p.client.post(h.url(&format!("/v1/sessions/{sid}/position"))).json(&json!({ "position_secs": 3.5, "paused": false })).send().await.unwrap();
@@ -500,6 +504,12 @@ async fn lsfg_profiles_appear_with_the_probe_and_run_the_three_process_chain() {
     assert!(a.windows(2).any(|w| w[0] == "-i" && w[1] == "pipe:0"), "{a:?}");
     assert!(a.windows(2).any(|w| w[0] == "-framerate" && w[1] == "120000/1001"), "{a:?}");
     assert!(a.contains(&"1:a:0?".to_owned()));
+    // 0.4.0: the status says which multiplier "auto 120" chose for this source and the output rate
+    let sid = c["session_id"].as_str().unwrap();
+    let st = json(p.client.get(h.url(&format!("/v1/sessions/{sid}"))).send().await.unwrap()).await;
+    assert_eq!(st["fg"], "lsfg");
+    assert_eq!(st["fg_effective"], json!({ "multiplier": 5, "source_fps": 23.976, "out_fps": 119.88 }));
+    assert_eq!(st["output"]["fps"], 119.88);
 }
 
 /// BUG-008 / BUG-022 / BUG-038: `source.kind = "session"` reopens the source of an earlier session of the same device
