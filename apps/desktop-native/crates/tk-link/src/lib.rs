@@ -430,12 +430,16 @@ pub async fn start(cfg: LinkConfig, host: Arc<dyn LinkHost>) -> Result<LinkHandl
     // idle reaper + revoked-device session cleanup
     {
         let reaper = manager.clone();
-        let tick = (cfg.tuning.idle_timeout / 4).clamp(std::time::Duration::from_millis(50), std::time::Duration::from_secs(5));
+        // 0.4.1: the same tick supervises the engines (parked runs to resume, stalled runs to restart): at most 1 s
+        let tick = (cfg.tuning.idle_timeout / 4)
+            .min(cfg.tuning.stall_timeout / 4)
+            .clamp(std::time::Duration::from_millis(50), std::time::Duration::from_secs(1));
         let stop = shutdown.clone();
         tasks.push(tokio::spawn(async move {
             loop {
                 tokio::select! { () = stop.cancelled() => return, () = tokio::time::sleep(tick) => {} }
                 reaper.reap_idle();
+                reaper.supervise();
             }
         }));
         let manager = manager.clone();
