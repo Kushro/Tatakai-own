@@ -2589,6 +2589,34 @@
               "failed"
             ],
             "description": "Additive (0.4.0): listing = tracks not known yet; unavailable = no listing (ffprobe missing / failed); idle = listed, nothing extracted (the first subtitle file request starts one FFmpeg pass that extracts every text track); extracting; ready = files served; failed = the pass failed or timed out (files answer 503 source_unavailable)."
+          },
+          "parked": {
+            "type": "boolean",
+            "description": "0.4.1: production is parked: the run got far enough ahead and was stopped (an encoder that does not wait for the PC's sink cannot be held otherwise); it starts again by itself before the playhead reaches it. `throttled` is true too."
+          },
+          "ended": {
+            "type": "boolean",
+            "description": "0.4.1: the pipeline reached the real end of the source (it can be a little before duration_secs). Segments at or after end_secs answer 404; the phone ends the episode normally there. Absent until then and on older PCs."
+          },
+          "end_secs": {
+            "type": "number",
+            "description": "0.4.1: with ended: where the source really ends."
+          },
+          "produced": {
+            "type": "object",
+            "description": "0.4.1: the consecutive range the PC holds around the playhead (source timeline): the one that contains it, or the next one after it. Absent when there is none.",
+            "properties": {
+              "from_secs": {
+                "type": "number"
+              },
+              "to_secs": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "from_secs",
+              "to_secs"
+            ]
           }
         }
       },
