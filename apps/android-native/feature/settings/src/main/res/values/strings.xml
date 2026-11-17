@@ -109,6 +109,13 @@
     <string name="settings_link">Tatakai Link</string>
     <string name="settings_link_hint">Connect this app to your PC so it enhances video (Anime4K) and streams it over your local network.</string>
     <string name="settings_link_open">Linked device</string>
+    <!-- 0.4.0 (worker C) -->
+    <string name="settings_link_processing_title">Process by default on</string>
+    <string name="settings_link_processing_hint">Where a video starts. Mixed: your PC upscales and the phone generates the frames. You can switch it in the player.</string>
+    <string name="settings_link_processing_unpaired">Link a PC to process video on it. Until then everything plays on the phone.</string>
+    <string name="settings_link_processing_phone">Phone</string>
+    <string name="settings_link_processing_pc">PC</string>
+    <string name="settings_link_processing_mixed">Mixed</string>
     <string name="settings_torrents_hint">Speed limits, network, storage and background downloads of the torrent client.</string>
     <string name="settings_torrents_open">Torrent settings</string>
     <string name="settings_torrents_open_sub">Speed · Network · Storage · Background</string>
