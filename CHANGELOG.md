@@ -2,6 +2,25 @@
 
 Cambios de Tatakai Next (rama `main`). Tatakai Classic tiene su propio changelog en la rama `legacy`.
 
+## [0.4.1] - 2026-11-17
+
+Arreglos de las pruebas de 0.4.0 en Tatakai Link y más opciones de subtítulos y de fin de episodio.
+
+**Tatakai Link (procesar en la PC)**
+- Pausar un buen rato ya no deja la alerta "Tu PC está preparando el video…" parpadeando para siempre: la PC cortaba la entrada del video a los 20 s de cada tramo y a veces se quedaba sin producir. Ahora la entrada solo se corta sin datos, la PC deja de procesar mientras está en pausa y retoma antes de que el reproductor llegue, y reinicia sola un procesamiento trabado.
+- Ya no se pierden secciones del video (eran los cortes de esos tramos).
+- Saltar ±10 s dentro de lo ya procesado es instantáneo: la PC guarda 60 s detrás de la posición.
+- El final del episodio termina normal en vez de "tu PC no pudo seguir con esta sesión".
+- Si una sesión se traba, el teléfono la renueva en el mismo punto (hasta 3 veces) y si no, ofrece "Reproducir en el teléfono".
+
+**Reproductor**
+- Pantalla de fin de episodio: siguiente episodio con cuenta regresiva, volver a ver, episodios, volver a la ficha, progreso en AniList y "Terminaste la serie".
+- La barra de tiempo distingue lo visto, lo descargado o en buffer, las partes del torrent y lo que ya procesó la PC (con leyenda). Arreglado el buffer de libmpv, que se mostraba al doble de la posición.
+
+**Subtítulos**
+- Estilo completo como en Enigmata: tamaño, fuente (incluidas importadas), negrita y cursiva, color y opacidad, contorno, sombra, caja de fondo con transparencia, posición, márgenes, interlineado, suavizado y alineación; ASS: respetar el original, aplicar mi estilo o texto simple. Vista previa y estilos rápidos.
+- En el reproductor: Subtítulos › Estilo cambia en vivo, con "Más opciones" para el editor completo. Tu configuración anterior se conserva.
+
 ## [0.4.0] - 2026-11-17
 
 Mejoras de video en el teléfono a la par del escritorio, Tatakai Link elegible desde el reproductor y arreglos para tablets.
