@@ -21,11 +21,19 @@ import java.io.IOException
  * keep playing until the change switches to it. Timeouts, 5xx and "no connection" are always retried.
  */
 @UnstableApi
-class RemoteLoadErrorPolicy(private val failEndedAtOnce: () -> Boolean = { true }) : DefaultLoadErrorHandlingPolicy() {
+class RemoteLoadErrorPolicy(
+    private val failEndedAtOnce: () -> Boolean = { true },
+    /** 0.4.0: whether a load is the PC's (a side-loaded web subtitle answering 404 says nothing about the session). */
+    private val fromSession: (android.net.Uri?) -> Boolean = { true },
+) : DefaultLoadErrorHandlingPolicy() {
     override fun getMinimumLoadableRetryCount(dataType: Int): Int = RETRIES
 
     override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
-        if (endsSession(loadErrorInfo.exception) && failEndedAtOnce()) C.TIME_UNSET else super.getRetryDelayMsFor(loadErrorInfo)
+        if (endsSession(loadErrorInfo.exception) && failEndedAtOnce() && fromSession(loadErrorInfo.loadEventInfo.uri)) {
+            C.TIME_UNSET
+        } else {
+            super.getRetryDelayMsFor(loadErrorInfo)
+        }
 
     companion object {
         /** 0 + 1 + 2 + 3 + 4 + 11 × 5 s ≈ 65 s of retries. */

@@ -48,7 +48,35 @@ data class LinkSessionStatus(
     val encoder: String? = null,
     val videoKbps: Int? = null,
     val error: String? = null,
+    /** 0.4.0: the source's subtitle tracks the PC serves (`subtitles`); null = not listed (yet) or an older PC. */
+    val subtitles: List<LinkSubtitleTrack>? = null,
+    /** 0.4.0: `listing` | `unavailable` | `idle` | `extracting` | `ready` | `failed`; null = an older PC. */
+    val subtitlesState: String? = null,
 )
+
+/**
+ * 0.4.0: one subtitle track of a Link session's source (`GET /v1/sessions/{id}` `subtitles`), served by the PC as
+ * `subtitles/{index}.ass` (ASS / SSA, styles kept: [formats] has `ass`) and `.vtt` (any text track). Image tracks (PGS,
+ * VobSub) have [text] false and are never served. The files keep the source's own timeline: no offset on the phone.
+ */
+data class LinkSubtitleTrack(
+    val index: Int,
+    val language: String? = null,
+    val title: String? = null,
+    val codec: String = "",
+    val default: Boolean = false,
+    val forced: Boolean = false,
+    val text: Boolean = true,
+    val formats: List<String> = emptyList(),
+) {
+    val hasAss: Boolean get() = FORMAT_ASS in formats
+    val hasVtt: Boolean get() = FORMAT_VTT in formats
+
+    companion object {
+        const val FORMAT_ASS = "ass"
+        const val FORMAT_VTT = "vtt"
+    }
+}
 
 /** The PC's upscaling in [LinkProcessingInfo]. */
 sealed interface LinkUpscale {

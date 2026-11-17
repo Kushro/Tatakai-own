@@ -28,15 +28,18 @@ class SubtitleTools(context: Context, private val client: OkHttpClient) {
     private val mutex = Mutex()
     private val parsed = LinkedHashMap<String, List<TimedCue>>()
 
-    /** Downloads and parses the external track at [url] with the stream's [headers]. Throws [IOException] on HTTP / parse failure. */
-    suspend fun fetch(url: String, headers: Map<String, String>, format: String? = null): List<TimedCue> {
+    /**
+     * Downloads and parses the external track at [url] with the stream's [headers]. Throws [IOException] on HTTP / parse failure. 0.4.0:
+     * [via] = the client of the stream when it is not the player's own (a Link session's subtitle, served by the PC over mTLS).
+     */
+    suspend fun fetch(url: String, headers: Map<String, String>, format: String? = null, via: OkHttpClient? = null): List<TimedCue> {
         mutex.withLock { parsed[url] }?.let { return it }
         val cues = withContext(Dispatchers.IO) {
             val text = if (url.startsWith("file:") || url.startsWith("/")) {
                 File(Uri.parse(url).path ?: url).readText()
             } else {
                 val req = Request.Builder().url(url).apply { headers.forEach { (k, v) -> header(k, v) } }.build()
-                client.newCall(req).execute().use { res ->
+                (via ?: client).newCall(req).execute().use { res ->
                     if (!res.isSuccessful) throw IOException("HTTP ${res.code}")
                     val body = res.body.bytes()
                     if (body.size > MAX_SUBTITLE_BYTES) throw IOException("subtitle too large")

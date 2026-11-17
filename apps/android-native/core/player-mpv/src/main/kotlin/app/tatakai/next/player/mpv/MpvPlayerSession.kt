@@ -251,7 +251,7 @@ class MpvPlayerSession(
         prepareJob?.cancel()
         val loadId = engine.beginLoad()
         val startSecs = startMs.coerceAtLeast(0) / 1000.0
-        val subs = source.subtitles.map { it.url }
+        val subs = mpvSubtitles(source.subtitles, source.selectSubtitle)
         if (!HlsPrefetch.applies(source)) {
             open(source, source.url, startSecs, subs, loadId)
             return
@@ -264,11 +264,11 @@ class MpvPlayerSession(
         }
     }
 
-    private fun open(source: PlayableSource, url: String, startSecs: Double, subs: List<String>, loadId: Int) {
+    private fun open(source: PlayableSource, url: String, startSecs: Double, subs: List<MpvSubtitle>, loadId: Int) {
         val lavf = HlsPrefetch.lavfOptions(url, source.url)
         if (lavf.isNotEmpty()) android.util.Log.i("mpv", "filtered HLS master opened with demuxer-lavf-o=$lavf")
         watchedLoadId = if (mpvStartWatched(source.container, source.torrent)) loadId else -1
-        engine.loadPrepared(url, source.headers, startSecs, subs, lavf)
+        engine.loadPrepared(url, source.headers, startSecs, subs, lavf, subtitlesOff = source.selectSubtitle == PlayableSource.SUBTITLES_OFF)
         // BUG-059: a network stream that shows no frame in time is given up (the view-model moves it to Media3). Safety net only:
         // the filtered master above is what makes such streams start.
         startWatch = if (mpvStartWatched(source.container, source.torrent)) {
@@ -333,6 +333,14 @@ class MpvPlayerSession(
 
     override fun addSubtitleFile(path: String, title: String): Boolean {
         engine.addSubtitleFile(path, title)
+        return true
+    }
+
+    /** 0.4.0: `sub-add` reads each URL (the PC's, through the loopback proxy): off the main thread. */
+    override fun addSubtitleTracks(tracks: List<app.tatakai.next.model.SubtitleTrack>, select: Int?): Boolean {
+        if (released) return true
+        val subs = mpvSubtitles(tracks, select)
+        scope.launch(Dispatchers.IO) { if (!released) engine.addSubtitles(subs, off = select == PlayableSource.SUBTITLES_OFF) }
         return true
     }
 
@@ -448,3 +456,17 @@ class MpvSessionFactory(
     override fun create(scope: CoroutineScope, listener: PlaybackListener, remote: Boolean): PlayerSession =
         MpvPlayerSession(context, scope, listener, remote, quality(), frameGen, remoteProcessing)
 }
+
+/**
+ * 0.4.0: a source's external subtitles as `sub-add` arguments: the label as mpv's title (a URL's file name before) and the language
+ * as mpv's `lang` (so the track list and `slang` see it), [select] (an index, [PlayableSource.SUBTITLES_OFF] or null) marked.
+ */
+internal fun mpvSubtitles(tracks: List<app.tatakai.next.model.SubtitleTrack>, select: Int?): List<MpvSubtitle> =
+    tracks.mapIndexed { i, t ->
+        MpvSubtitle(
+            url = t.url,
+            title = t.label.ifBlank { t.lang }.ifBlank { null },
+            lang = t.lang.trim().takeIf { it.isNotEmpty() && it.all { c -> c.isLetterOrDigit() || c == '-' || c == '_' } },
+            select = select == i,
+        )
+    }

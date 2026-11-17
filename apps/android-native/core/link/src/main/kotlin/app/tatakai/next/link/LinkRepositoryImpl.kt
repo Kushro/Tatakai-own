@@ -8,6 +8,7 @@ import app.tatakai.next.model.LinkCapabilities
 import app.tatakai.next.model.LinkProfile
 import app.tatakai.next.model.LinkProfileFallback
 import app.tatakai.next.model.LinkSessionStatus
+import app.tatakai.next.model.LinkSubtitleTrack
 import app.tatakai.next.model.ProcessingLocation
 import app.tatakai.next.model.VideoDecodeLimits
 import app.tatakai.next.model.playableLinkProfile
@@ -99,7 +100,25 @@ interface RemotePlaybackAccess {
      * cannot present the client certificate itself; null = not available (unknown session, unpaired, proxy cannot listen).
      */
     fun loopbackUrl(sessionId: String): String? = null
+
+    // --- 0.4.0: the source's subtitles while the PC processes ---
+
+    /**
+     * URL of the subtitle track [index] (`subtitles/{index}.{format}`, [format] `ass` | `vtt`) of [sessionId]: through the loopback
+     * proxy when [loopback] (libmpv), else the PC's own URL for the mTLS client (Media3). null = unknown session / not paired.
+     */
+    fun subtitleUrl(sessionId: String, index: Int, format: String, loopback: Boolean): String? = null
+
+    /**
+     * Asks the PC for subtitle track [index] of [sessionId] (the first request starts its extraction): [SubtitleReadiness.READY]
+     * once it serves it, [SubtitleReadiness.PENDING] while it extracts or lists (ask again later), [SubtitleReadiness.UNAVAILABLE]
+     * when it never will (no such track, too large, failed, session gone, older PC).
+     */
+    suspend fun subtitleReadiness(sessionId: String, index: Int, format: String): SubtitleReadiness = SubtitleReadiness.UNAVAILABLE
 }
+
+/** 0.4.0: [RemotePlaybackAccess.subtitleReadiness]. */
+enum class SubtitleReadiness { READY, PENDING, UNAVAILABLE }
 
 /**
  * Phone-side extras of the Link discovery for :feature:link (wave B, link.discovery): the TOFU fingerprint announced by a PC and the
@@ -377,6 +396,21 @@ class LinkRepositoryImpl(
         return runCatching { loopback.localUrl(url) }.getOrNull()
     }
 
+    // the `loopback` parameter of [subtitleUrl] shadows the property
+    private fun loopbackProxy(): LinkLoopbackProxy = loopback
+
+    override fun subtitleUrl(sessionId: String, index: Int, format: String, loopback: Boolean): String? {
+        val conn = connectionOrNull() ?: return null
+        if (sessions[sessionId] == null || format !in LinkClient.SUBTITLE_FORMATS) return null
+        val url = conn.client.subtitleUrl(sessionId, index, format)
+        return if (loopback) runCatching { loopbackProxy().localUrl(url) }.getOrNull() else url
+    }
+
+    override suspend fun subtitleReadiness(sessionId: String, index: Int, format: String): SubtitleReadiness = withContext(io) {
+        val c = connectionOrNull()?.client ?: return@withContext SubtitleReadiness.PENDING
+        subtitleReadinessOf(c.subtitle(sessionId, index, format))
+    }
+
     override suspend fun setDefaultProcessing(location: ProcessingLocation) {
         withContext(io) {
             if (!vault.hasPairing()) return@withContext
@@ -602,7 +636,38 @@ class LinkRepositoryImpl(
             encoder = dto.encoder?.takeIf { it.isNotBlank() },
             videoKbps = dto.videoKbps,
             error = dto.error,
+            subtitles = dto.subtitles?.map {
+                LinkSubtitleTrack(
+                    index = it.index,
+                    language = it.language?.takeIf { l -> l.isNotBlank() },
+                    title = it.title?.takeIf { t -> t.isNotBlank() },
+                    codec = it.codec,
+                    default = it.default,
+                    forced = it.forced,
+                    text = it.text,
+                    formats = it.formats.filter { f -> f in LinkClient.SUBTITLE_FORMATS },
+                )
+            },
+            subtitlesState = dto.subtitlesState,
         )
+
+        /**
+         * 0.4.0: a subtitle answer as [SubtitleReadiness]: 200 -> READY; `503 segment_wait_timeout` (extracting), `409
+         * session_not_ready` (listing) or no answer (offline, timeout) -> PENDING; anything else (404, 410, `503
+         * source_unavailable`, an older PC's 404) -> UNAVAILABLE.
+         */
+        fun subtitleReadinessOf(r: LinkResult<String>): SubtitleReadiness = when (r) {
+            is LinkResult.Ok -> SubtitleReadiness.READY
+            is LinkResult.Failure -> when (val e = r.error) {
+                is LinkError.Api -> if (e.error == LinkApiError.SegmentWaitTimeout || e.error == LinkApiError.SessionNotReady) {
+                    SubtitleReadiness.PENDING
+                } else {
+                    SubtitleReadiness.UNAVAILABLE
+                }
+                is LinkError.Transport -> SubtitleReadiness.PENDING
+                else -> SubtitleReadiness.UNAVAILABLE
+            }
+        }
 
         /** tk-link refuses `audio_track` above this (sessions.rs `create`). */
         const val MAX_AUDIO_TRACK = 32

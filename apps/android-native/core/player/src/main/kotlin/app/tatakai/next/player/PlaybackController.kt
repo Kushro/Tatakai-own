@@ -19,6 +19,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.hls.playlist.DefaultHlsPlaylistTracker
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import okhttp3.Call
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.DynamicsProcessing
 import android.media.audiofx.LoudnessEnhancer
@@ -102,6 +104,9 @@ class PlaybackController(
 
     /** loadId whose subtitle auto-selection was already decided (forced, or the user chose). */
     private var subDecidedLoad = -1
+
+    /** 0.4.0: [PlayableSource.selectSubtitle] of the current load. */
+    private var forcedSub: Int? = null
     private var loudness: AudioEffect? = null
     private var stableVolume = false
 
@@ -157,7 +162,8 @@ class PlaybackController(
     override fun load(source: PlayableSource, startMs: Long) {
         if (released) return
         val client = source.httpClient ?: if (source.torrent || source.container == Container.PROGRESSIVE) progressiveClient else baseClient
-        val factory = OkHttpDataSource.Factory(client).setDefaultRequestProperties(source.headers)
+        val factory = OkHttpDataSource.Factory(callFactoryFor(source, client)).setDefaultRequestProperties(source.headers)
+        forcedSub = source.selectSubtitle
         // Bug player.subs.preferred-lang: extension tracks say `es-419`, `spa`, `Spanish`...; normalised to ISO 639-1 so the preferred
         // language matches. The id carries the index of the external track (SubtitleOption.external).
         val subs = source.subtitles.mapIndexed { i, t ->
@@ -201,6 +207,8 @@ class PlaybackController(
             // BUG-009 / BUG-023: a Link session without a known duration is a growing (EVENT) playlist that stops growing
             // while the PC waits for the playhead (pause, full buffer). Media3 calls a live playlist that has not changed
             // for 3.5 target durations (7 s) "stuck" and ends playback; the PC's playlist is only slow, so it gets a minute.
+            // 0.4.0: with side-loaded subtitles (the PC's own, Link "PC") DefaultMediaSourceFactory below merges them: it
+            // prepares them lazily (an unready file never holds the video), which no public API offers for a custom merge.
             HlsMediaSource.Factory(factory)
                 .setLoadErrorHandlingPolicy(RemoteLoadErrorPolicy(failEndedAtOnce))
                 .setPlaylistTrackerFactory { dataSources, errors, parsers, cmcd, executor ->
@@ -208,8 +216,10 @@ class PlaybackController(
                 }
                 .createMediaSource(item)
         } else {
+            // 0.4.0: a side-loaded web subtitle that answers 404 is not "the PC closed the session"
+            val pcHost = sessionHost(source)
             DefaultMediaSourceFactory(factory)
-                .apply { if (remote) setLoadErrorHandlingPolicy(RemoteLoadErrorPolicy(failEndedAtOnce)) }
+                .apply { if (remote) setLoadErrorHandlingPolicy(RemoteLoadErrorPolicy(failEndedAtOnce) { uri -> pcHost == null || uri?.host == pcHost }) }
                 .createMediaSource(item)
         }
         loaded = true
@@ -299,6 +309,21 @@ class PlaybackController(
         val text = tracks.groups.withIndex().filter { it.value.type == C.TRACK_TYPE_TEXT }
         if (text.isEmpty()) return
         subDecidedLoad = loadId
+        // 0.4.0: the load names its track (the one the phone showed before the PC took over): that one, or none
+        when (val forced = forcedSub) {
+            null -> Unit
+            PlayableSource.SUBTITLES_OFF -> {
+                if (text.any { it.value.isSelected }) selectSubtitle(null)
+                return
+            }
+            else -> {
+                val match = text.firstOrNull { g -> externalIndex(g.value.getTrackFormat(0)) == forced }
+                if (match != null) {
+                    if (!match.value.isSelected) selectSubtitle(match.index)
+                    return
+                }
+            }
+        }
         if (text.any { it.value.isSelected }) return
         val pick = LanguageCodes.firstMatch(text, preferredSub, { it.value.getTrackFormat(0).language }, { it.value.getTrackFormat(0).label }) ?: return
         selectSubtitle(text[pick].index)
@@ -357,6 +382,29 @@ class PlaybackController(
 
     // ---- internals --------------------------------------------------------------------------------------------------------------
 
+    /**
+     * 0.4.0: a Link session ([PlayableSource.httpClient] = the pairing's mTLS client, which trusts only the PC's CA) may side-load
+     * subtitles from elsewhere (the web source's own files, Link "PC"): those go through the player's normal client with the
+     * session's [PlayableSource.headers] (the web source's), the PC's requests through the mTLS one and never with those headers.
+     * Without a client override everything goes through [client] as before.
+     */
+    private fun callFactoryFor(source: PlayableSource, client: OkHttpClient): Call.Factory {
+        val own = source.httpClient ?: return client
+        val host = sessionHost(source) ?: return client
+        if (source.headers.isEmpty() && source.subtitles.all { it.url.toHttpUrlOrNull()?.host == host }) return client
+        val names = source.headers.keys
+        return Call.Factory { request ->
+            if (request.url.host == host) {
+                own.newCall(request.newBuilder().apply { names.forEach { removeHeader(it) } }.build())
+            } else {
+                baseClient.newCall(request)
+            }
+        }
+    }
+
+    /** Host of a Link session's own requests (the PC); null for any other source. */
+    private fun sessionHost(source: PlayableSource): String? = source.httpClient?.let { source.url.toHttpUrlOrNull()?.host }
+
     private fun subtitleMime(format: String): String =
         when (format.lowercase()) {
             "srt" -> MimeTypes.APPLICATION_SUBRIP
@@ -375,7 +423,7 @@ class PlaybackController(
             val f = g.getTrackFormat(0)
             // Media3 >= 1.4 parses subtitles during extraction: the original mime survives in `codecs`.
             val ass = f.sampleMimeType == MimeTypes.TEXT_SSA || f.codecs == MimeTypes.TEXT_SSA
-            val external = f.id?.substringAfter(EXTERNAL_ID_PREFIX, "")?.takeWhile { it.isDigit() }?.toIntOrNull()
+            val external = externalIndex(f)
             SubtitleOption(i, f.label ?: f.language ?: "#${i + 1}", f.language, g.isSelected, ass, external)
         }
         val audioOptions = tracks.groups.withIndex().filter { it.value.type == C.TRACK_TYPE_AUDIO }.map { (i, g) ->
@@ -402,6 +450,10 @@ class PlaybackController(
     }
 
     private fun Long.orZero(): Long = if (this == C.TIME_UNSET) 0 else this
+
+    /** Index into [PlayableSource.subtitles] of a side-loaded track (its id carries it), null for in-stream tracks. */
+    private fun externalIndex(f: androidx.media3.common.Format): Int? =
+        f.id?.substringAfter(EXTERNAL_ID_PREFIX, "")?.takeWhile { it.isDigit() }?.toIntOrNull()
 
     companion object {
         const val MAX_FALLBACKS = 3
