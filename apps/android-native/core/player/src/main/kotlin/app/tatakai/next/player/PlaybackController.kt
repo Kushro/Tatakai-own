@@ -371,12 +371,15 @@ class PlaybackController(
             .flatMap { g -> (0 until g.length).filter { g.isTrackSupported(it) }.map { g.getTrackFormat(it).height } }
             .filter { it > 0 }.distinct().sortedDescending()
         val textGroups = tracks.groups.withIndex().filter { it.value.type == C.TRACK_TYPE_TEXT }
+        var embedded = 0
         val subtitleOptions = textGroups.map { (i, g) ->
             val f = g.getTrackFormat(0)
             // Media3 >= 1.4 parses subtitles during extraction: the original mime survives in `codecs`.
             val ass = f.sampleMimeType == MimeTypes.TEXT_SSA || f.codecs == MimeTypes.TEXT_SSA
             val external = f.id?.substringAfter(EXTERNAL_ID_PREFIX, "")?.takeWhile { it.isDigit() }?.toIntOrNull()
-            SubtitleOption(i, f.label ?: f.language ?: "#${i + 1}", f.language, g.isSelected, ass, external)
+            // 0.4.0 (sub-translation): in-file text groups come in extractor (container) order, before the merged sidecars.
+            val ordinal = if (external == null) embedded++ else null
+            SubtitleOption(i, f.label ?: f.language ?: "#${i + 1}", f.language, g.isSelected, ass, external, f.codecs ?: f.sampleMimeType, ordinal)
         }
         val audioOptions = tracks.groups.withIndex().filter { it.value.type == C.TRACK_TYPE_AUDIO }.map { (i, g) ->
             val f = g.getTrackFormat(0)

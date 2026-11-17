@@ -20,7 +20,15 @@ import java.util.Locale
 // addLogObserver) - see .deps-sources/libmpv-1.0.0/MPVLib.signatures.txt.
 
 /** One subtitle / audio track as mpv lists it (`track-list/N/...`). [id] is mpv's `sid` / `aid`. */
-data class MpvTrack(val id: Int, val title: String?, val lang: String?, val codec: String?, val selected: Boolean)
+data class MpvTrack(
+    val id: Int,
+    val title: String?,
+    val lang: String?,
+    val codec: String?,
+    val selected: Boolean,
+    /** 0.4.0 (sub-translation): `track-list/N/external` - added with `sub-add`, not stored in the media file. */
+    val external: Boolean = false,
+)
 
 /** Minimal state the player UI renders for the mpv branch (d may extend it). */
 data class MpvState(
@@ -495,6 +503,7 @@ class MpvEngine(context: Context) {
                 lang = mpv.getPropertyString("track-list/$i/lang"),
                 codec = mpv.getPropertyString("track-list/$i/codec"),
                 selected = mpv.getPropertyBoolean("track-list/$i/selected") == true,
+                external = mpv.getPropertyBoolean("track-list/$i/external") == true,
             )
             when (type) {
                 "sub" -> subs += track
