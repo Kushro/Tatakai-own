@@ -92,6 +92,9 @@ data class AppSettings(
     // --- 2026-11 UI refresh (desktop `Settings::look`); persisted by SettingsCodec as `look_json` ---
     /** Settings › Apariencia › Diseño y estilo: Home layout, card style, density, motion, episode / relations / calendar views, hero. */
     val look: LookPrefs = LookPrefs(),
+    // --- 0.4.0 player quality (worker B); persisted by SettingsCodec as `frame_gen_json` ---
+    /** Frame generation on the phone (:core:framegen): switch, multiplier, profile, refresh matching, audio offset. */
+    val frameGen: FrameGenSettings = FrameGenSettings(),
 ) {
     companion object {
         const val DEFAULT_PALETTE_ID = "tatakai-violet"

@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.DownloadSettings
+import app.tatakai.next.model.FrameGenSettings
 import app.tatakai.next.model.LookPrefs
 import app.tatakai.next.model.NovelReaderSettings
 import app.tatakai.next.model.ReaderSettings
@@ -117,6 +118,8 @@ internal object SettingsCodec {
     private val MATURE_CONTENT = stringPreferencesKey("mature_content")
     // --- 2026-11 UI refresh: Diseño y estilo (LookPrefs, lenient ids) ---
     private val LOOK = stringPreferencesKey("look_json")
+    // --- 0.4.0 player quality (worker B): phone frame generation ---
+    private val FRAME_GEN = stringPreferencesKey("frame_gen_json")
     private val KEYMAP_SERIALIZER = MapSerializer(String.serializer(), String.serializer())
     const val COUNTDOWN_MIN_SECS = 3
     const val COUNTDOWN_MAX_SECS = 30
@@ -169,6 +172,7 @@ internal object SettingsCodec {
             socialNotifications = p[SOCIAL_NOTIFICATIONS] ?: d.socialNotifications,
             matureContent = enumOr(p[MATURE_CONTENT], d.matureContent),
             look = decodeLook(p[LOOK]) ?: d.look,
+            frameGen = decode(p[FRAME_GEN], FrameGenSettings.serializer())?.sanitized() ?: d.frameGen,
         )
     }
 
@@ -219,6 +223,7 @@ internal object SettingsCodec {
         p[SOCIAL_NOTIFICATIONS] = s.socialNotifications
         p[MATURE_CONTENT] = s.matureContent.name
         p[LOOK] = json.encodeToString(LookPrefs.serializer(), s.look.sanitized())
+        p[FRAME_GEN] = json.encodeToString(FrameGenSettings.serializer(), s.frameGen.sanitized())
     }
 
     private inline fun <reified E : Enum<E>> enumOr(name: String?, default: E): E =
