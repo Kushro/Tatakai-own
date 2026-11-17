@@ -62,6 +62,8 @@ struct Token {
     initial: Url,
     headers: Vec<(String, String)>,
     bytes: AtomicU64,
+    /// [`MAX_BYTES_PER_SESSION`], or none for a stream of this PC's own torrent engine ([`Fetcher::register_unmetered`]).
+    quota: Option<u64>,
     slots: Semaphore,
     denied: AtomicBool,
 }
@@ -162,6 +164,18 @@ impl Fetcher {
 
     /// Register a source; returns the session token. The first request path is [`Fetcher::entry_url`].
     pub fn register(&self, spec: SourceSpec) -> String {
+        self.register_with_quota(spec, Some(MAX_BYTES_PER_SESSION))
+    }
+
+    /// 0.4.1: [`Fetcher::register`] without the byte quota, for the stream of this PC's own torrent engine. The quota
+    /// bounds what a remote URL may make the PC download; a torrent file is read whole twice per run (decode + audio of
+    /// the LSFG chain) and again after every restart, so a 1.3 GiB episode crossed 2 GiB before its end and every later
+    /// read of the session failed with 403.
+    pub fn register_unmetered(&self, spec: SourceSpec) -> String {
+        self.register_with_quota(spec, None)
+    }
+
+    fn register_with_quota(&self, spec: SourceSpec, quota: Option<u64>) -> String {
         let token = uuid::Uuid::new_v4().simple().to_string();
         let mut http = self.http.clone();
         if let Some(perms) = spec.extension_permissions {
@@ -175,6 +189,7 @@ impl Fetcher {
             initial: spec.url,
             headers: spec.headers,
             bytes: AtomicU64::new(0),
+            quota,
             slots: Semaphore::new(MAX_CONCURRENT_PER_SESSION),
             denied: AtomicBool::new(false),
         });
@@ -378,7 +393,7 @@ async fn handle_inner(tokens: Tokens, files: Files, req: Request<Incoming>) -> R
         _ => return Err(StatusCode::NOT_FOUND),
     };
     let _permit = tokio::time::timeout(Duration::from_secs(20), t.slots.acquire()).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if t.bytes.load(Ordering::Relaxed) >= MAX_BYTES_PER_SESSION {
+    if t.quota.is_some_and(|q| t.bytes.load(Ordering::Relaxed) >= q) {
         return Err(StatusCode::FORBIDDEN);
     }
     let map_err = |e: FetchError| match e {
@@ -396,7 +411,11 @@ async fn handle_inner(tokens: Tokens, files: Files, req: Request<Incoming>) -> R
     }
 
     let range = req.headers().get(hyper::header::RANGE).and_then(|v| v.to_str().ok()).map(str::to_owned);
-    let up = t.http.send(SafeRequest::get(target.clone(), t.headers_for(&target, range))).await.map_err(|e| {
+    // 0.4.1: a stream FFmpeg reads at its own pace (a whole episode, held while the session is back-pressured): the
+    // policy timeout bounds each read, not the whole body. With the total timeout every torrent / progressive input ended
+    // 20 s after FFmpeg opened it, so each run stopped after ~20 s of work (a restart every 30-60 s of video, and a run
+    // that stopped producing without exiting left the phone on "the PC is preparing the video" for good).
+    let up = t.http.send_stream(SafeRequest::get(target.clone(), t.headers_for(&target, range))).await.map_err(|e| {
         let e = FetchError::from(e);
         if e == FetchError::Denied {
             t.denied.store(true, Ordering::Relaxed);
@@ -414,7 +433,7 @@ async fn handle_inner(tokens: Tokens, files: Files, req: Request<Incoming>) -> R
     let stream = up.response.bytes_stream().map(move |chunk| match chunk {
         Ok(b) => {
             let total = t2.bytes.fetch_add(b.len() as u64, Ordering::Relaxed) + b.len() as u64;
-            if total > MAX_BYTES_PER_SESSION { Err(std::io::Error::other("session byte quota exceeded")) } else { Ok(b) }
+            if t2.quota.is_some_and(|q| total > q) { Err(std::io::Error::other("session byte quota exceeded")) } else { Ok(b) }
         }
         Err(e) => Err(std::io::Error::other(e.without_url().to_string())),
     });

@@ -626,7 +626,7 @@ impl Manager {
         let url = held.torrent.as_ref().map(|t| t.url.clone()).unwrap_or_default();
         let target = Url::parse(&url).map_err(|_| ApiError(ErrorCode::Internal))?;
         let trusted = crate::torrent_stream_origin(&target).ok_or(ApiError(ErrorCode::Internal))?;
-        let token = self.fetcher.register(SourceSpec { url: target.clone(), headers: Vec::new(), extension_permissions: None, trusted: vec![trusted] });
+        let token = self.fetcher.register_unmetered(SourceSpec { url: target.clone(), headers: Vec::new(), extension_permissions: None, trusted: vec![trusted] });
         held.token = Some(token.clone());
         if let Err(e) = self.fetcher.validate(&token, &target).await {
             return Err(match e {
