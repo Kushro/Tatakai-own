@@ -978,15 +978,20 @@ class PlayerViewModel(
         torrentJobs = listOfNotNull(statsJob, marksJob)
     }
 
-    private fun endTorrent(completed: Boolean) {
+    private fun endTorrent(completed: Boolean, suspend: Boolean = false) {
         val p = playback ?: return
         playback = null
         torrentJobs.forEach { it.cancel() }
         torrentJobs = emptyList()
         _state.update { it.copy(torrent = null) }
         val repo = torrents ?: return
-        detached.launch { runCatching { repo.playbackEnded(p.torrentId, completed) } }
+        detached.launch {
+            runCatching { if (suspend) repo.playbackSuspended(p.torrentId) else repo.playbackEnded(p.torrentId, completed) }
+        }
     }
+
+    /** 0.4.0: the phone torrent paused by a switch to the PC; its after-watch policy runs when the player closes. */
+    private var suspendedTorrent: String? = null
 
     /** The stream of [attempt] is ready: load it into the engine (or hand it to the external app). */
     private fun handOff(source: PlayableSource, attempt: Long) {
@@ -1054,6 +1059,9 @@ class PlayerViewModel(
 
     // ---- engine session ---------------------------------------------------------------------------------------------------------
 
+    /** 0.4.0: the last quality request of an engine session that has the quality engine (see [ensureSession]). */
+    private var carriedQuality: app.tatakai.next.player.QualityRequest? = null
+
     private fun ensureSession(): PlayerSession {
         session?.let { return it }
         val factory: PlayerSessionFactory = if (engine == PlayerEngine.MPV) mpvFactory ?: media3 else media3
@@ -1064,6 +1072,9 @@ class PlayerViewModel(
         s.setPreferredLanguages(settings.sourcePrefs.subLang, settings.sourcePrefs.dubLang)
         if (settings.stableVolume) s.setStableVolume(true)
         if (_state.value.loop) s.setLoop(true)
+        // 0.4.0: what the user picked in "Mejoras" (preset, tier, image, aspect...) carries over to the next engine session of this
+        // player: a PC -> Phone switch, an engine switch or the next episode went back to the Settings defaults before.
+        carriedQuality?.let { s.setQualityRequest(it) }
         session = s
         _state.update { it.copy(session = s) }
         sessionJob = viewModelScope.launch {
@@ -1073,6 +1084,7 @@ class PlayerViewModel(
             launch {
                 var seen = 0
                 s.quality.collect { q ->
+                    if (q.available) carriedQuality = q.requested
                     val e = q.lastEvent ?: return@collect
                     if (e.seq <= seen) return@collect
                     seen = e.seq
@@ -2149,7 +2161,9 @@ class PlayerViewModel(
         val positionMs = positionNow()
         if (location == ProcessingLocation.PHONE) {
             session?.state?.value?.audioTracks?.firstOrNull { it.selected }?.let { pendingAudio = it.language to it.label }
-            if (playback != null) endTorrent(completed = false)
+            // The phone's torrent pauses but keeps its data: switching back resumes it (it restarted from 0 % before).
+            playback?.torrentId?.let { suspendedTorrent = it }
+            if (playback != null) endTorrent(completed = false, suspend = true)
         }
         pendingLinkSource = null
         renewWatch?.cancel()
@@ -2397,6 +2411,10 @@ class PlayerViewModel(
         session?.release() // emits the final forced progress tick
         session = null
         val completed = lastDurationMs > 0 && lastPositionMs >= lastDurationMs * COMPLETED_FRACTION
+        // A torrent left suspended by a switch to the PC gets its normal after-watch policy now (unless playing it again).
+        suspendedTorrent?.takeIf { it != playback?.torrentId }?.let { id ->
+            torrents?.let { repo -> detached.launch { runCatching { repo.playbackEnded(id, completed) } } }
+        }
         endTorrent(completed)
         remoteId?.let { id -> detached.launch { link.stop(id) } }
         // 0.4.0: the phone's own enhancements are the user's again once nothing plays from the PC

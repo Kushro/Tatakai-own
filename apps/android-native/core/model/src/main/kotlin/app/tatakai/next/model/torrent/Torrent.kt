@@ -364,6 +364,13 @@ interface TorrentRepository {
     /** After-watch policy of desktop 10 §4.3 (20 s grace for batch next episode). Call when leaving the player or changing episode. */
     suspend fun playbackEnded(torrentId: TorrentId, completed: Boolean)
 
+    /**
+     * 0.4.0: the player moved this episode to the PC (Tatakai Link) but may come back to the phone: stop streaming and pause
+     * like [playbackEnded], but never apply the after-watch policy (no "delete after watching" while the player is still open).
+     * The player calls [playbackEnded] when it closes for good. Default: same as [playbackEnded] without the deletion guarantee.
+     */
+    suspend fun playbackSuspended(torrentId: TorrentId) = playbackEnded(torrentId, completed = false)
+
     /** Background download (persist = true). Fails when background downloads are not enabled/acknowledged. [episode] null = whole torrent. */
     suspend fun addDownload(source: String, media: Media, episode: Int?): Result<TorrentId>
 

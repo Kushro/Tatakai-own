@@ -596,6 +596,7 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                         onPlay = ::play,
                         onOpenItem = { ext, source, item -> push(Route.ProviderItem(ext, source, item)) },
                     ),
+                    onOpenDetails = ::openDetails,
                 )
             }
             // parity wave B (16 §3.1, worker r): calendar and "Para ti" sub-screens of Home.

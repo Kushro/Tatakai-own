@@ -306,6 +306,27 @@ internal class TorrentRepositoryImpl(
             }
         }
 
+    override suspend fun playbackSuspended(torrentId: TorrentId) {
+        // 0.4.0 (Link "PC" from the player): like playbackEnded (not playing, the tick pauses it) but nothing is removed: the
+        // player may switch back to the phone and must find what it already downloaded (it restarted from 0 %).
+        val rt = runtimes[torrentId] ?: return
+        rt.endJob?.cancel()
+        rt.playing = false
+        rt.ended = true
+        tickSafely()
+        rt.endJob = scope.launch {
+            delay(BATCH_GRACE_MS)
+            closeLeftoverStreams(rt.ended, rt.handles) { it.close() }
+            val handle = if (session.isRunning) session.find(torrentId) else null
+            runCatching {
+                handle?.unsetFlags(TorrentFlags.SEQUENTIAL_DOWNLOAD)
+                handle?.clearPieceDeadlines()
+            }
+            handle?.let(session::requestResume)
+            tickSafely()
+        }
+    }
+
     override suspend fun playbackEnded(torrentId: TorrentId, completed: Boolean) {
         val rt = runtimes[torrentId] ?: return
         rt.endJob?.cancel()
