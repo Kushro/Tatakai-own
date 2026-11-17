@@ -125,6 +125,10 @@ data class LinkProcessingInfo(
     val sessionState: String? = null,
     /** Capabilities `measured_sustain` of the profile: `true` | `false` | `unknown`. */
     val measuredSustain: String = "unknown",
+    // 0.4.1 (end screen + seek bar): the source range the PC already processed, in source seconds. Filled by the Link worker from
+    // the session status; null on older PCs (the seek bar then estimates it from [leadSecs]).
+    val processedFromSecs: Double? = null,
+    val processedToSecs: Double? = null,
 ) {
     /** Playing, not held by back-pressure and less than [LOW_LEAD_SECS] ready: the PC may not keep up with this profile. */
     val fallingBehind: Boolean

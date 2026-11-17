@@ -517,4 +517,23 @@
     <string name="player_stats_fg">FG: %1$s → %2$s fps ×%3$d · %4$s ms</string>
     <string name="player_stats_fg_status">FG: %1$s</string>
     <string name="player_stats_pc">PC: %1$s</string>
+    <!-- 0.4.1: end-of-episode screen and the seek bar legend -->
+    <string name="player_end_episode_done">Episodio %1$d terminado</string>
+    <string name="player_end_video_done">Video terminado</string>
+    <string name="player_end_series_done">Terminaste la serie</string>
+    <string name="player_end_series_done_body">Puntúala y descubre títulos relacionados en su ficha.</string>
+    <string name="player_end_up_next">A continuación</string>
+    <string name="player_end_next_in">Siguiente en %1$d s</string>
+    <string name="player_end_play_next">Ver episodio %1$d</string>
+    <string name="player_end_replay">Volver a ver</string>
+    <string name="player_end_details">Volver a la ficha</string>
+    <string name="player_end_details_open">Ver la ficha</string>
+    <string name="player_end_hide">Ver el video</string>
+    <string name="player_end_watched">Episodio marcado como visto</string>
+    <string name="player_end_list_updated">Progreso actualizado: episodio %1$d</string>
+    <string name="player_end_list_updated_total">Progreso actualizado: %1$d de %2$d</string>
+    <string name="player_end_list_completed">Marcada como completada en tu lista</string>
+    <string name="player_end_list_sync">se sincroniza con %1$s</string>
+    <string name="player_seek_legend_downloaded">Descargado</string>
+    <string name="player_seek_legend_pc">Procesado por la PC</string>
 </resources>
