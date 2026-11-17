@@ -86,6 +86,10 @@ class MpvPlayerSession(
     override val state: StateFlow<PlaybackState> = _state.asStateFlow()
     private var released = false
     private var loaded = false
+
+    /** 0.4.1 (Link Mixto): [finishAsEnded] ended this load; mpv is paused and [PlaybackState.ended] stays up until play / seek / load. */
+    @Volatile
+    private var endedHere = false
     private var wasPlaying = false
     private val mirror: Job
     private val fonts = SubtitleFonts(context)
@@ -221,8 +225,8 @@ class MpvPlayerSession(
                     loadId = m.loadId,
                     started = m.started,
                     isPlaying = m.playing,
-                    isBuffering = loaded && (m.buffering && m.error == null),
-                    ended = m.ended,
+                    isBuffering = loaded && !endedHere && (m.buffering && m.error == null),
+                    ended = endedHere || m.ended,
                     positionMs = (m.positionSecs * 1000).toLong(),
                     durationMs = (m.durationSecs * 1000).toLong(),
                     bufferedMs = ((m.positionSecs + m.cacheSecs) * 1000).toLong(),
@@ -233,7 +237,7 @@ class MpvPlayerSession(
                     subtitleIsAss = subs.any { it.selected && it.ass },
                     audioTracks = m.audio.map { t -> AudioOption(t.id, t.title ?: t.lang ?: "#${t.id}", t.lang, t.selected) },
                     fullAss = true,
-                    error = m.error?.let { PlaybackError(mpvErrorCode(it, m.started, m.loadId == watchedLoadId), it, exhausted = true) },
+                    error = if (endedHere) null else m.error?.let { PlaybackError(mpvErrorCode(it, m.started, m.loadId == watchedLoadId), it, exhausted = true) },
                     subText = m.subText,
                     subtitleDelayMs = m.subDelayMs,
                     loop = m.loop,
@@ -250,6 +254,7 @@ class MpvPlayerSession(
     override fun load(source: PlayableSource, startMs: Long) {
         if (released) return
         loaded = true
+        endedHere = false
         ActivePlayback.publish(adapter)
         qualityController.onFileStarted()
         startWatch?.cancel()
@@ -290,13 +295,25 @@ class MpvPlayerSession(
         }
     }
 
-    override fun play() = engine.play()
+    override fun play() {
+        endedHere = false
+        engine.play()
+    }
+
+    override fun finishAsEnded() {
+        if (released || !loaded || endedHere) return
+        endedHere = true
+        engine.pause()
+        _state.value = _state.value.copy(error = null, ended = true, isBuffering = false, isPlaying = false)
+        listener.onProgress(currentPositionMs(), _state.value.durationMs, true)
+    }
 
     override fun pause() = engine.pause()
 
     override fun togglePlay() = if (_state.value.isPlaying) pause() else play()
 
     override fun seekTo(positionMs: Long) {
+        endedHere = false
         qualityController.onPlaybackIdle()
         engine.seekTo(positionMs.coerceAtLeast(0) / 1000.0)
     }

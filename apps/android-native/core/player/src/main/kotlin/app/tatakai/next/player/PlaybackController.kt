@@ -102,6 +102,9 @@ class PlaybackController(
     @Volatile
     private var remoteEndIsFinal = false
 
+    /** 0.4.1: [finishAsEnded] ended this load (the player is stopped, [PlaybackState.ended] stays up). */
+    private var endedHere = false
+
     // --- parity wave A (worker p) ---
     /** ISO 639-1 subtitle preference (`SourcePrefs.subLang`), for the forced selection of [onTracksChanged]. */
     private var preferredSub: String? = null
@@ -228,6 +231,7 @@ class PlaybackController(
                 .createMediaSource(item)
         }
         loaded = true
+        endedHere = false
         _cues.value = emptyList()
         _state.value = _state.value.copy(
             loadId = _state.value.loadId + 1,
@@ -246,14 +250,35 @@ class PlaybackController(
         player.playWhenReady = true
     }
 
-    override fun play() = player.play()
+    override fun play() {
+        resumeAfterEnded()
+        player.play()
+    }
 
     override fun pause() = player.pause()
 
     override fun togglePlay() = if (player.isPlaying) pause() else play()
 
-    override fun seekTo(positionMs: Long) =
+    override fun seekTo(positionMs: Long) {
+        resumeAfterEnded()
         player.seekTo(positionMs.coerceIn(0, player.duration.takeIf { it != C.TIME_UNSET } ?: Long.MAX_VALUE))
+    }
+
+    /** 0.4.1: [finishAsEnded] stopped the player; a play / seek after it prepares the same media again. */
+    private fun resumeAfterEnded() {
+        if (!endedHere || released) return
+        endedHere = false
+        player.prepare()
+    }
+
+    override fun finishAsEnded() {
+        if (released || !loaded || endedHere) return
+        endedHere = true
+        player.playWhenReady = false
+        player.stop() // no more loads or retries of the segments past the PC's end
+        _state.value = _state.value.copy(error = null, ended = true, isBuffering = false, isPlaying = false)
+        listener.onProgress(player.currentPosition, player.duration.orZero(), true)
+    }
 
     override fun seekBy(deltaMs: Long) = seekTo(player.currentPosition + deltaMs)
 
@@ -446,8 +471,8 @@ class PlaybackController(
         val cur = _state.value
         _state.value = cur.copy(
             isPlaying = player.isPlaying,
-            isBuffering = loaded && player.playbackState == Player.STATE_BUFFERING,
-            ended = player.playbackState == Player.STATE_ENDED,
+            isBuffering = loaded && !endedHere && player.playbackState == Player.STATE_BUFFERING,
+            ended = endedHere || player.playbackState == Player.STATE_ENDED,
             positionMs = player.currentPosition,
             durationMs = player.duration.orZero(),
             bufferedMs = player.bufferedPosition,

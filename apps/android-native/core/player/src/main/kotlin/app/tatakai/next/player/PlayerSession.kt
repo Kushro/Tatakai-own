@@ -149,6 +149,14 @@ interface PlayerSession {
      * the buffered video must play on), true otherwise, so a dead session fails at once and the stall watchdog renews it.
      */
     fun setRemoteEndIsFinal(final: Boolean) = Unit
+
+    /**
+     * 0.4.1 (Link): the PC's stream reached the real end of the episode although the playlist says a little more (the source's
+     * container duration is longer, or the last segments answer 404): stop loading and publish [PlaybackState.ended] exactly like
+     * a local playback that reached its end (no error, not buffering), so the player's normal end flow runs. [play] / [seekTo]
+     * afterwards resume normally.
+     */
+    fun finishAsEnded() = Unit
 }
 
 /**
