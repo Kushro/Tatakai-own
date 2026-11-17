@@ -297,6 +297,41 @@
     <string name="player_settings_shortcut_clash">Already used by: %1$s</string>
     <string name="src_tag_debrid_cached">Cached · %1$s</string>
     <!-- BUG-082 parity (PC text) -->
+    <!-- 0.4.0 (worker C): "Process on: Phone | PC | Mixed" (ProcessingText.kt; worker D draws the control) -->
+    <string name="player_processing_title">Process on</string>
+    <string name="player_processing_phone">On the phone</string>
+    <string name="player_processing_pc">On the PC</string>
+    <string name="player_processing_mixed">Mixed (PC + phone)</string>
+    <string name="player_processing_phone_hint">The phone plays the original source with its own enhancements.</string>
+    <string name="player_processing_pc_hint">Your PC enhances the video and sends it; the phone only plays it.</string>
+    <string name="player_processing_mixed_hint">Your PC upscales the video and the phone generates the frames.</string>
+    <string name="player_processing_switching">Switching to %1$s…</string>
+    <string name="player_processing_switched_phone">Now on the phone, at the same point.</string>
+    <string name="player_processing_switched_pc">Now your PC processes it, at the same point.</string>
+    <string name="player_processing_switched_mixed">Now mixed: your PC upscales and the phone generates the frames.</string>
+    <string name="player_processing_failed_timeout">Could not switch: your PC did not answer in time. It goes on where it was.</string>
+    <string name="player_processing_failed_offline">Could not switch: no connection with your PC. It goes on where it was.</string>
+    <string name="player_processing_failed_source">Could not switch: your PC cannot open this source. It goes on where it was.</string>
+    <string name="player_processing_failed_pc">Could not switch: your PC could not start the video. It goes on where it was.</string>
+    <string name="player_processing_failed_local">Could not play it on the phone: there is no source for it here.</string>
+    <string name="player_processing_on_phone_instead">It plays on the phone: %1$s</string>
+    <string name="player_processing_block_not_paired">Link a PC first in Settings › Link.</string>
+    <string name="player_processing_block_offline">Your PC does not answer.</string>
+    <string name="player_processing_block_local_file">It is a download on this phone: your PC cannot read it.</string>
+    <string name="player_processing_block_not_sendable">This source cannot be sent to your PC.</string>
+    <string name="player_processing_block_no_source">Wait until a source plays.</string>
+    <string name="player_processing_block_external">Not with the external player.</string>
+    <string name="player_processing_block_no_original">This video is from your PC: there is no copy for the phone.</string>
+    <string name="player_processing_block_mpv">Needs the MPV engine, not in this build.</string>
+    <string name="player_processing_block_phone_fg">This phone cannot generate frames.</string>
+    <string name="player_processing_block_pc_fg">Your PC does not allow it: update Tatakai on the PC.</string>
+    <string name="player_processing_block_no_upscale">Your PC has no upscaling profile this phone can play.</string>
+    <string name="player_processing_local_off">Your phone\'s enhancements are paused: the PC processes the video.</string>
+    <string name="player_processing_pc_falling_behind">Your PC may not keep up with this profile.</string>
+    <string name="player_processing_group_none">No enhancement</string>
+    <string name="player_processing_group_upscale">Upscaling only</string>
+    <string name="player_processing_group_frame_gen">Frame generation only</string>
+    <string name="player_processing_group_both">Upscaling + frame generation</string>
     <string name="player_no_sources_found_title">No sources found</string>
     <string name="player_no_sources_found">The installed extensions returned no source for this episode. Check your connection and try again, or try later.</string>
 </resources>

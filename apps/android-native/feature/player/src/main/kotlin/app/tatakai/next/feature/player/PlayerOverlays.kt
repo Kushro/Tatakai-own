@@ -125,7 +125,7 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
             when (notice) {
                 PlayerNotice.AssSimplified, is PlayerNotice.StoredSourceIgnored, PlayerNotice.PretranslateUnavailable, PlayerNotice.SwitchedToMpv,
                 PlayerNotice.SwitchedToMedia3, PlayerNotice.LinkSessionRenewed, PlayerNotice.LinkProfileRetried,
-                is PlayerNotice.LinkPhoneCannotPlay, is PlayerNotice.LinkPreferredReplaced -> 5_000
+                is PlayerNotice.LinkPhoneCannotPlay, is PlayerNotice.LinkPreferredReplaced, is PlayerNotice.Processing -> 5_000
                 is PlayerNotice.LinkProfile -> if (notice.result is LinkProfileResult.Failed) 5_000 else FLASH_MS
                 is PlayerNotice.ScreenshotSaved -> 4_000
                 else -> FLASH_MS
@@ -167,8 +167,11 @@ internal fun FlashToast(notice: PlayerNotice, onDone: () -> Unit, modifier: Modi
             ?: stringResource(R.string.player_link_phone_cannot_play_generic)
         is PlayerNotice.LinkPreferredReplaced ->
             stringResource(R.string.player_link_preferred_replaced, profileLabel(notice.from), profileLabel(notice.to))
+        // 0.4.0 (worker C): "Procesar en" switches (ProcessingText.kt)
+        is PlayerNotice.Processing -> processingNoticeText(notice)
     }
-    val failed = (notice is PlayerNotice.LinkProfile && notice.result is LinkProfileResult.Failed) || notice is PlayerNotice.LinkPhoneCannotPlay
+    val failed = (notice is PlayerNotice.LinkProfile && notice.result is LinkProfileResult.Failed) || notice is PlayerNotice.LinkPhoneCannotPlay ||
+        (notice is PlayerNotice.Processing && (notice.failure != null || notice.block != null))
     val scheme = MaterialTheme.colorScheme
     Surface(modifier.widthIn(max = 560.dp).padding(horizontal = 16.dp), shape = RoundedCornerShape(50), color = scheme.inverseSurface, contentColor = scheme.inverseOnSurface) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {

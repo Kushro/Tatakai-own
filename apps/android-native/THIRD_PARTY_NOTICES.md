@@ -82,3 +82,10 @@ Shipped unmodified in `core/player-mpv/src/main/assets/shaders/` (each file keep
 |---|---|---|---|
 | `Anime4K_Clamp_Highlights.glsl`, `Anime4K_Restore_CNN_{M,S,Soft_M}.glsl`, `Anime4K_Upscale_CNN_x2_{M,S}.glsl`, `Anime4K_Upscale_Denoise_CNN_x2_M.glsl`, `Anime4K_AutoDownscalePre_x2.glsl` | Anime4K v4 GLSL by bloc97 (github.com/bloc97/Anime4K) | MIT | Presets A / A+A / B / C (chains as desktop `tk-player/src/preset.rs`) |
 | `FSR.glsl` | AMD FidelityFX FSR 1.0.2, mpv port by agyild | MIT (Copyright (c) 2021 Advanced Micro Devices, Inc.) | Preset "fsr" |
+
+### Tatakai Link: Phone | PC | Mixto in the player (0.4.0, worker C, AGPL-3.0-or-later)
+
+| Target file(s) | Origin | License | Notes |
+|---|---|---|---|
+| `core/model/.../LinkProcessing.kt`, `core/model/.../LinkProfileSupport.kt` (`mixedLinkProfile`), `feature/player/.../ProcessingState.kt`, `ProcessingSwitcher.kt` | Enigmata `app/src/main/java/app/enigmata/temple/{TempleMixedMode,TemplePlayerBridge}.kt`, `ui/player/.../QualitySheet.kt` ("Procesar en: Teléfono \| PC \| Mixto") (author's own) | AGPL-3.0-or-later | Rules re-expressed (no file copied verbatim): Mixto = PC upscales at the source cadence without its own frame generation + the phone generates the frames, blocked with a reason when the phone cannot or the PC does not allow it; switching keeps the position. Adapted to tk-link's fixed profile catalog (an upscale-only profile instead of Temple's per-session tuning) |
+| `core/link/.../LinkLoopbackProxy.kt` | - (Tatakai's own) | AGPL-3.0-or-later | Enigmata hands mpv the client key as a temporary file (`temple/tls/TempleTlsOptions.kt`); Tatakai terminates the mTLS in a loopback proxy instead so the key never leaves memory |
