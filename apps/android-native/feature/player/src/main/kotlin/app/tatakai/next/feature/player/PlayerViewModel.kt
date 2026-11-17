@@ -1864,6 +1864,26 @@ class PlayerViewModel(
         _state.update { it.copy(next = null) }
     }
 
+    // ---- 0.4.1 (end screen, worker wj): additive ---------------------------------------------------------------------------------
+
+    /**
+     * End screen "Volver a ver": the countdown stops and the episode starts again from 0 on the same session (any engine, a Link
+     * session too: the PC restarts there). Unlike [cancelNext] the next end counts down again.
+     */
+    fun replay() {
+        nextJob?.cancel()
+        nextJob = null
+        nextDismissed = false
+        _state.update { it.copy(next = null) }
+        session?.let { s ->
+            s.seekTo(0)
+            s.play()
+        }
+    }
+
+    /** End screen: the title's episode count when the metadata is known ("Terminaste la serie" on the last one); null = unknown. */
+    val totalEpisodes: Int? get() = media?.episodes
+
     /** "Next episode" (button or countdown): reuses the torrent of a batch (`play(torrentId, media, ep + 1)`), else the normal flow. */
     fun playNext() {
         nextJob?.cancel()

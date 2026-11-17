@@ -113,6 +113,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -152,8 +154,7 @@ import app.tatakai.next.player.PlayerSession
 import app.tatakai.next.player.SubtitleTools
 import app.tatakai.next.player.mpv.MpvPlayerSession
 import app.tatakai.next.player.mpv.MpvPlayerSurface
-import app.tatakai.next.player.rangeSpans
-import app.tatakai.next.player.readySpan
+import app.tatakai.next.model.LinkProcessingInfo
 import app.tatakai.next.ui.format.formatDuration
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -183,6 +184,9 @@ internal fun PlayerContent(
     onOpenTorrent: (String) -> Unit,
     /** 0.4.0 (worker D): the panel's "Importar Lossless.dll" (Settings › Reproductor holds the phone FG section). */
     onOpenSettings: (app.tatakai.next.model.SettingsSection) -> Unit = {},
+    /** 0.4.1 end screen: the title being played (series title, list progress) and "Volver a la ficha" (null = no page). */
+    args: app.tatakai.next.model.PlayerArgs? = null,
+    onOpenDetails: (() -> Unit)? = null,
 ) {
     val ps by session.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -340,6 +344,32 @@ internal fun PlayerContent(
         }
     }
 
+    // ---- 0.4.1: the end screen (EndScreen.kt) once the episode played to its end, on every engine and location ----
+    val endUi = endScreenState(
+        ended = ps.ended,
+        loop = ps.loop || state.loop,
+        started = ps.started,
+        episode = vm.episodeNumber,
+        totalEpisodes = vm.totalEpisodes,
+        hasNextEpisode = state.hasNextEpisode,
+        canNavigateEpisodes = state.canNavigateEpisodes,
+        next = state.next,
+        episodes = state.episodes.items,
+    )
+    // "Ocultar" shows the last frame and the controls (the compact next card keeps counting) until the episode ends again
+    var endHidden by remember { mutableStateOf(false) }
+    val ended = endUi != null
+    LaunchedEffect(ended) {
+        if (ended) {
+            locked = false // the lock is for watching; at the end the screen must be usable
+            // the next episode's title / thumbnail (the list the Episodes sheet loads; once per player)
+            if (state.canNavigateEpisodes && state.hasNextEpisode) vm.loadEpisodes()
+        } else {
+            endHidden = false
+        }
+    }
+    val endVisible = endUi != null && !endHidden && !inPip
+
     Box(
         Modifier
             .fillMaxSize()
@@ -349,6 +379,12 @@ internal fun PlayerContent(
             .onPreviewKeyEvent { e ->
                 if (e.type != KeyEventType.KeyDown || locked) return@onPreviewKeyEvent false
                 val action = PlayerKeymap.actionFor(keyNameOf(e.nativeKeyEvent.keyCode), settings.playerKeymap) ?: return@onPreviewKeyEvent false
+                // 0.4.1: over the end screen the arrows / Enter move between its buttons; only "next episode" keeps its key
+                if (endVisible) {
+                    if (action != PlayerKeymap.NEXT_EPISODE || endUi?.next == null) return@onPreviewKeyEvent false
+                    vm.playNext()
+                    return@onPreviewKeyEvent true
+                }
                 runAction(action)
                 interaction++
                 true
@@ -404,14 +440,17 @@ internal fun PlayerContent(
                     modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 16.dp, top = if (controlsVisible || keepUp) 112.dp else 16.dp),
                 )
             }
-            flash?.let {
-                FlashToast(
-                    it,
-                    onFlashDone,
-                    Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp),
-                    onUndo = { session.undoAutoDowngrade(); onFlashDone() },
-                )
+            val flashToast: @Composable () -> Unit = {
+                flash?.let {
+                    FlashToast(
+                        it,
+                        onFlashDone,
+                        Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp),
+                        onUndo = { session.undoAutoDowngrade(); onFlashDone() },
+                    )
+                }
             }
+            if (!endVisible) flashToast()
 
             val skip = state.markers.skipAt(ps.positionMs / 1000.0)
             if (skip != null && ps.started) {
@@ -421,7 +460,7 @@ internal fun PlayerContent(
                     modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 24.dp, bottom = 140.dp),
                 )
             }
-            state.next?.let { next ->
+            state.next?.takeIf { !endVisible }?.let { next ->
                 NextEpisodeCard(
                     next = next,
                     onPlayNow = vm::playNext,
@@ -451,7 +490,23 @@ internal fun PlayerContent(
                     onToggleFullscreen = { fullscreen = !fullscreen },
                     onHelp = { helpOpen = true },
                     enhancementChip = chip,
+                    pc = processing.pc.takeIf { processing.location != app.tatakai.next.model.ProcessingLocation.PHONE },
                 )
+            }
+            if (endVisible && endUi != null) {
+                EndScreenHost(
+                    vm = vm,
+                    ui = endUi,
+                    args = args,
+                    seriesTitle = args?.title ?: title,
+                    poster = state.poster,
+                    autoListProgress = settings.autoListProgress,
+                    onEpisodes = { sheet = Sheet.Episodes },
+                    onDetails = onOpenDetails,
+                    onBack = onBack,
+                    onHide = { endHidden = true; controlsVisible = true },
+                )
+                flashToast()
             }
             state.translation.progress?.let { p ->
                 PretranslateOverlay(p, onSkip = vm::cancelPretranslate, modifier = Modifier.align(Alignment.Center))
@@ -540,6 +595,45 @@ internal fun PlayerContent(
             Spacer(Modifier.navigationBarsPadding().height(16.dp))
         }
     }
+}
+
+/**
+ * 0.4.1: [EpisodeEndScreen] wired to the view model and to the list row of the title (local store only, no network): the
+ * progress line moves from "marcado como visto" to "progreso actualizado" once the history layer advanced the list.
+ */
+@Composable
+private fun EndScreenHost(
+    vm: PlayerViewModel,
+    ui: EndScreenUi,
+    args: app.tatakai.next.model.PlayerArgs?,
+    seriesTitle: String,
+    poster: String?,
+    autoListProgress: Boolean,
+    onEpisodes: () -> Unit,
+    onDetails: (() -> Unit)?,
+    onBack: () -> Unit,
+    onHide: () -> Unit,
+) {
+    val koin = getKoin()
+    val lists = remember { koin.getOrNull<app.tatakai.next.model.ListsRepository>() }
+    val ref = args?.media
+    val trackable = ref != null && (ref.anilistId != null || ref.malId != null || args.provider != null) && ui.episode != null
+    val entryFlow = remember(lists, ref) { if (lists != null && ref != null && (ref.anilistId != null || ref.malId != null)) lists.entry(ref) else null }
+    val entry = entryFlow?.collectAsStateWithLifecycle(initialValue = null)?.value
+    val accounts = lists?.accounts?.collectAsStateWithLifecycle()?.value.orEmpty()
+    EpisodeEndScreen(
+        ui = ui,
+        seriesTitle = seriesTitle,
+        poster = poster,
+        progress = endProgress(trackable, vm.episodeNumber, entry, autoListProgress, accounts),
+        onPlayNext = vm::playNext,
+        onCancelCountdown = vm::cancelNext,
+        onReplay = vm::replay,
+        onEpisodes = onEpisodes,
+        onDetails = onDetails,
+        onBack = onBack,
+        onHide = onHide,
+    )
 }
 
 @Composable
@@ -723,6 +817,8 @@ private fun Controls(
     onToggleFullscreen: () -> Unit,
     onHelp: () -> Unit,
     enhancementChip: EnhancementChip,
+    /** 0.4.1: what the PC does (PC / Mixto), for the seek bar's "Procesado por la PC" run; null on the phone. */
+    pc: LinkProcessingInfo? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val on = scheme.onBackground
@@ -883,7 +979,7 @@ private fun Controls(
 
         // Seek bar + chips
         Column(Modifier.fillMaxWidth().align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
-            SeekBar(session, ps, state, onInteract)
+            SeekBar(session, ps, state, pc, onInteract)
             Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(8.dp)) {
                 // BUG-067: "Más" first, so it is not the chip that falls off a phone's width.
                 PlayerChip(
@@ -960,29 +1056,25 @@ private fun PlayerChip(
 }
 
 /**
- * Slider + a thin strip under it with the torrent's downloaded ranges (secondary), the "ready to play" range from the playhead (primary)
- * and the intro / outro / recap marks (tertiary). Colours come from the scheme only.
+ * Slider whose track carries, over the part not played yet (0.4.1, "como en PC"): what the phone already has ("Descargado": the
+ * engine's buffer ahead of the playhead in a light primary, a torrent's other downloaded pieces in a neutral tone) and, while the
+ * PC processes (Link PC / Mixto), the range the PC already processed ("Procesado por la PC", tertiary). Intro / outro / recap
+ * marks are a thin line through the middle. A small legend under the bar names the colours when there is more than a plain buffer.
+ * Colours come from the scheme only; the runs are computed by [seekBarRanges].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SeekBar(session: PlayerSession, ps: PlaybackState, state: PlayerUiState, onInteract: () -> Unit) {
+private fun SeekBar(session: PlayerSession, ps: PlaybackState, state: PlayerUiState, pc: LinkProcessingInfo?, onInteract: () -> Unit) {
     var dragging by remember { mutableStateOf(false) }
     var dragValue by remember { mutableFloatStateOf(0f) }
     val duration = ps.durationMs.coerceAtLeast(1)
     val shown = if (dragging) dragValue else ps.positionMs.toFloat().coerceIn(0f, duration.toFloat())
     val scheme = MaterialTheme.colorScheme
     val marks = state.markers.barMarks(ps.durationMs / 1000.0)
-    val ranges = state.torrent?.marks.orEmpty()
-    val downloaded = rangeSpans(ranges)
-    val ready = if (ps.durationMs > 0) readySpan(ranges, ps.positionMs.toDouble() / ps.durationMs) else null
-    val bufferedFraction = if (ps.durationMs > 0) (ps.bufferedMs.toFloat() / ps.durationMs).coerceIn(0f, 1f) else 0f
-    val bufferColor = scheme.onBackground.copy(alpha = 0.35f)
-    val downloadedColor = scheme.secondary
-    val readyColor = scheme.primary
-    val markColor = scheme.tertiary
+    val ranges = seekBarRanges(ps.positionMs, ps.durationMs, ps.bufferedMs, state.torrent?.marks.orEmpty(), pc)
+    val colors = seekBarColors(ranges.pcEstimated)
     Column {
-        // BUG-068: buffer, downloaded ranges and intro marks are drawn inside the slider's own track (over the part not played yet),
-        // not as a second loose strip under it with another margin.
+        // BUG-068: everything is drawn inside the slider's own track (16 dp in M3 Expressive), not as a loose strip under it.
         val playedFraction = (shown / duration.toFloat()).coerceIn(0f, 1f)
         Slider(
             value = shown,
@@ -993,28 +1085,39 @@ private fun SeekBar(session: PlayerSession, ps: PlaybackState, state: PlayerUiSt
             track = { sliderState ->
                 Box(contentAlignment = Alignment.Center) {
                     SliderDefaults.Track(sliderState = sliderState, enabled = ps.durationMs > 0)
-                    Canvas(Modifier.fillMaxWidth().height(4.dp)) {
+                    Canvas(Modifier.fillMaxWidth().height(SEEK_TRACK_DP).clip(RoundedCornerShape(50))) {
                         val w = size.width
                         val h = size.height
-                        val r = CornerRadius(h / 2, h / 2)
-                        val from = w * playedFraction
-                        fun span(left: Float, width: Float, color: androidx.compose.ui.graphics.Color) {
-                            val l = maxOf(w * left, from)
-                            val rgt = minOf(w * (left + width), w)
+                        val r = CornerRadius(SEEK_RUN_CORNER_DP.toPx())
+                        // the inactive track starts past the thumb and its gap
+                        val from = w * playedFraction + SEEK_THUMB_GAP_DP.toPx()
+                        fun run(span: BarSpan, color: androidx.compose.ui.graphics.Color) {
+                            val l = maxOf(w * span.left, from)
+                            val rgt = minOf(w * span.right, w)
                             if (rgt > l) drawRoundRect(color, Offset(l, 0f), Size(rgt - l, h), r)
                         }
-                        if (downloaded.isEmpty()) span(0f, bufferedFraction, bufferColor)
-                        downloaded.forEach { (left, width) -> span(left, width, downloadedColor) }
-                        ready?.let { (left, width) -> span(left, width, readyColor) }
+                        // furthest-reaching first: the PC is ahead of what the phone downloaded
+                        ranges.pcProcessed?.let { run(it, colors.pc) }
+                        ranges.downloaded.forEach { run(it, colors.have) }
+                        ranges.buffered?.let { run(it, colors.buffered) }
+                        val mh = SEEK_MARK_DP.toPx()
                         marks.forEach { m ->
-                            drawRoundRect(markColor.copy(alpha = if (m.kind == SkipKind.INTRO) 0.9f else 0.6f), Offset(w * m.left, 0f), Size(w * m.width, h), r)
+                            drawRoundRect(
+                                colors.mark.copy(alpha = if (m.kind == SkipKind.INTRO) 0.9f else 0.6f),
+                                Offset(w * m.left, (h - mh) / 2),
+                                Size(w * m.width, mh),
+                                CornerRadius(mh / 2),
+                            )
                         }
                     }
                 }
             },
         )
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
             Text(formatDuration(shown.toLong() / 1000), color = scheme.onBackground, style = MaterialTheme.typography.labelMedium, fontFamily = FontFamily.Monospace)
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                if (ranges.showLegend) SeekLegend(ranges, colors)
+            }
             Text(
                 if (ps.durationMs > 0) formatDuration(ps.durationMs / 1000) else "--:--",
                 color = scheme.onBackground.copy(alpha = 0.8f),
@@ -1022,6 +1125,44 @@ private fun SeekBar(session: PlayerSession, ps: PlaybackState, state: PlayerUiSt
                 fontFamily = FontFamily.Monospace,
             )
         }
+    }
+}
+
+/** 0.4.1: the seek bar's run colours, solid (composited over the inactive track) so overlapping runs never mix into a muddy tone. */
+private data class SeekBarColors(
+    val buffered: androidx.compose.ui.graphics.Color,
+    val have: androidx.compose.ui.graphics.Color,
+    val pc: androidx.compose.ui.graphics.Color,
+    val mark: androidx.compose.ui.graphics.Color,
+)
+
+@Composable
+private fun seekBarColors(pcEstimated: Boolean): SeekBarColors {
+    val scheme = MaterialTheme.colorScheme
+    val track = SliderDefaults.colors().inactiveTrackColor
+    return SeekBarColors(
+        buffered = scheme.primary.copy(alpha = 0.55f).compositeOver(track),
+        have = scheme.onSurface.copy(alpha = 0.3f).compositeOver(track),
+        // an estimate from the PC's lead (older PC) is drawn a little softer than the PC's own range
+        pc = scheme.tertiary.copy(alpha = if (pcEstimated) 0.6f else 0.85f).compositeOver(track),
+        mark = scheme.onSurface,
+    )
+}
+
+/** "■ Descargado  ■ Procesado por la PC" between the two times (one line, shrinks on a narrow phone). */
+@Composable
+private fun SeekLegend(ranges: SeekBarRanges, colors: SeekBarColors) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), Arrangement.spacedBy(12.dp), Alignment.CenterVertically) {
+        if (ranges.hasDownloaded) LegendItem(colors.buffered, stringResource(R.string.player_seek_legend_downloaded))
+        if (ranges.pcProcessed != null) LegendItem(colors.pc, stringResource(R.string.player_seek_legend_pc))
+    }
+}
+
+@Composable
+private fun LegendItem(color: androidx.compose.ui.graphics.Color, label: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).clip(RoundedCornerShape(3.dp)).background(color))
+        Text(label, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.85f), style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
 }
 
@@ -1051,6 +1192,12 @@ private const val SEEK_STEP_MS = 10_000L
 private const val HOLD_SPEED = 2f
 private const val LOCK_BUTTON_TIMEOUT_MS = 2_500L
 private val SUBTITLE_MIME_TYPES = arrayOf("application/x-subrip", "text/vtt", "text/x-ssa", "text/plain", "application/octet-stream", "*/*")
+
+/** 0.4.1 seek bar: the M3 Expressive track height, the thumb's half width + its gap, the run corners and the marks' line. */
+private val SEEK_TRACK_DP = 16.dp
+private val SEEK_THUMB_GAP_DP = 8.dp
+private val SEEK_RUN_CORNER_DP = 4.dp
+private val SEEK_MARK_DP = 4.dp
 
 /** Size of the play button, the tallest control of the centred transport row. */
 private val TRANSPORT_PLAY_DP = 80.dp

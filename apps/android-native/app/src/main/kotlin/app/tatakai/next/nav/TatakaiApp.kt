@@ -709,6 +709,12 @@ private fun AppNavDisplay(backStack: NavBackStack<NavKey>, wide: Boolean) {
                     onOpenSettings = ::openSettings,
                     onOpenExtensions = { push(Route.Extensions) },
                     onOpenLinked = { push(Route.Linked) },
+                    // 0.4.1 end screen "Volver a la ficha": back to it when the player was opened from it, else the player
+                    // entry becomes the title's page
+                    onOpenDetails = { id ->
+                        val details = Route.Details(MediaKind.ANIME, id)
+                        if (backStack.getOrNull(backStack.size - 2) == details) back() else replaceTop(details)
+                    },
                 )
             }
             entry<Route.You> {

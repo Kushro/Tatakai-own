@@ -51,10 +51,11 @@ test('link/openapi.v1.json: M0 scope (E6/E7 trims) and structural integrity', ()
     const target = ref.replace(/^#\//, '').split('/').reduce((o, key) => o?.[key], doc);
     assert.ok(target, `unresolved $ref ${ref}`);
   }
-  // error catalog: 23 Temple codes + 3 Link additions, unique, fixed messages
+  // error catalog: 23 Temple codes + 3 Link additions + 0.4.1 `segment_unavailable` (410), unique, fixed messages
   const codes = doc['x-errors'].codes;
-  assert.equal(codes.length, 26);
-  assert.equal(new Set(codes.map((c) => c.code)).size, 26);
+  assert.equal(codes.length, 27);
+  assert.equal(new Set(codes.map((c) => c.code)).size, 27);
+  assert.equal(codes.find((c) => c.code === 'segment_unavailable')?.http, 410);
   for (const added of ['url_source_denied', 'extension_unavailable', 'handoff_rejected']) assert.ok(codes.some((c) => c.code === added));
   assert.equal(codes.find((c) => c.code === 'url_source_denied').http, 403);
   assert.equal(codes.find((c) => c.code === 'extension_unavailable').http, 422);
