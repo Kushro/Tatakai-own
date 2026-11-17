@@ -25,10 +25,12 @@ test('link/openapi.v1.json: M0 scope (E6/E7 trims) and structural integrity', ()
     '/v1/sessions/{id}/master.m3u8', '/v1/sessions/{id}/media.m3u8', '/v1/sessions/{id}/init.mp4', '/v1/sessions/{id}/seg_{k}.m4s']) {
     assert.ok(paths.includes(p), `missing path ${p}`);
   }
-  for (const gone of ['settings', 'handoff', 'sync', 'downloads', 'source/', 'subtitles', 'mdns']) {
+  // 0.4.0: the source's subtitle tracks are served again (user request: Link "PC" / "Mixto" lost them), see below.
+  for (const gone of ['settings', 'handoff', 'sync', 'downloads', 'source/', 'mdns']) {
     // 2026-11: `/v1/history/resync-done` is the per-device history resync, not the removed cloud sync.
     assert.ok(!paths.some((p) => p.includes(gone) && p !== '/v1/history/resync-done'), `${gone} must not be in the API`);
   }
+  assert.ok(paths.some((p) => p.startsWith('/v1/sessions/{id}/subtitles/')), 'missing 0.4.0 subtitles path');
   // wave B (worker k): remote control, player state and the events long-poll (canonical wire of tk-link control.rs)
   for (const p of ['/v1/control', '/v1/player', '/v1/events']) assert.ok(paths.includes(p), `missing wave B path ${p}`);
   assert.deepEqual(doc.components.schemas.ControlCommand.oneOf.map((o) => o.properties.command.const), ['play', 'pause', 'toggle', 'next', 'prev', 'seek', 'open']);
