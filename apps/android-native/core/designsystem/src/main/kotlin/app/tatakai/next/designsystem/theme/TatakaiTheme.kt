@@ -12,13 +12,25 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import app.tatakai.next.designsystem.generated.ContrastLevel
 import app.tatakai.next.designsystem.generated.TatakaiTokens
 import com.materialkolor.DynamicMaterialExpressiveTheme
 import com.materialkolor.PaletteStyle
+
+/**
+ * The light/dark mode the app resolved (Settings › Apariencia › Modo, or the system when it is "Sistema"), so nested
+ * themes such as [TatakaiSeedTheme] follow the app instead of `isSystemInDarkTheme()`.
+ */
+// Outside TatakaiTheme (a bare preview) both default to light / not AMOLED.
+val LocalTatakaiDarkTheme = staticCompositionLocalOf { false }
+
+/** Whether the app is on Negro AMOLED (only meaningful while [LocalTatakaiDarkTheme] is true). */
+val LocalTatakaiAmoled = staticCompositionLocalOf { false }
 
 /**
  * App theme = `MaterialExpressiveTheme` + generated token palettes (paletteId / AMOLED / contrast level)
@@ -50,23 +62,31 @@ fun TatakaiTheme(
         }
     }
     val typography = remember { TatakaiTokens.typography(TatakaiFonts.families) }
-    MaterialExpressiveTheme(
-        colorScheme = colorScheme,
-        motionScheme = MotionScheme.expressive(),
-        shapes = TatakaiTokens.shapes,
-        typography = typography,
-        content = content,
-    )
+    CompositionLocalProvider(
+        LocalTatakaiDarkTheme provides darkTheme,
+        LocalTatakaiAmoled provides (darkTheme && amoled),
+    ) {
+        MaterialExpressiveTheme(
+            colorScheme = colorScheme,
+            motionScheme = MotionScheme.expressive(),
+            shapes = TatakaiTokens.shapes,
+            typography = typography,
+            content = content,
+        )
+    }
 }
 
 /**
  * Per-content accent (e.g. the poster colour in Details), derived at runtime with materialKolor (01 §2).
- * When [seed] is null the surrounding theme is used unchanged.
+ * When [seed] is null the surrounding theme is used unchanged. Light/dark and AMOLED follow the app's resolved mode
+ * ([LocalTatakaiDarkTheme], [LocalTatakaiAmoled]), never the system's: with Modo "Oscuro" on a light system the
+ * seeded scheme used to come out light and left the Details text unreadable.
  */
 @Composable
 fun TatakaiSeedTheme(
     seed: Color?,
-    amoled: Boolean = false,
+    dark: Boolean = LocalTatakaiDarkTheme.current,
+    amoled: Boolean = LocalTatakaiAmoled.current,
     content: @Composable () -> Unit,
 ) {
     if (seed == null) {
@@ -74,8 +94,11 @@ fun TatakaiSeedTheme(
     } else {
         DynamicMaterialExpressiveTheme(
             seedColor = seed,
-            isAmoled = amoled,
+            motionScheme = MotionScheme.expressive(),
+            isDark = dark,
+            isAmoled = dark && amoled,
             style = PaletteStyle.Expressive,
+            shapes = MaterialTheme.shapes,
             typography = MaterialTheme.typography,
             animate = true,
             content = content,

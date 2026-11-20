@@ -273,8 +273,10 @@ internal fun ScreenSubtitleLayer(
     val secondary = subs.secondary?.let { SubtitleParser.activeAt(it, SubtitleDelay.lookupPositionMs(pos, delayMs)) }.orEmpty()
 
     // 0.4.1: sizes, margins and position follow the video area like libmpv's (ScreenSubtitleSpec), so both engines match.
+    // The size unit is the short side of the player (the height in landscape, unchanged there): in portrait the full height
+    // (~900 dp) made every line about 2.5x too big. The block is still anchored to the screen's bottom edge, not the video's.
     BoxWithConstraints(modifier.fillMaxSize()) {
-        val spec = ScreenSubtitleSpec.of(style, maxHeight.value)
+        val spec = ScreenSubtitleSpec.of(style, minOf(maxWidth, maxHeight).value)
         val family = rememberSubtitleFontFamily(style.font, fontFile)
         val sides = spec.marginXDp.dp
         if (secondary.isNotEmpty()) {

@@ -176,6 +176,7 @@ private fun PlayerBody(
     var manualPrompted by rememberSaveable { mutableStateOf(false) }
     var flash by remember { mutableStateOf<PlayerNotice?>(null) }
 
+    PlayerWindowScope()
     LaunchedEffect(vm) { vm.notices.collect { flash = it } }
     // When the network drops for longer than the player's retries, playback comes back by itself once the network returns (same as
     // tapping Retry; the PC keeps a Link session 120 s). Only an offline -> online change retries, so an error the server itself
