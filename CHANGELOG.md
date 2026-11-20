@@ -2,6 +2,29 @@
 
 Cambios de Tatakai Next (rama `main`). Tatakai Classic tiene su propio changelog en la rama `legacy`.
 
+## [0.4.2] - 2026-11-20
+
+Ficha renovada en el escritorio y en el teléfono: el episodio que sigue a la vista, nuevo estilo "Cine editorial" y cuatro formas de ordenar la cabecera.
+
+**Ficha**
+- Nueva cabecera con cuatro composiciones a elegir en Ajustes › Apariencia › Cabecera de la ficha: Una línea, Ficha técnica, Siguiente episodio y Ficha y episodio (la de serie). Los presets no la cambian.
+- "Ficha y episodio" junta los datos con etiqueta (estado, próximo episodio, "3 de 12 vistos", año, puntuación), las acciones con su nombre y una tarjeta con el episodio que sigue: título, progreso, tiempo restante, Continuar y la fuente.
+- El episodio a continuar se ve sin bajar, también en ventanas de 1024×640 y con el menú lateral abierto. Los episodios ya vistos se pliegan en "Episodios anteriores".
+- El botón principal ya no se corta nunca, y la línea de fuente dice de qué episodio es.
+- Escritorio: la barra de pestañas queda fija arriba con sus acciones, las pestañas se recorren con las flechas, cada episodio es una sola parada de Tab y la tecla M lo marca como visto.
+- Teléfono: Favorito, Seguir y Tráiler pasan a ser botones directos (Favorito funciona aunque el título no esté en ninguna lista), los géneros están en Información y la insignia +18 va junto al título.
+
+**Estilo "Cine editorial"**
+- Nuevo estilo de página (preset Cine): el fanart a sangre sin desenfoque, título grande y metadatos como texto. En Inicio el destacado ocupa como máximo el 45 % del alto.
+
+**Teléfono**
+- La Ficha respeta el tema de la app (oscuro o AMOLED) aunque el sistema diga otra cosa.
+- El reproductor mantiene la orientación al pasar al siguiente episodio.
+- Los subtítulos ya no salen gigantes con el teléfono vertical.
+
+**Accesibilidad**
+- Los botones se anuncian con su texto visible, la cuenta regresiva se lee completa ("en 2 días y 5 horas") y los selectores de Apariencia se recorren con las flechas.
+
 ## [0.4.1] - 2026-11-17
 
 Arreglos de las pruebas de 0.4.0 en Tatakai Link y más opciones de subtítulos y de fin de episodio.
