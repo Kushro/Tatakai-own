@@ -506,6 +506,22 @@ private fun Facts(source: RankedSource) {
     )
 }
 
+/**
+ * Ficha "Primero el episodio": the one-line summary of the Details source line (`Toko · anizone · 1080p · Subs ES`): extension,
+ * server / group, quality and the subtitles (the same short codes as [Facts]); nothing about the languages when the source did not say.
+ */
+@Composable
+fun sourceSummaryLine(source: RankedSource): String {
+    val c = source.candidate
+    val koin = getKoin()
+    val prefs = remember { koin.getOrNull<SettingsRepository>()?.settings?.value?.sourcePrefs } ?: SourcePrefs()
+    val parts = mutableListOf(c.extName, c.label)
+    c.quality.takeIf { it != Quality.UNKNOWN }?.label()?.let { parts += it }
+    val subs = langsShort(c.subs, prefs.subLang) ?: if (c.tags.multiSub) stringResource(R.string.src_picker_several) else null
+    subs?.let { parts += stringResource(R.string.src_picker_subs_inline, it) }
+    return parts.filter { it.isNotBlank() }.joinToString(" · ")
+}
+
 @Composable
 private fun ReliabilityBar(reliability: Float) {
     val scheme = MaterialTheme.colorScheme

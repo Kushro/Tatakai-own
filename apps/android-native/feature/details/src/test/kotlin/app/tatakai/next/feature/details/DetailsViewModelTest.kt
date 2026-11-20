@@ -29,6 +29,7 @@ import app.tatakai.next.model.LoadState
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
+import app.tatakai.next.model.NextAiring
 import app.tatakai.next.model.MetadataRepository
 import app.tatakai.next.model.PairedPc
 import app.tatakai.next.model.RankedSource
@@ -210,6 +211,16 @@ class DetailsViewModelTest {
         assertEquals(3, continueTarget(mapOf(3 to entry(3, 100, false, 10)), 12))
         assertEquals(4, continueTarget(mapOf(3 to entry(3, 1300, true, 10)), 12))
         assertEquals(12, continueTarget(mapOf(12 to entry(12, 1300, true, 10)), 12))
+    }
+
+    @Test
+    fun watchActionRule() {
+        val airing = NextAiring(episode = 6, airingAtEpochSec = 2_000)
+        assertEquals(WatchAction.START, watchActionOf(false, false, 1, null, 1_000))
+        assertEquals(WatchAction.CONTINUE, watchActionOf(false, true, 4, airing, 1_000))
+        assertEquals(WatchAction.UP_TO_DATE, watchActionOf(false, true, 6, airing, 1_000), "ep 6 airs later")
+        assertEquals(WatchAction.CONTINUE, watchActionOf(false, true, 6, airing, 3_000), "ep 6 aired already")
+        assertEquals(WatchAction.REWATCH, watchActionOf(true, true, 1, null, 1_000))
     }
 
     @Test

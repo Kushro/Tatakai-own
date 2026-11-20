@@ -22,10 +22,6 @@
     <string name="details_resume_at">Resume at %1$s</string>
     <string name="details_aired">Aired %1$s</string>
     <string name="details_airs_on">Airs %1$s</string>
-    <plurals name="details_episodes_count">
-        <item quantity="one">%1$d episode</item>
-        <item quantity="other">%1$d episodes</item>
-    </plurals>
     <string name="details_score">Score %1$s</string>
     <string name="details_more">More</string>
     <string name="details_less">Less</string>
@@ -165,9 +161,6 @@
     <string name="details_trailer">Trailer</string>
     <string name="details_trailer_play">Play the trailer</string>
     <string name="details_links">Official links</string>
-    <string name="details_next_episode_days">Episode %1$d in %2$dd %3$dh</string>
-    <string name="details_next_episode_hours">Episode %1$d in %2$dh %3$dm</string>
-    <string name="details_next_episode_minutes">Episode %1$d in %2$d min</string>
     <string name="details_share">Share</string>
     <string name="details_share_copied">Link copied</string>
     <string name="details_share_send">Send</string>
@@ -200,4 +193,80 @@
     <string name="details_graph_this">This title</string>
     <string name="details_graph_expand">Open the graph full screen</string>
     <string name="details_graph_close">Close the graph</string>
+    <!-- Ficha "Primero el episodio" -->
+    <string name="details_watch_short">Watch</string>
+    <string name="details_continue_short">Continue</string>
+    <string name="details_rewatch">Watch again</string>
+    <string name="details_rewatch_long">Watch again from episode 1</string>
+    <string name="details_up_to_date">Up to date</string>
+    <string name="details_up_to_date_long">Up to date: episode %1$d has not aired yet</string>
+    <string name="details_bar_ep">Ep. %1$d</string>
+    <string name="details_more_actions">More actions</string>
+    <string name="details_eps_short">%1$d ep.</string>
+    <string name="details_src_searching">Looking for sources…</string>
+    <string name="details_src_change">Change (%1$d)</string>
+    <string name="details_src_change_action">Change source</string>
+    <string name="details_src_line">Source: %1$s</string>
+    <string name="details_next_tag">Next</string>
+    <string name="details_earlier">Earlier episodes (%1$d–%2$d)</string>
+    <string name="details_earlier_show">Show earlier episodes %1$d to %2$d</string>
+    <string name="details_downloaded">Downloaded</string>
+    <string name="details_ep_suffix">" · ep. %1$d"</string>
+    <string name="details_coming_soon">Coming soon</string>
+    <string name="details_coming_soon_long">Coming soon: episode %1$d has not aired yet</string>
+    <string name="details_src_not_aired">Episode %1$d has not aired yet</string>
+    <string name="details_start">Start</string>
+    <string name="details_fact_next">Next</string>
+    <string name="details_fact_year">Year</string>
+    <string name="details_fact_score">Score</string>
+    <string name="details_fact_of_total">of %1$d</string>
+    <string name="details_fact_cd">%1$s: %2$s</string>
+    <string name="details_fact_episodes_cd">%1$d of %2$d episodes watched</string>
+    <string name="details_fact_episodes_total_cd">%1$d episodes</string>
+    <string name="details_when_days">%1$d d %2$d h</string>
+    <string name="details_when_hours">%1$d h %2$d min</string>
+    <string name="details_when_minutes">%1$d min</string>
+    <string name="details_fact_next_value">Ep. %1$d</string>
+    <string name="details_next_short">Ep. %1$d in %2$s</string>
+    <string name="details_line_status_next">%1$s · ep. %2$d in %3$s</string>
+    <string name="details_next_region">Up next</string>
+    <string name="details_next_ep_of">Ep. %1$d of %2$d</string>
+    <string name="details_next_ep">Ep. %1$d</string>
+    <string name="details_next_ep_of_cd">Episode %1$d of %2$d</string>
+    <string name="details_next_ep_cd">Episode %1$d</string>
+    <string name="details_next_remaining">%1$s left</string>
+    <string name="details_next_progress_cd">%1$s watched, %2$s left</string>
+    <string name="details_next_all_watched">You watched every episode</string>
+    <string name="details_progress_of">%1$s of %2$d min</string>
+    <string name="details_action_list">List</string>
+    <string name="details_action_favorite">Favorite</string>
+    <string name="details_action_follow">Follow</string>
+    <string name="details_action_following">Following</string>
+    <string name="details_action_more">More</string>
+    <string name="details_src_ep">Ep. %1$d · %2$s</string>
+    <string name="details_genres">Genres</string>
+    <plurals name="details_fact_watched">
+        <item quantity="one">watched</item>
+        <item quantity="other">watched</item>
+    </plurals>
+    <string name="details_favorite_failed">Could not save the favorite: %1$s</string>
+    <string name="details_start_long">Start episode %1$d</string>
+    <string name="details_next_short_cd">Episode %1$d in %2$s</string>
+    <string name="details_and">%1$s and %2$s</string>
+    <string name="details_progress_of_approx">%1$s of ~%2$d min</string>
+    <string name="details_minutes_approx">~%1$d min</string>
+    <string name="details_minutes_approx_cd">about %1$d minutes</string>
+    <string name="details_next_movie_watched">You watched it</string>
+    <plurals name="details_days_spoken">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <plurals name="details_hours_spoken">
+        <item quantity="one">%1$d hour</item>
+        <item quantity="other">%1$d hours</item>
+    </plurals>
+    <plurals name="details_minutes_spoken">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
 </resources>

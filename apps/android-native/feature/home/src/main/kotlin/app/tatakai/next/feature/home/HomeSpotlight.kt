@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -71,6 +72,8 @@ import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaArtwork
 import app.tatakai.next.model.Motion
 import app.tatakai.next.ui.labels.genreLabel
+import app.tatakai.next.model.PageStyle
+import app.tatakai.next.ui.look.LocalLook
 import app.tatakai.next.ui.look.lookMotion
 import app.tatakai.next.ui.media.LocalTitleLanguage
 import app.tatakai.next.ui.media.displayTitle
@@ -165,7 +168,15 @@ internal fun Spotlight(
             },
     ) {
         val wide = maxWidth >= 600.dp
-        val height = if (wide) 440.dp else 500.dp
+        // Ficha "Cine editorial": the hero is capped to 45 % of the window height (the rows start above the fold).
+        val editorial = LocalLook.current.pageStyle == PageStyle.EDITORIAL
+        val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+        val height = when {
+            // floor of 260 dp: landscape phones would otherwise get ~160 dp and cut the title
+            editorial -> minOf(if (wide) 440.dp else 380.dp, screenHeight * 0.45f).coerceAtLeast(260.dp)
+            wide -> 440.dp
+            else -> 500.dp
+        }
         Box(Modifier.fillMaxWidth().height(height)) {
             HorizontalPager(
                 state = pager,
@@ -179,6 +190,8 @@ internal fun Spotlight(
                     art = spotlightArt(media, art[mediaKey(media)]),
                     continueEntry = continueEntryFor(media, continueWatching),
                     wide = wide,
+                    editorial = editorial,
+                    shortHero = height < 300.dp,
                     onOpen = { onOpen(media) },
                     onWatch = { onWatch(media) },
                     onContinue = onContinue,
@@ -204,6 +217,10 @@ private fun SpotlightPage(
     art: SpotlightArt,
     continueEntry: HistoryEntry?,
     wide: Boolean,
+    /** Ficha "Cine editorial": sharp art over the whole hero, display title, no fact chips or synopsis. */
+    editorial: Boolean,
+    /** Editorial hero under 300 dp: the smaller display title. */
+    shortHero: Boolean = false,
     onOpen: () -> Unit,
     onWatch: () -> Unit,
     onContinue: (HistoryEntry) -> Unit,
@@ -224,6 +241,7 @@ private fun SpotlightPage(
             },
             modifier = Modifier.fillMaxWidth().fillMaxHeight(
                 when {
+                    editorial && !art.lowRes -> 1f
                     !art.lowRes -> if (wide) 1f else 0.62f
                     wide -> 0.8f
                     else -> 0.42f
@@ -263,8 +281,8 @@ private fun SpotlightPage(
                 .padding(start = 16.dp, end = 16.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            FactChips(media)
-            SpotlightTitle(title, art.logo, wide)
+            if (!editorial) FactChips(media)
+            SpotlightTitle(title, art.logo, wide && !shortHero, editorial)
             if (media.genres.isNotEmpty()) {
                 Text(
                     media.genres.take(4).map { genreLabel(it) }.joinToString(" · "),
@@ -274,7 +292,7 @@ private fun SpotlightPage(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            media.synopsis?.takeIf { it.isNotBlank() }?.let {
+            media.synopsis?.takeIf { it.isNotBlank() && !editorial }?.let {
                 Text(
                     it,
                     style = MaterialTheme.typography.bodyMedium,
@@ -310,7 +328,7 @@ private fun SpotlightPage(
  * text title is its accessible name and comes back when there is no logo or it fails to load.
  */
 @Composable
-private fun SpotlightTitle(title: String, logo: String?, wide: Boolean) {
+private fun SpotlightTitle(title: String, logo: String?, wide: Boolean, editorial: Boolean = false) {
     var failed by remember(logo) { mutableStateOf(false) }
     if (logo != null && !failed) {
         AsyncImage(
@@ -327,7 +345,11 @@ private fun SpotlightTitle(title: String, logo: String?, wide: Boolean) {
     } else {
         Text(
             title,
-            style = if (wide) MaterialTheme.typography.displaySmall else MaterialTheme.typography.headlineMedium,
+            style = when {
+                editorial && wide -> MaterialTheme.typography.displayMedium
+                editorial || wide -> MaterialTheme.typography.displaySmall
+                else -> MaterialTheme.typography.headlineMedium
+            },
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,

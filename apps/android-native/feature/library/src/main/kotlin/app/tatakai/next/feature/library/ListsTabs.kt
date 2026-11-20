@@ -525,10 +525,20 @@ fun ListButton(
     media: Media,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
+    /** Ficha "Primero el episodio": size of the compact icon button (Details matches its 52 dp action row). */
+    compactButtonModifier: Modifier = Modifier,
+    /**
+     * Details header ("Cabecera de la ficha"): draws the control that opens the menu instead of the built-in buttons; [label] is the
+     * current status or "Añadir a lista", [entry] the list row (null = not on a list).
+     */
+    anchor: (@Composable (label: String, entry: ListEntry?, open: () -> Unit) -> Unit)? = null,
 ) {
     val lists = koinInject<ListsRepository>()
     val entryFlow = remember(media.ref) { lists.entry(media.ref) }
     val entry by entryFlow.collectAsState(initial = null)
+    // the favorite flag on its own: a favorite that is on no list has no entry
+    val favoriteFlow = remember(media.ref) { lists.isFavorite(media.ref) }
+    val favorite by favoriteFlow.collectAsState(initial = false)
     val accountsFlow = remember(lists) { lists.accounts }
     val accounts by accountsFlow.collectAsState()
     val online = rememberIsOnline()
@@ -558,15 +568,17 @@ fun ListButton(
     val current = entry
     val label = current?.let { stringResource(it.status.labelRes()) } ?: stringResource(UiR.string.list_add)
     Box(modifier) {
-        if (compact) {
-            FilledTonalIconButton(onClick = { menu = true }, modifier = Modifier.semantics { contentDescription = label }) {
+        if (anchor != null) {
+            anchor(label, current) { menu = true }
+        } else if (compact) {
+            FilledTonalIconButton(onClick = { menu = true }, modifier = compactButtonModifier.semantics { contentDescription = label }) {
                 Icon(if (current != null) Icons.Outlined.Bookmarks else Icons.Outlined.BookmarkAdd, contentDescription = null)
             }
         } else {
             FilledTonalButton(onClick = { menu = true }) {
                 Icon(if (current != null) Icons.Outlined.Bookmarks else Icons.Outlined.BookmarkAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                 Text(label, modifier = Modifier.padding(horizontal = 6.dp))
-                if (current?.favorite == true) {
+                if (favorite) {
                     Icon(Icons.Filled.Favorite, contentDescription = stringResource(UiR.string.list_favorite), modifier = Modifier.size(16.dp))
                 }
                 Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -598,7 +610,7 @@ fun ListButton(
                     leadingIcon = { Icon(Icons.Outlined.Edit, contentDescription = null) },
                 )
             }
-            val fav = current?.favorite == true
+            val fav = favorite
             DropdownMenuItem(
                 text = { Text(stringResource(if (fav) R.string.library_favorites_remove else UiR.string.list_favorite)) },
                 onClick = {

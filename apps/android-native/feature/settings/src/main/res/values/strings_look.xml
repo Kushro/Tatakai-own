@@ -7,8 +7,8 @@
     <string name="settings_look_preset_on">Preset: %1$s</string>
     <string name="settings_look_preset_tatakai">Tatakai</string>
     <string name="settings_look_preset_tatakai_hint">Spotlight banner, detailed cards and lively animations.</string>
-    <string name="settings_look_preset_cinema">Cinema</string>
-    <string name="settings_look_preset_cinema_hint">Big banner, large cards in rows, poster-only grids and an icons-only rail.</string>
+    <string name="settings_look_preset_cinema">Editorial cinema</string>
+    <string name="settings_look_preset_cinema_hint">Full-bleed art with a large title, large cards and an icons-only rail.</string>
     <string name="settings_look_preset_dense">Dense</string>
     <string name="settings_look_preset_dense_hint">Rows first, compact cards and lists, subtle motion.</string>
     <string name="settings_look_preset_calm">Calm</string>
@@ -57,4 +57,18 @@
     <string name="settings_look_interval">Seconds per title</string>
     <string name="settings_look_interval_value">%1$d seconds</string>
     <string name="settings_look_greeting">Show the greeting</string>
+    <string name="settings_look_style">Page style</string>
+    <string name="settings_look_style_hint">How the title page and the Home banner are drawn.</string>
+    <string name="settings_look_style_standard">Standard</string>
+    <string name="settings_look_style_editorial">Editorial</string>
+    <string name="settings_look_header">Title page header</string>
+    <string name="settings_look_header_hint">How the facts, the actions and the next episode are arranged on a title\'s page.</string>
+    <string name="settings_look_header_line">One line</string>
+    <string name="settings_look_header_line_hint">Facts on one line and a single block for watching.</string>
+    <string name="settings_look_header_facts">Fact sheet</string>
+    <string name="settings_look_header_facts_hint">Labelled facts and named actions.</string>
+    <string name="settings_look_header_nextup">Next episode</string>
+    <string name="settings_look_header_nextup_hint">A card with the next episode, its progress and the source.</string>
+    <string name="settings_look_header_facts_nextup">Facts and episode</string>
+    <string name="settings_look_header_facts_nextup_hint">Labelled facts plus the episode card.</string>
 </resources>

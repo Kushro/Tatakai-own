@@ -2,6 +2,7 @@
 package app.tatakai.next.model
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -96,6 +97,9 @@ interface ListsRepository {
     fun favorites(): Flow<List<ListEntry>>
 
     fun entry(ref: MediaRef): Flow<ListEntry?>
+
+    /** The favorite flag of [ref], also for a title that is not on any list ([entry] is null then). */
+    fun isFavorite(ref: MediaRef): Flow<Boolean> = entry(ref).map { it?.favorite == true }
 
     /** Add / move [media] to [status]; null removes it from the list (favorite is kept). */
     suspend fun setStatus(media: Media, status: ListStatus?): Result<Unit>

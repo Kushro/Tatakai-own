@@ -18,7 +18,8 @@ class LookPrefsTest {
         assertEquals(listOf("tatakai", "cinema", "dense", "calm"), LookPreset.entries.map { it.id })
         CalendarView.entries.forEach { assertEquals(it, lookChoiceOf<CalendarView>(it.id)) }
         assertNull(lookChoiceOf<Motion>("nope"))
-        assertEquals(EpisodeView.CARDS, LookPrefs().episodeView)
+        assertEquals(EpisodeView.LIST, LookPrefs().episodeView)
+        assertEquals(listOf("standard", "editorial"), PageStyle.entries.map { it.id })
     }
 
     @Test
@@ -73,6 +74,18 @@ class LookPrefsTest {
     }
 
     @Test
+    fun `episode list and page style per preset`() {
+        LookPreset.entries.forEach { assertEquals(EpisodeView.LIST, LookPrefs.of(it).episodeView, it.id) }
+        assertEquals(PageStyle.EDITORIAL, LookPrefs.of(LookPreset.CINEMA).pageStyle)
+        listOf(LookPreset.TATAKAI, LookPreset.DENSE, LookPreset.CALM).forEach { assertEquals(PageStyle.STANDARD, LookPrefs.of(it).pageStyle) }
+        assertEquals(PageStyle.STANDARD, json.decodeFromString(LookPrefs.serializer(), """{"pageStyle":"nope"}""").pageStyle)
+        assertEquals(EpisodeView.LIST, json.decodeFromString(LookPrefs.serializer(), """{"episodeView":"nope"}""").episodeView)
+        assertNull(LookPrefs.of(LookPreset.CINEMA).copy(pageStyle = PageStyle.STANDARD).matchingPreset())
+        assertEquals(LookPrefs.CURRENT_REV, LookPrefs().rev)
+        assertEquals(LookPreset.CINEMA, LookPrefs.of(LookPreset.CINEMA).copy(rev = 0).sanitized().matchingPreset())
+    }
+
+    @Test
     fun `card size ids presets and lenient reading`() {
         assertEquals(listOf("small", "medium", "large", "xl"), CardSize.entries.map { it.id })
         assertEquals(CardSize.MEDIUM, LookPrefs().cardSize)
@@ -84,5 +97,23 @@ class LookPrefsTest {
         assertEquals(CardSize.MEDIUM, json.decodeFromString(LookPrefs.serializer(), """{"cardSize":"huge"}""").cardSize)
         assertEquals(CardSize.XL, json.decodeFromString(LookPrefs.serializer(), """{"cardSize":"xl"}""").cardSize)
         assertNull(LookPrefs.of(LookPreset.CINEMA).copy(cardSize = CardSize.MEDIUM).matchingPreset())
+    }
+
+    @Test
+    fun `header layout ids default and lenient reading`() {
+        assertEquals(listOf("line", "facts", "nextup", "facts_nextup"), HeaderLayout.entries.map { it.id })
+        assertEquals(HeaderLayout.FACTS_NEXT_UP, LookPrefs().headerLayout)
+        assertEquals(listOf(false, false, true, true), HeaderLayout.entries.map { it.hasCard })
+        assertEquals(listOf(false, true, false, true), HeaderLayout.entries.map { it.usesFacts })
+        LookPreset.entries.forEach { assertEquals(HeaderLayout.FACTS_NEXT_UP, LookPrefs.of(it).headerLayout, it.id) }
+        assertEquals(HeaderLayout.FACTS_NEXT_UP, json.decodeFromString(LookPrefs.serializer(), """{"headerLayout":"stacked"}""").headerLayout)
+        val old = json.decodeFromString(LookPrefs.serializer(), """{"preset":"cinema","cardStyle":"minimal","cardSize":"large","railStyle":"slim","glass":true,"heroIntervalSecs":12,"pageStyle":"editorial"}""")
+        assertEquals(HeaderLayout.FACTS_NEXT_UP, old.headerLayout)
+        assertEquals(LookPreset.CINEMA, old.matchingPreset())
+        val line = json.decodeFromString(LookPrefs.serializer(), """{"headerLayout":"line"}""")
+        assertEquals(HeaderLayout.LINE, line.headerLayout)
+        assertEquals(HeaderLayout.LINE, json.decodeFromString(LookPrefs.serializer(), json.encodeToString(LookPrefs.serializer(), line)).headerLayout)
+        // no preset sets it: another composition keeps the preset
+        assertEquals(LookPreset.CINEMA, LookPrefs.of(LookPreset.CINEMA).copy(headerLayout = HeaderLayout.LINE).matchingPreset())
     }
 }

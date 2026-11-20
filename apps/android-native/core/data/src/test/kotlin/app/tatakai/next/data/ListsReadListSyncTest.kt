@@ -17,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.Dispatcher
@@ -72,6 +73,7 @@ class ListsReadListSyncTest {
         pullers: List<ReadListPuller>,
         secrets: SecretStore = FakeSecrets(),
         writeBack: Boolean = true,
+        clock: () -> Long = { 1_000L },
     ): ListsRepositoryImpl =
         ListsRepositoryImpl(
             dao = dao,
@@ -79,7 +81,7 @@ class ListsReadListSyncTest {
             anilist = AniListListClient(OkHttpClient(), server.url("/").toString()),
             mal = MalListClient(OkHttpClient(), server.url("/mal").toString()),
             clientIds = { "id" },
-            clock = { 1_000L },
+            clock = clock,
             scope = scope,
             syncOnStart = false,
             readLists = { pullers },
@@ -146,6 +148,25 @@ class ListsReadListSyncTest {
         assertTrue(bodies.none { "SaveMediaListEntry" in it || "DeleteMediaListEntry" in it || "ToggleFavourite" in it }, "nothing pushed: $bodies")
         assertTrue(bodies.any { "MediaListCollection" in it }, "the anime list is still pulled")
         assertEquals(4, dao.get("1")?.progress)
+    }
+
+    @Test
+    fun favoriteAloneIsReadableOffTheListAndKeepsTheRowTime() = runBlocking {
+        var now = 1_000L
+        val dao = FakeListsDao()
+        val lists = repo(dao, emptyList(), writeBack = false, clock = { now })
+        // not on any list: the entry stays null, the favorite flag is still readable
+        lists.setFavorite(media, true).getOrThrow()
+        assertEquals(null, lists.entry(media.ref).first())
+        assertEquals(true, lists.isFavorite(media.ref).first())
+        lists.setFavorite(media, false).getOrThrow()
+        assertEquals(false, lists.isFavorite(media.ref).first())
+        // on the list: toggling the favorite does not move updatedAtMs
+        lists.setStatus(media, app.tatakai.next.model.ListStatus.WATCHING).getOrThrow()
+        now = 5_000L
+        lists.setFavorite(media, true).getOrThrow()
+        assertEquals(1_000L, dao.get("1")?.updatedAtMs)
+        assertEquals(true, lists.entry(media.ref).first()?.favorite)
     }
 
     @Test

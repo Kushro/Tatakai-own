@@ -7,8 +7,8 @@
     <string name="settings_look_preset_on">Preset: %1$s</string>
     <string name="settings_look_preset_tatakai">Tatakai</string>
     <string name="settings_look_preset_tatakai_hint">Banner destacado, tarjetas con detalle y animaciones vivas.</string>
-    <string name="settings_look_preset_cinema">Cine</string>
-    <string name="settings_look_preset_cinema_hint">Banner grande, tarjetas grandes en las filas, pósters solos en las cuadrículas y menú angosto.</string>
+    <string name="settings_look_preset_cinema">Cine editorial</string>
+    <string name="settings_look_preset_cinema_hint">Imagen a sangre con título grande, tarjetas grandes y menú angosto.</string>
     <string name="settings_look_preset_dense">Denso</string>
     <string name="settings_look_preset_dense_hint">Primero las filas, tarjetas y listas compactas, animaciones sutiles.</string>
     <string name="settings_look_preset_calm">Tranquilo</string>
@@ -57,4 +57,18 @@
     <string name="settings_look_interval">Segundos por título</string>
     <string name="settings_look_interval_value">%1$d segundos</string>
     <string name="settings_look_greeting">Mostrar el saludo</string>
+    <string name="settings_look_style">Estilo de página</string>
+    <string name="settings_look_style_hint">Cómo se ven la ficha de cada serie y el banner de Inicio.</string>
+    <string name="settings_look_style_standard">Estándar</string>
+    <string name="settings_look_style_editorial">Editorial</string>
+    <string name="settings_look_header">Cabecera de la ficha</string>
+    <string name="settings_look_header_hint">Cómo se ordenan los datos, las acciones y el episodio que sigue en la página de un título.</string>
+    <string name="settings_look_header_line">Una línea</string>
+    <string name="settings_look_header_line_hint">Datos en una línea y un solo bloque para mirar.</string>
+    <string name="settings_look_header_facts">Ficha técnica</string>
+    <string name="settings_look_header_facts_hint">Datos con etiqueta y acciones con nombre.</string>
+    <string name="settings_look_header_nextup">Siguiente episodio</string>
+    <string name="settings_look_header_nextup_hint">Una tarjeta con el episodio que sigue, su progreso y la fuente.</string>
+    <string name="settings_look_header_facts_nextup">Ficha y episodio</string>
+    <string name="settings_look_header_facts_nextup_hint">Datos con etiqueta y la tarjeta del episodio.</string>
 </resources>

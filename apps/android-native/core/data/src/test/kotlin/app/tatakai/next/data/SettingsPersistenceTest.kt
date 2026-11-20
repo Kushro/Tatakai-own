@@ -10,6 +10,11 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import app.tatakai.next.model.AppLanguage
 import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.ContrastPref
+import app.tatakai.next.model.EpisodeView
+import app.tatakai.next.model.HeaderLayout
+import app.tatakai.next.model.LookPreset
+import app.tatakai.next.model.LookPrefs
+import app.tatakai.next.model.PageStyle
 import app.tatakai.next.model.PlayerEngine
 import app.tatakai.next.model.Quality
 import app.tatakai.next.model.SourceKind
@@ -76,6 +81,39 @@ class SettingsPersistenceTest {
         metadataCacheTtlHours = 72,
         externalPlayerPackage = "is.xyz.mpv",
     )
+
+    @Test
+    fun oldLookMovesCardsToListOnceAndTakesThePresetPageStyle() = runTest {
+        val store = MemoryStore()
+        // stored before `rev` / `pageStyle` existed: Cine with Tarjetas
+        store.edit { it[stringPreferencesKey("look_json")] = """{"preset":"cinema","cardStyle":"minimal","cardSize":"large","railStyle":"slim","glass":true,"heroIntervalSecs":12,"episodeView":"cards"}""" }
+        val migrated = SettingsCodec.read(store.state.value).look
+        assertEquals(EpisodeView.LIST, migrated.episodeView)
+        assertEquals(PageStyle.EDITORIAL, migrated.pageStyle)
+        assertEquals(LookPreset.CINEMA, migrated.matchingPreset())
+        // written back with `rev`: choosing Tarjetas again sticks
+        store.edit { SettingsCodec.write(it, AppSettings(look = migrated.copy(episodeView = EpisodeView.CARDS))) }
+        assertEquals(EpisodeView.CARDS, SettingsCodec.read(store.state.value).look.episodeView)
+        // an old look with Compacta keeps it; Tatakai without the field stays standard
+        store.edit { it[stringPreferencesKey("look_json")] = """{"preset":"tatakai","episodeView":"compact"}""" }
+        val old = SettingsCodec.read(store.state.value).look
+        assertEquals(EpisodeView.COMPACT, old.episodeView)
+        assertEquals(PageStyle.STANDARD, old.pageStyle)
+        // a Cine user who chose Estándar keeps it
+        store.edit { SettingsCodec.write(it, AppSettings(look = LookPrefs.of(LookPreset.CINEMA).copy(pageStyle = PageStyle.STANDARD))) }
+        assertEquals(PageStyle.STANDARD, SettingsCodec.read(store.state.value).look.pageStyle)
+    }
+
+    @Test
+    fun oldLookOpensWithTheFactsAndCardHeaderAndKeepsItsPreset() = runTest {
+        val store = MemoryStore()
+        store.edit { it[stringPreferencesKey("look_json")] = """{"preset":"cinema","cardStyle":"minimal","cardSize":"large","railStyle":"slim","glass":true,"heroIntervalSecs":12,"pageStyle":"editorial","rev":1}""" }
+        val old = SettingsCodec.read(store.state.value).look
+        assertEquals(HeaderLayout.FACTS_NEXT_UP, old.headerLayout)
+        assertEquals(LookPreset.CINEMA, old.matchingPreset())
+        store.edit { SettingsCodec.write(it, AppSettings(look = old.copy(headerLayout = HeaderLayout.LINE))) }
+        assertEquals(HeaderLayout.LINE, SettingsCodec.read(store.state.value).look.headerLayout)
+    }
 
     @Test
     fun emptyStoreReadsDefaults() {

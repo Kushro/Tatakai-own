@@ -199,6 +199,11 @@ class ListsRepositoryImpl(
         return dao.observe(key).map { it?.toEntry() }.distinctUntilChanged()
     }
 
+    override fun isFavorite(ref: MediaRef): Flow<Boolean> {
+        val key = keyOf(ref) ?: return kotlinx.coroutines.flow.flowOf(false)
+        return dao.observe(key).map { it?.favorite == true }.distinctUntilChanged()
+    }
+
     override fun favoriteCharacters(): Flow<List<CharacterRef>> =
         dao.observeVisibleCharacters().map { rows -> rows.map { CharacterRef(it.id, it.name, it.image) } }
 
@@ -262,7 +267,9 @@ class ListsRepositoryImpl(
         val row = (prev ?: ListEntryRow(
             key = key, anilistId = media.ref.anilistId, malId = media.ref.malId, title = media.title, poster = media.cover,
             status = null, totalEpisodes = media.episodes, updatedAtMs = clock(),
-        )).copy(favorite = favorite, updatedAtMs = clock())
+        // the favorite flag alone keeps the row's time: it is the list / progress change time (Details reads a newer history row
+        // than it as a rewatch in progress, and the sync compares it with the provider's `updatedAt`)
+        )).copy(favorite = favorite, updatedAtMs = prev?.updatedAtMs ?: clock())
         dao.upsert(row)
         if (row.anilistId != null && writeBack() && isLinked(ListProvider.ANILIST)) {
             dao.putChange(ListChangeRow(ListProvider.ANILIST.id, key, OP_FAVORITE, favorite = favorite, createdAtMs = clock()))

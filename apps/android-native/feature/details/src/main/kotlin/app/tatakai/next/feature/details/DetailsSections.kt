@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
@@ -77,6 +79,8 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -90,6 +94,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -143,7 +148,19 @@ import coil3.compose.AsyncImage
 import java.util.Locale
 import kotlinx.coroutines.delay
 
-/** The scrolling column of Details: header, (phone) source panel, tabs and the selected tab's content. */
+/** Episode rows built once per data change (not in every pass of the list builder): all of them and the search matches. */
+internal data class EpisodeLists(val all: List<EpisodeItem>, val filtered: List<EpisodeItem>)
+
+/** Key of the tabs item: the pinned copy in the top bar shows once it went under the bar. */
+internal const val TABS_KEY = "tabs"
+
+/** Index of [TABS_KEY] in [detailsItems]: header (the source line is part of it), tabs. */
+internal const val TABS_INDEX = 1
+
+/**
+ * The scrolling column of Details. Phone ([phone]): compact (or editorial) header with one row of actions, the source as one line, the
+ * tabs and the selected tab. Wide: the full header (the source / send panels are on the side).
+ */
 internal fun LazyListScope.detailsItems(
     media: Media,
     state: DetailsUiState,
@@ -152,20 +169,40 @@ internal fun LazyListScope.detailsItems(
     onTab: (DetailsTab) -> Unit,
     range: Int,
     onRange: (Int) -> Unit,
-    includePanel: Boolean,
+    phone: Boolean,
+    editorial: Boolean,
+    episodeLists: EpisodeLists?,
+    showEarlier: Boolean,
+    onShowEarlier: () -> Unit,
+    tabsPinned: Boolean,
+    /** "Cabecera de la ficha": the composition under the title. */
+    head: HeadModel,
     /** 2026-11 UI refresh: episode cards per row (1 on phones, 2 on wide windows). */
     cardColumns: Int = 1,
 ) {
-    item(key = "header", contentType = "header") { Header(media, state, actions) }
-    if (includePanel) {
-        item(key = "panel", contentType = "panel") {
-            SourcePanelCard(state, actions, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+    item(key = "header", contentType = "header") {
+        val facts = headerFactsSlot(head, media, state)
+        // B / D have no facts line: the "+18" goes beside the title instead
+        val adultBadge = facts == null && (state.detailsOrNull?.isAdult == true || media.looksAdult())
+        when {
+            editorial -> Column {
+                EditorialHeader(media, state, actions, facts = facts, heightFraction = head.heroFraction(), adultBadge = adultBadge)
+                HeaderBody(head, media, state, actions)
+            }
+            phone -> Column {
+                CompactHeader(media, state, actions, facts = facts?.let { f -> { Box(Modifier.padding(top = 2.dp)) { f() } } }, adultBadge = adultBadge)
+                HeaderBody(head, media, state, actions)
+            }
+            else -> Header(media, state, actions, head, adultBadge)
         }
     }
-    item(key = "tabs", contentType = "tabs") { DetailsTabs(tab, onTab) }
+    item(key = TABS_KEY, contentType = "tabs") {
+        // While the top bar shows its pinned copy, TalkBack sees only that one.
+        DetailsTabs(tab, onTab, modifier = Modifier.padding(top = 4.dp).then(if (tabsPinned) Modifier.clearAndSetSemantics {} else Modifier))
+    }
     when (tab) {
         DetailsTab.EPISODES -> {
-            episodeItems(media, state, actions, range, onRange, cardColumns)
+            episodeItems(media, state, actions, range, onRange, episodeLists, showEarlier, onShowEarlier, cardColumns)
             item(key = "wave-b-episodes", contentType = "slot") { WaveBSlots(media) }
         }
         DetailsTab.INFO -> item(key = "info", contentType = "info") { InfoTab(media, state, actions) }
@@ -189,7 +226,7 @@ internal fun WaveBSlots(media: Media) {
 
 /** Epoch seconds, refreshed every minute while composed (next-episode countdown). */
 @Composable
-private fun rememberNowSec(): Long {
+internal fun rememberNowSec(): Long {
     var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -203,10 +240,9 @@ private fun rememberNowSec(): Long {
 // ---------------------------------------------------------------- header
 
 @Composable
-private fun Header(media: Media, state: DetailsUiState, actions: DetailsActions) {
+private fun Header(media: Media, state: DetailsUiState, actions: DetailsActions, head: HeadModel, adultBadge: Boolean) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     val background = MaterialTheme.colorScheme.background
-    val details = state.detailsOrNull
     val title = media.displayTitle(state.titleLanguage)
     Column(Modifier.fillMaxWidth()) {
         // matureContent BLUR: banner and cover stay blurred until the first tap on either.
@@ -252,49 +288,11 @@ private fun Header(media: Media, state: DetailsUiState, actions: DetailsActions)
                 media.alternativeTitle(title)?.let {
                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
                 }
+                if (adultBadge) AdultBadge()
             }
         }
-        MetadataChips(media, details, actions)
-        details?.nextAiring?.let { NextEpisodeLine(it) }
-        FlowRow(
-            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            WatchSplitButton(state, actions)
-            ListButton(media = media)
-            OutlinedButton(onClick = actions.onSendToDevice, enabled = !state.sending) {
-                // BUG-023: a visible "Enviando…" while the sources resolve and the PC opens the session
-                if (state.sending) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Outlined.Cast, contentDescription = null, modifier = Modifier.size(18.dp))
-                }
-                Text(
-                    stringResource(if (state.sending) R.string.details_send_sending else R.string.details_send_device),
-                    modifier = Modifier.padding(start = 6.dp),
-                )
-            }
-            DownloadMenuButton(state, actions, icon = Icons.Outlined.Download, outlined = true)
-            details?.trailer?.let { trailer ->
-                OutlinedIconButton(onClick = { actions.onOpenUrl(trailer.url) }) {
-                    Icon(Icons.Outlined.PlayCircle, contentDescription = stringResource(R.string.details_trailer))
-                }
-            }
-            if (shareLink(media) != null) {
-                OutlinedIconButton(onClick = { actions.onShare(media) }) {
-                    Icon(Icons.Outlined.Share, contentDescription = stringResource(R.string.details_share))
-                }
-            }
-        }
-        state.resumeEntry?.let { entry ->
-            Text(
-                stringResource(R.string.details_resume_at, formatDuration(entry.progressSec.toLong())),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp),
-            )
-        }
+        headerFactsSlot(head, media, state)?.let { facts -> Box(Modifier.padding(horizontal = 16.dp).padding(top = 12.dp)) { facts() } }
+        HeaderBody(head, media, state, actions, Modifier.padding(top = 4.dp))
         val synopsis = media.synopsis?.takeIf { it.isNotBlank() }
         Text(
             synopsis ?: stringResource(R.string.details_no_synopsis),
@@ -307,75 +305,6 @@ private fun Header(media: Media, state: DetailsUiState, actions: DetailsActions)
             TextButton(onClick = { expanded = !expanded }, modifier = Modifier.padding(horizontal = 8.dp)) {
                 Text(stringResource(if (expanded) R.string.details_less else R.string.details_more))
             }
-        }
-    }
-}
-
-/** "Episodio N en Xd Yh" (classic NextEpisodeSchedule), refreshed every minute; hidden once it aired. */
-@Composable
-private fun NextEpisodeLine(next: NextAiring) {
-    val now = rememberNowSec()
-    val left = countdown(next.airingAtEpochSec, now) ?: return
-    val text = when {
-        left.days > 0 -> stringResource(R.string.details_next_episode_days, next.episode, left.days, left.hours)
-        left.hours > 0 -> stringResource(R.string.details_next_episode_hours, next.episode, left.hours, left.minutes)
-        else -> stringResource(R.string.details_next_episode_minutes, next.episode, maxOf(1L, left.minutes))
-    }
-    Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(Icons.Outlined.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-        Text(text, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-    }
-}
-
-/** Split button Ver / Continuar ▾ (07 §3.4): the ▾ opens the source picker and picking starts playback with that source. */
-@Composable
-private fun WatchSplitButton(state: DetailsUiState, actions: DetailsActions) {
-    SplitButtonLayout(
-        leadingButton = {
-            SplitButtonDefaults.LeadingButton(onClick = actions.onWatch) {
-                Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                Text(watchLabel(state), modifier = Modifier.padding(start = 6.dp))
-            }
-        },
-        trailingButton = {
-            SplitButtonDefaults.TrailingButton(
-                onClick = { actions.onOpenPicker(true) },
-                enabled = state.panel != null && state.hasExtensions,
-            ) {
-                Icon(Icons.Filled.KeyboardArrowDown, contentDescription = stringResource(R.string.details_choose_source))
-            }
-        },
-    )
-}
-
-@Composable
-private fun MetadataChips(media: Media, details: MediaDetails?, actions: DetailsActions) {
-    val resources = LocalContext.current.resources
-    FlowRow(
-        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        statusPill(media.status)?.let { (label, tone) -> Pill(label, tone = tone) }
-        if (details?.isAdult == true || media.looksAdult()) Pill(stringResource(R.string.details_adult_badge), tone = PillTone.ERR)
-        details?.format?.let { InfoChip(formatLabel(it)) }
-        val season = listOfNotNull(media.year?.toString(), media.season?.let { seasonLabel(it) }).joinToString(" · ")
-        if (season.isNotEmpty()) InfoChip(season)
-        media.episodes?.let { InfoChip(resources.getQuantityString(R.plurals.details_episodes_count, it, it)) }
-        media.score?.let { InfoChip(stringResource(R.string.details_score, formatScore(it)), icon = Icons.Filled.Star) }
-        details?.studios?.forEach { studio ->
-            AssistChip(
-                onClick = { actions.onOpenStudio(studio) },
-                label = { Text(studio) },
-                leadingIcon = { Icon(Icons.Outlined.Business, contentDescription = null, modifier = Modifier.size(18.dp)) },
-            )
-        }
-        media.genres.forEach { genre ->
-            AssistChip(onClick = { actions.onOpenGenre(genre) }, label = { Text(genreLabel(genre)) }) // BUG-072
         }
     }
 }
@@ -540,8 +469,22 @@ internal fun SendToDevicePanel(state: DetailsUiState, actions: DetailsActions, m
 // ---------------------------------------------------------------- tabs
 
 @Composable
-private fun DetailsTabs(tab: DetailsTab, onTab: (DetailsTab) -> Unit) {
-    PrimaryScrollableTabRow(selectedTabIndex = tab.ordinal, modifier = Modifier.padding(top = 8.dp)) {
+internal fun DetailsTabs(
+    tab: DetailsTab,
+    onTab: (DetailsTab) -> Unit,
+    modifier: Modifier = Modifier.padding(top = 4.dp),
+    containerColor: Color = MaterialTheme.colorScheme.background,
+) {
+    // Text tabs from the 16 dp margin (each Tab pads 16 dp itself): no 52 dp edge padding and no 90 dp minimum, so the row only
+    // scrolls when the labels really do not fit. One divider under the row.
+    PrimaryScrollableTabRow(
+        selectedTabIndex = tab.ordinal,
+        modifier = modifier,
+        containerColor = containerColor,
+        edgePadding = 0.dp,
+        divider = { HorizontalDivider() },
+        minTabWidth = 0.dp,
+    ) {
         DetailsTab.entries.forEach { t ->
             Tab(
                 selected = t == tab,
@@ -605,6 +548,9 @@ private fun LazyListScope.episodeItems(
     actions: DetailsActions,
     range: Int,
     onRange: (Int) -> Unit,
+    lists: EpisodeLists?,
+    showEarlier: Boolean,
+    onShowEarlier: () -> Unit,
     cardColumns: Int = 1,
 ) {
     val fallbackArt = state.artwork?.fanart ?: media.banner ?: media.cover
@@ -619,8 +565,7 @@ private fun LazyListScope.episodeItems(
             )
         }
         is LoadState.Ok -> {
-            val nowSec = System.currentTimeMillis() / 1000
-            val all = buildEpisodeItems(eps.value, state.detailsOrNull?.nextAiring, media.episodes, nowSec)
+            val all = lists?.all.orEmpty()
             if (all.isEmpty()) {
                 item(key = "episodes-empty", contentType = "empty") {
                     EmptyState(
@@ -633,7 +578,7 @@ private fun LazyListScope.episodeItems(
             }
             item(key = "episode-toolbar", contentType = "toolbar") { EpisodeToolbar(state, actions) }
             val searching = state.episodeQuery.isNotBlank()
-            val filtered = filterEpisodes(all, state.episodeQuery)
+            val filtered = lists?.filtered.orEmpty()
             if (filtered.isEmpty()) {
                 item(key = "episodes-no-match", contentType = "empty") {
                     EmptyState(
@@ -665,8 +610,17 @@ private fun LazyListScope.episodeItems(
                     }
                 }
             }
-            val page = if (searching) filtered else filtered.drop(selected * RANGE_SIZE).take(RANGE_SIZE)
-            val current = state.continueEpisode
+            val fullPage = if (searching) filtered else filtered.drop(selected * RANGE_SIZE).take(RANGE_SIZE)
+            // Ficha "Primero el episodio": "Siguiente" only marks the episode Continuar plays (not Ver ep. 1 / Volver a ver / Al día).
+            val current = state.continueEpisode.takeIf { state.watchAction == WatchAction.CONTINUE }
+            // The list opens on the episode to continue: the ones before the previous fold behind one row.
+            val hidden = if (searching || showEarlier) 0 else hiddenLeading(fullPage, current)
+            if (hidden > 0) {
+                val from = fullPage.first().episode.number
+                val to = fullPage[hidden - 1].episode.number
+                item(key = "episodes-earlier", contentType = "earlier") { EarlierEpisodesRow(from, to, onShowEarlier) }
+            }
+            val page = if (hidden > 0) fullPage.drop(hidden) else fullPage
             if (state.episodeView == EpisodeView.COMPACT) {
                 val columns = cardColumns + 1
                 page.chunked(columns).forEachIndexed { rowIndex, rowItems ->
@@ -679,7 +633,7 @@ private fun LazyListScope.episodeItems(
                                 CompactEpisodeLine(
                                     item = item,
                                     watched = state.isWatched(item.episode.number),
-                                    current = item.episode.number == current && state.hasProgress,
+                                    current = item.episode.number == current,
                                     onClick = { actions.onEpisodeClick(item.episode.number) },
                                     modifier = Modifier.weight(1f),
                                 )
@@ -702,7 +656,7 @@ private fun LazyListScope.episodeItems(
                                     unaired = item.unaired,
                                     progress = state.progress[number],
                                     watched = state.isWatched(number),
-                                    current = number == current && state.hasProgress,
+                                    current = number == current,
                                     downloaded = number in state.downloaded,
                                     fallbackArt = fallbackArt,
                                     onClick = { actions.onEpisodeClick(number) },
@@ -723,12 +677,13 @@ private fun LazyListScope.episodeItems(
                         unaired = item.unaired,
                         progress = state.progress[number],
                         watched = state.isWatched(number),
-                        current = number == current && state.hasProgress,
+                        current = number == current,
                         downloaded = number in state.downloaded,
                         onClick = { actions.onEpisodeClick(number) },
                         onDownload = { actions.onDownloadEpisode(number) },
                         onToggleWatched = actions.onToggleWatched?.let { toggle -> { toggle(number) } },
                         fallbackArt = fallbackArt,
+                        resumeEntry = state.resumeEntry?.takeIf { number == current },
                     )
                 }
             }
@@ -736,7 +691,37 @@ private fun LazyListScope.episodeItems(
     }
 }
 
-/** Prototype `.ep`: thumbnail with progress, "N. title", pills Relleno / Visto, air date, overflow menu with "Descargar episodio". */
+/**
+ * Ficha "Primero el episodio": "Episodios anteriores (a–b)", the fold above the episode to continue; one tap shows them (remembered
+ * per title and range).
+ */
+@Composable
+private fun EarlierEpisodesRow(from: Int, to: Int, onShow: () -> Unit) {
+    val description = stringResource(R.string.details_earlier_show, from, to)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(onClick = onShow)
+            .semantics { contentDescription = description }
+            .padding(horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+        Text(
+            stringResource(R.string.details_earlier, from, to),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+/**
+ * Compact episode row (≤ 72 dp): 80×45 thumbnail with the progress bar, "N. title" and one meta line (filler / downloaded / date /
+ * length / rating, or "Retomar en 12:34" on the current one), then "Siguiente" on the episode to continue or a check when watched, and
+ * one menu with "Marcar como visto / no visto" and "Descargar episodio".
+ */
 @Composable
 private fun DetailsEpisodeRow(
     episode: Episode,
@@ -749,33 +734,37 @@ private fun DetailsEpisodeRow(
     downloaded: Boolean = false,
     /** Within the list progress or completed in the history (ListProgress.isEpisodeWatched). */
     watched: Boolean = progress?.completed == true,
-    /** "Marcar como visto / no visto"; null hides the button. */
+    /** "Marcar como visto / no visto"; null hides the menu item. */
     onToggleWatched: (() -> Unit)? = null,
     /** 2026-11 UI refresh: series art behind the number when the episode has no thumbnail. */
     fallbackArt: String? = null,
+    /** [DetailsUiState.resumeEntry] on the current row: the same "Retomar en" the Watch button resumes, never recomputed. */
+    resumeEntry: HistoryEntry? = null,
 ) {
     var menu by remember { mutableStateOf(false) }
-    val rowModifier = if (current) Modifier.background(MaterialTheme.colorScheme.surfaceContainer) else Modifier
+    val scheme = MaterialTheme.colorScheme
+    val rowModifier = if (current) Modifier.background(scheme.secondaryContainer.copy(alpha = 0.55f)) else Modifier
     Row(
         Modifier
             .fillMaxWidth()
+            .heightIn(min = 64.dp)
             .then(rowModifier)
             .then(if (unaired) Modifier.alpha(UNAIRED_ALPHA) else Modifier.clickable(onClick = onClick))
-            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(128.dp)) {
+        Box(Modifier.width(80.dp)) {
             EpisodeThumb(episode, fallbackArt, Modifier.fillMaxWidth())
             val fraction = progress?.takeIf { !it.completed && !watched }?.progressFraction()
             if (fraction != null) {
                 LinearProgressIndicator(
                     progress = { fraction },
-                    modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(6.dp),
+                    modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter).padding(horizontal = 4.dp, vertical = 3.dp),
                 )
             }
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             val title = episode.title?.takeIf { it.isNotBlank() }
             Text(
                 if (title != null) {
@@ -784,56 +773,70 @@ private fun DetailsEpisodeRow(
                     stringResource(UiR.string.ui_episode_number, episode.number)
                 },
                 style = MaterialTheme.typography.titleSmall,
-                color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
+                color = if (current) scheme.primary else scheme.onSurface,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            // BUG-073 (UX-14): each state once. "Visto" only without the check button (which already says it), "Aún no emitido"
-            // only when there is no "Se emite el <fecha>" line.
-            val unairedPill = unaired && episode.airDate == null
-            val watchedPill = watched && (unaired || onToggleWatched == null)
-            if (episode.isFiller || watchedPill || unairedPill || downloaded) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (unairedPill) Pill(stringResource(R.string.details_unaired), tone = PillTone.NEUTRAL)
-                    if (episode.isFiller) Pill(stringResource(R.string.details_filler), tone = PillTone.WARN)
-                    if (watchedPill) Pill(stringResource(R.string.details_watched), tone = PillTone.OK)
-                    if (downloaded) Pill(stringResource(UiR.string.download_state_completed), tone = PillTone.NEUTRAL)
-                }
-            }
             // 2026-11 UI refresh: relative date ("hace 1 semana", "en 6 días"), length and rating; the exact date for TalkBack.
-            // BUG-015 still holds: a future date reads "en N días", never "Aired <future date>".
-            episodeMeta(episode, withRating = true)?.let { meta ->
-                val exact = episode.airDate?.let {
-                    stringResource(if (unaired) R.string.details_airs_on else R.string.details_aired, formatAirDate(it))
+            // BUG-015 still holds: a future date reads "en N días", never "Aired <future date>". BUG-073: each state once.
+            val resume = resumeEntry
+            val flags = buildList {
+                if (unaired && episode.airDate == null) add(stringResource(R.string.details_unaired))
+                if (episode.isFiller) add(stringResource(R.string.details_filler))
+                if (downloaded) add(stringResource(R.string.details_downloaded))
+            }
+            val meta = if (resume != null) {
+                stringResource(R.string.details_resume_at, formatDuration(resume.progressSec.toLong()))
+            } else {
+                (flags + listOfNotNull(episodeMeta(episode, withRating = true))).joinToString(" · ").takeIf { it.isNotEmpty() }
+            }
+            meta?.let {
+                val exact = episode.airDate?.let { date ->
+                    stringResource(if (unaired) R.string.details_airs_on else R.string.details_aired, formatAirDate(date))
                 }
                 Text(
-                    meta,
+                    it,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = if (exact != null) Modifier.semantics { contentDescription = "$exact · $meta" } else Modifier,
+                    color = scheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = if (exact != null) Modifier.semantics { contentDescription = "$exact · $it" } else Modifier,
                 )
-            }
-            episode.summary?.takeIf { it.isNotBlank() }?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        if (!unaired && onToggleWatched != null) {
-            IconButton(onClick = onToggleWatched) {
-                Icon(
-                    if (watched) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
-                    contentDescription = stringResource(
-                        if (watched) R.string.details_mark_unwatched else R.string.details_mark_watched,
-                        episode.number,
-                    ),
-                    tint = if (watched) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        when {
+            current -> Text(
+                stringResource(R.string.details_next_tag),
+                style = MaterialTheme.typography.labelMedium,
+                color = scheme.primary,
+                modifier = Modifier.padding(start = 4.dp),
+            )
+            watched -> Icon(
+                Icons.Filled.CheckCircle,
+                contentDescription = stringResource(R.string.details_watched),
+                tint = scheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
         }
         if (!unaired) Box {
             IconButton(onClick = { menu = true }) {
                 Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.details_episode_menu, episode.number))
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                if (onToggleWatched != null) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(stringResource(if (watched) R.string.details_mark_unwatched else R.string.details_mark_watched, episode.number))
+                        },
+                        onClick = {
+                            menu = false
+                            onToggleWatched()
+                        },
+                        leadingIcon = {
+                            Icon(if (watched) Icons.Outlined.CheckCircle else Icons.Filled.CheckCircle, contentDescription = null)
+                        },
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.details_download_episode, episode.number)) },
                     onClick = {
@@ -844,6 +847,7 @@ private fun DetailsEpisodeRow(
                 )
             }
         }
+        if (unaired) Spacer(Modifier.width(48.dp))
     }
 }
 
@@ -858,6 +862,16 @@ private fun InfoTab(media: Media, state: DetailsUiState, actions: DetailsActions
                 media.synopsis?.takeIf { it.isNotBlank() } ?: stringResource(R.string.details_no_synopsis),
                 style = MaterialTheme.typography.bodyMedium,
             )
+        }
+        // Every header composition leaves the genres here (one place, tappable).
+        if (media.genres.isNotEmpty()) {
+            SectionCard(title = stringResource(R.string.details_genres)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    media.genres.forEach { genre ->
+                        AssistChip(onClick = { actions.onOpenGenre(genre) }, label = { Text(genreLabel(genre)) }) // BUG-072
+                    }
+                }
+            }
         }
         when (val d = state.details) {
             LoadState.Loading -> DelayedLoading()
@@ -996,8 +1010,15 @@ private fun TagsCard(tags: List<MediaTag>) {
 @Composable
 private fun KeyValue(key: String, value: String, mono: Boolean = true) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(key, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontFamily = if (mono) FontFamily.Monospace else null, textAlign = TextAlign.End)
+        // A long value (Productoras) wraps in its own 60 %: the label keeps 40 % and never breaks letter by letter.
+        Text(key, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(0.4f))
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = if (mono) FontFamily.Monospace else null,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(0.6f),
+        )
     }
 }
 
@@ -1309,7 +1330,7 @@ internal fun seasonLabel(season: String): String = when (season.uppercase()) {
     else -> season
 }
 
-private fun formatScore(score: Int): String = String.format(Locale.ROOT, "%.1f", score / 10.0)
+internal fun formatScore(score: Int): String = String.format(Locale.ROOT, "%.1f", score / 10.0)
 
 private const val SYNOPSIS_LINES = 4
 private const val SYNOPSIS_TOGGLE_CHARS = 120

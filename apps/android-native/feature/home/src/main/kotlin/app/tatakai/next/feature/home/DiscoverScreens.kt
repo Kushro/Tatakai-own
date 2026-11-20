@@ -88,6 +88,9 @@ import app.tatakai.next.ui.media.MediaCover
 import app.tatakai.next.ui.media.displayTitle
 import app.tatakai.next.ui.state.userMessage
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
 import org.koin.compose.getKoin
 import org.koin.compose.viewmodel.koinViewModel
 import java.time.Instant
@@ -350,6 +353,56 @@ fun FollowShowRow(media: Media, modifier: Modifier = Modifier) {
                     })
                 }
             }
+        }
+    }
+}
+
+/** Details header "Seguir" / "Siguiendo" action: [following] now and the [toggle] (following asks for the notification permission). */
+class FollowControl(val following: Boolean, val toggle: () -> Unit)
+
+/**
+ * The follow toggle of [FollowShowRow] without its row, for the Details header; null when the title cannot be followed (not an anime
+ * airing or announced, or no airing layer), so the action is left out.
+ */
+@Composable
+fun rememberFollowControl(media: Media): FollowControl? {
+    if (media.kind != MediaKind.ANIME) return null
+    val status = media.status?.uppercase()
+    if (status != "RELEASING" && status != "NOT_YET_RELEASED") return null
+    val koin = getKoin()
+    val airing = remember { koin.getOrNull<AiringRepository>() } ?: return null
+    val context = LocalContext.current
+    val snackbar = LocalAppSnackbar.current
+    val resources = context.resources
+    // the already loaded list first: no "Seguir" -> "Siguiendo" flash while the per-title flow starts
+    val initial = remember(media.ref) { airing.followed.value.any { sameRef(it.ref, media.ref) } }
+    val followedFlow = remember(media.ref) { airing.isFollowed(media.ref) }
+    val following by followedFlow.collectAsStateWithLifecycle(initialValue = initial)
+    // not tied to the screen: a toggle right before leaving still lands
+    val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate) }
+    val run: (suspend () -> Unit) -> Unit = { block ->
+        scope.launch {
+            runCatching { block() }.onFailure {
+                if (it is kotlinx.coroutines.CancellationException) throw it
+                snackbar.show(resources.getString(R.string.home_follow_failed))
+            }
+        }
+    }
+    // Same rule as FollowShowRow (following works without notifications: the calendar highlights it), but the reminder is only on
+    // when the permission is granted; a denied permission follows without reminders and says so.
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        run { airing.follow(media, remind = granted) }
+        if (!granted) scope.launch { snackbar.show(resources.getString(R.string.home_follow_no_reminders)) }
+    }
+    return FollowControl(following) {
+        if (following) {
+            run { airing.unfollow(media.ref) }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            launcher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            run { airing.follow(media, remind = true) }
         }
     }
 }

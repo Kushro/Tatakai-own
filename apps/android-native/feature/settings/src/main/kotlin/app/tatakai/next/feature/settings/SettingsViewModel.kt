@@ -152,8 +152,10 @@ class SettingsViewModel(
     /** 2026-11 UI refresh: one Diseño y estilo field (the preset stays as it was; the screen shows "Personalizado" when nothing matches). */
     fun setLook(transform: (LookPrefs) -> LookPrefs) = update { it.copy(look = transform(it.look).sanitized()) }
 
-    /** Applies every field of [preset] at once. */
-    fun applyLookPreset(preset: LookPreset) = update(announce = true) { it.copy(look = LookPrefs.of(preset)) }
+    /** Every field of [preset]; the header composition is not part of any preset and stays as chosen. */
+    fun applyLookPreset(preset: LookPreset) = update(announce = true) {
+        it.copy(look = LookPrefs.of(preset).copy(headerLayout = it.look.headerLayout))
+    }
 
     // ---------------------------------------------------------------- player
 

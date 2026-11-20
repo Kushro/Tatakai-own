@@ -2,7 +2,21 @@
 package app.tatakai.next.feature.settings
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -42,10 +56,12 @@ import app.tatakai.next.model.CardSize
 import app.tatakai.next.model.CardStyle
 import app.tatakai.next.model.Density
 import app.tatakai.next.model.EpisodeView
+import app.tatakai.next.model.HeaderLayout
 import app.tatakai.next.model.HomeLayout
 import app.tatakai.next.model.LookPrefs
 import app.tatakai.next.model.LookPreset
 import app.tatakai.next.model.Motion
+import app.tatakai.next.model.PageStyle
 import app.tatakai.next.model.RailStyle
 import app.tatakai.next.model.RelationsView
 import kotlin.math.roundToInt
@@ -93,6 +109,30 @@ internal fun LookGroup(look: LookPrefs, onChange: ((LookPrefs) -> LookPrefs) -> 
         { it.labelRes() },
         hint = stringResource(R.string.settings_look_home_hint),
     ) { v -> onChange { it.copy(homeLayout = v) } }
+    LookSegmented(
+        R.string.settings_look_style,
+        PageStyle.entries,
+        look.pageStyle,
+        { it.labelRes() },
+        hint = stringResource(R.string.settings_look_style_hint),
+    ) { v -> onChange { it.copy(pageStyle = v) } }
+    SettingRow(stringResource(R.string.settings_look_header), hint = stringResource(R.string.settings_look_header_hint), stack = true) {
+        // 2 x 2, not a sliding row: the default (D) is never off screen, and the cards grow with the font instead of cutting the hint
+        Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            HeaderLayout.entries.chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    pair.forEach { layout ->
+                        HeaderLayoutCard(
+                            layout,
+                            selected = layout == look.headerLayout,
+                            onClick = { onChange { it.copy(headerLayout = layout) } },
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
+                        )
+                    }
+                }
+            }
+        }
+    }
     LookSegmented(R.string.settings_look_cards, CardStyle.entries, look.cardStyle, { it.labelRes() }) { v -> onChange { it.copy(cardStyle = v) } }
     LookSegmented(
         R.string.settings_look_card_size,
@@ -219,6 +259,126 @@ private fun LookPreset.hintRes(): Int = when (this) {
     LookPreset.CINEMA -> R.string.settings_look_preset_cinema_hint
     LookPreset.DENSE -> R.string.settings_look_preset_dense_hint
     LookPreset.CALM -> R.string.settings_look_preset_calm_hint
+}
+
+/** One composition of the Details header: a drawn thumbnail, its name and a two-line hint (radio card, like [PresetCard]). */
+@Composable
+private fun HeaderLayoutCard(layout: HeaderLayout, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        selected = selected,
+        onClick = onClick,
+        shape = MaterialTheme.shapes.large,
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+        modifier = modifier.semantics { role = Role.RadioButton },
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            HeaderLayoutThumb(layout)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    stringResource(layout.labelRes()),
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                if (selected) Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+            }
+            Text(
+                stringResource(layout.hintRes()),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * Schematic of [layout] (124:76, as wide as its card): the image band, then a line (A, C) or 3 + 2 fact cells (B, D), the main pill loose (A, B) or
+ * inside an outlined card (C, D), and icon dots (A, C) or named tags (B, D). Decorative: the card's text says it.
+ */
+@Composable
+private fun HeaderLayoutThumb(layout: HeaderLayout) {
+    val scheme = MaterialTheme.colorScheme
+    val band = scheme.surfaceContainerHighest
+    val ink = scheme.onSurfaceVariant.copy(alpha = 0.55f)
+    val faint = scheme.outlineVariant
+    val primary = scheme.primary
+    Canvas(
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(124f / 76f)
+            .clip(MaterialTheme.shapes.small)
+            .background(scheme.surface)
+            .clearAndSetSemantics {},
+    ) {
+        // drawn in 76 units of height, so the schematic scales with the card
+        val u = size.height / 76f
+        val pad = 6 * u
+        val w = size.width - 2 * pad
+        drawRect(band, size = Size(size.width, 22 * u))
+        var y = 26 * u
+        fun bar(x: Float, top: Float, width: Float, height: Float, color: Color) =
+            drawRoundRect(color, Offset(x, top), Size(width, height), CornerRadius(height / 2))
+        fun line() {
+            bar(pad, y, w * 0.62f, 3 * u, ink)
+            y += 7 * u
+        }
+        fun grid() {
+            val cell = w / 3
+            for (i in 0 until 5) {
+                val col = i % 3
+                val row = i / 3
+                bar(pad + col * cell, y + row * 7 * u, cell - 4 * u, 4 * u, ink)
+            }
+            y += 15 * u
+        }
+        fun pill(left: Float, width: Float) {
+            bar(left, y, width, 7 * u, primary)
+            y += 11 * u
+        }
+        fun dots() {
+            for (i in 0 until 5) drawCircle(ink, 2.2f * u, Offset(pad + 3 * u + i * (w - 6 * u) / 4, y + 2 * u))
+            y += 8 * u
+        }
+        fun tags() {
+            val tag = 18 * u
+            for (i in 0 until 4) {
+                drawRoundRect(faint, Offset(pad + i * (tag + 4 * u), y), Size(tag, 6 * u), CornerRadius(3 * u), style = Stroke(u))
+            }
+            y += 10 * u
+        }
+        fun card() {
+            val h = 18 * u
+            drawRoundRect(faint, Offset(pad, y), Size(w, h), CornerRadius(4 * u), style = Stroke(u))
+            bar(pad + 4 * u, y + 3 * u, w * 0.4f, 3 * u, ink)
+            bar(pad + 4 * u, y + 9 * u, w - 8 * u, 6 * u, primary)
+            y += h + 4 * u
+        }
+        when (layout) {
+            HeaderLayout.LINE -> { line(); pill(pad, w); dots() }
+            HeaderLayout.FACTS -> { grid(); pill(pad, w); tags() }
+            HeaderLayout.NEXT_UP -> { line(); dots(); card() }
+            HeaderLayout.FACTS_NEXT_UP -> { grid(); tags(); card() }
+        }
+    }
+}
+
+private fun HeaderLayout.labelRes(): Int = when (this) {
+    HeaderLayout.LINE -> R.string.settings_look_header_line
+    HeaderLayout.FACTS -> R.string.settings_look_header_facts
+    HeaderLayout.NEXT_UP -> R.string.settings_look_header_nextup
+    HeaderLayout.FACTS_NEXT_UP -> R.string.settings_look_header_facts_nextup
+}
+
+private fun HeaderLayout.hintRes(): Int = when (this) {
+    HeaderLayout.LINE -> R.string.settings_look_header_line_hint
+    HeaderLayout.FACTS -> R.string.settings_look_header_facts_hint
+    HeaderLayout.NEXT_UP -> R.string.settings_look_header_nextup_hint
+    HeaderLayout.FACTS_NEXT_UP -> R.string.settings_look_header_facts_nextup_hint
+}
+
+private fun PageStyle.labelRes(): Int = when (this) {
+    PageStyle.STANDARD -> R.string.settings_look_style_standard
+    PageStyle.EDITORIAL -> R.string.settings_look_style_editorial
 }
 
 private fun HomeLayout.labelRes(): Int = when (this) {
