@@ -241,6 +241,12 @@
   "src.recommended": "Recomendada",
   "src.by_system": "Elegida por el sistema",
   "src.all": "Ver todas las fuentes ({n})",
+  "src.change": "Cambiar fuente ({n})",
+  "src.line.resolving": "Buscando fuentes para este episodio…",
+  "src.line.resolving_ep": "Buscando fuentes del ep. {n}…",
+  "src.line.none_ep": "No hay fuentes para el ep. {n}",
+  "src.line.error_ep": "No se pudieron cargar las fuentes del ep. {n}",
+  "src.line.aria": "{text}. {change}",
   "src.error.proxy_down.title": "No se pudo conectar con las extensiones",
   "src.error.proxy_down": "El proxy de salida configurado no responde, así que las extensiones no pudieron buscar fuentes. Revísalo o quítalo en Ajustes › Servidor y red y reintenta.",
   "src.error.none_found.title": "No se encontraron fuentes",
@@ -337,5 +343,6 @@
   "settings.search": "Buscar en Ajustes",
   "settings.search_hint": "Subtítulos, paleta, puerto…",
   "src.resolving": "Buscando este episodio en tus extensiones… puede tardar hasta un minuto.",
-  "src.pick_missing": "Tu elección ({name}) no apareció esta vez."
+  "src.pick_missing": "Tu elección ({name}) no apareció esta vez.",
+  "src.change_short": "Cambiar ({n})"
 }

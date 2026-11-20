@@ -119,7 +119,7 @@ enum class EpisodeView(override val id: String) : LookChoice {
     COMPACT("compact"),
     ;
 
-    internal object Serializer : LookChoiceSerializer<EpisodeView>("EpisodeView", entries, CARDS)
+    internal object Serializer : LookChoiceSerializer<EpisodeView>("EpisodeView", entries, LIST)
 }
 
 /** Related titles of Details. */
@@ -154,13 +154,57 @@ enum class CalendarView(override val id: String) : LookChoice {
     internal object Serializer : LookChoiceSerializer<CalendarView>("CalendarView", entries, WEEK)
 }
 
+/**
+ * Ficha "Cine editorial" (desktop `page_style`): how the Details header and the Home hero are drawn. Same ids as the desktop
+ * `PageStyle` (`standard`, `editorial`); the CINEMA preset turns it on.
+ */
+@Serializable(with = PageStyle.Serializer::class)
+enum class PageStyle(override val id: String) : LookChoice {
+    /** Fanart with the poster beside the title (the default header). */
+    STANDARD("standard"),
+
+    /** Full-bleed sharp fanart under a veil, a large display title on it, no poster; the Home hero capped to 45 % of the height. */
+    EDITORIAL("editorial"),
+    ;
+
+    internal object Serializer : LookChoiceSerializer<PageStyle>("PageStyle", entries, STANDARD)
+}
+
+/**
+ * Composition of the Details header (desktop `header_layout`, same ids). The genres live in the Info tab in every composition. No
+ * preset changes it; a stored look without it (or with an unknown id) reads as [FACTS_NEXT_UP].
+ */
+@Serializable(with = HeaderLayout.Serializer::class)
+enum class HeaderLayout(override val id: String) : LookChoice {
+    /** A: the facts as one line; the main button (resume time and progress inside), the source line and the icon tools as one block. */
+    LINE("line"),
+
+    /** B: labelled facts (status, next, episodes, year, score), the main button and named secondary actions. */
+    FACTS("facts"),
+
+    /** C: the facts line, icon tools and a card with the next episode, its progress, the main button and the source. */
+    NEXT_UP("nextup"),
+
+    /** D: B's labelled facts and named actions plus C's episode card (the default). */
+    FACTS_NEXT_UP("facts_nextup"),
+    ;
+
+    /** The next-episode card holds the main button and the source line. */
+    val hasCard: Boolean get() = this == NEXT_UP || this == FACTS_NEXT_UP
+
+    /** Labelled facts grid instead of the facts line. */
+    val usesFacts: Boolean get() = this == FACTS || this == FACTS_NEXT_UP
+
+    internal object Serializer : LookChoiceSerializer<HeaderLayout>("HeaderLayout", entries, FACTS_NEXT_UP)
+}
+
 /** A named bundle of every [LookPrefs] field. */
 @Serializable(with = LookPreset.Serializer::class)
 enum class LookPreset(override val id: String) : LookChoice {
     /** The default: expressive Material 3 with the spotlight hero. */
     TATAKAI("tatakai"),
 
-    /** Cinema: slim rail, spotlight hero, minimal posters. */
+    /** "Cine editorial": slim rail, spotlight hero, minimal posters, editorial Details header. */
     CINEMA("cinema"),
 
     /** Dense: rows first, compact cards and lists. */
@@ -190,7 +234,8 @@ data class LookPrefs(
     val motion: Motion = Motion.EXPRESSIVE,
     /** Blur / glass effects (desktop). Not offered on Android (a real-time blur is too heavy for low-end phones); kept so the presets match. */
     val glass: Boolean = false,
-    val episodeView: EpisodeView = EpisodeView.CARDS,
+    /** Ficha "Primero el episodio": LIST is the default of every preset (a stored look without [rev] moves from CARDS once). */
+    val episodeView: EpisodeView = EpisodeView.LIST,
     val relationsView: RelationsView = RelationsView.GRAPH,
     val calendarView: CalendarView = CalendarView.WEEK,
     /** The Home hero rotates by itself. */
@@ -199,11 +244,21 @@ data class LookPrefs(
     val heroIntervalSecs: Int = 9,
     /** The greeting ("Buenas noches") above Home. */
     val showGreeting: Boolean = false,
+    /** Details header / Home hero style; a stored look without it takes its preset's value (like [cardSize]). */
+    val pageStyle: PageStyle = PageStyle.STANDARD,
+    /** Composition of the Details header; the same for every preset. */
+    val headerLayout: HeaderLayout = HeaderLayout.FACTS_NEXT_UP,
+    /** Schema revision of the stored look: 1 = the episode list default moved to LIST (absent in older stores). */
+    val rev: Int = CURRENT_REV,
 ) {
-    /** The preset whose fields all equal these ([preset] itself ignored); null = custom. */
-    fun matchingPreset(): LookPreset? = LookPreset.entries.firstOrNull { of(it).copy(preset = preset) == this }
+    /**
+     * The preset whose fields all equal these ([preset] itself ignored); null = custom. [headerLayout] is ignored too: no preset sets
+     * it, so picking a header composition never turns the look into "Personalizado".
+     */
+    fun matchingPreset(): LookPreset? = LookPreset.entries.firstOrNull { of(it).copy(preset = preset, headerLayout = headerLayout) == this }
 
-    fun sanitized(): LookPrefs = copy(heroIntervalSecs = heroIntervalSecs.coerceIn(HERO_INTERVAL_MIN, HERO_INTERVAL_MAX))
+    /** Clamped interval and the current [rev] (an older or unknown revision never reads as "Personalizado"). */
+    fun sanitized(): LookPrefs = copy(heroIntervalSecs = heroIntervalSecs.coerceIn(HERO_INTERVAL_MIN, HERO_INTERVAL_MAX), rev = CURRENT_REV)
 
     /** Hero autoplay period in milliseconds, null when autoplay is off. */
     fun heroAutoplayMs(): Long? = if (heroAutoplay) heroIntervalSecs.coerceIn(HERO_INTERVAL_MIN, HERO_INTERVAL_MAX) * 1000L else null
@@ -211,6 +266,9 @@ data class LookPrefs(
     companion object {
         const val HERO_INTERVAL_MIN = 4
         const val HERO_INTERVAL_MAX = 30
+
+        /** [rev] written by this version. */
+        const val CURRENT_REV = 1
 
         /** Every field of a preset (values of the desktop `LookPrefs::preset`). */
         fun of(p: LookPreset): LookPrefs {
@@ -223,6 +281,7 @@ data class LookPrefs(
                     railStyle = RailStyle.SLIM,
                     glass = true,
                     heroIntervalSecs = 12,
+                    pageStyle = PageStyle.EDITORIAL,
                 )
                 LookPreset.DENSE -> base.copy(
                     homeLayout = HomeLayout.ROWS,
@@ -231,7 +290,6 @@ data class LookPrefs(
                     railStyle = RailStyle.SLIM,
                     density = Density.COMPACT,
                     motion = Motion.SUBTLE,
-                    episodeView = EpisodeView.LIST,
                     relationsView = RelationsView.LIST,
                     calendarView = CalendarView.AGENDA,
                     showGreeting = true,
@@ -241,7 +299,6 @@ data class LookPrefs(
                     cardStyle = CardStyle.CLASSIC,
                     motion = Motion.SUBTLE,
                     heroAutoplay = false,
-                    episodeView = EpisodeView.LIST,
                     calendarView = CalendarView.DAY,
                     showGreeting = true,
                 )

@@ -9,6 +9,17 @@ import android.content.Intent
 import android.content.res.Resources
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ButtonDefaults
+import app.tatakai.next.ui.media.displayTitle
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import app.tatakai.next.model.PageStyle
+import app.tatakai.next.ui.look.LocalLook
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -86,6 +97,7 @@ import app.tatakai.next.feature.torrents.rememberDownloadGate
 import app.tatakai.next.model.AppError
 import app.tatakai.next.model.LinkState
 import app.tatakai.next.model.LoadState
+import app.tatakai.next.model.HeaderLayout
 import app.tatakai.next.model.Media
 import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
@@ -192,6 +204,9 @@ fun DetailsScreen(
                 is DetailsEvent.ListUpdateFailed -> snackbar.show(
                     resources.getString(R.string.details_mark_failed, event.cause.describe(resources)),
                 )
+                is DetailsEvent.FavoriteFailed -> snackbar.show(
+                    resources.getString(R.string.details_favorite_failed, event.cause.describe(resources)),
+                )
             }
         }
     }
@@ -238,10 +253,14 @@ fun DetailsScreen(
         onAcceptAdult = viewModel::acceptAdult,
         onRevealCover = viewModel::revealCover,
         onToggleWatched = viewModel::toggleWatched.takeIf { viewModel.canToggleWatched },
+        onToggleFavorite = viewModel::toggleFavorite.takeIf { viewModel.canToggleWatched },
     )
     val seed = parseHexColor((state.media as? LoadState.Ok)?.value?.color)
     TatakaiSeedTheme(seed = seed) {
-        DetailsContent(state = state, actions = actions, modifier = modifier)
+        // The minute ticker drives the "Al día" -> "Continuar" switch and the unaired marks (no clock reads in getters).
+        val nowSec = rememberNowSec()
+        val clocked = remember(state, nowSec) { state.copy(clockSec = nowSec) }
+        DetailsContent(state = clocked, actions = actions, modifier = modifier)
         state.picker?.let { request ->
             val panel = state.panel?.takeIf { it.episode == request.episode }
             SourcePickerSheet(
@@ -316,6 +335,8 @@ internal data class DetailsActions(
     val onRevealCover: () -> Unit = {},
     /** Episode row "Marcar como visto / no visto" (list progress); null = no lists layer (the button is hidden). */
     val onToggleWatched: ((Int) -> Unit)? = null,
+    /** Header "Favorito"; null = no lists layer (the action is hidden). */
+    val onToggleFavorite: (() -> Unit)? = null,
 )
 
 @Composable
@@ -325,40 +346,99 @@ internal fun DetailsContent(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     // BUG-062 / BUG-078: the list scrolled past the header (title + "Continuar" button).
     val pastHeader by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
     val scrolled by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 } }
     val density = LocalDensity.current
     var toolbarHeight by remember { mutableStateOf(0.dp) }
-    Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    // Ficha "Primero el episodio": the tab lives here so the copy pinned in the top bar and the one in the list are the same.
+    var tab by rememberSaveable { mutableIntStateOf(DetailsTab.EPISODES.ordinal) }
+    val selectedTab = DetailsTab.entries[tab]
+    // Status bar + bar row: where the list's tabs count as "under the bar".
+    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val barRowPx = with(density) { (statusTop + 56.dp).roundToPx() }
+    BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        val wide = maxWidth >= WIDE_BREAKPOINT
+        val phone = !wide
+        val tabsAt = TABS_INDEX
+        // The list's tabs went under the top bar: the bar shows its own copy (never both visible). layoutInfo is read only here.
+        val tabsPinned by remember(tabsAt, barRowPx) {
+            derivedStateOf {
+                val info = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == TABS_KEY }
+                if (info == null) listState.firstVisibleItemIndex > tabsAt else info.offset <= barRowPx + 1
+            }
+        }
+        val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         LoadStateContent(state = state.media, onRetry = actions.onRetry) { media ->
             if (state.adultGate) {
                 AdultGate(actions)
             } else {
-                // BUG-063: the list reserves the floating toolbar's measured height (plus its margins and the navigation bar), so
-                // the last card is never under it.
-                val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                DetailsBody(media, state, actions, listState, bottomPadding = toolbarHeight + 32.dp + navBottom)
+                // BUG-063: wide windows reserve the floating toolbar's measured height (plus its margins and the navigation bar), so
+                // the last card is never under it. Phones have no floating toolbar: the action sits in the pinned top bar.
+                val bottom = if (wide) toolbarHeight + 32.dp + navBottom else navBottom + 24.dp
+                DetailsBody(media, state, actions, listState, bottom, wide, maxWidth, selectedTab, tabsPinned) { tab = it.ordinal }
             }
         }
+        val loaded = (state.media as? LoadState.Ok)?.value
         // BUG-062 (UX-03) / BUG-108: once the list scrolls, an opaque top bar (status bar + back + title) replaces the floating back
-        // button: the 92 % veil let the tabs show under the clock and the round button sat on top of "Buscar episodio".
-        AnimatedVisibility(scrolled, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
-            Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.statusBarsPadding().height(56.dp).padding(start = 4.dp, end = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(onClick = actions.onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back))
-                    }
-                    (state.media as? LoadState.Ok)?.value?.let { m ->
+        // button. Ficha "Primero el episodio": `surface` (pure black on AMOLED, no seed tint), a tonal "▶ Ep. N" on phones and the
+        // pinned tabs once the list's ones passed under it.
+        // Wide: the bar spans the list column only, so it never covers the side source / send panels.
+        val barWidth = if (wide) Modifier.width(maxWidth - SIDE_WIDTH) else Modifier.fillMaxWidth()
+        AnimatedVisibility(scrolled, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopStart).then(barWidth)) {
+            Surface(color = MaterialTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.statusBarsPadding()) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .padding(start = 4.dp, end = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconButton(onClick = actions.onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back))
+                        }
                         Text(
-                            m.title,
+                            // the header's title (same title-language choice), not the raw provider title
+                            loaded?.displayTitle(state.titleLanguage).orEmpty(),
                             style = MaterialTheme.typography.titleMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(start = 4.dp),
+                            modifier = Modifier.weight(1f).padding(start = 4.dp),
+                        )
+                        if (phone && loaded != null && !state.adultGate && state.playable) {
+                            // "Ep. 4: Continuar episodio 4": the visible text first (label in name)
+                            val long = stringResource(R.string.details_fact_cd, stringResource(R.string.details_bar_ep, state.continueEpisode), watchLabels(state).long)
+                            FilledTonalButton(
+                                onClick = actions.onWatch,
+                                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = long },
+                                contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
+                                // primaryContainer / onPrimaryContainer: the seeded secondary pair read as disabled in dark mode
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                ),
+                            ) {
+                                Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Text(
+                                    stringResource(R.string.details_bar_ep, state.continueEpisode),
+                                    modifier = Modifier.padding(start = 6.dp),
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
+                    if (loaded != null && !state.adultGate && tabsPinned) {
+                        DetailsTabs(
+                            selectedTab,
+                            onTab = { t ->
+                                tab = t.ordinal
+                                // back to the top of the new tab's content, the tabs right under the bar row
+                                scope.launch { listState.scrollToItem(tabsAt, scrollOffset = -barRowPx) }
+                            },
+                            modifier = Modifier,
+                            containerColor = MaterialTheme.colorScheme.surface,
                         )
                     }
                 }
@@ -374,11 +454,9 @@ internal fun DetailsContent(
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(UiR.string.ui_back))
             }
         }
-        val loaded = (state.media as? LoadState.Ok)?.value
-        if (loaded != null && !state.adultGate) {
-            // Floating toolbar (prototype `.ftb`): the main actions stay at hand while the episode list scrolls. BUG-078 / BUG-056:
-            // it shows up only once the header (with its own "Continuar" button) left the screen, so it neither repeats that button
-            // nor covers the title (in landscape the header takes almost the whole height).
+        if (wide && loaded != null && !state.adultGate) {
+            // Floating toolbar (prototype `.ftb`, wide windows only): the main actions stay at hand while the episode list scrolls.
+            // BUG-078 / BUG-056: it shows up only once the header (with its own "Continuar" button) left the screen.
             AnimatedVisibility(
                 visible = pastHeader,
                 enter = fadeIn() + slideInVertically { it },
@@ -391,7 +469,7 @@ internal fun DetailsContent(
                         .padding(16.dp)
                         .onSizeChanged { toolbarHeight = with(density) { it.height.toDp() } },
                 ) {
-                    TextButton(onClick = actions.onWatch) {
+                    TextButton(onClick = actions.onWatch, enabled = state.playable) {
                         Icon(Icons.Filled.PlayArrow, contentDescription = null)
                         Text(watchLabel(state), modifier = Modifier.padding(start = 6.dp), maxLines = 1)
                     }
@@ -407,42 +485,80 @@ internal fun DetailsContent(
 }
 
 @Composable
-internal fun watchLabel(state: DetailsUiState): String = when {
-    !state.hasProgress -> stringResource(R.string.details_watch_ep, state.continueEpisode)
-    else -> stringResource(R.string.details_continue, state.continueEpisode)
+internal fun watchLabel(state: DetailsUiState): String = when (state.watchAction) {
+    WatchAction.START -> stringResource(R.string.details_watch_ep, state.continueEpisode)
+    WatchAction.CONTINUE -> stringResource(R.string.details_continue, state.continueEpisode)
+    WatchAction.REWATCH -> stringResource(R.string.details_rewatch)
+    WatchAction.UP_TO_DATE -> stringResource(if (state.hasProgress) R.string.details_up_to_date else R.string.details_coming_soon)
 }
 
-/** Phone: one column (header, source panel, tabs). Wide (≥ 840 dp): tabs on the left, source + send panels on the right. */
+/** Phone: one column (header, source line, tabs). Wide (≥ 840 dp): tabs on the left, source + send panels on the right. */
 @Composable
-private fun DetailsBody(media: Media, state: DetailsUiState, actions: DetailsActions, listState: LazyListState, bottomPadding: Dp) {
-    var tab by rememberSaveable { mutableIntStateOf(DetailsTab.EPISODES.ordinal) }
+private fun DetailsBody(
+    media: Media,
+    state: DetailsUiState,
+    actions: DetailsActions,
+    listState: LazyListState,
+    bottomPadding: Dp,
+    wide: Boolean,
+    /** Width of the content: from 600 dp C caps its card to a reading width, from 720 dp D puts it beside the facts. */
+    bodyWidth: Dp,
+    selectedTab: DetailsTab,
+    /** The top bar shows its copy of the tabs: the list's one is hidden from TalkBack. */
+    tabsPinned: Boolean,
+    onTab: (DetailsTab) -> Unit,
+) {
     var range by rememberSaveable(media.ref) { mutableIntStateOf((state.continueEpisode - 1).coerceAtLeast(0) / RANGE_SIZE) }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val wide = maxWidth >= WIDE_BREAKPOINT
-        val selectedTab = DetailsTab.entries[tab]
-        if (wide) {
-            Row(Modifier.fillMaxSize()) {
-                LazyColumn(Modifier.weight(1f).fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = bottomPadding)) {
-                    detailsItems(media, state, actions, selectedTab, { tab = it.ordinal }, range, { range = it }, includePanel = false, cardColumns = 2)
-                }
-                Column(
-                    Modifier
-                        .width(SIDE_WIDTH)
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .statusBarsPadding()
-                        .padding(16.dp)
-                        .padding(bottom = bottomPadding),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                ) {
-                    SourcePanelCard(state, actions)
-                    SendToDevicePanel(state, actions)
-                }
+    var showEarlier by rememberSaveable(media.ref, range) { mutableStateOf(false) }
+    val look = LocalLook.current
+    val editorial = look.pageStyle == PageStyle.EDITORIAL
+    val layout = look.headerLayout
+    val place = when {
+        wide -> CardPlace.SIDE_COLUMN
+        layout == HeaderLayout.NEXT_UP && bodyWidth >= MEDIUM_BREAKPOINT -> CardPlace.BESIDE
+        // under ~720 dp the grid beside a 340 dp card has ~50 dp cells
+        layout == HeaderLayout.FACTS_NEXT_UP && bodyWidth >= BESIDE_BREAKPOINT -> CardPlace.BESIDE
+        else -> CardPlace.STACKED
+    }
+    val head = rememberHeadModel(media, state, layout, editorial, place)
+    // Built once per data change, not in every pass of the list builder (scroll jank in long series).
+    val eps = (state.episodes as? LoadState.Ok)?.value
+    val nextAiring = state.detailsOrNull?.nextAiring
+    val nowSec = state.clockSec ?: (System.currentTimeMillis() / 1000)
+    val all = remember(eps, nextAiring, media.episodes, nowSec) { eps?.let { buildEpisodeItems(it, nextAiring, media.episodes, nowSec) } }
+    val lists = remember(all, state.episodeQuery) { all?.let { EpisodeLists(it, filterEpisodes(it, state.episodeQuery)) } }
+    if (wide) {
+        Row(Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.weight(1f).fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = bottomPadding)) {
+                detailsItems(
+                    media, state, actions, selectedTab, onTab, range, { range = it },
+                    phone = false, editorial = editorial, episodeLists = lists,
+                    showEarlier = showEarlier, onShowEarlier = { showEarlier = true }, tabsPinned = tabsPinned, head = head, cardColumns = 2,
+                )
             }
-        } else {
-            LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = bottomPadding)) {
-                detailsItems(media, state, actions, selectedTab, { tab = it.ordinal }, range, { range = it }, includePanel = true)
+            Column(
+                Modifier
+                    .width(SIDE_WIDTH)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .statusBarsPadding()
+                    .padding(16.dp)
+                    .padding(bottom = bottomPadding),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                // C / D: the next-episode card heads the side column (the panel below already shows the source)
+                if (layout.hasCard) NextUpCard(head, media, state, actions, footer = false, modifier = Modifier.fillMaxWidth())
+                SourcePanelCard(state, actions)
+                SendToDevicePanel(state, actions)
             }
+        }
+    } else {
+        LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = bottomPadding)) {
+            detailsItems(
+                media, state, actions, selectedTab, onTab, range, { range = it },
+                phone = true, editorial = editorial, episodeLists = lists,
+                showEarlier = showEarlier, onShowEarlier = { showEarlier = true }, tabsPinned = tabsPinned, head = head,
+            )
         }
     }
 }
@@ -546,4 +662,6 @@ internal enum class DetailsTab { EPISODES, INFO, CHARACTERS, RELATED }
 
 internal const val RANGE_SIZE = 100
 private val WIDE_BREAKPOINT = 840.dp
+private val MEDIUM_BREAKPOINT = 600.dp
+private val BESIDE_BREAKPOINT = 720.dp
 private val SIDE_WIDTH = 380.dp

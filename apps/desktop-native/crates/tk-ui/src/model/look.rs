@@ -2,7 +2,7 @@
 //!
 //! Every choice is a small enum persisted by id. The shell writes the global ones as attributes on `<html>`
 //! ([`LookPrefs::html_attrs`]: `data-density`, `data-rail`, `data-cards`, `data-card-size`, `data-motion`,
-//! `data-effects`) so CSS
+//! `data-effects`, `data-style`) so CSS
 //! applies them without re-rendering; the screens read the rest (home layout, episode view, relations view,
 //! calendar view, hero autoplay) from `Settings::look`.
 //!
@@ -168,13 +168,57 @@ choice!(
     EpisodeView, "episodes", {
         /// Two columns of large cards: thumbnail with length and rating, title, synopsis, relative date.
         Cards => "cards",
-        /// One row per episode with a small thumbnail.
+        /// One row per episode with a small thumbnail (the default since look rev 1: the next episode fits on
+        /// the first screen).
         List => "list",
         /// Numbers and titles only.
         Compact => "compact",
     },
-    default = Cards
+    default = List
 );
+
+choice!(
+    /// Page style of the Details header and the Home hero (`data-style`). Same fonts, palette and shapes; only the
+    /// composition changes.
+    PageStyle, "style", {
+        /// Poster beside the title, blurred fanart behind, the sources panel at the side.
+        Standard => "standard",
+        /// "Cine editorial": sharp full-bleed fanart under a veil, no poster, large display title, metadata as one
+        /// text line and the source as one line in the header.
+        Editorial => "editorial",
+    },
+    default = Standard
+);
+
+choice!(
+    /// Composition of the Details header (`data-dhead` on `.tk-dhead`, Details of anime only). The genres live in the
+    /// Info tab in every composition.
+    HeaderLayout, "header", {
+        /// A: the facts as one quiet line; the main button (with the resume time and progress inside), the tools and
+        /// the source as one block.
+        Line => "line",
+        /// B: labelled facts (status, next, episodes, year, score) and named secondary actions.
+        Facts => "facts",
+        /// C: the facts line and icon tools on the left; a card with the next episode, its progress, the main
+        /// button and the source on the right.
+        NextUp => "nextup",
+        /// D: B's labelled facts and named actions plus C's episode card (the default).
+        FactsNextUp => "facts_nextup",
+    },
+    default = FactsNextUp
+);
+
+impl HeaderLayout {
+    /// The next-episode card holds the main button and the source line.
+    pub fn has_card(self) -> bool {
+        matches!(self, Self::NextUp | Self::FactsNextUp)
+    }
+
+    /// Labelled facts (`dl.tk-dhead__facts`) instead of the one-line metadata.
+    pub fn uses_facts(self) -> bool {
+        matches!(self, Self::Facts | Self::FactsNextUp)
+    }
+}
 
 choice!(
     /// Related titles of Details.
@@ -221,6 +265,10 @@ choice!(
 pub const HERO_INTERVAL_MIN: u8 = 4;
 pub const HERO_INTERVAL_MAX: u8 = 30;
 
+/// Revision of the stored look. A file without `rev` predates rev 1, when the default episode view went from Cards
+/// to List: such a file with Cards is moved to List once (the old default; a later choice of Cards is kept).
+pub const LOOK_REV: u8 = 1;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, from = "LookPrefsWire")]
 pub struct LookPrefs {
@@ -244,6 +292,12 @@ pub struct LookPrefs {
     pub hero_interval_secs: u8,
     /// The greeting ("Good evening") above Home.
     pub show_greeting: bool,
+    /// Details header and Home hero composition (`data-style`).
+    pub page_style: PageStyle,
+    /// Composition of the Details header (`data-dhead`).
+    pub header_layout: HeaderLayout,
+    /// Always [`LOOK_REV`] once read (see the migration in `From<LookPrefsWire>`).
+    pub rev: u8,
 }
 
 impl Default for LookPrefs {
@@ -253,7 +307,8 @@ impl Default for LookPrefs {
 }
 
 /// What a settings file holds. `card_size` arrived in 0.3.2: a file written before has none, and then the size of
-/// its preset applies (a "Cinema" user keeps reading as Cinema instead of turning "Custom").
+/// its preset applies (a "Cinema" user keeps reading as Cinema instead of turning "Custom"). `page_style` follows
+/// the same rule; a missing `rev` triggers the one-time Cards → List move of the episode view.
 #[derive(Deserialize)]
 #[serde(default)]
 struct LookPrefsWire {
@@ -271,6 +326,9 @@ struct LookPrefsWire {
     hero_autoplay: bool,
     hero_interval_secs: u8,
     show_greeting: bool,
+    page_style: Option<PageStyle>,
+    header_layout: Option<HeaderLayout>,
+    rev: Option<u8>,
 }
 
 impl Default for LookPrefsWire {
@@ -291,6 +349,9 @@ impl Default for LookPrefsWire {
             hero_autoplay: d.hero_autoplay,
             hero_interval_secs: d.hero_interval_secs,
             show_greeting: d.show_greeting,
+            page_style: None,
+            header_layout: None,
+            rev: None,
         }
     }
 }
@@ -306,12 +367,18 @@ impl From<LookPrefsWire> for LookPrefs {
             density: w.density,
             motion: w.motion,
             glass: w.glass,
-            episode_view: w.episode_view,
+            episode_view: match (w.rev, w.episode_view) {
+                (None, EpisodeView::Cards) => EpisodeView::List,
+                (_, v) => v,
+            },
             relations_view: w.relations_view,
             calendar_view: w.calendar_view,
             hero_autoplay: w.hero_autoplay,
             hero_interval_secs: w.hero_interval_secs,
             show_greeting: w.show_greeting,
+            page_style: w.page_style.unwrap_or_else(|| LookPrefs::preset(w.preset).page_style),
+            header_layout: w.header_layout.unwrap_or_else(|| LookPrefs::preset(w.preset).header_layout),
+            rev: LOOK_REV,
         }
     }
 }
@@ -328,12 +395,15 @@ impl LookPrefs {
             density: Density::Comfortable,
             motion: Motion::Expressive,
             glass: false,
-            episode_view: EpisodeView::Cards,
+            episode_view: EpisodeView::List,
             relations_view: RelationsView::Graph,
             calendar_view: CalendarView::Week,
             hero_autoplay: true,
             hero_interval_secs: 9,
             show_greeting: false,
+            page_style: PageStyle::Standard,
+            header_layout: HeaderLayout::FactsNextUp,
+            rev: LOOK_REV,
         };
         match p {
             LookPreset::Cinema => Self {
@@ -342,6 +412,7 @@ impl LookPrefs {
                 rail_style: RailStyle::Slim,
                 glass: true,
                 hero_interval_secs: 12,
+                page_style: PageStyle::Editorial,
                 ..base
             },
             LookPreset::Dense => Self {
@@ -351,7 +422,6 @@ impl LookPrefs {
                 rail_style: RailStyle::Slim,
                 density: Density::Compact,
                 motion: Motion::Subtle,
-                episode_view: EpisodeView::List,
                 relations_view: RelationsView::List,
                 calendar_view: CalendarView::Agenda,
                 show_greeting: true,
@@ -362,7 +432,6 @@ impl LookPrefs {
                 card_style: CardStyle::Classic,
                 motion: Motion::Subtle,
                 hero_autoplay: false,
-                episode_view: EpisodeView::List,
                 calendar_view: CalendarView::Day,
                 show_greeting: true,
                 ..base
@@ -371,13 +440,20 @@ impl LookPrefs {
         }
     }
 
-    /// The preset whose fields all equal these (`preset` itself ignored); `None` = custom.
+    /// The preset whose fields all equal these (`preset` itself ignored); `None` = custom. The Details header
+    /// composition is not part of a preset: choosing one never turns the look "Custom" (as on Android).
     pub fn matching_preset(&self) -> Option<LookPreset> {
         LookPreset::ALL.iter().copied().find(|p| {
             let mut x = Self::preset(*p);
             x.preset = self.preset;
+            x.header_layout = self.header_layout;
             x == *self
         })
+    }
+
+    /// Applies preset `p` and keeps the chosen Details header composition (not part of any preset).
+    pub fn with_preset(&self, p: LookPreset) -> Self {
+        Self { header_layout: self.header_layout, ..Self::preset(p) }
     }
 
     pub fn sanitized(self) -> Self {
@@ -393,7 +469,7 @@ impl LookPrefs {
     }
 
     /// Attributes the shell sets on `<html>` (CSS hooks in app.css / the area stylesheets).
-    pub fn html_attrs(&self) -> [(&'static str, &'static str); 6] {
+    pub fn html_attrs(&self) -> [(&'static str, &'static str); 7] {
         [
             ("data-density", self.density.id()),
             ("data-rail", self.rail_style.id()),
@@ -401,6 +477,7 @@ impl LookPrefs {
             ("data-card-size", self.card_size.id()),
             ("data-motion", self.motion.id()),
             ("data-effects", if self.glass { "glass" } else { "flat" }),
+            ("data-style", self.page_style.id()),
         ]
     }
 }
@@ -420,7 +497,11 @@ mod tests {
         for v in LookPreset::ALL {
             assert_eq!(LookPreset::from_id(v.id()), Some(*v));
         }
-        assert_eq!(EpisodeView::default().id(), "cards");
+        assert_eq!(EpisodeView::default().id(), "list");
+        for v in PageStyle::ALL {
+            assert_eq!(PageStyle::from_id(v.id()), Some(*v));
+        }
+        assert_eq!(PageStyle::Editorial.label_key(), "look.style.editorial");
         assert_eq!(Motion::default().label_key(), "look.motion.expressive");
     }
 
@@ -458,6 +539,104 @@ mod tests {
         assert!(a.contains(&("data-effects", "flat")));
         assert!(a.contains(&("data-card-size", "small")));
         assert!(LookPrefs::default().html_attrs().contains(&("data-card-size", "medium")));
+        assert!(a.contains(&("data-style", "standard")));
+        assert!(LookPrefs::preset(LookPreset::Cinema).html_attrs().contains(&("data-style", "editorial")));
+    }
+
+    #[test]
+    fn every_preset_lists_episodes_and_only_cinema_is_editorial() {
+        for p in LookPreset::ALL {
+            let s = LookPrefs::preset(*p);
+            assert_eq!(s.episode_view, EpisodeView::List, "{p:?}");
+            assert_eq!(s.page_style == PageStyle::Editorial, *p == LookPreset::Cinema, "{p:?}");
+            assert_eq!(s.rev, LOOK_REV);
+        }
+    }
+
+    #[test]
+    fn a_file_without_rev_moves_cards_to_list_once() {
+        // Written before rev 1 with the old default (Cards): read as List, and the preset still matches.
+        let mut old = serde_json::to_value(LookPrefs::preset(LookPreset::Tatakai)).unwrap();
+        let o = old.as_object_mut().unwrap();
+        o.remove("rev");
+        o.remove("page_style");
+        o.remove("header_layout");
+        o.insert("episode_view".into(), "cards".into());
+        let s: LookPrefs = serde_json::from_value(old).unwrap();
+        assert_eq!(s.episode_view, EpisodeView::List);
+        assert_eq!(s.rev, LOOK_REV);
+        assert_eq!(s.matching_preset(), Some(LookPreset::Tatakai));
+        // Compact is left alone.
+        let s: LookPrefs = serde_json::from_str(r#"{"episode_view":"compact"}"#).unwrap();
+        assert_eq!(s.episode_view, EpisodeView::Compact);
+        // Cards chosen after the migration (the file carries rev) stays, also across a save / load round trip.
+        let mut chosen = LookPrefs::default();
+        chosen.episode_view = EpisodeView::Cards;
+        let back: LookPrefs = serde_json::from_str(&serde_json::to_string(&chosen).unwrap()).unwrap();
+        assert_eq!(back.episode_view, EpisodeView::Cards);
+        assert_eq!(back, chosen);
+    }
+
+    #[test]
+    fn a_cinema_file_from_before_page_styles_opens_editorial() {
+        let mut old = serde_json::to_value(LookPrefs::preset(LookPreset::Cinema)).unwrap();
+        old.as_object_mut().unwrap().remove("page_style");
+        let s: LookPrefs = serde_json::from_value(old).unwrap();
+        assert_eq!(s.page_style, PageStyle::Editorial);
+        assert_eq!(s.matching_preset(), Some(LookPreset::Cinema));
+        let s: LookPrefs = serde_json::from_str(r#"{"preset":"dense"}"#).unwrap();
+        assert_eq!(s.page_style, PageStyle::Standard);
+        // An explicit choice wins over the preset, and an unknown id reads as Standard.
+        let s: LookPrefs = serde_json::from_str(r#"{"preset":"cinema","page_style":"standard"}"#).unwrap();
+        assert_eq!(s.page_style, PageStyle::Standard);
+        let s: LookPrefs = serde_json::from_str(r#"{"page_style":"brutal"}"#).unwrap();
+        assert_eq!(s.page_style, PageStyle::Standard);
+    }
+
+    #[test]
+    fn header_layouts_default_to_facts_and_card_and_migrate() {
+        for v in HeaderLayout::ALL {
+            assert_eq!(HeaderLayout::from_id(v.id()), Some(*v));
+        }
+        assert_eq!(HeaderLayout::default(), HeaderLayout::FactsNextUp);
+        assert_eq!(HeaderLayout::default().label_key(), "look.header.facts_nextup");
+        assert!(HeaderLayout::NextUp.has_card() && HeaderLayout::FactsNextUp.has_card());
+        assert!(!HeaderLayout::Line.has_card() && !HeaderLayout::Facts.has_card());
+        assert!(HeaderLayout::Facts.uses_facts() && !HeaderLayout::NextUp.uses_facts());
+        // A file from before the setting opens in D, and every preset still matches.
+        for p in LookPreset::ALL {
+            let mut old = serde_json::to_value(LookPrefs::preset(*p)).unwrap();
+            old.as_object_mut().unwrap().remove("header_layout");
+            let s: LookPrefs = serde_json::from_value(old).unwrap();
+            assert_eq!(s.header_layout, HeaderLayout::FactsNextUp, "{p:?}");
+            assert_eq!(s.matching_preset(), Some(*p), "{p:?}");
+        }
+        let s: LookPrefs = serde_json::from_str(r#"{"header_layout":"stacked"}"#).unwrap();
+        assert_eq!(s.header_layout, HeaderLayout::FactsNextUp);
+        let s: LookPrefs = serde_json::from_str(r#"{"header_layout":"line"}"#).unwrap();
+        assert_eq!(s.header_layout, HeaderLayout::Line);
+        let back: LookPrefs = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.header_layout, HeaderLayout::Line);
+    }
+
+    #[test]
+    fn the_header_layout_is_not_part_of_a_preset() {
+        // Choosing a header keeps the preset recognised (never "Custom").
+        for p in LookPreset::ALL {
+            for h in HeaderLayout::ALL {
+                let mut s = LookPrefs::preset(*p);
+                s.header_layout = *h;
+                assert_eq!(s.matching_preset(), Some(*p), "{p:?} {h:?}");
+            }
+        }
+        // Applying a preset keeps the chosen header; the other fields follow the preset.
+        let mut s = LookPrefs::preset(LookPreset::Dense);
+        s.header_layout = HeaderLayout::NextUp;
+        let next = s.with_preset(LookPreset::Cinema);
+        assert_eq!(next.header_layout, HeaderLayout::NextUp);
+        assert_eq!(next.page_style, PageStyle::Editorial);
+        assert_eq!(next.matching_preset(), Some(LookPreset::Cinema));
+        assert_eq!(LookPrefs::default().with_preset(LookPreset::Calm).header_layout, HeaderLayout::FactsNextUp);
     }
 
     #[test]

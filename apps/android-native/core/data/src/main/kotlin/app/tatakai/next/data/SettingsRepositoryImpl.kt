@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import app.tatakai.next.model.AppSettings
 import app.tatakai.next.model.DownloadSettings
 import app.tatakai.next.model.FrameGenSettings
+import app.tatakai.next.model.EpisodeView
 import app.tatakai.next.model.LookPrefs
 import app.tatakai.next.model.NovelReaderSettings
 import app.tatakai.next.model.PlayerEngine
@@ -251,12 +252,19 @@ internal object SettingsCodec {
 
     /**
      * 0.3.2: `cardSize` is new; a stored look without it takes its preset's size (a Cine user keeps reading as Cine
-     * instead of "Personalizado").
+     * instead of "Personalizado"). Ficha "Cine editorial": `pageStyle` follows the same rule. Ficha "Primero el episodio": a look
+     * stored before `rev` existed moves its episode list from Tarjetas to Lista once (the new default of every preset); later
+     * choices of Tarjetas are kept because the look is then stored with `rev`.
      */
     private fun decodeLook(raw: String?): LookPrefs? {
         val look = decode(raw, LookPrefs.serializer()) ?: return null
-        val hasSize = raw != null && runCatching { json.parseToJsonElement(raw).jsonObject.containsKey("cardSize") }.getOrDefault(true)
-        val fixed = if (hasSize) look else look.copy(cardSize = LookPrefs.of(look.preset).cardSize)
+        val keys = raw?.let { runCatching { json.parseToJsonElement(it).jsonObject.keys }.getOrNull() }
+        fun has(key: String) = keys?.contains(key) ?: true
+        val preset = LookPrefs.of(look.preset)
+        var fixed = look
+        if (!has("cardSize")) fixed = fixed.copy(cardSize = preset.cardSize)
+        if (!has("pageStyle")) fixed = fixed.copy(pageStyle = preset.pageStyle)
+        if (!has("rev") && fixed.episodeView == EpisodeView.CARDS) fixed = fixed.copy(episodeView = EpisodeView.LIST)
         return fixed.sanitized()
     }
 

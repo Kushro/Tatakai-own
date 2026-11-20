@@ -100,4 +100,6 @@
     <string name="home_recs_reason_studio">Hecho por %1$s</string>
     <string name="home_recs_tab_atlas">Atlas</string>
     <string name="home_recs_tab_list">Lista</string>
+    <string name="home_follow_no_reminders">Sigues la serie, sin avisos: activa las notificaciones de Tatakai para recibirlos.</string>
+    <string name="home_follow_failed">No se pudo actualizar el seguimiento.</string>
 </resources>

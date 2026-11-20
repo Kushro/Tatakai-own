@@ -5,7 +5,9 @@
 //! - Compact: a dense grid of `N. Title · date` tiles.
 //!
 //! The in-page switch saves the choice to `Settings::look` (it replaced the `tk.details.episodeView` localStorage
-//! key). Ranges of 100, the search and the pills (filler, watched, unaired) work the same in every view.
+//! key). Ranges of 100, the search and the pills (filler, watched, unaired) work the same in every view. The
+//! episodes well before the one to continue fold into one "Earlier episodes (a–b)" row ([`hidden_leading`]), so the
+//! next episode is on the first screen.
 
 use dioxus::prelude::*;
 
@@ -120,6 +122,68 @@ pub fn rating_text(r: f32) -> String {
     format!("{:.2}", r)
 }
 
+/// After unfolding: focus the first row (the fold button is gone, focus would fall to `body`).
+const FOCUS_FIRST_ROW_JS: &str = "requestAnimationFrame(() => requestAnimationFrame(() => { \
+    const row = document.querySelector('.tk-deps > .tk-dep-wrap > .tk-dep'); if (row) row.focus({ preventScroll: false }); }));";
+
+/// Classes of an episode's wrapper, its row button and its watched toggle: rendered below, styled in details.css and
+/// targeted by [`focus_in_row_js`].
+const WRAP_CLASS: &str = "tk-dep-wrap";
+const ROW_CLASS: &str = "tk-dep";
+const MARK_CLASS: &str = "tk-dep__mark";
+
+/// The two focusable parts of an episode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowPart {
+    Row,
+    Mark,
+}
+
+/// Keys of an episode row with a watched toggle: one Tab stop per episode, the right arrow moves to the toggle (out
+/// of the Tab order), the left arrow back, M toggles without moving the focus.
+const ROW_KEYSHORTCUTS: &str = "ArrowRight M";
+
+/// Focuses one part of episode `n`'s row (after the next frame).
+fn focus_in_row_js(n: u32, part: RowPart) -> String {
+    let class = match part {
+        RowPart::Row => ROW_CLASS,
+        RowPart::Mark => MARK_CLASS,
+    };
+    format!(
+        "requestAnimationFrame(() => {{ const b = document.querySelector('.tk-deps > .{WRAP_CLASS}[data-ep=\"{n}\"] > .{class}'); if (b) b.focus(); }});"
+    )
+}
+
+/// After a watched toggle the list reloads (and the episode to continue moves on): keeps the focus on episode `n`'s
+/// row part. It only takes the focus back when it fell to `<body>` (never from somewhere the viewer moved it), stops
+/// at the first refocus, and checks for ~4 s at most (a list reload). A newer toggle replaces the watcher
+/// (`window.__tkKeepFocus` holds the live one).
+fn keep_focus_in_row_js(n: u32, part: RowPart) -> String {
+    let class = match part {
+        RowPart::Row => ROW_CLASS,
+        RowPart::Mark => MARK_CLASS,
+    };
+    format!(
+        "(() => {{ const tok = {{}}; window.__tkKeepFocus = tok; let i = 0; const tick = () => {{ \
+         if (window.__tkKeepFocus !== tok) return; const a = document.activeElement; \
+         if (!a || a === document.body) {{ const b = document.querySelector('.tk-deps > .{WRAP_CLASS}[data-ep=\"{n}\"] > .{class}'); \
+         if (b) {{ b.focus({{ preventScroll: true }}); window.__tkKeepFocus = null; return; }} }} \
+         if (++i < 40) setTimeout(tick, 100); else window.__tkKeepFocus = null; }}; requestAnimationFrame(tick); }})();"
+    )
+}
+
+/// Fewer leading episodes than this are never folded (one row folded into one row saves nothing).
+pub const MIN_HIDDEN: usize = 2;
+
+/// How many of the first `numbers` (the shown episodes, in order) fold into "Earlier episodes": every one before
+/// `current - 1` (the previous episode stays as context), when that is at least [`MIN_HIDDEN`], and never the last
+/// shown one. `None` / 0 = no episode to continue: nothing folds. Pure.
+pub fn hidden_leading(numbers: &[u32], current: Option<u32>) -> usize {
+    let Some(current) = current.filter(|c| *c > 0) else { return 0 };
+    let n = numbers.iter().take_while(|n| **n + 1 < current).count().min(numbers.len().saturating_sub(1));
+    if n >= MIN_HIDDEN { n } else { 0 }
+}
+
 /// Episode views in switch order with their icons.
 const VIEWS: [(EpisodeView, &str); 3] =
     [(EpisodeView::Cards, "grid"), (EpisodeView::List, "list"), (EpisodeView::Compact, "menu")];
@@ -166,6 +230,8 @@ pub fn IconSegmented(
                     r#type: "button",
                     role: "radio",
                     "data-view-option": "{id}",
+                    // Tooltip while CSS draws the group as icons (narrow Details).
+                    title: "{text}",
                     "aria-checked": if id == selected { "true" } else { "false" },
                     tabindex: if i == current { "0" } else { "-1" },
                     onclick: {
@@ -184,7 +250,11 @@ pub fn IconSegmented(
 pub fn EpisodeList(
     id: String,
     episodes: Vec<EpisodeVm>,
+    /// The "next" episode (highlighted, "Next" tag); 0 = none (never started, rewatch, up to date).
     resume: u32,
+    /// Episode the list opens on: its range and the "earlier episodes" fold. 0 = the start.
+    #[props(default)]
+    focus: u32,
     #[props(default)] next_airing: Option<AiringVm>,
     #[props(default)] now: i64,
     #[props(default = true)] images: bool,
@@ -209,17 +279,31 @@ pub fn EpisodeList(
 
     let max = episodes.iter().map(|e| e.number).max().unwrap_or(0);
     let ranges = episode_ranges(max, EPISODE_RANGE);
-    let mut range = use_signal(|| if resume > 0 { range_index_for(resume, EPISODE_RANGE) } else { 0 });
+    let mut range = use_signal(|| if focus > 0 { range_index_for(focus, EPISODE_RANGE) } else { 0 });
+    // The range whose earlier episodes the viewer unfolded (folding again happens on a range change).
+    let mut unfolded = use_signal(|| None::<usize>);
     let active = range().min(ranges.len().saturating_sub(1));
     let (from, to) = ranges.get(active).copied().unwrap_or((1, max));
     let q = query();
     let searching = !q.trim().is_empty();
     // A search looks through every episode, not only the selected range.
-    let shown: Vec<EpisodeVm> = if searching {
+    let mut shown: Vec<EpisodeVm> = if searching {
         filter_episodes(&episodes, &q)
     } else {
         episodes.iter().filter(|e| e.number >= from && e.number <= to).cloned().collect()
     };
+    let shown_count = shown.len();
+    // Only in the range that holds the focus episode (not in a range the viewer picked by hand).
+    let folded = if searching || unfolded() == Some(active) || !(from..=to).contains(&focus) {
+        0
+    } else {
+        hidden_leading(&shown.iter().map(|e| e.number).collect::<Vec<_>>(), Some(focus))
+    };
+    let earlier = (folded > 0).then(|| {
+        let (a, b) = (shown[0].number, shown[folded - 1].number);
+        tf("details.earlier", &[("from", &a.to_string()), ("to", &b.to_string())])
+    });
+    shown.drain(..folded);
     let options: Vec<(String, String)> = ranges
         .iter()
         .enumerate()
@@ -227,7 +311,6 @@ pub fn EpisodeList(
         .collect();
     let view_options: Vec<(String, String, String)> =
         VIEWS.iter().map(|(v, icon)| (v.id().to_owned(), t(&v.label_key()), (*icon).to_owned())).collect();
-    let shown_count = shown.len();
     let offset_now = offset();
 
     rsx! {
@@ -274,7 +357,24 @@ pub fn EpisodeList(
                 body: t("details.ep_search.none.body"),
             }
         }
-        div { class: "tk-list tk-deps", "data-view": "{active_view.id()}", "data-shown": "{shown_count}",
+        div {
+            class: "tk-list tk-deps",
+            "data-view": "{active_view.id()}",
+            "data-shown": "{shown_count}",
+            "data-folded": "{folded}",
+            if let Some(label) = earlier {
+                button {
+                    class: "tk-deps__earlier",
+                    r#type: "button",
+                    onclick: move |_| {
+                        unfolded.set(Some(active));
+                        // The button goes away with the fold: focus moves to the first episode it held.
+                        let _ = document::eval(FOCUS_FIRST_ROW_JS);
+                    },
+                    Icon { name: "chevron-down".to_string(), size: 20 }
+                    span { "{label}" }
+                }
+            }
             for e in shown {
                 {
                     let (id, n) = (id.clone(), e.number);
@@ -288,8 +388,39 @@ pub fn EpisodeList(
                     pills.extend(episode_pills(&e, resume, with_check).into_iter().map(|(k, tone)| (t(k), tone)));
                     let seen = e.watched >= WATCHED_AT;
                     let when = episode_when(&e, next_airing, now, offset_now);
+                    let toggles = with_check;
                     rsx! {
-                        div { key: "{n}", class: "tk-dep-wrap", "data-watched": "{seen}", "data-unaired": "{unaired}", "data-current": "{n == resume}",
+                        div {
+                            key: "{n}",
+                            class: WRAP_CLASS,
+                            "data-ep": "{n}",
+                            "data-watched": "{seen}",
+                            "data-unaired": "{unaired}",
+                            "data-current": "{n == resume}",
+                            onkeydown: move |e: KeyboardEvent| {
+                                let Some(toggle) = on_toggle.filter(|_| toggles) else { return };
+                                let m = e.modifiers();
+                                if m.ctrl() || m.alt() || m.meta() {
+                                    return;
+                                }
+                                let part = match e.key() {
+                                    Key::ArrowRight => RowPart::Mark,
+                                    Key::ArrowLeft => RowPart::Row,
+                                    Key::Character(c) if c.eq_ignore_ascii_case("m") => {
+                                        e.prevent_default();
+                                        // The rows the viewer is marking stay unfolded: marking ep. 5 moves the
+                                        // episode to continue to 6, and the fold would hide the row that has the
+                                        // focus.
+                                        unfolded.set(Some(active));
+                                        toggle.call((n, !seen));
+                                        let _ = document::eval(&keep_focus_in_row_js(n, RowPart::Row));
+                                        return;
+                                    }
+                                    _ => return,
+                                };
+                                e.prevent_default();
+                                let _ = document::eval(&focus_in_row_js(n, part));
+                            },
                             DetailsEpisode {
                                 episode: e.clone(),
                                 view: active_view,
@@ -299,6 +430,7 @@ pub fn EpisodeList(
                                 unaired,
                                 images,
                                 when,
+                                keyshortcuts: toggles,
                                 onclick: move |_| {
                                     if !unaired {
                                         navigator.push(Route::PlayerPage { id: id.clone(), episode: n });
@@ -313,8 +445,13 @@ pub fn EpisodeList(
                                     size: IconButtonSize::Sm,
                                     toggle: true,
                                     toggled: seen,
-                                    class: "tk-dep__mark".to_string(),
-                                    onclick: move |_| toggle.call((n, !seen)),
+                                    class: MARK_CLASS.to_string(),
+                                    tabindex: -1,
+                                    onclick: move |_| {
+                                        unfolded.set(Some(active));
+                                        toggle.call((n, !seen));
+                                        let _ = document::eval(&keep_focus_in_row_js(n, RowPart::Mark));
+                                    },
                                 }
                             }
                         }
@@ -337,6 +474,8 @@ fn DetailsEpisode(
     #[props(default)] fallback_image: Option<String>,
     /// Relative date / countdown line.
     #[props(default)] when: Option<String>,
+    /// The row has a watched toggle reached from it by keyboard ([`ROW_KEYSHORTCUTS`]).
+    #[props(default)] keyshortcuts: bool,
     #[props(default)] onclick: EventHandler<MouseEvent>,
 ) -> Element {
     let n = episode.number;
@@ -393,7 +532,19 @@ fn DetailsEpisode(
     };
     let title_el = rsx! {
         div { class: "tk-dep__title",
-            span { class: "tk-dep__name", "{heading}" }
+            // "N. " in its own span (same text): the editorial style shows the number as a display numeral instead.
+            span { class: "tk-dep__name",
+                if let Some(title) = episode.title.clone() {
+                    span { class: "tk-dep__n", "{n}. " }
+                    "{title}"
+                } else {
+                    "{heading}"
+                }
+            }
+            // List rows: one "Next" tag instead of a second "Continue" line (rows stay one line tall).
+            if current && view == EpisodeView::List {
+                span { class: "tk-dep__next", {t("details.next_tag")} }
+            }
             for (text , tone) in pills {
                 Pill { key: "{text}", text: text.clone(), tone, plain: true }
             }
@@ -402,9 +553,10 @@ fn DetailsEpisode(
 
     rsx! {
         button {
-            class: "tk-dep",
+            class: ROW_CLASS,
             r#type: "button",
             title: "{tip}",
+            "aria-keyshortcuts": keyshortcuts.then_some(ROW_KEYSHORTCUTS),
             "aria-current": "{current}",
             "data-layout": "{view.id()}",
             "data-compact": "{compact}",
@@ -438,9 +590,6 @@ fn DetailsEpisode(
                     {thumb_el}
                     div { class: "tk-dep__body",
                         {title_el}
-                        if current {
-                            div { class: "tk-dep__sub tk-dep__resume", {t("episodes.resume")} }
-                        }
                     }
                     div { class: "tk-dep__meta",
                         if let Some(w) = when.clone() {
@@ -527,6 +676,45 @@ mod tests {
         assert_eq!(episode_when(&e, None, now, 0).as_deref(), Some("yesterday"));
         e.air_date = None;
         assert_eq!(episode_when(&e, None, now, 0), None);
+    }
+
+    #[test]
+    fn earlier_episodes_fold_before_the_previous_one() {
+        let eps: Vec<u32> = (1..=12).collect();
+        // Continue 8: 1-6 fold, 7 (the previous one) stays.
+        assert_eq!(hidden_leading(&eps, Some(8)), 6);
+        // Continue 4 (1-3 watched): 1-2 fold, 3 stays as context.
+        assert_eq!(hidden_leading(&eps, Some(4)), 2);
+        // A single episode before the previous one never folds.
+        assert_eq!(hidden_leading(&eps, Some(3)), 0);
+        assert_eq!(hidden_leading(&eps, Some(1)), 0);
+        assert_eq!(hidden_leading(&eps, None), 0);
+        assert_eq!(hidden_leading(&eps, Some(0)), 0);
+        // A later range (101-200) folds from its own first episode.
+        let range: Vec<u32> = (101..=200).collect();
+        assert_eq!(hidden_leading(&range, Some(150)), 48);
+        assert_eq!(hidden_leading(&range, Some(102)), 0);
+        assert_eq!(hidden_leading(&range, Some(103)), 0);
+        assert_eq!(hidden_leading(&range, Some(104)), 2);
+        // Past the end (up to date with the schedule row missing): never every row, the last one stays.
+        assert_eq!(hidden_leading(&eps, Some(14)), 11);
+        assert_eq!(hidden_leading(&[], Some(9)), 0);
+    }
+
+    #[test]
+    fn row_keys_focus_the_parts_the_list_renders() {
+        let js = focus_in_row_js(4, RowPart::Mark);
+        assert!(js.contains(r#"querySelector('.tk-deps > .tk-dep-wrap[data-ep="4"] > .tk-dep__mark')"#), "{js}");
+        assert!(focus_in_row_js(12, RowPart::Row).contains(r#"[data-ep="12"] > .tk-dep')"#));
+        // After a toggle: the same row, only when the focus fell to <body>.
+        let keep = keep_focus_in_row_js(5, RowPart::Row);
+        assert!(keep.contains(r#".tk-dep-wrap[data-ep="5"] > .tk-dep'"#) && keep.contains("document.body"), "{keep}");
+        assert!(keep.contains("window.__tkKeepFocus !== tok") && keep.contains("window.__tkKeepFocus = null; return;"));
+        // The same classes the stylesheet lays out (the toggle sits inside the wrapper, beside the row).
+        let css = include_str!("../../../assets/css/details.css");
+        assert!(css.contains(&format!(".{WRAP_CLASS} > .{ROW_CLASS} {{")));
+        assert!(css.contains(&format!(".{WRAP_CLASS} > .{MARK_CLASS} {{")));
+        assert!(css.contains(&format!(".{WRAP_CLASS}:focus-within > .{MARK_CLASS} {{ opacity: 1; }}")));
     }
 
     #[test]

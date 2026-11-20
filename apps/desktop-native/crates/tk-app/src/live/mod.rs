@@ -883,6 +883,7 @@ impl Backend for LiveBackend {
                 air_date: e.air_date,
                 is_filler: e.is_filler,
                 watched: tk_core::lists::progress::watched_fraction(e.number, watched.get(&e.number).copied().unwrap_or(0.0), list_progress),
+                history_watched: watched.get(&e.number).copied(),
                 summary: e.summary,
                 runtime_min: e.runtime_min,
                 rating: e.rating.map(|r| r as f32),

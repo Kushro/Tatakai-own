@@ -383,8 +383,10 @@ pub fn ProviderBookmarkButton(media_id: String) -> Element {
     rsx! {
         div { class: "tk-provider__bookmark", "data-bookmarked": "{bookmarked}", "data-completed": "{completed}",
             Button {
-                label,
-                icon: "bookmark".to_string(),
+                label: label.clone(),
+                title: label,
+                // Not the list's bookmark: both sit side by side in the Details header of a provider title.
+                icon: "folder".to_string(),
                 variant: if bookmarked { ButtonVariant::Tonal } else { ButtonVariant::Outlined },
                 size: ButtonSize::Sm,
                 disabled: busy() || loading,

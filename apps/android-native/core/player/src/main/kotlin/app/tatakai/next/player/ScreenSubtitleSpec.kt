@@ -6,7 +6,8 @@ import app.tatakai.next.model.SubtitleStyle
 
 /**
  * 0.4.1: how the subtitles the screen draws itself (every Media3 cue, the translated line, the secondary track and the Settings preview)
- * follow [SubtitleStyle], in dp for a video area [ScreenSubtitleSpec.of] `viewportHeightDp` tall. Pure, so the Media3 mapping is
+ * follow [SubtitleStyle], in dp for a player whose short side is [ScreenSubtitleSpec.of] `viewportHeightDp` (its height in
+ * landscape; in portrait the width, so lines keep their landscape size instead of growing with the tall screen). Pure, so the Media3 mapping is
  * unit-tested; `SubtitleLines` (:feature:player) turns it into Compose text.
  *
  * Sizes copy libmpv's rule (scaled pixels of a 720 px tall window, `sub-font-size` 38), so both engines draw the same size on the same

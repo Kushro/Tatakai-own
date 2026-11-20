@@ -55,6 +55,21 @@ mod tests {
     }
 
     #[test]
+    fn the_header_layout_defaults_to_d_and_persists() {
+        use tk_ui::model::HeaderLayout;
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("ui-settings.json");
+        // A file from before the setting (a `look` without `header_layout`) opens in D.
+        std::fs::write(&path, r#"{"look":{"preset":"cinema","page_style":"editorial"}}"#).unwrap();
+        assert_eq!(load(&path).look.header_layout, HeaderLayout::FactsNextUp);
+        let mut s = Settings::default();
+        s.look.header_layout = HeaderLayout::Line;
+        save(&path, &s).unwrap();
+        assert_eq!(load(&path).look.header_layout, HeaderLayout::Line);
+        assert_eq!(load(&path), s);
+    }
+
+    #[test]
     fn source_prefs_persist_and_old_files_get_defaults() {
         use tk_ui::backend::SourceKindVm;
         use tk_ui::model::{QualityVm, SourceModeVm, SourcePrefsVm};

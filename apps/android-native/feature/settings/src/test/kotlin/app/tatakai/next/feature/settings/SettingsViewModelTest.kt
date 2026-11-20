@@ -52,6 +52,18 @@ class SettingsViewModelTest {
 
 
     @Test
+    fun `a preset keeps the chosen header composition`() = runTest {
+        val repo = FakeSettings()
+        val vm = SettingsViewModel(repo)
+        vm.setLook { it.copy(headerLayout = app.tatakai.next.model.HeaderLayout.LINE) }
+        vm.applyLookPreset(app.tatakai.next.model.LookPreset.CINEMA)
+        val look = repo.settings.value.look
+        assertEquals(app.tatakai.next.model.HeaderLayout.LINE, look.headerLayout)
+        assertEquals(app.tatakai.next.model.PageStyle.EDITORIAL, look.pageStyle)
+        assertEquals(app.tatakai.next.model.LookPreset.CINEMA, look.matchingPreset())
+    }
+
+    @Test
     fun `appearance changes are written through the settings repository`() = runTest {
         val repo = FakeSettings()
         val vm = SettingsViewModel(repo)

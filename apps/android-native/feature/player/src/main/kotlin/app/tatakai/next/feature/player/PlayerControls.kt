@@ -244,20 +244,11 @@ internal fun PlayerContent(
         scope.launch { vm.onScreenshot(captureScreenshot(activity, session, vm.titleForFiles, episodeForShot)?.displayPath) }
     }
 
-    // Restores the window on exit (orientation, bars, brightness, keep-awake).
-    DisposableEffect(activity) {
-        val window = activity?.window
-        val insets = window?.let { WindowCompat.getInsetsController(it, view) }
-        val previousOrientation = activity?.requestedOrientation
-        val previousBrightness = window?.attributes?.screenBrightness
-        onDispose {
-            view.keepScreenOn = false
-            insets?.show(WindowInsetsCompat.Type.systemBars())
-            previousOrientation?.let { activity.requestedOrientation = it }
-            if (window != null && previousBrightness != null) {
-                window.attributes = window.attributes.also { it.screenBrightness = previousBrightness }
-            }
-        }
+    // The window itself (orientation, bars, brightness) is restored by PlayerWindowScope in PlayerBody, which outlives this
+    // content while the next episode resolves. Keep-awake is this view's: cleared on exit unless another player screen is
+    // still open (going to the next episode, both are composed for a moment and share the view).
+    DisposableEffect(view) {
+        onDispose { if (PlayerWindowOwner.active <= 1) view.keepScreenOn = false }
     }
     // player.android.fullscreen: immersive + forced landscape; off = system bars and the device's own orientation.
     LaunchedEffect(fullscreen, activity) {
@@ -1216,5 +1207,59 @@ private fun Modifier.aboveTransport(): Modifier = layout { measurable, constrain
     layout(width, height) {
         val bottom = height / 2 - (TRANSPORT_PLAY_DP / 2 + TRANSPORT_GAP_DP).roundToPx()
         placeable.place((width - placeable.width) / 2, (bottom - placeable.height).coerceAtLeast(0))
+    }
+}
+
+/**
+ * Captures the window (orientation, system bars, brightness) when the first player screen opens and restores it when the
+ * last one closes. Called from PlayerBody, which is composed in the same frame as the navigation change: going to the next
+ * episode composes the new player before the old one is disposed, and the new one's content only appears once its source
+ * resolves. A per-content capture saved the old player's forced landscape as "previous" (the app stayed in landscape after
+ * a binge) and the old player's restore turned the next episode portrait while it resolved.
+ */
+@Composable
+internal fun PlayerWindowScope() {
+    val context = LocalContext.current
+    val view = LocalView.current
+    val activity = remember(context) { context.findActivity() }
+    DisposableEffect(activity) {
+        val window = activity?.window
+        val insets = window?.let { WindowCompat.getInsetsController(it, view) }
+        PlayerWindowOwner.acquire(activity)
+        onDispose {
+            PlayerWindowOwner.release(activity) { orientation, brightness ->
+                view.keepScreenOn = false
+                insets?.show(WindowInsetsCompat.Type.systemBars())
+                activity?.requestedOrientation = orientation
+                if (window != null && brightness != null) {
+                    window.attributes = window.attributes.also { it.screenBrightness = brightness }
+                }
+            }
+        }
+    }
+}
+
+/** Window state from before the first player screen opened, shared by overlapping ones. Main thread only. */
+internal object PlayerWindowOwner {
+    /** Player screens open right now (2 for a moment while going to the next episode). */
+    var active = 0
+        private set
+    private var orientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    private var brightness: Float? = null
+
+    fun acquire(activity: Activity?) {
+        if (active++ == 0) {
+            // Only the player forces landscape; a leftover from a player that did not clean up is not a baseline.
+            orientation = activity?.requestedOrientation
+                ?.takeUnless { it == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE }
+                ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            brightness = activity?.window?.attributes?.screenBrightness
+        }
+    }
+
+    fun release(activity: Activity?, restore: (orientation: Int, brightness: Float?) -> Unit) {
+        check(active > 0) { "PlayerWindowOwner released more often than acquired" }
+        active--
+        if (active == 0 && activity != null) restore(orientation, brightness)
     }
 }

@@ -26,21 +26,28 @@ pub fn countdown_parts(secs: i64) -> (u64, u64, u64) {
     (s / 86_400, (s % 86_400) / 3_600, (s % 3_600) / 60)
 }
 
-/// "Episode 5 in 2d 4h" / "in 3h 12m" / "in 7m" / "airing now".
-pub fn airing_label(episode: u32, at_unix: i64, now_unix: i64) -> String {
-    let n = episode.to_string();
+/// The countdown part of [`airing_label`]: "2 d 4 h" / "3 h 12 min" / "7 min"; `None` once it airs ("airing now").
+pub fn airing_when(at_unix: i64, now_unix: i64) -> Option<String> {
     if at_unix <= now_unix {
-        return tf("details.next_airing.now", &[("n", &n)]);
+        return None;
     }
     let (d, h, m) = countdown_parts(at_unix - now_unix);
-    let when = if d > 0 {
+    Some(if d > 0 {
         tf("details.dur.dh", &[("d", &d.to_string()), ("h", &h.to_string())])
     } else if h > 0 {
         tf("details.dur.hm", &[("h", &h.to_string()), ("m", &m.to_string())])
     } else {
         tf("details.dur.m", &[("m", &m.max(1).to_string())])
-    };
-    tf("details.next_airing", &[("n", &n), ("when", &when)])
+    })
+}
+
+/// "Episode 5 in 2d 4h" / "in 3h 12m" / "in 7m" / "airing now".
+pub fn airing_label(episode: u32, at_unix: i64, now_unix: i64) -> String {
+    let n = episode.to_string();
+    match airing_when(at_unix, now_unix) {
+        None => tf("details.next_airing.now", &[("n", &n)]),
+        Some(when) => tf("details.next_airing", &[("n", &n), ("when", &when)]),
+    }
 }
 
 /// Public page of the title to share: AniList when its id is known, else MAL, else Kitsu.
@@ -718,6 +725,18 @@ mod tests {
         assert_eq!(countdown_parts(2 * 86_400 + 4 * 3_600 + 59), (2, 4, 0));
         assert_eq!(countdown_parts(3 * 3_600 + 12 * 60), (0, 3, 12));
         assert_eq!(countdown_parts(-5), (0, 0, 0));
+    }
+
+    #[test]
+    fn airing_when_is_the_countdown_of_the_label() {
+        let at = 1_000_000;
+        assert_eq!(airing_when(at, at), None);
+        assert_eq!(airing_when(at, at + 60), None);
+        let soon = airing_when(at + 2 * 86_400 + 5 * 3_600, at).unwrap();
+        assert!(soon.contains('2') && soon.contains('5'), "{soon}");
+        // The label is unchanged: the countdown inside "Episode 9 in …", or "airing now".
+        assert_eq!(airing_label(9, at + 2 * 86_400 + 5 * 3_600, at), tf("details.next_airing", &[("n", "9"), ("when", &soon)]));
+        assert_eq!(airing_label(9, at, at), tf("details.next_airing.now", &[("n", "9")]));
     }
 
     #[test]

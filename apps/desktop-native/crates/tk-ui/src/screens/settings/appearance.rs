@@ -14,9 +14,32 @@ use crate::i18n::{LangChoice, t, tf};
 use crate::model::home::ALL_PALETTES;
 use crate::model::look::{HERO_INTERVAL_MAX, HERO_INTERVAL_MIN};
 use crate::model::{
-    CalendarView, CardSize, CardStyle, Contrast, Density, EpisodeView, HomeLayout, LookPrefs, LookPreset, Motion, RailStyle,
-    RelationsView, SettingsAction, TITLE_LANGUAGES, ThemeMode,
+    CalendarView, CardSize, CardStyle, Contrast, Density, EpisodeView, HeaderLayout, HomeLayout, LookPrefs, LookPreset, Motion, PageStyle,
+    RailStyle, RelationsView, SettingsAction, TITLE_LANGUAGES, ThemeMode,
 };
+
+/// Arrow / Home / End inside a radiogroup of cards (presets, header compositions): the index to select from
+/// `current` (`None` = none selected yet) among `len` options; `None` for any other key. Wraps like `Segmented`.
+fn radio_step(key: &Key, current: Option<usize>, len: usize) -> Option<usize> {
+    if len == 0 {
+        return None;
+    }
+    let cur = current.unwrap_or(0);
+    match key {
+        Key::ArrowRight | Key::ArrowDown => Some(if current.is_some() { (cur + 1) % len } else { 0 }),
+        Key::ArrowLeft | Key::ArrowUp => Some(if current.is_some() { (cur + len - 1) % len } else { len - 1 }),
+        Key::Home => Some(0),
+        Key::End => Some(len - 1),
+        _ => None,
+    }
+}
+
+/// Moves the focus to the radio card `[attr="id"]` once the selection re-renders (roving tab stop).
+fn focus_radio(attr: &str, id: &str) {
+    let _ = document::eval(&format!(
+        "requestAnimationFrame(() => {{ const b = document.querySelector('[role=radio][{attr}=\"{id}\"]'); if (b) b.focus(); }});"
+    ));
+}
 
 /// `(id, label)` options of a look choice (`look.<group>.<id>` labels).
 fn look_seg<I: Copy>(items: &[I], id: impl Fn(I) -> &'static str, key: impl Fn(I) -> String) -> Vec<(String, String)> {
@@ -135,10 +158,26 @@ fn LookSection(commit: Callback<SettingsAction>) -> Element {
     rsx! {
         h3 { class: "tk-settings__subhead", "data-look": "section", {t("look.section")} }
         SettingRow { label: t("look.preset"), hint: preset_hint, stack: true,
-            div { class: "tk-presets", role: "radiogroup", "aria-label": t("look.preset"),
-                for p in LookPreset::ALL.iter().copied() {
+            div {
+                class: "tk-presets",
+                role: "radiogroup",
+                "aria-label": t("look.preset"),
+                onkeydown: move |e: KeyboardEvent| {
+                    let all = LookPreset::ALL;
+                    let current = matching.and_then(|m| all.iter().position(|p| *p == m));
+                    if let Some(i) = radio_step(&e.key(), current, all.len()) {
+                        e.prevent_default();
+                        // the peek guard must drop before `set` writes the same signal (AlreadyBorrowed panic otherwise)
+                        let next = ui.settings.peek().look.with_preset(all[i]);
+                        set(next);
+                        focus_radio("data-preset", all[i].id());
+                    }
+                },
+                for (i , p) in LookPreset::ALL.iter().copied().enumerate() {
                     {
                         let selected = matching == Some(p);
+                        // One tab stop: the selected card, or the first one while the look is custom.
+                        let stop = selected || (matching.is_none() && i == 0);
                         let label = t(&p.label_key());
                         let hint = t(&format!("{}.hint", p.label_key()));
                         rsx! {
@@ -148,8 +187,13 @@ fn LookSection(commit: Callback<SettingsAction>) -> Element {
                                 r#type: "button",
                                 role: "radio",
                                 "aria-checked": "{selected}",
+                                tabindex: if stop { "0" } else { "-1" },
                                 "data-preset": "{p.id()}",
-                                onclick: move |_| set(LookPrefs::preset(p)),
+                                // A preset keeps the chosen Details header (not part of any preset).
+                                onclick: move |_| {
+                                    let next = ui.settings.peek().look.with_preset(p);
+                                    set(next);
+                                },
                                 span { class: "tk-preset__thumb", "aria-hidden": "true", "data-preset": "{p.id()}",
                                     span { class: "tk-preset__rail" }
                                     span { class: "tk-preset__body",
@@ -157,6 +201,61 @@ fn LookSection(commit: Callback<SettingsAction>) -> Element {
                                         span { class: "tk-preset__cards", i {} i {} i {} i {} i {} }
                                         span { class: "tk-preset__cards", i {} i {} i {} i {} i {} }
                                     }
+                                }
+                                span { class: "tk-preset__name", "{label}" }
+                                span { class: "tk-preset__hint", "{hint}" }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        SettingRow { label: t("look.style"), hint: t("look.style.hint"),
+            Segmented {
+                options: look_seg(PageStyle::ALL, PageStyle::id, PageStyle::label_key),
+                selected: look.page_style.id().to_owned(),
+                label: t("look.style"),
+                on_select: move |id: String| if let Some(v) = PageStyle::from_id(&id) { with(&|l| l.page_style = v) },
+            }
+        }
+        SettingRow { label: t("look.header"), hint: t("look.header.hint"), stack: true,
+            div {
+                class: "tk-presets tk-presets--header",
+                role: "radiogroup",
+                "aria-label": t("look.header"),
+                onkeydown: move |e: KeyboardEvent| {
+                    let all = HeaderLayout::ALL;
+                    let current = all.iter().position(|v| *v == ui.settings.peek().look.header_layout);
+                    if let Some(i) = radio_step(&e.key(), current, all.len()) {
+                        e.prevent_default();
+                        let v = all[i];
+                        with(&|l| l.header_layout = v);
+                        focus_radio("data-header-layout", v.id());
+                    }
+                },
+                for v in HeaderLayout::ALL.iter().copied() {
+                    {
+                        let selected = look.header_layout == v;
+                        let label = t(&v.label_key());
+                        let hint = t(&format!("{}.hint", v.label_key()));
+                        rsx! {
+                            button {
+                                key: "{v.id()}",
+                                class: "tk-preset",
+                                r#type: "button",
+                                role: "radio",
+                                "aria-checked": "{selected}",
+                                tabindex: if selected { "0" } else { "-1" },
+                                "data-header-layout": "{v.id()}",
+                                onclick: move |_| with(&|l| l.header_layout = v),
+                                // CSS-only sketch of the composition (app.css `.tk-hl`).
+                                span { class: "tk-hl", "aria-hidden": "true", "data-dhead": "{v.id()}",
+                                    span { class: "tk-hl__text",
+                                        span { class: "tk-hl__title" }
+                                        span { class: "tk-hl__meta", i {} i {} i {} i {} }
+                                        span { class: "tk-hl__acts", b {} i {} i {} i {} i {} }
+                                    }
+                                    span { class: "tk-hl__card", span { class: "tk-hl__ep" } span { class: "tk-hl__bar" } b {} }
                                 }
                                 span { class: "tk-preset__name", "{label}" }
                                 span { class: "tk-preset__hint", "{hint}" }
@@ -285,6 +384,20 @@ fn nearest_step(v: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn radio_cards_move_with_arrows_home_and_end() {
+        assert_eq!(radio_step(&Key::ArrowRight, Some(3), 4), Some(0));
+        assert_eq!(radio_step(&Key::ArrowLeft, Some(0), 4), Some(3));
+        assert_eq!(radio_step(&Key::ArrowDown, Some(1), 4), Some(2));
+        assert_eq!(radio_step(&Key::Home, Some(2), 4), Some(0));
+        assert_eq!(radio_step(&Key::End, None, 4), Some(3));
+        // Nothing selected (a custom look): the first arrow lands on the first / last card.
+        assert_eq!(radio_step(&Key::ArrowRight, None, 4), Some(0));
+        assert_eq!(radio_step(&Key::ArrowLeft, None, 4), Some(3));
+        assert_eq!(radio_step(&Key::Enter, Some(1), 4), None);
+        assert_eq!(radio_step(&Key::Home, None, 0), None);
+    }
 
     #[test]
     fn hero_steps_snap_to_the_nearest() {

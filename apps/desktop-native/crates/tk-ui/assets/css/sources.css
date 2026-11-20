@@ -63,3 +63,23 @@
 .tk-srow-wrap__dl { position: absolute; top: 6px; inset-inline-end: 6px; }
 /* UX review #17: what the side panel says while extensions resolve. */
 .tk-srow__resolving { display: flex; align-items: center; gap: var(--tk-space-8); color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-small-size); }
+
+/* one-line source summary (Details, "Cine editorial" header): dot · source · "Change source (n)" */
+.tk-srcline { display: flex; align-items: center; gap: var(--tk-space-8); min-height: 44px; min-width: 0; max-width: 100%; }
+.tk-srcline[data-state="waiting"] .tk-skel { width: min(360px, 100%); }
+.tk-srcline__btn { display: inline-flex; align-items: center; gap: var(--tk-space-12); min-height: 44px; min-width: 0; max-width: 100%; padding: 0 var(--tk-space-12) 0 0; border: 0; border-radius: var(--md-sys-shape-corner-small); background: transparent; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-medium-size); text-align: start; cursor: pointer; transition: color var(--tk-mo-fx-fast); }
+.tk-srcline__btn:hover { color: var(--md-sys-color-on-surface); }
+.tk-srcline__btn:focus-visible { outline: 2px solid var(--md-sys-color-secondary); outline-offset: 2px; }
+.tk-srcline__dot { flex: none; width: 8px; height: 8px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-primary); }
+.tk-srcline__dot[data-tone="warn"] { background: var(--md-sys-color-tertiary); }
+.tk-srcline__dot[data-tone="err"] { background: var(--md-sys-color-error); }
+.tk-srcline__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-srcline__change { flex: none; color: var(--md-sys-color-primary); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: text-decoration-color var(--tk-mo-fx-fast); }
+.tk-srcline__btn:hover .tk-srcline__change { text-decoration-color: currentColor; }
+.tk-srcline__status { display: inline-flex; align-items: center; gap: var(--tk-space-8); min-width: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-medium-size); }
+.tk-srcline[data-state="error"] .tk-srcline__status .tk-icon { color: var(--md-sys-color-error); flex: none; }
+/* inside the Details next-episode card: a compact footer row, the source cut before "Change (n)" */
+.tk-dnext .tk-srcline { min-height: 36px; }
+.tk-dnext .tk-srcline__btn { width: 100%; min-height: 36px; padding: 0; gap: var(--tk-space-8); font-size: 13px; }
+.tk-dnext .tk-srcline__text { flex: 1 1 auto; }
+.tk-dnext .tk-srcline__status { font-size: 13px; }

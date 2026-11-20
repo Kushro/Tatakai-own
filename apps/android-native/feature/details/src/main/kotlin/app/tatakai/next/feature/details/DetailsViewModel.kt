@@ -29,6 +29,7 @@ import app.tatakai.next.model.MediaKind
 import app.tatakai.next.model.MediaRef
 import app.tatakai.next.model.MediaRelation
 import app.tatakai.next.model.MetadataRepository
+import app.tatakai.next.model.NextAiring
 import app.tatakai.next.model.PairedPc
 import app.tatakai.next.model.PlayerArgs
 import app.tatakai.next.model.RankedSource
@@ -116,8 +117,17 @@ data class DetailsUiState(
     val pcChecking: Boolean = false,
     /** 0.3.2: ani.zip artwork (the header backdrop prefers its 1920x1080 fanart over AniList's 1900x400 banner); null = none / not yet. */
     val artwork: MediaArtwork? = null,
+    /**
+     * UI clock (epoch seconds) for [watchAction]: the screen sets it from its minute ticker so "Al día" turns into "Continuar" when
+     * the episode airs; null (the ViewModel's own reads) = the system clock.
+     */
+    val clockSec: Long? = null,
+    /** The title is a favorite (also when it is on no list, so [listEntry] is null). */
+    val favorite: Boolean = false,
 ) {
-    private val total: Int? get() = listEntry?.totalEpisodes?.takeIf { it > 0 } ?: (media as? LoadState.Ok)?.value?.episodes
+    /** The announced total: the list's (when set) or the media's. */
+    val totalEpisodes: Int? get() = listEntry?.totalEpisodes?.takeIf { it > 0 } ?: (media as? LoadState.Ok)?.value?.episodes
+    private val total: Int? get() = totalEpisodes
 
     /** Episodes watched according to the list (P); 0 when not on the list. */
     val listProgress: Int get() = listEntry?.progress ?: 0
@@ -125,16 +135,50 @@ data class DetailsUiState(
     /** Today's history rule alone (last unfinished episode, else the next one). */
     private val historyTarget: Int get() = continueTarget(progress, total)
 
-    /** Episode the primary button resumes / starts: max(history, list progress + 1), capped to the total (ListProgress.resumeEpisode). */
+    /**
+     * Ficha "Primero el episodio": the whole series is watched (the list reached the total, or the last episode is completed in the
+     * history): the primary button offers "Volver a ver" from episode 1 instead of "Continuar" on the last one.
+     */
+    val finished: Boolean
+        get() {
+            val t = total ?: return false
+            if (t <= 0) return false
+            if (historyTarget == t && progress[t]?.completed == true) return true
+            if (listProgress < t) return false
+            // The list says complete, but a newer history row that is not the finished last episode is a rewatch in progress:
+            // "Continuar" on it, not "Volver a ver" from 1.
+            val last = progress.values.maxByOrNull { it.watchedAt } ?: return true
+            if (last.episode == t && last.completed) return true
+            val listAt = listEntry?.updatedAtMs ?: return false
+            return last.watchedAt.toEpochMilli() <= listAt
+        }
+
+    /**
+     * Episode the primary button resumes / starts: max(history, list progress + 1), capped to the total (ListProgress.resumeEpisode);
+     * 1 once [finished] (the panel, "Enviar a dispositivo", the range and Watch all follow it).
+     */
     val continueEpisode: Int
-        get() = ListProgress.resumeEpisode(historyTarget, listProgress, total)
+        get() = if (finished) 1 else ListProgress.resumeEpisode(historyTarget, listProgress, total)
 
     /** Something was watched (history or list): "Continuar" instead of "Ver". */
     val hasProgress: Boolean get() = progress.isNotEmpty() || listProgress > 0
 
     /** The history entry of [continueEpisode] when it is unfinished ("Retomar en 12:34"); only when the history episode is the one shown. */
     val resumeEntry: HistoryEntry?
-        get() = progress[continueEpisode]?.takeIf { continueEpisode == historyTarget && !it.completed && it.progressSec > 0 }
+        get() = if (finished) {
+            null
+        } else {
+            progress[continueEpisode]?.takeIf { continueEpisode == historyTarget && !it.completed && it.progressSec > 0 }
+        }
+
+    /** What the primary button does now, at [clockSec] ([watchActionAt] is the pure rule). */
+    val watchAction: WatchAction get() = watchActionAt(clockSec ?: (System.currentTimeMillis() / 1000))
+
+    /** "Al día" / "Próximamente": the episode to continue has not aired, so nothing plays, downloads or is sent. */
+    val playable: Boolean get() = watchAction != WatchAction.UP_TO_DATE
+
+    fun watchActionAt(nowSec: Long): WatchAction =
+        watchActionOf(finished, hasProgress, continueEpisode, detailsOrNull?.nextAiring, nowSec)
 
     /** Episode row mark: within the list progress, or its history row is completed. */
     fun isWatched(episode: Int): Boolean = ListProgress.isEpisodeWatched(episode, listProgress, progress[episode])
@@ -156,6 +200,29 @@ data class DetailsUiState(
     val canDownloadSeason: Boolean get() = bestTorrent?.candidate?.tags?.batch == true
 
     val detailsOrNull: MediaDetails? get() = (details as? LoadState.Ok)?.value
+}
+
+/** Ficha "Primero el episodio": the primary button's state. */
+enum class WatchAction {
+    /** Nothing watched: "Ver ep. N". */
+    START,
+
+    /** "Continuar · ep. N". */
+    CONTINUE,
+
+    /** Everything watched: "Volver a ver" from episode 1. */
+    REWATCH,
+
+    /** The episode to continue has not aired yet: "Al día", disabled. */
+    UP_TO_DATE,
+}
+
+/** [WatchAction] rule: finished > the next episode is the one still to air > progress or not. Pure. */
+fun watchActionOf(finished: Boolean, hasProgress: Boolean, continueEpisode: Int, nextAiring: NextAiring?, nowSec: Long): WatchAction = when {
+    finished -> WatchAction.REWATCH
+    nextAiring != null && nextAiring.airingAtEpochSec > nowSec && continueEpisode >= nextAiring.episode -> WatchAction.UP_TO_DATE
+    hasProgress -> WatchAction.CONTINUE
+    else -> WatchAction.START
 }
 
 /** Characters tab: the edges loaded so far; [error] = the last page failed (the list stays, a retry row shows). */
@@ -193,6 +260,9 @@ sealed interface DetailsEvent {
 
     /** "Marcar como visto / no visto" could not update the list. */
     data class ListUpdateFailed(val cause: AppError) : DetailsEvent
+
+    /** The header "Favorito" could not be saved. */
+    data class FavoriteFailed(val cause: AppError) : DetailsEvent
 }
 
 /** Resolving the web sources for "Enviar a dispositivo" gives up after this long (BUG-023: no more silent minutes). */
@@ -295,6 +365,10 @@ class DetailsViewModel(
                     ensurePanel()
                 }
             }
+            // separate from the entry: a favorite title that is on no list has no ListEntry
+            viewModelScope.launch {
+                repo.isFavorite(ref).catch { }.collect { f -> _state.update { it.copy(favorite = f) } }
+            }
         }
         load()
         downloads?.let { repo ->
@@ -374,6 +448,8 @@ class DetailsViewModel(
     /** Resolves the candidates of the episode Watch / Continue plays, once per target episode. */
     private fun ensurePanel() {
         if (mediaOrNull == null) return
+        // the episode to continue has not aired: no source to look for yet
+        if (!_state.value.playable) return
         val target = _state.value.continueEpisode
         if (_state.value.panel?.episode == target) return
         resolveSources(target)
@@ -455,6 +531,8 @@ class DetailsViewModel(
     /** Leading half of the split button / floating toolbar: Watch or Continue with the panel's choice. */
     fun onWatch() {
         val s = _state.value
+        // "Al día": the next episode has not aired, nothing to open (the button is disabled; this guards the other entry points)
+        if (!s.playable) return
         val episode = s.continueEpisode
         // the saved position only when the history episode is the one shown (the list progress may point past it)
         emitPlayer(episode, sourceKey = sourceKeyFor(episode), resume = s.resumeEntry != null)
@@ -490,6 +568,17 @@ class DetailsViewModel(
                 }
             }
             result.onFailure { e -> _events.trySend(DetailsEvent.ListUpdateFailed(e.toAppError())) }
+        }
+    }
+
+    /** Header "Favorito": toggles the favorite flag (adds nothing to a list); a failure raises [DetailsEvent.FavoriteFailed]. */
+    fun toggleFavorite() {
+        val repo = lists ?: return
+        val media = mediaOrNull ?: return
+        val favorite = _state.value.favorite
+        viewModelScope.launch {
+            runCatchingApp { repo.setFavorite(media, !favorite).getOrThrow() }
+                .onFailure { e -> _events.trySend(DetailsEvent.FavoriteFailed(e.toAppError())) }
         }
     }
 
@@ -581,7 +670,7 @@ class DetailsViewModel(
 
     fun sendToDevice() {
         val media = mediaOrNull ?: return
-        if (_state.value.sending) return
+        if (_state.value.sending || !_state.value.playable) return
         val episode = _state.value.continueEpisode
         _state.update { it.copy(sending = true) }
         viewModelScope.launch {

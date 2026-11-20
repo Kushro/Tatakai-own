@@ -74,6 +74,8 @@ pub fn ListButton(
     #[props(default)] episodes_total: Option<u32>,
     /// Icon-only variant for the floating toolbar.
     #[props(default)] compact: bool,
+    /// The favourite heart as a labelled outlined button ("Favourite"; Details header with named actions).
+    #[props(default)] labeled: bool,
 ) -> Element {
     let services = use_context::<Services>();
     let snack = use_snackbar();
@@ -172,7 +174,7 @@ pub fn ListButton(
                 } else {
                     Button { label: retry_label, icon: "warning".to_string(), variant: ButtonVariant::Tonal, onclick: move |_| entry.restart() }
                 }
-                FavoriteToggle { media_id: media_id.clone() }
+                FavoriteToggle { media_id: media_id.clone(), labeled }
             }
         };
     }
@@ -191,6 +193,7 @@ pub fn ListButton(
         rsx! {
             Button {
                 label: label.clone(),
+                title: label.clone(),
                 icon: icon.clone(),
                 trailing_icon: "chevron-down".to_string(),
                 variant: if current.is_some() { ButtonVariant::Filled } else { ButtonVariant::Tonal },
@@ -290,7 +293,7 @@ pub fn ListButton(
                     Icon { name: "sync".to_string(), size: 16 }
                 }
             }
-            FavoriteToggle { media_id: media_id.clone() }
+            FavoriteToggle { media_id: media_id.clone(), labeled }
         }
     }
 }
@@ -298,7 +301,11 @@ pub fn ListButton(
 /// Heart toggle for a title or a character (`character:<id>`): local favourite + AniList `ToggleFavourite` when an
 /// AniList account is connected (queued offline). `data-favorite` = `true | false | loading | error`.
 #[component]
-pub fn FavoriteToggle(media_id: String) -> Element {
+pub fn FavoriteToggle(
+    media_id: String,
+    /// An outlined button with the icon and "Favourite" (`aria-pressed`) instead of the icon toggle.
+    #[props(default)] labeled: bool,
+) -> Element {
     let services = use_context::<Services>();
     let snack = use_snackbar();
     let busy = use_signal(|| false);
@@ -337,6 +344,30 @@ pub fn FavoriteToggle(media_id: String) -> Element {
     let on = state == "true";
     let label = if on { t("lists.fav.remove") } else { t("lists.fav.add") };
     let icon = if on { "heart-filled" } else { "heart" }.to_string();
+    let disabled = busy() || state == "loading";
+    let click = move |_| {
+        if state == "error" {
+            fav.restart();
+        } else {
+            toggle.call(!on);
+        }
+    };
+    if labeled {
+        return rsx! {
+            span { class: "tk-fav", "data-favorite": "{state}",
+                button {
+                    class: "tk-btn tk-btn--outlined tk-btn--md",
+                    r#type: "button",
+                    title: "{label}",
+                    "aria-pressed": "{on}",
+                    disabled,
+                    onclick: click,
+                    Icon { name: icon.clone(), size: 20 }
+                    span { {t("lists.fav.short")} }
+                }
+            }
+        };
+    }
     rsx! {
         span { class: "tk-fav", "data-favorite": "{state}",
             IconButton {
@@ -344,14 +375,8 @@ pub fn FavoriteToggle(media_id: String) -> Element {
                 label,
                 toggle: true,
                 toggled: on,
-                disabled: busy() || state == "loading",
-                onclick: move |_| {
-                    if state == "error" {
-                        fav.restart();
-                    } else {
-                        toggle.call(!on);
-                    }
-                },
+                disabled,
+                onclick: click,
             }
         }
     }
