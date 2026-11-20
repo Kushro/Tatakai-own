@@ -128,5 +128,6 @@
   "accounts.error.expired": "La sesión caducó o se revocó. Vuelve a conectar la cuenta.",
   "accounts.error.not_connected": "No hay ninguna cuenta conectada.",
   "accounts.error.provider": "El servicio respondió: {error}",
-  "lib.empty.action": "Buscar algo para ver"
+  "lib.empty.action": "Buscar algo para ver",
+  "lists.fav.short": "Favorito"
 }

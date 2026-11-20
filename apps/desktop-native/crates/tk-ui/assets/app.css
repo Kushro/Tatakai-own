@@ -679,4 +679,27 @@ button.tk-chip:active:not(:disabled) { transform: scale(0.96); }
   background: linear-gradient(90deg, var(--md-sys-color-surface-container-highest) 0 34%, transparent 34% 40%, color-mix(in srgb, var(--md-sys-color-surface-container-highest) 55%, transparent) 40%);
 }
 .tk-preset__thumb[data-preset="dense"] .tk-preset__cards i { max-width: 10px; }
+/* Title page header sketches (`.tk-hl[data-dhead]`, one per composition): title, facts, actions and the card */
+.tk-presets--header .tk-hl { display: flex; gap: 6px; align-items: flex-end; height: 84px; padding: 8px; overflow: hidden; border-radius: var(--md-sys-shape-corner-medium); background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary) 22%, var(--md-sys-color-surface-container-lowest)), var(--md-sys-color-surface-container-lowest)); }
+.tk-hl__text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.tk-hl__title { width: 70%; height: 9px; border-radius: 3px; background: var(--md-sys-color-on-surface); opacity: .8; }
+.tk-hl__meta { display: flex; gap: 4px; }
+.tk-hl__meta i { width: 14%; height: 4px; border-radius: 2px; background: var(--md-sys-color-on-surface-variant); opacity: .6; }
+.tk-hl[data-dhead$="facts"] .tk-hl__meta i, .tk-hl[data-dhead="facts_nextup"] .tk-hl__meta i { height: 9px; width: 18%; border-inline-start: 1px solid var(--md-sys-color-outline); background: linear-gradient(var(--md-sys-color-on-surface-variant) 0 3px, transparent 3px 5px, var(--md-sys-color-on-surface) 5px); opacity: .55; }
+.tk-hl__acts { display: flex; gap: 3px; align-items: center; }
+.tk-hl__acts b { width: 30%; height: 12px; border-radius: 6px; background: var(--md-sys-color-primary); }
+.tk-hl__acts i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--md-sys-color-outline); }
+.tk-hl[data-dhead="facts"] .tk-hl__acts i, .tk-hl[data-dhead="facts_nextup"] .tk-hl__acts i { width: 16px; border-radius: 5px; }
+.tk-hl[data-dhead="line"] .tk-hl__acts b { height: 15px; }
+.tk-hl__card { display: none; flex: none; width: 34%; flex-direction: column; gap: 4px; padding: 5px; border-radius: 6px; border: 1px solid var(--md-sys-color-outline-variant); background: var(--md-sys-color-surface-container-high); }
+.tk-hl:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) .tk-hl__card { display: flex; }
+.tk-hl:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) .tk-hl__acts b { display: none; }
+.tk-hl__ep { height: 5px; width: 80%; border-radius: 2px; background: var(--md-sys-color-on-surface-variant); opacity: .6; }
+.tk-hl__bar { height: 3px; border-radius: 2px; background: linear-gradient(90deg, var(--md-sys-color-primary) 30%, var(--md-sys-color-surface-container-highest) 30%); }
+.tk-hl__card b { height: 10px; border-radius: 5px; background: var(--md-sys-color-primary); }
+
+/* split button extras: a second, smaller line under the label and the watched fraction along the bottom edge */
+.tk-split__lbl { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; line-height: 1.1; text-align: start; }
+.tk-split__lbl small { font-family: var(--tk-font-text); font-size: 12px; line-height: 1; font-weight: 500; opacity: .78; font-variant-numeric: tabular-nums; }
+.tk-split__prog { position: absolute; inset-inline-start: 0; bottom: 0; height: 3px; background: currentColor; opacity: .55; pointer-events: none; }
 .tk-look__autoplay { display: flex; align-items: center; flex-wrap: wrap; gap: var(--tk-space-12); }

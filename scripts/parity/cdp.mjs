@@ -26,7 +26,7 @@ for (const s of steps) {
   const eq = s.indexOf('='); const name = s.slice(0, eq); let val = s.slice(eq + 1);
   let wait = 3500; const at = val.lastIndexOf('@'); if (at > 0 && /^\d+$/.test(val.slice(at + 1))) { wait = +val.slice(at + 1); val = val.slice(0, at); }
   if (val.startsWith('EVAL:')) { console.log(name, JSON.stringify(await ev(val.slice(5))).slice(0, 2000)); await sleep(wait); continue; }
-  if (val.startsWith('CLICK:')) { const t=val.slice(6); console.log('click', t, await ev(`(()=>{const b=[...document.querySelectorAll('button,a,[role=tab],[role=button]')].find(b=>b.innerText.trim()===${JSON.stringify(t)}); if(!b) return false; b.click(); return true})()`)); await sleep(wait); }
+  if (val.startsWith('CLICK:')) { const t=val.slice(6); console.log('click', t, await ev(`(()=>{const c=[...document.querySelectorAll('button,a,[role=tab],[role=button]')]; const b=c.find(b=>(b.innerText||'').trim()===${JSON.stringify(t)})||c.find(b=>(b.getAttribute('aria-label')||b.title||'')===${JSON.stringify(t)}); if(!b) return false; b.click(); return true})()`)); await sleep(wait); }
   else if (val !== 'SHOT') { await ev(`location.hash = ${JSON.stringify('#' + val)}`); await sleep(wait); }
   await shot(name);
 }

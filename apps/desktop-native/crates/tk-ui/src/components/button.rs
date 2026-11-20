@@ -73,14 +73,18 @@ pub fn Button(
     /// Full width.
     #[props(default)] block: bool,
     #[props(default)] class: String,
+    /// Tooltip (`title`), e.g. when CSS shows the button as an icon only; empty = none.
+    #[props(default)] title: String,
     #[props(default)] onclick: EventHandler<MouseEvent>,
 ) -> Element {
     let block = if block { "tk-btn--block" } else { "" };
+    let title = (!title.is_empty()).then_some(title);
     let px = size.icon_px();
     rsx! {
         button {
             class: "tk-btn tk-btn--{variant.css()} tk-btn--{size.css()} {block} {class}",
             r#type: "button",
+            title,
             disabled,
             onclick: move |e| onclick.call(e),
             if !icon.is_empty() {
@@ -106,23 +110,54 @@ pub fn SplitButton(
     #[props(default)] size: ButtonSize,
     #[props(default)] expanded: bool,
     #[props(default)] disabled: bool,
+    /// Only the main action is disabled (the chevron still opens its menu).
+    #[props(default)] main_disabled: bool,
     #[props(default)] onclick: EventHandler<MouseEvent>,
     #[props(default)] on_menu: EventHandler<MouseEvent>,
+    /// Accessible name of the main action when the visible label is shorter ("Continue" in a card that already
+    /// names the episode): it must contain the visible label (WCAG 2.5.3). Empty = the label.
+    #[props(default)] aria_label: String,
+    /// A second, smaller line under the label (`small`, e.g. "3:39 of 24 min"). Empty = one line.
+    #[props(default)] sub_label: String,
+    /// Watched fraction (0..1) drawn as a bar along the main action's bottom edge (`i.tk-split__prog`).
+    #[props(default)] progress: Option<f64>,
+    /// Extra classes on the wrapper (`tk-split {class}`).
+    #[props(default)] class: String,
 ) -> Element {
     let v = variant.css();
     let s = size.css();
     let px = size.icon_px();
+    // With a second line the name reads "Continue episode 4, 3:39 of 24 min", never the two run together.
+    let aria = if !aria_label.is_empty() {
+        Some(aria_label)
+    } else if !sub_label.is_empty() {
+        Some(format!("{label}, {sub_label}"))
+    } else {
+        None
+    };
+    let prog = progress.map(|f| format!("{:.1}%", f.clamp(0.0, 1.0) * 100.0));
     rsx! {
-        div { class: "tk-split",
+        div { class: "tk-split {class}",
             button {
                 class: "tk-btn tk-btn--{v} tk-btn--{s}",
                 r#type: "button",
-                disabled,
+                "aria-label": aria,
+                disabled: disabled || main_disabled,
                 onclick: move |e| onclick.call(e),
                 if !icon.is_empty() {
                     Icon { name: icon.clone(), size: px }
                 }
-                span { "{label}" }
+                if sub_label.is_empty() {
+                    span { "{label}" }
+                } else {
+                    span { class: "tk-split__lbl",
+                        "{label}"
+                        small { "{sub_label}" }
+                    }
+                }
+                if let Some(w) = prog {
+                    i { class: "tk-split__prog", "aria-hidden": "true", style: "width: {w}" }
+                }
             }
             button {
                 class: "tk-btn tk-btn--{v} tk-btn--{s}",
@@ -190,9 +225,12 @@ pub fn IconButton(
     #[props(default)] toggle: bool,
     #[props(default)] disabled: bool,
     #[props(default)] class: String,
+    /// `Some(-1)`: out of the Tab order (reached another way, e.g. arrow keys from its row).
+    #[props(default)] tabindex: Option<i32>,
     #[props(default)] onclick: EventHandler<MouseEvent>,
 ) -> Element {
     let (size_css, px) = size.css();
+    let tabindex = tabindex.map(|i| i.to_string());
     let pressed = (toggle || toggled).then_some(if toggled { "true" } else { "false" });
     rsx! {
         button {
@@ -202,6 +240,7 @@ pub fn IconButton(
             title: "{label}",
             "aria-pressed": pressed,
             "data-toggled": "{toggled}",
+            tabindex,
             disabled,
             onclick: move |e| onclick.call(e),
             Icon { name: icon.clone(), size: px }

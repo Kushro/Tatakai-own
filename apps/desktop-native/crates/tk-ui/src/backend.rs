@@ -154,8 +154,11 @@ pub struct EpisodeVm {
     pub image: Option<String>,
     pub air_date: Option<String>,
     pub is_filler: bool,
-    /// 0.0..=1.0 from the local history.
+    /// 0.0..=1.0: the local history, or 1.0 when the list progress covers the episode.
     pub watched: f64,
+    /// 0.0..=1.0 from the local history only (`None` = no history row): Details tells a rewatch in progress from a
+    /// finished series with it (the list progress says 12/12 either way).
+    pub history_watched: Option<f64>,
     /// Episode synopsis (ani.zip `overview` / `summary`), when known (2026-11 UI refresh).
     pub summary: Option<String>,
     /// Length in minutes (ani.zip `runtime` / `length`).

@@ -241,6 +241,12 @@
   "src.recommended": "Recommended",
   "src.by_system": "Picked by the system",
   "src.all": "See all sources ({n})",
+  "src.change": "Change source ({n})",
+  "src.line.resolving": "Finding sources for this episode…",
+  "src.line.resolving_ep": "Finding sources for ep. {n}…",
+  "src.line.none_ep": "No sources for ep. {n}",
+  "src.line.error_ep": "Could not load the sources for ep. {n}",
+  "src.line.aria": "{text}. {change}",
   "src.error.proxy_down.title": "Could not reach the extensions",
   "src.error.proxy_down": "The configured outbound proxy does not answer, so the extensions could not look for sources. Check or remove it in Settings › Server & network and retry.",
   "src.error.none_found.title": "No sources found",
@@ -337,5 +343,6 @@
   "settings.search": "Search settings",
   "settings.search_hint": "Subtitles, palette, port…",
   "src.resolving": "Asking your extensions for this episode… this can take up to a minute.",
-  "src.pick_missing": "Your pick ({name}) didn't come up this time."
+  "src.pick_missing": "Your pick ({name}) didn't come up this time.",
+  "src.change_short": "Change ({n})"
 }

@@ -804,10 +804,60 @@ pub fn SourcePicker(
     }
 }
 
+/// The one-line form of a source (Details "Cine editorial" header): `anizone · Toko · 1080p · Subs ES, EN`. Pure.
+pub fn source_line_text(s: &SourceVm, sub_lang: &str) -> String {
+    let quality = [s.quality.as_str(), s.container.as_deref().unwrap_or("")].join(" ").trim().to_owned();
+    let mut parts = vec![s.ext_name.clone(), s.label.clone()];
+    if !quality.is_empty() {
+        parts.push(quality);
+    }
+    parts.push(format!("{} {}", t("src.subs"), subs_text(s, sub_lang)));
+    parts.retain(|p| !p.trim().is_empty());
+    parts.join(" · ")
+}
+
+/// The editorial line's visible text, its "Change" link and the accessible name: `Ep. 4 · anizone · Toko · 1080p ·
+/// Subs ES · Resume at 3:39`, `Change source (12)` (`short`: `Change (12)`) and `{text}. {change}` (WCAG 2.5.3: the
+/// name starts with what is shown). `ep` names the episode ("Ep. 4") when given; `note` closes the text. Pure.
+pub fn source_line_labels(
+    ep: Option<&str>,
+    s: &SourceVm,
+    sub_lang: &str,
+    count: usize,
+    short: bool,
+    note: Option<&str>,
+) -> (String, String, String) {
+    let mut parts: Vec<String> = Vec::new();
+    parts.extend(ep.filter(|e| !e.trim().is_empty()).map(str::to_owned));
+    parts.push(source_line_text(s, sub_lang));
+    parts.extend(note.filter(|n| !n.trim().is_empty()).map(str::to_owned));
+    let text = parts.join(" · ");
+    let change = tf(if short { "src.change_short" } else { "src.change" }, &[("n", &count.to_string())]);
+    let aria = tf("src.line.aria", &[("text", &text), ("change", &change)]);
+    (text, change, aria)
+}
+
 /// Details side panel: the picked (or recommended) source, "Chosen by the system" and "See all sources".
 /// `on_play(id)` plays a source; `on_open_picker` asks the parent to open the `SourcePicker`.
+/// `line`: the same resource drawn as one line (the "Cine editorial" header): a dot, the source and "Change source
+/// (n)", the whole line opening the picker. Callers mount one instance only (each one asks `Backend::sources`).
 #[component]
-pub fn SourceSummary(media_id: String, episode: u32, on_play: EventHandler<String>, on_open_picker: EventHandler<()>) -> Element {
+pub fn SourceSummary(
+    media_id: String,
+    episode: u32,
+    on_play: EventHandler<String>,
+    on_open_picker: EventHandler<()>,
+    #[props(default)] line: bool,
+    /// Names the episode when it is not the obvious one ("Episode 8" while Details is up to date with episode 9). The
+    /// line names its episode ("Ep. 4 · …", when `line_ep`): this label when given, else `details.ep_short`.
+    #[props(default)] episode_label: Option<String>,
+    /// The line starts with its episode.
+    #[props(default = true)] line_ep: bool,
+    /// The line's link says "Change (n)" instead of "Change source (n)".
+    #[props(default)] line_short: bool,
+    /// Closes the line's text ("Resume at 3:39").
+    #[props(default)] line_note: Option<String>,
+) -> Element {
     let services = use_context::<Services>();
     let ui = use_context::<Ui>();
     let navigator = use_navigator();
@@ -818,6 +868,82 @@ pub fn SourceSummary(media_id: String, episode: u32, on_play: EventHandler<Strin
             async move { backend.sources(&id, episode).await }
         }
     });
+    if line {
+        let sub_lang = ui.settings.read().sources.sub_lang.clone();
+        let n = episode.to_string();
+        let ep = episode_label.clone().unwrap_or_else(|| tf("details.ep_short", &[("n", &n)]));
+        let state = match &*sources.read() {
+            None => "loading",
+            Some(Err(_)) => "error",
+            Some(Ok(list)) if list.is_empty() => "empty",
+            Some(Ok(_)) => "ok",
+        };
+        let body = match &*sources.read() {
+            None => rsx! {
+                {
+                    let busy = tf("src.line.resolving_ep", &[("n", &n)]);
+                    rsx! {
+                        span { class: "tk-srcline__status", role: "status", "aria-label": "{busy}",
+                            LoadingIndicator { small: true }
+                            span { "{busy}" }
+                        }
+                    }
+                }
+            },
+            Some(Err(e)) => rsx! {
+                span { class: "tk-srcline__status", role: "alert", title: "{e.detail}",
+                    Icon { name: "warning".to_string(), size: 18 }
+                    span { {tf("src.line.error_ep", &[("n", &n)])} }
+                }
+                Button {
+                    label: t("common.retry"),
+                    variant: ButtonVariant::Text,
+                    size: ButtonSize::Sm,
+                    onclick: move |_| sources.restart(),
+                }
+            },
+            Some(Ok(list)) => match list.iter().find(|s| s.picked).or(list.first()) {
+                None => rsx! {
+                    span { class: "tk-srcline__status", {tf("src.line.none_ep", &[("n", &n)])} }
+                    Button {
+                        label: t("details.go_extensions"),
+                        variant: ButtonVariant::Text,
+                        size: ButtonSize::Sm,
+                        onclick: move |_| {
+                            navigator.push(Route::ExtensionsPage {});
+                        },
+                    }
+                },
+                Some(cur) => {
+                    // The episode first: the ellipsis only ever cuts the source's own details.
+                    let (text, change, aria) = source_line_labels(
+                        line_ep.then_some(ep.as_str()),
+                        cur,
+                        &sub_lang,
+                        list.len(),
+                        line_short,
+                        line_note.as_deref(),
+                    );
+                    let tone = reliability_tone(cur.reliability);
+                    rsx! {
+                        button {
+                            class: "tk-srcline__btn",
+                            r#type: "button",
+                            "aria-haspopup": "dialog",
+                            "aria-label": "{aria}",
+                            onclick: move |_| on_open_picker.call(()),
+                            span { class: "tk-srcline__dot", "data-tone": "{tone}", "aria-hidden": "true" }
+                            span { class: "tk-srcline__text", "{text}" }
+                            span { class: "tk-srcline__change", "{change}" }
+                        }
+                    }
+                }
+            },
+        };
+        return rsx! {
+            div { class: "tk-srcline", "data-state": "{state}", {body} }
+        };
+    }
     let mode = ui.settings.read().sources.mode;
     let mode_label = format!("{}: ", t("src.mode"));
     let mode_value = t(&format!("src.mode.{}", mode.id()));
@@ -879,6 +1005,9 @@ pub fn SourceSummary(media_id: String, episode: u32, on_play: EventHandler<Strin
             h3 { class: "tk-panel__title",
                 Icon { name: "extensions".to_string() }
                 {t("src.title")}
+                if let Some(ep) = episode_label.clone() {
+                    span { class: "tk-srcsum__ep", "· {ep}" }
+                }
                 if !count.is_empty() {
                     span { class: "tk-srcsum__count", "{count}" }
                 }
@@ -914,6 +1043,48 @@ mod tests {
         assert_eq!(reliability_tone(0.75), "warn");
         assert_eq!(reliability_tone(0.5), "err");
         assert_eq!(reliability_key(0.5), "src.rel.low");
+    }
+
+    #[test]
+    fn the_source_line_names_extension_server_quality_and_subs() {
+        let s = SourceVm {
+            id: "anizone|web|Toko".into(),
+            ext_id: "anizone".into(),
+            ext_name: "anizone".into(),
+            kind: SourceKindVm::Web,
+            label: "Toko".into(),
+            quality: "1080p".into(),
+            container: None,
+            subs: vec!["English".into(), "Spanish".into()],
+            dubs: Vec::new(),
+            reliability: 0.95,
+            note: None,
+            latency_ms: None,
+            size_bytes: None,
+            seeders: None,
+            leechers: None,
+            info_hash: None,
+            ext_enabled: true,
+            score: 0.0,
+            recommended: true,
+            picked: false,
+            tags: ReleaseTagsVm::default(),
+            debrid: None,
+            embed: false,
+        };
+        assert_eq!(source_line_text(&s, "es"), "anizone · Toko · 1080p · Subs ES · EN");
+        // The line names its episode first, and its accessible name starts with exactly what is shown.
+        let (text, change, aria) = source_line_labels(Some("Ep. 4"), &s, "es", 40, false, None);
+        assert_eq!(text, "Ep. 4 · anizone · Toko · 1080p · Subs ES · EN");
+        assert_eq!(change, "Change source (40)");
+        assert!(aria.starts_with(&text) && aria.ends_with("Change source (40)"), "{aria}");
+        // Without the episode, the short link and a closing note (the name still starts with the visible text).
+        let (text, change, aria) = source_line_labels(None, &s, "es", 40, true, Some("Resume at 3:39"));
+        assert_eq!(text, "anizone · Toko · 1080p · Subs ES · EN · Resume at 3:39");
+        assert_eq!(change, "Change (40)");
+        assert_eq!(aria, format!("{text}. Change (40)"));
+        let bare = SourceVm { quality: String::new(), ..s };
+        assert!(!source_line_text(&bare, "en").contains("·  ·"));
     }
 
     #[test]

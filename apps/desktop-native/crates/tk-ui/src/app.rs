@@ -63,6 +63,8 @@ const APP_CSS: &[&str] = &[
     include_str!("../assets/css/manga.css"),
     include_str!("../assets/css/novel.css"),
     include_str!("../assets/css/social.css"),
+    // 0.4.2: the "Cine editorial" page style (`data-style="editorial"`); last, so its overrides win.
+    include_str!("../assets/css/editorial.css"),
 ];
 
 /// What tk-app injects (`LaunchBuilder::with_context`).

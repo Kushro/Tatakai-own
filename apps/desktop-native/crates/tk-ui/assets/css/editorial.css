@@ -1,0 +1,190 @@
+/* "Cine editorial" page style (`Settings::look.page_style`, `<html data-style="editorial">`; the Cinema preset turns
+   it on). Same fonts, palette and shapes as the standard style: only the composition of the Details header and the
+   Home hero changes. Every rule starts with :root[data-style="editorial"] and the file loads last. No blur anywhere:
+   the fanart is sharp and the veil is a plain gradient toward the surface (light and dark alike, it is what keeps the
+   title readable). Deliberate change from the 640 px mockup: the header is capped (min clamp(220px, 34vh, 460px),
+   content sized so the episode to continue stays on the first screen at 1024 x 640); the synopsis lives in Info.
+   The full-bleed composition needs real artwork: `.tk-dhead[data-backdrop]` is fanart / banner / cover / none, and with
+   the poster or nothing the header keeps the standard composition (poster beside the title). */
+
+/* ---- Details header: full-bleed fanart, no poster, display title, metadata as one text line ----------------- */
+:root[data-style="editorial"] .tk-dhead[data-embedded="false"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) {
+  display: flex; flex-direction: column; justify-content: flex-end;
+  min-height: clamp(220px, 34vh, 460px); padding-bottom: var(--tk-space-8);
+}
+:root[data-style="editorial"] .tk-dhead[data-embedded="false"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__cover { display: none; }
+/* the page's own padding (24 px top) and the scroller's width: the tk-main scroller clips what overflows */
+:root[data-style="editorial"] .tk-dhead[data-embedded="false"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__backdrop {
+  inset: calc(-1 * var(--tk-space-24)) calc(50% - 50vw) 0;
+  filter: none; opacity: 1; background-position: center 22%;
+  -webkit-mask-image: none; mask-image: none;
+}
+/* the veil: toward the surface at the bottom and, denser, on the text side (≥ 4.5:1 for the metadata, ≥ 3:1 for the
+   display title over a light fanart) */
+:root[data-style="editorial"] .tk-dhead[data-embedded="false"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__backdrop::after {
+  content: ""; position: absolute; inset: 0;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-surface) 10%, transparent) 0%, color-mix(in srgb, var(--md-sys-color-surface) 60%, transparent) 55%, var(--md-sys-color-surface) 100%),
+    linear-gradient(90deg, color-mix(in srgb, var(--md-sys-color-surface) 88%, transparent) 0%, color-mix(in srgb, var(--md-sys-color-surface) 70%, transparent) 60%, transparent 95%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-style="editorial"] .tk-dhead[data-embedded="false"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__backdrop { opacity: 0.35; }
+}
+/* the text stays on the dense side of the veil */
+:root[data-style="editorial"] .tk-dhead[data-embedded="false"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__text { max-width: min(820px, 60%); gap: var(--tk-space-12); }
+:root[data-style="editorial"] .tk-dhead[data-embedded="false"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__title {
+  font-size: clamp(40px, 5vw, 76px); letter-spacing: -0.03em; font-weight: 600; color: var(--md-sys-color-on-surface);
+  /* line height and padding: the standard's (details.css, 1.2 + 0.04em), which the clamp never cuts: the descenders
+     ("g") stay inside and no strip of a clamped-away line shows */
+}
+:root[data-style="editorial"] .tk-dhead[data-embedded="false"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__syn { display: none; }
+:root[data-style="editorial"] .tk-dhead[data-embedded="false"] .tk-srcline { margin-top: calc(-1 * var(--tk-space-4)); }
+@media (max-height: 720px) {
+  :root[data-style="editorial"] .tk-dhead[data-embedded="false"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__text { gap: var(--tk-space-8); }
+  :root[data-style="editorial"] .tk-dhead[data-embedded="false"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__title {
+    font-size: clamp(34px, 4.2vw, 56px); -webkit-line-clamp: 1; line-clamp: 1;
+  }
+  :root[data-style="editorial"] .tk-dhead[data-embedded="false"] .tk-srcline,
+  :root[data-style="editorial"] .tk-dhead[data-embedded="false"] .tk-srcline__btn { min-height: 36px; }
+}
+
+/* ---- header compositions on full-bleed artwork (`data-dhead`, details.css has the shared rules) -------------
+   A / B keep one text column on the dense side of the veil, a little wider than the old one so the main button and
+   the tools share one row. C / D put the next-episode card at the right edge of the veil, as wide as the sources
+   column under it (from 760 px of Details), or as a strip beside the tools (narrower). Its cover only shows here. */
+:root[data-style="editorial"] .tk-dhead[data-dhead="line"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__text { max-width: min(820px, 64%); }
+:root[data-style="editorial"] .tk-dhead[data-dhead="facts"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__text { max-width: min(900px, 72%); }
+@container tk-details (max-width: 1099px) {
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="line"], [data-dhead="facts"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__text { max-width: 86%; }
+  :root[data-style="editorial"] .tk-dhead[data-dhead="facts"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__fact { padding-inline: 14px; }
+  :root[data-style="editorial"] .tk-dhead[data-dhead="facts"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__fact:first-child { padding-inline-start: 0; }
+}
+:root[data-style="editorial"] .tk-dhead[data-dhead]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__tools :is(.tk-btn, .tk-iconbtn):not(.tk-menu *) { background: color-mix(in srgb, var(--md-sys-color-surface) 35%, transparent); }
+:root[data-style="editorial"] .tk-dhead:is([data-dhead="line"], [data-dhead="nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__tools :is(.tk-btn, .tk-iconbtn):not(.tk-menu *) { background: transparent; }
+
+/* C / D: one grid for the text rows and the card (the text column's box is dropped in details.css) */
+:root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) {
+  /* the card column is the sources column's width, so the card lines up with "Send to device" under it */
+  display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 28vw, 360px); grid-template-rows: 1fr auto auto;
+  grid-template-areas: "title next" "info next" "acts next"; column-gap: var(--tk-space-40); row-gap: 0; align-items: end;
+}
+:root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__title { align-self: end; }
+:root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) > .tk-dnext { align-self: end; }
+:root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__art { display: block; }
+@media (max-height: 720px) {
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__art { display: none; }
+}
+@container tk-details (max-width: 999px) {
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) { column-gap: var(--tk-space-32); }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) > .tk-dnext { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 14px; padding: var(--tk-space-16); border-radius: 20px; box-shadow: 0 12px 32px -12px color-mix(in srgb, var(--md-sys-color-scrim) 45%, transparent); }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__ep { flex: none; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__t { margin-top: 6px; font-size: 18px; line-height: 22px; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__bar { margin-top: 10px; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__time { display: flex; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext .tk-split { width: 100%; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext .tk-split > .tk-btn { height: 48px; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__src { flex: none; padding-top: var(--tk-space-12); }
+}
+@container tk-details (max-width: 999px) {
+  @media (max-height: 720px) {
+    :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) > .tk-dnext { gap: 10px; padding: var(--tk-space-12); }
+  }
+}
+/* narrower: title and facts across, then the tools and the card as a strip on one row (it wraps under them when
+   there is no room) */
+@container tk-details (max-width: 759px) {
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) { display: flex; flex-direction: row; flex-wrap: wrap; justify-content: flex-start; align-items: center; align-content: flex-end; gap: var(--tk-space-8) var(--tk-space-16); }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) :is(.tk-dhead__title, .tk-dhead__facts, .tk-dhead__meta) { flex: 1 1 100%; margin-top: 0; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__actions { flex: none; margin-top: 0; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) > .tk-dnext { flex: 1 1 300px; margin-top: 0; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8) var(--tk-space-12); padding: var(--tk-space-8) var(--tk-space-8) var(--tk-space-8) var(--tk-space-16); border-radius: var(--md-sys-shape-corner-large); }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__ep { flex: 1 1 120px; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__art, :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__time { display: none; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__t { margin-top: 2px; font-size: 15px; line-height: 20px; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__bar { margin-top: 6px; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext .tk-split { width: auto; flex: none; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext .tk-split > .tk-btn { height: 44px; }
+  :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext__src { flex: 1 1 100%; padding-top: var(--tk-space-8); }
+}
+@container tk-details (max-width: 759px) {
+  @media (max-height: 720px) {
+    :root[data-style="editorial"] .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]):is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__title { font-size: 34px; }
+  }
+}
+
+/* D's named actions turn into icons below 1000 px of Details (the text column beside the card is too narrow) */
+@container tk-details (max-width: 999px) {
+  :root[data-style="editorial"] .tk-dhead[data-dhead="facts_nextup"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__tools .tk-btn:not(.tk-menu *) { width: 44px; padding: 0; gap: 0; }
+  :root[data-style="editorial"] .tk-dhead[data-dhead="facts_nextup"]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__tools .tk-btn:not(.tk-menu *) > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+
+/* the card's source line: one compact row */
+:root[data-style="editorial"] .tk-dhead[data-dhead]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext .tk-srcline, :root[data-style="editorial"] .tk-dhead[data-dhead]:is([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dnext .tk-srcline__btn { min-height: 36px; margin-top: 0; }
+
+/* ---- tabs: text tabs to the left, each underlined when selected -------------------------------------------- */
+:root[data-style="editorial"] .tk-dbar .tk-dtabs { display: flex; gap: var(--tk-space-24); }
+:root[data-style="editorial"] .tk-dbar .tk-dtab {
+  flex: none; min-width: 44px; padding: 0 var(--tk-space-4); border-radius: 0; text-align: start; overflow: visible;
+  font-size: var(--md-sys-typescale-title-medium-size); color: var(--md-sys-color-on-surface-variant);
+}
+:root[data-style="editorial"] .tk-dbar .tk-dtab:hover { background: none; color: var(--md-sys-color-on-surface); }
+:root[data-style="editorial"] .tk-dbar .tk-dtab[aria-selected="true"] { color: var(--md-sys-color-on-surface); }
+:root[data-style="editorial"] .tk-dbar .tk-dtab[aria-selected="true"]::after {
+  content: ""; position: absolute; left: var(--tk-space-4); right: var(--tk-space-4); bottom: 0; height: 3px;
+  border-radius: var(--md-sys-shape-corner-extra-small) var(--md-sys-shape-corner-extra-small) 0 0; background: var(--md-sys-color-primary);
+}
+:root[data-style="editorial"] .tk-dbar .tk-dtabs__indicator { display: none; }
+/* content-sized tabs need more room than the equal columns: the bar's Watch is icon only up to 1140 px of Details */
+@container tk-details (max-width: 1139px) {
+  :root[data-style="editorial"] .tk-dbar__actions .tk-dbar__watch { min-width: 36px; padding: 0 var(--tk-space-8); gap: 0; }
+  :root[data-style="editorial"] .tk-dbar__actions .tk-dbar__watch > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+@container tk-details (max-width: 599px) {
+  :root[data-style="editorial"] .tk-dbar .tk-dtabs { gap: var(--tk-space-16); }
+}
+
+/* ---- episode rows (list view): the number as a display numeral before the thumbnail -------------------------- */
+:root[data-style="editorial"] .tk-dep[data-layout="list"] { grid-template-columns: 56px 96px minmax(0, 1fr) auto; }
+:root[data-style="editorial"] .tk-dep[data-layout="list"]::before {
+  content: attr(data-episode); justify-self: end;
+  font-family: var(--tk-font-display); font-size: var(--md-sys-typescale-title-large-size); font-weight: 600;
+  font-variant-numeric: tabular-nums; color: var(--md-sys-color-on-surface-variant);
+}
+:root[data-style="editorial"] .tk-dep-wrap[data-watched="true"] > .tk-dep[data-layout="list"]::before { opacity: 0.55; }
+:root[data-style="editorial"] .tk-dep[data-layout="list"][aria-current="true"]::before { color: var(--md-sys-color-primary); opacity: 1; }
+/* the numeral says it once: no "N." in the title, no number on the thumbnail */
+:root[data-style="editorial"] .tk-dep[data-layout="list"] :is(.tk-dep__n, .tk-dep__badge, .tk-dep__mono) { display: none; }
+:root[data-style="editorial"] .tk-dep__mono, :root[data-style="editorial"] .tk-dep__num { font-weight: 600; letter-spacing: -0.02em; }
+
+/* ---- Home hero: capped at 45 % of the height, display title, one text column on the dense side of the scrim ---- */
+/* The cap always wins (no px floor above it). The 1 px keeps it at or under 45 % of the visible height: in the
+   WebKitGTK window `vh` measured 1 px taller than the page (288 px = 45.07 % of 639 at 1024 x 639). */
+:root[data-style="editorial"] .tk-spot { height: min(520px, calc(45vh - 1px)); }
+:root[data-style="editorial"] .tk-spot__body { grid-template-columns: minmax(0, 1fr); padding-bottom: var(--tk-space-48); }
+:root[data-style="editorial"] .tk-spot__title { font-size: clamp(36px, 4.6vw, 64px); }
+:root[data-style="editorial"] .tk-spot__title > button { font-weight: 600; letter-spacing: -0.03em; line-height: 1.2; padding-block: 0; }
+/* the clipping box itself gets the line height and a hair of symmetric padding (as the Details title): a clamp to
+   one or two lines never cuts the descenders ("g") */
+:root[data-style="editorial"] .tk-spot__title-text { line-height: 1.2; padding-block: 0.04em; }
+:root[data-style="editorial"] .tk-spot__aside { align-items: flex-start; text-align: start; }
+:root[data-style="editorial"] .tk-spot__genres { display: none; }
+/* left column, full-strength text over the scrim's dense side (the right half could sit on a light fanart) */
+:root[data-style="editorial"] .tk-spot__syn {
+  max-width: 56ch; -webkit-line-clamp: 2; line-clamp: 2; color: var(--md-sys-color-primary-fixed);
+  text-shadow: 0 1px 2px color-mix(in srgb, var(--md-sys-color-scrim) 60%, transparent);
+}
+@media (max-height: 720px) {
+  :root[data-style="editorial"] .tk-spot__syn { display: none; }
+}
+/* very short windows (down to 720 x 480: a 215 px hero): only a one-line title and the actions */
+@media (max-height: 560px) {
+  :root[data-style="editorial"] .tk-spot__chips, :root[data-style="editorial"] .tk-spot__aside { display: none; }
+  :root[data-style="editorial"] .tk-spot__title { font-size: clamp(28px, 3.4vw, 40px); }
+  :root[data-style="editorial"] .tk-spot__title-text { -webkit-line-clamp: 1; line-clamp: 1; }
+  :root[data-style="editorial"] .tk-spot__body { padding-bottom: var(--tk-space-40); }
+  :root[data-style="editorial"] .tk-spot__main { gap: var(--tk-space-12); }
+}
+@media (max-width: 960px) {
+  :root[data-style="editorial"] .tk-spot { height: auto; min-height: min(520px, calc(45vh - 1px)); }
+  :root[data-style="editorial"] .tk-spot__body { padding-bottom: var(--tk-space-48); }
+  :root[data-style="editorial"] .tk-spot__syn { display: none; }
+}

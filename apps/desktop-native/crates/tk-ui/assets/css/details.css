@@ -147,9 +147,10 @@ button.tk-drelated__row:hover { background: var(--md-sys-color-surface-container
 .tk-dorder__item { position: relative; }
 .tk-dorder__item[data-current="true"] .tk-card { cursor: default; }
 
+/* Manga Details (no `data-embedded`) keeps the one-column layout under 1100 px; anime Details goes to 900 px (below). */
 @media (max-width: 1099px) {
-  .tk-details__layout { grid-template-columns: minmax(0, 1fr); }
-  .tk-details__side { position: static; }
+  .tk-details:not([data-embedded="false"]) .tk-details__layout { grid-template-columns: minmax(0, 1fr); }
+  .tk-details:not([data-embedded="false"]) .tk-details__side { position: static; }
 }
 @media (max-width: 839px) {
   .tk-dhead { grid-template-columns: minmax(0, 1fr); }
@@ -162,6 +163,8 @@ button.tk-drelated__row:hover { background: var(--md-sys-color-surface-container
 .tk-dep-wrap > .tk-dep__mark { position: absolute; inset-inline-end: var(--tk-space-8); top: 50%; transform: translateY(-50%); }
 .tk-dep-wrap[data-watched="false"] > .tk-dep__mark { opacity: 0.55; }
 .tk-dep-wrap[data-watched="false"]:hover > .tk-dep__mark, .tk-dep-wrap > .tk-dep__mark:focus-visible { opacity: 1; }
+/* keyboard: the toggle is reached from its row (right arrow / M), so it shows while the row has the focus */
+.tk-dep-wrap:focus-within > .tk-dep__mark { opacity: 1; }
 
 /* Episode without its own thumbnail: series artwork, dimmed, with the number centred. */
 .tk-dep__thumb[data-fallback="true"] img { filter: brightness(0.45) saturate(0.8); }
@@ -178,6 +181,12 @@ button.tk-drelated__row:hover { background: var(--md-sys-color-surface-container
 
 /* ---- episodes: shared bits of the three views (2026-11 UI refresh) ---------------------------------------- */
 .tk-dviews .tk-seg__item .tk-icon { flex: none; }
+/* narrow Details (the sources column beside the list): the views go icon only (label = accessible name + tooltip),
+   so the search and the views keep one row and the episode to continue stays on the first screen */
+@container tk-details (max-width: 999px) {
+  .tk-dviews .tk-seg__item { position: relative; gap: 0; }
+  .tk-dviews .tk-seg__item > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
 .tk-dep__name { min-width: 0; overflow-wrap: anywhere; }
 .tk-dep__bar { height: 3px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-surface-container-highest); overflow: hidden; }
 .tk-dep__bar > div { height: 100%; background: var(--md-sys-color-primary); }
@@ -279,3 +288,273 @@ button.tk-drelated__row:hover { background: var(--md-sys-color-surface-container
 .tk-graph__hint { position: absolute; right: var(--tk-space-12); bottom: var(--tk-space-12); margin: 0; font-size: var(--md-sys-typescale-label-small-size); color: var(--md-sys-color-on-surface-variant); pointer-events: none; }
 :root[data-reduce-motion="true"] .tk-gnode, :root[data-reduce-motion="true"] .tk-gnode::after, :root[data-reduce-motion="true"] .tk-graph[data-animate="true"] .tk-graph__world { transition: none; }
 @media (max-width: 839px) { .tk-graph { height: 360px; } .tk-graph__hint { display: none; } }
+
+/* ---- "episode first" (0.4.2): anime Details only (`[data-embedded="false"]`; manga and the Search pane keep the
+   rules above). Budget: the episode to continue is on the first screen at 1024 x 640, 1280 x 800 and 1440 x 900.
+   Width breakpoints are container queries on `.tk-details__body` (the room the rail leaves; an expanded rail takes
+   256 px), height ones are media queries. The sheets and dialogs live outside the container. ------------------ */
+.tk-details[data-embedded="false"] { gap: 0; }
+.tk-details__body { display: flex; flex-direction: column; gap: var(--tk-space-24); min-width: 0; container: tk-details / inline-size; }
+/* The page spans the whole scroller (same content width as `.tk-page`'s max-width) and clips sideways: a header
+   backdrop wider than the page never gives `.tk-main` a horizontal overflow. */
+.tk-page--details { overflow-x: clip; }
+@media (min-width: 840px) {
+  .tk-page--details { max-width: none; padding-inline: max(var(--tk-space-32), calc((100% - var(--tk-content-max)) / 2 + var(--tk-space-32))); }
+}
+/* focus / scroll-into-view never lands under the sticky bar */
+.tk-main:has(.tk-dbar) { scroll-padding-top: 72px; }
+
+.tk-dhead[data-embedded="false"] { grid-template-columns: clamp(96px, 20vh, 200px) minmax(0, 1fr); gap: var(--tk-space-24); }
+.tk-dhead[data-embedded="false"] .tk-dhead__text { gap: var(--tk-space-12); }
+/* 1.2 line height + a hair of padding: the clamp never cuts descenders ("g") or accents */
+.tk-dhead[data-embedded="false"] .tk-dhead__title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; line-height: 1.2; padding-block: 0.04em; }
+.tk-dhead__genres { display: contents; }
+.tk-dhead[data-embedded="false"] .tk-dhead__synopsis[data-clamp="true"] { -webkit-line-clamp: 2; line-clamp: 2; }
+/* the sticky bar keeps only Watch while the tabs need the room */
+@container tk-details (max-width: 1139px) {
+  .tk-dbar__actions .tk-listbtn { display: none; }
+}
+@container tk-details (max-width: 899px) {
+  .tk-dhead[data-embedded="false"] .tk-dhead__resume { display: none; }
+  .tk-dhead[data-embedded="false"] .tk-dhead__actions .tk-btn--lg { height: 48px; padding: 0 var(--tk-space-20); font-size: var(--md-sys-typescale-label-large-size); }
+}
+@container tk-details (max-width: 727px) {
+  .tk-dhead[data-embedded="false"] { grid-template-columns: 96px minmax(0, 1fr); gap: var(--tk-space-16); }
+  .tk-dhead[data-embedded="false"] .tk-dhead__cover { max-width: none; }
+}
+/* short windows: no synopsis in the header (Info has it), then smaller title, tighter gaps */
+@media (max-height: 800px) {
+  .tk-dhead[data-embedded="false"] .tk-dhead__syn { display: none; }
+}
+@media (max-height: 720px) {
+  .tk-page--details { padding-top: var(--tk-space-16); }
+  .tk-details__body { gap: var(--tk-space-16); }
+  .tk-dhead[data-embedded="false"] .tk-dhead__text { gap: var(--tk-space-8); }
+  .tk-dhead[data-embedded="false"] .tk-dhead__title { font-size: var(--md-sys-typescale-headline-medium-size); }
+  .tk-dhead[data-embedded="false"] .tk-dhead__actions .tk-btn--lg { height: 48px; padding: 0 var(--tk-space-24); }
+}
+
+/* the data tiles open the Info tab now */
+.tk-details__tab > .tk-dmeta { margin-bottom: var(--tk-space-4); }
+
+/* tabs bar: sticks to the top of the scroller (`.tk-main`) with an opaque surface (no blur). Its Watch / list buttons
+   are always mounted (their width is reserved, so the tabs and the indicator never jump) and only become visible
+   once the header's have scrolled away. Menus (z 30) and sheets (z 55+) stay above it. */
+.tk-dbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: var(--tk-space-12); min-width: 0; background: var(--md-sys-color-surface); border-bottom: 1px solid var(--md-sys-color-outline-variant); }
+.tk-dbar > .tk-dtabs { flex: 1 1 auto; min-width: 0; border-bottom: 0; }
+.tk-dbar__actions { flex: none; display: flex; align-items: center; gap: var(--tk-space-4); padding-inline-start: var(--tk-space-8); }
+.tk-dbar__actions[data-shown="false"] { visibility: hidden; }
+.tk-dbar__actions[data-shown="true"] { animation: tk-dbar-in var(--tk-mo-fx) both; }
+@keyframes tk-dbar-in { from { opacity: 0; } }
+/* beside the sources column the tabs get narrow: the bar's Watch goes icon only (label = name + tooltip) before a tab
+   label is cut */
+@container tk-details (min-width: 760px) and (max-width: 1023px) {
+  .tk-dbar__actions .tk-dbar__watch { min-width: 36px; padding: 0 var(--tk-space-8); gap: 0; }
+  .tk-dbar__actions .tk-dbar__watch > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+:root[data-reduce-motion="true"] .tk-dbar__actions { animation: none; }
+
+/* sources beside the episodes when there is room; under it one column with the sources first (send to device:
+   header "More") and no empty side column */
+.tk-details[data-embedded="false"] .tk-details__layout { grid-template-columns: minmax(0, 1fr) clamp(280px, 28vw, 360px); gap: var(--tk-space-24) var(--tk-space-32); }
+.tk-details[data-embedded="false"] .tk-details__side { top: 64px; }
+@container tk-details (max-width: 759px) {
+  .tk-details[data-embedded="false"] .tk-details__layout { grid-template-columns: minmax(0, 1fr); }
+  .tk-details[data-embedded="false"] .tk-details__side { position: static; order: -1; }
+  .tk-details[data-embedded="false"] .tk-details__send { display: none; }
+  .tk-details[data-embedded="false"] .tk-details__side:not(:has(> :not(.tk-details__send))) { display: none; }
+}
+/* one column on a short window (an expanded rail at 1024 x 640): the episodes first, so the one to continue stays on
+   the first screen (A / B too: with the sources first it fell to 778-927 px of 639). The main button's ▾ opens the
+   full source list, and C / D name the source on the card. */
+@container tk-details (max-width: 759px) {
+  @media (max-height: 800px) {
+    .tk-details[data-embedded="false"] .tk-details__side { order: 0; }
+  }
+}
+
+/* list rows: 96 px thumbnail, one line of title, at most 72 px tall; "Next" tag on the episode to continue */
+.tk-dep[data-layout="list"] { grid-template-columns: 96px minmax(0, 1fr) auto; padding-block: 6px; }
+.tk-dep[data-layout="list"] .tk-dep__title { flex-wrap: nowrap; }
+.tk-dep[data-layout="list"] .tk-dep__name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-dep[data-layout="list"] .tk-dep__title > :not(.tk-dep__name) { flex: none; }
+.tk-dep__next { display: inline-flex; align-items: center; height: 20px; padding: 0 var(--tk-space-8); border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); font-size: var(--md-sys-typescale-label-small-size); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); letter-spacing: var(--md-sys-typescale-label-small-tracking); white-space: nowrap; }
+
+/* "Earlier episodes (1–6)": the fold before the episode to continue */
+.tk-deps__earlier { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--tk-space-8); width: 100%; min-height: 44px; padding: 0 var(--tk-space-16); border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--md-sys-shape-corner-large); background: transparent; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-label-large-size); font-weight: var(--md-sys-typescale-label-large-weight-emphasized); text-align: start; cursor: pointer; transition: background-color var(--tk-mo-fx-fast), color var(--tk-mo-fx-fast); }
+.tk-deps__earlier:hover { background: var(--tk-hover); color: var(--md-sys-color-on-surface); }
+.tk-deps__earlier:focus-visible { outline: 2px solid var(--md-sys-color-secondary); outline-offset: 2px; }
+.tk-srcsum__ep { color: var(--md-sys-color-on-surface-variant); font-weight: var(--md-sys-typescale-title-small-weight); }
+
+/* ---- header compositions (Settings › Appearance › Title page header, `data-dhead` on anime Details only) --------
+   line = A (facts as one line, one block to watch), facts = B (labelled facts, named actions), nextup = C (facts line,
+   icon tools, the next-episode card), facts_nextup = D (B's facts and named actions plus C's card; the default). Each
+   piece is mounted once: beside / under, icon / labelled is decided here. No size container is nested in the header
+   (its menus must stack over the sticky bar). The genres live in Info. editorial.css adds the full-bleed variants. */
+.tk-dhead[data-dhead] .tk-dhead__text { gap: var(--tk-space-12); }
+
+/* the main button: its label is never cut; what does not fit wraps to the next row instead */
+.tk-dhead[data-dhead] .tk-dhead__actions { flex-wrap: wrap; min-width: 0; row-gap: var(--tk-space-8); }
+.tk-dhead[data-dhead] .tk-dhead__actions > * { flex: none; }
+/* the tools may shrink and wrap inside their own row (long labels: "Mark as completed" of a provider title) */
+.tk-dhead[data-dhead] .tk-dhead__actions > .tk-dhead__tools { flex: 0 1 auto; }
+.tk-dhead[data-dhead] .tk-dhead__actions > .tk-split,
+.tk-dhead[data-dhead] .tk-dhead__actions > .tk-split > .tk-btn { flex: none; white-space: nowrap; }
+.tk-dhead[data-dhead] .tk-dhead__resume { white-space: nowrap; }
+
+/* labelled facts (B / D): label over value, hairlines between them */
+.tk-dhead__facts { display: flex; flex-wrap: wrap; row-gap: var(--tk-space-12); margin: 0; min-width: 0; }
+.tk-dhead__fact { display: flex; flex-direction: column; gap: var(--tk-space-4); padding-inline: var(--tk-space-20); border-inline-start: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 55%, transparent); min-width: 0; }
+.tk-dhead__fact:first-child { padding-inline-start: 0; border-inline-start: 0; }
+.tk-dhead__fact dt { font-family: var(--tk-font-text); font-size: 11px; line-height: 12px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; color: var(--md-sys-color-on-surface-variant); }
+.tk-dhead__fact dd { margin: 0; display: inline-flex; align-items: baseline; gap: 6px; font-family: var(--tk-font-display); font-size: 18px; line-height: 22px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--md-sys-color-on-surface); }
+.tk-dhead__fact dd small { font-family: var(--tk-font-text); font-size: 14px; font-weight: 400; color: var(--md-sys-color-on-surface-variant); }
+.tk-dhead__fact dd .tk-icon { align-self: center; color: var(--md-sys-color-primary); }
+/* the "live" dot only while it airs */
+.tk-dhead__live { display: none; flex: none; align-self: center; width: 8px; height: 8px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-tertiary); }
+.tk-dhead [data-status="RELEASING"] .tk-dhead__live { display: inline-block; }
+
+/* facts as one line (A / C) */
+.tk-dhead__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-4) var(--tk-space-16); min-width: 0; color: var(--md-sys-color-on-surface-variant); font-size: var(--md-sys-typescale-body-large-size); line-height: 24px; font-variant-numeric: tabular-nums; }
+.tk-dhead__meta > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.tk-dhead__meta .tk-icon { color: var(--md-sys-color-primary); }
+.tk-dhead__meta > :is([data-status="RELEASING"], [data-meta="airing"]) { color: var(--md-sys-color-on-surface); }
+/* A: one separator; the next airing joins the status ("Releasing · Ep. 9 in 2 d 5 h") */
+/* the dot is the span's first flex item: 12 px before it, 12 after it (6 margin + the span's 6 gap) */
+.tk-dhead[data-dhead="line"] .tk-dhead__meta { column-gap: 0; }
+.tk-dhead[data-dhead="line"] .tk-dhead__meta > span + span::before { content: ""; flex: none; width: 3px; height: 3px; margin-inline: var(--tk-space-12) 6px; border-radius: var(--md-sys-shape-corner-full); background: var(--md-sys-color-outline); }
+.tk-dhead[data-dhead="line"] .tk-dhead__meta > [data-meta="status"] + [data-meta="airing"]::before { content: "·"; width: auto; height: auto; margin-inline: 6px 0; background: none; color: var(--md-sys-color-on-surface-variant); }
+.tk-dhead[data-dhead="line"] .tk-dhead__meta > [data-meta="airing"] .tk-icon { display: none; }
+/* C: the countdown closes the line, with its clock */
+.tk-dhead[data-dhead="nextup"] .tk-dhead__meta > [data-meta="airing"] { order: 1; }
+
+/* secondary actions: one treatment (44 px, transparent, hairline); "on" (in a list, favourite, followed) in primary */
+.tk-dhead__tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8); min-width: 0; }
+.tk-dhead__sep { display: none; }
+.tk-dhead[data-dhead] .tk-dhead__tools :is(.tk-btn, .tk-iconbtn):not(.tk-menu *) {
+  height: 44px; min-width: 44px; background: transparent; color: var(--md-sys-color-on-surface);
+  border: 1px solid var(--md-sys-color-outline-variant); box-shadow: none;
+}
+.tk-dhead[data-dhead] .tk-dhead__tools .tk-btn:not(.tk-menu *) { padding: 0 var(--tk-space-16) 0 var(--tk-space-12); gap: var(--tk-space-8); }
+.tk-dhead[data-dhead] .tk-dhead__tools .tk-iconbtn:not(.tk-menu *) { width: 44px; }
+.tk-dhead[data-dhead] .tk-dhead__tools .tk-iconbtn:not(.tk-menu *):hover:not(:disabled) { background: var(--tk-hover); }
+.tk-dhead[data-dhead] .tk-dhead__tools .tk-listbtn .tk-btn:not(.tk-menu *) > .tk-icon:last-child:not(:first-child) { display: none; }
+.tk-dhead[data-dhead] .tk-dhead__tools :is(.tk-listbtn:not([data-list-status="none"], [data-list-status="error"]), .tk-track[data-tracked="true"], .tk-provider__bookmark[data-bookmarked="true"]) .tk-btn:not(.tk-menu *, .tk-fav *),
+.tk-dhead[data-dhead] .tk-dhead__tools .tk-fav:is([data-favorite="true"], :has([aria-pressed="true"])) :is(.tk-btn, .tk-iconbtn) {
+  color: var(--md-sys-color-primary); border-color: color-mix(in srgb, var(--md-sys-color-primary) 60%, transparent);
+}
+/* icon only (A and C always; B / D below their widths): the label stays as the accessible name (clipped, never
+   display: none) and the tooltip */
+.tk-dhead:is([data-dhead="line"], [data-dhead="nextup"]) .tk-dhead__tools .tk-btn:not(.tk-menu *) { width: 44px; padding: 0; gap: 0; }
+.tk-dhead:is([data-dhead="line"], [data-dhead="nextup"]) .tk-dhead__tools .tk-btn:not(.tk-menu *) > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@container tk-details (max-width: 1099px) {
+  .tk-dhead[data-dhead="facts"] .tk-dhead__tools .tk-btn:not(.tk-menu *) { width: 44px; padding: 0; gap: 0; }
+  .tk-dhead[data-dhead="facts"] .tk-dhead__tools .tk-btn:not(.tk-menu *) > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+/* D without full-bleed artwork (the standard style, or no fanart): labels from 1200 px of Details */
+@container tk-details (max-width: 1199px) {
+  :root:not([data-style="editorial"]) .tk-dhead[data-dhead="facts_nextup"] .tk-dhead__tools .tk-btn:not(.tk-menu *),
+  .tk-dhead[data-dhead="facts_nextup"]:not([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__tools .tk-btn:not(.tk-menu *) { width: 44px; padding: 0; gap: 0; }
+  :root:not([data-style="editorial"]) .tk-dhead[data-dhead="facts_nextup"] .tk-dhead__tools .tk-btn:not(.tk-menu *) > span,
+  .tk-dhead[data-dhead="facts_nextup"]:not([data-backdrop="fanart"], [data-backdrop="banner"]) .tk-dhead__tools .tk-btn:not(.tk-menu *) > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+
+/* A: the main button carries the resume time and its progress; the tools sit in one pill, a divider before "More" */
+.tk-dhead[data-dhead="line"] .tk-dhead__actions { column-gap: var(--tk-space-16); }
+.tk-dhead[data-dhead="line"] .tk-dhead__actions > .tk-split > .tk-btn { height: 60px; }
+.tk-dhead[data-dhead="line"] .tk-dhead__tools { flex-wrap: nowrap; gap: 0; padding: 3px; border-radius: var(--md-sys-shape-corner-full); border: 1px solid var(--md-sys-color-outline-variant); background: color-mix(in srgb, var(--md-sys-color-surface-container-high) 70%, transparent); }
+.tk-dhead[data-dhead="line"] .tk-dhead__tools :is(.tk-btn, .tk-iconbtn):not(.tk-menu *) { width: 42px; min-width: 42px; height: 42px; border-color: transparent; }
+.tk-dhead[data-dhead="line"] .tk-dhead__sep { display: block; flex: none; width: 1px; height: 22px; margin-inline: 2px; background: var(--md-sys-color-outline-variant); }
+
+/* B / D on a tall window: a little more air between the groups */
+@media (min-height: 721px) {
+  .tk-dhead:is([data-dhead="facts"], [data-dhead="facts_nextup"]) .tk-dhead__facts { margin-top: var(--tk-space-4); }
+  .tk-dhead:is([data-dhead="facts"], [data-dhead="facts_nextup"]) .tk-dhead__actions { margin-top: var(--tk-space-8); }
+}
+
+/* the next-episode card (C / D): the episode, its progress, the main button and the source; no blur */
+.tk-dnext {
+  display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: var(--tk-space-16);
+  border-radius: 20px; border: 1px solid var(--md-sys-color-outline-variant);
+  background: color-mix(in srgb, var(--md-sys-color-surface-container-high) 92%, transparent); color: var(--md-sys-color-on-surface);
+  box-shadow: 0 12px 32px -12px color-mix(in srgb, var(--md-sys-color-scrim) 45%, transparent);
+}
+.tk-dnext__ep { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.tk-dnext__art { display: none; flex: none; width: 56px; height: 80px; object-fit: cover; border-radius: var(--md-sys-shape-corner-small); }
+.tk-dnext__info { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+.tk-dnext__n { margin: 0; font-size: 13px; line-height: 16px; font-weight: 600; color: var(--md-sys-color-primary); font-variant-numeric: tabular-nums; }
+.tk-dnext__t { margin: 6px 0 0; font-family: var(--tk-font-display); font-size: 18px; line-height: 22px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-dnext__bar { height: 4px; margin-top: 10px; border-radius: 4px; background: var(--md-sys-color-surface-container-highest); overflow: hidden; }
+.tk-dnext__bar > i { display: block; height: 100%; border-radius: inherit; background: var(--md-sys-color-primary); }
+.tk-dnext__time { display: flex; justify-content: space-between; gap: var(--tk-space-8); margin: 6px 0 0; font-size: 12px; line-height: 16px; color: var(--md-sys-color-on-surface-variant); font-variant-numeric: tabular-nums; }
+.tk-dhead[data-dhead] .tk-dnext .tk-split { display: flex; width: 100%; }
+.tk-dhead[data-dhead] .tk-dnext .tk-split > .tk-btn { flex: none; height: 48px; white-space: nowrap; }
+.tk-dhead[data-dhead] .tk-dnext .tk-split > .tk-btn:first-child { flex: 1 1 auto; padding-inline: var(--tk-space-20); }
+.tk-dnext__src { min-width: 0; padding-top: var(--tk-space-12); border-top: 1px solid var(--md-sys-color-outline-variant); font-size: 13px; }
+@media (max-height: 720px) {
+  .tk-dhead[data-dhead] .tk-dnext { gap: 10px; padding: var(--tk-space-12); }
+}
+
+/* C / D without full-bleed artwork: poster · text · card. The text column's box is dropped (`display: contents`) so
+   its rows and the card share one grid: under 1000 px the card becomes a strip beside the tools. */
+.tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) > .tk-dhead__text { display: contents; }
+/* (the rows are the header's children now: positioned like the rest, so they paint over the backdrop) */
+.tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) > .tk-dhead__text > * { position: relative; }
+.tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) {
+  grid-template-columns: clamp(96px, 20vh, 200px) minmax(0, 1fr) clamp(280px, 28vw, 360px);
+  grid-template-rows: auto auto auto 1fr;
+  /* the synopsis sits before the tools in the DOM too (focus order = what is seen) */
+  grid-template-areas: "cover title next" "cover info next" "cover syn next" "cover acts next";
+  column-gap: var(--tk-space-24); row-gap: 0; align-items: start;
+}
+.tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) > .tk-dhead__cover { grid-area: cover; }
+.tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) .tk-dhead__title { grid-area: title; }
+.tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) :is(.tk-dhead__facts, .tk-dhead__meta) { grid-area: info; margin-top: var(--tk-space-12); }
+.tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) .tk-dhead__actions { grid-area: acts; margin-top: var(--tk-space-12); }
+.tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) .tk-dhead__syn { grid-area: syn; margin-top: var(--tk-space-12); }
+.tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) > .tk-dnext { grid-area: next; }
+/* C: the tools are plain icons (no borders) */
+.tk-dhead[data-dhead="nextup"] .tk-dhead__tools { gap: var(--tk-space-4); margin-inline-start: calc(-1 * var(--tk-space-8)); }
+.tk-dhead[data-dhead="nextup"] .tk-dhead__tools :is(.tk-btn, .tk-iconbtn):not(.tk-menu *) { border-color: transparent; color: var(--md-sys-color-on-surface-variant); }
+.tk-dhead:is([data-dhead="nextup"], [data-dhead="line"]) .tk-dhead__tools :is(.tk-listbtn:not([data-list-status="none"], [data-list-status="error"]), .tk-track[data-tracked="true"], .tk-provider__bookmark[data-bookmarked="true"]) .tk-btn:not(.tk-menu *, .tk-fav *),
+.tk-dhead:is([data-dhead="nextup"], [data-dhead="line"]) .tk-dhead__tools .tk-fav:is([data-favorite="true"], :has([aria-pressed="true"])) :is(.tk-btn, .tk-iconbtn) { color: var(--md-sys-color-primary); border-color: transparent; }
+@container tk-details (max-width: 999px) {
+  .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) {
+    grid-template-columns: clamp(96px, 20vh, 200px) auto minmax(0, 1fr);
+    /* an empty last row takes what the poster adds, so the tools / strip row stays snug */
+    grid-template-rows: auto auto auto auto 1fr;
+    grid-template-areas: "cover title title" "cover info info" "cover syn syn" "cover acts next" "cover . .";
+  }
+  .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) :is(.tk-dhead__actions, .tk-dnext) { align-self: center; }
+  /* the strip: the same card as one row (episode | button), no times; the source (when there is one) under it */
+  .tk-dhead[data-dhead] .tk-dnext { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--tk-space-8) var(--tk-space-12); padding: var(--tk-space-8) var(--tk-space-8) var(--tk-space-8) var(--tk-space-16); border-radius: var(--md-sys-shape-corner-large); box-shadow: none; }
+  .tk-dhead[data-dhead] .tk-dnext__ep { flex: 1 1 120px; }
+  .tk-dhead[data-dhead] .tk-dnext__t { margin-top: 2px; font-size: 15px; line-height: 20px; }
+  .tk-dhead[data-dhead] .tk-dnext__bar { margin-top: 6px; }
+  .tk-dhead[data-dhead] .tk-dnext__time { display: none; }
+  .tk-dhead[data-dhead] .tk-dnext .tk-split { width: auto; flex: none; }
+  .tk-dhead[data-dhead] .tk-dnext .tk-split > .tk-btn { height: 44px; }
+  .tk-dhead[data-dhead] .tk-dnext__src { flex: 1 1 100%; padding-top: var(--tk-space-8); }
+}
+@container tk-details (max-width: 727px) {
+  .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) { grid-template-columns: 96px auto minmax(0, 1fr); column-gap: var(--tk-space-16); }
+}
+/* too narrow for the tools and the strip side by side: the strip takes its own row */
+@container tk-details (max-width: 639px) {
+  .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) {
+    grid-template-columns: 96px minmax(0, 1fr);
+    grid-template-rows: auto auto auto auto 1fr auto;
+    grid-template-areas: "cover title" "cover info" "cover syn" "cover acts" "cover ." "next next";
+  }
+  .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) > .tk-dnext { margin-top: var(--tk-space-12); }
+}
+
+/* short windows, in this order: no synopsis (above), a one-line title (above), the facts on one row (Score, then Year
+   drop out; Info has them), smaller buttons. The main label, "Change (n)" and "More" never give way. */
+@media (max-height: 720px) {
+  .tk-dhead[data-dhead] .tk-dhead__facts { max-height: 38px; overflow: hidden; }
+  .tk-dhead[data-dhead] .tk-dhead__meta { max-height: 24px; overflow: hidden; }
+  .tk-dhead[data-dhead] .tk-dhead__text { gap: var(--tk-space-8); }
+  .tk-dhead:is([data-dhead="nextup"], [data-dhead="facts_nextup"]) :is(.tk-dhead__facts, .tk-dhead__meta, .tk-dhead__actions, .tk-dhead__syn) { margin-top: var(--tk-space-8); }
+  .tk-dhead[data-dhead="line"] .tk-dhead__actions > .tk-split > .tk-btn { height: 52px; }
+}
